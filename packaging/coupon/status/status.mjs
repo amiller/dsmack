@@ -1,4 +1,5 @@
 import { drawParticipation } from "./participation.mjs";
+import { drawDirectory, readDirectory } from "./directory.mjs";
 // Two independent operator observations. Neither authorizes a coupon claim.
 const states = new Set(["ready", "unavailable", "unknown", "maintenance", "reconciliation-required", "approval-renewal-required"]);
 const exact = (value, keys) => value && Object.getPrototypeOf(value) === Object.prototype
@@ -74,10 +75,11 @@ export async function readFeed(fetcher = fetch, filename = "health.json") {
 }
 
 if (typeof document !== "undefined") {
-  let health = null, issuer = null, participation = null;
+  let health = null, issuer = null, participation = null, directory = null;
   const text = (id, value) => { document.getElementById(id).textContent = value; };
   const draw = () => {
     drawParticipation(participation);
+    drawDirectory(directory);
     const current = view(health), peer = issuerView(issuer);
     text("claiming", current.claiming);
     text("observation", current.observation);
@@ -102,8 +104,10 @@ if (typeof document !== "undefined") {
       readFeed().then(value => { health = value; }, () => { health = null; }),
       readFeed(fetch, "issuer.json").then(value => { issuer = value; }, () => { issuer = null; }),
       readFeed(fetch, "participation.json").then(value => { participation = value; }, () => { participation = null; }),
+      readDirectory().then(value => { directory = value; }, () => { directory = null; }),
     ]);
     draw();
   };
+  document.getElementById("find-node").addEventListener("input", () => drawDirectory(directory));
   draw(); void poll(); setInterval(poll, 30000); setInterval(draw, 1000);
 }

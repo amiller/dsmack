@@ -8,12 +8,38 @@ redemption or private custody.
 
 ## Serve reviewed public copies
 
-Serve `index.html`, `status.mjs`, `participation.mjs` and three separately validated JSON copies together
+Serve `index.html`, `status.mjs`, `participation.mjs`, `directory.mjs` and three separately validated JSON copies together
 over HTTPS. Never mount an operator state directory in the web server. Do not
 publish adapter logs, raw probe output, owner plans or credentials. The browser
 fetches anonymously without cookies, redirects or caching, limits each response
 to 4096 bytes for coupon feeds and 65536 bytes for participation, and polls every 30 seconds. There are no third-party scripts,
-fonts, analytics or requests; the epoch link is followed only when clicked.
+fonts or analytics; the epoch link is followed only when clicked. The opt-in node
+directory additionally makes a read-only request to the pinned Dsmack relay on
+`pod.dstack.soc1024.com`, without credentials, redirects or caching. A dashboard
+hosted elsewhere requires the relay to permit this public GET through CORS.
+
+## Find your node
+
+The directory panel requests `/apple-attest-p2p-relay/nft/directory` every 30
+seconds, with a five-second timeout and 128 KiB response limit. It pins the Base
+Sepolia registry, accepts at most 64 public opt-ins and rejects unknown fields.
+Unavailable, disabled and empty observations have distinct labels. Failed reads
+show unknown rather than retaining a healthy appearance.
+
+Search a public node, membership or account ID to recognize your entry. The search
+is local to the browser and is neither sent to the relay nor saved in browser
+storage. Versions are signed self-reports; admitted build hashes and account
+bindings are attributed to the relay's verification, not reverified in JavaScript.
+Freshness expires in the browser even when polling stops. A recent key exchange
+requires a current-epoch verified receipt with its actual block time within 120
+seconds; rechecking or copying an old receipt cannot renew that clock. Historical
+receipts and stale check-ins stay labeled as such. Neither means continuous
+online availability or current private-key possession.
+
+The new panel requires the separately deployed and qualified directory endpoint.
+Source tests with synthetic records do not establish public service availability
+or independent-device acceptance. Sharing defaults off; registration alone does
+not publish a participant in this directory.
 
 - `health.json` contains exactly `state`, `observed_at_unix`,
   `claiming_available` from the [controller](../public-testnet-operations.md).

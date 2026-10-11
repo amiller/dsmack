@@ -15,6 +15,9 @@
   table { width: 100%; border-collapse: collapse; font-size: .8rem; } th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ccd6e2; overflow-wrap: anywhere; } th:first-child, td:first-child { max-width: 10rem; } .table-scroll { overflow-x: auto; }
   a { color: #165aa0; overflow-wrap: anywhere; } .note { border-left: 3px solid #59748c; padding-left: 1rem; }
   [hidden] { display: none; }
+  .node-card { border-top: 1px solid #ccd6e2; margin-top: 1rem; padding-top: 1rem; }
+  .node-card h3 { font-size: 1rem; overflow-wrap: anywhere; }
+  input { box-sizing: border-box; width: 100%; padding: .65rem; border: 1px solid #8b9dad; border-radius: .3rem; font: inherit; }
 </style>
 <main>
   <h1>Dsmack public testnet</h1>
@@ -27,6 +30,15 @@
     <p><strong>Use inference:</strong> follow <a href="https://github.com/amiller/abalone/releases">Abalone’s release instructions</a> and its current coupon readiness gate.</p>
     <p><strong>Operate an issuer:</strong> follow the <a href="https://github.com/amiller/dsmack/blob/main/packaging/coupon/mac-base.md">operator deployment profile</a>; joining as a peer does not enable issuance.</p>
     <p><strong>Mainnet:</strong> planned, with no recommended P2P mainnet release yet. <a href="https://github.com/amiller/dsmack/blob/main/docs/mainnet.md">Launch criteria and identity limitations</a>.</p>
+  </section>
+  <section aria-labelledby="directory-title">
+    <h2 id="directory-title">Find your node <span class="badge" id="directory-state">unknown</span></h2>
+    <p id="directory-message">No valid node directory observation.</p>
+    <label for="find-node">Your public node or account ID</label>
+    <input id="find-node" type="search" maxlength="66" autocomplete="off" spellcheck="false" placeholder="Paste the public ID shown in Dsmack">
+    <p id="directory-match">Search stays in this browser.</p>
+    <div id="directory-nodes"></div>
+    <small>Sharing is opt-in. The relay verifies check-ins and receipts; this browser displays its report. A fresh check-in does not prove continuous availability. An exchange receipt does not prove the node still holds a private key. This is a participant directory, not a leaderboard or a count of unique people.</small>
   </section>
   <section aria-labelledby="network-title">
     <h2 id="network-title">Native participation testnet <span class="badge" id="participation-state">unknown</span></h2>

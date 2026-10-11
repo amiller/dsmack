@@ -47,7 +47,8 @@ test("reject fixture markers, unpinned networks, private extras, duplicate IDs a
     r => {r.nodes[0].sync.receiptBlockTime = null;}, r => {r.nodes[0].sync.receiptTransaction = null;},
     r => {r.nodes[0].sync.receiptCheckedAt = at(31);}, r => {r.nodes[0].sync.groupPublicFingerprint = ["sha256:" + "5".repeat(64)];},
     r => {r.nodes[0].account.status = "unavailable";}, r => {r.nodes[0].version.selfReported = "<script>";},
-    r => {r.nodes[0].sync.keyEpoch = "18446744073709551616";}, r => {r.nodes[0].version.buildNumber = true;},
+    r => {r.nodes[0].sync.keyEpoch = "18446744073709551616";}, r => {r.nodes[0].version.buildNumber = true;}, r => {r.nodes[0].account.participantToken = "0";},
+    r => {r.nodes[0].sync.status = "unverified";},
     r => {r.status = "unavailable"; r.error = {code: "RPC_UNAVAILABLE"};},
   ]) {const r = report(); mutate(r); assert.equal(directoryView(r, now).status, "unknown");}
 });

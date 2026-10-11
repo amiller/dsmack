@@ -25,14 +25,14 @@ function signature(der:Uint8Array):[bigint,bigint] {
 }
 export type CheckIn={member:Hex,keyId:string,sessionPublic:Hex,issuedAt:number,expiresAt:number,selfReported:string,buildNumber:string,scope:Hex,keyEpoch:string,receiptTransaction:Hex|null,account:Hex|null,accountGeneration:string,accountSignature:Hex|null,assertion:string};
 type Network={chainId:number,DemoV1:Hex,macCategory:Hex,macAdapter:Hex,macCDRegistry:Hex,ResearchBadges?:Hex,PersonalBadgeAccountFactory?:Hex};
-type Entry={record:any,sessionPublic:Hex,context:Hex,epoch:bigint};
+type Entry={record:any,sessionPublic:Hex,context:Hex,epoch:bigint,receiptBlock:{number:bigint,hash:Hex}|null};
 export function validateCheckIn(input:unknown,now:number):CheckIn {
     require(input&&typeof input==='object'&&!Array.isArray(input));const b=input as CheckIn;
     require(Object.keys(b).sort().join(',')===['member','keyId','sessionPublic','issuedAt','expiresAt','selfReported','buildNumber','scope','keyEpoch','receiptTransaction','account','accountGeneration','accountSignature','assertion'].sort().join(','));
     hex(b.member,32);hex(b.sessionPublic,65);require(b.sessionPublic.startsWith('0x04'));
     require(Number.isSafeInteger(b.issuedAt)&&b.issuedAt>=now-30&&b.issuedAt<=now+5&&b.expiresAt===b.issuedAt+TTL);
     require(typeof b.selfReported==='string'&&/^[0-9][A-Za-z0-9._-]{0,63}$/.test(b.selfReported));decimal(b.buildNumber,2147483647n);
-    hex(b.scope,32);decimal(b.keyEpoch,18446744073709551615n);decimal(b.accountGeneration,18446744073709551615n);
+    hex(b.scope,32);require(b.scope===ZERO);decimal(b.keyEpoch,18446744073709551615n);decimal(b.accountGeneration,18446744073709551615n);
     if(b.receiptTransaction!==null)hex(b.receiptTransaction,32);
     if(b.account===null)require(b.accountSignature===null&&b.accountGeneration==='0');else {hex(b.account,20);hex(b.accountSignature,64);}
     require(binary(b.keyId,64).length===32);binary(b.assertion,14000);return b;
@@ -56,33 +56,50 @@ export class NativeDirectory {
     private counters=new Map<string,{count:number,at:number}>();
     private queue:Promise<unknown>=Promise.resolve();
     private pending=0;
+    private revision=0;
+    private listingInFlight?:Promise<any>;
+    private listingCache?:{at:number,value:any};
     constructor(private client:any,private network:Network,private abi:any,private badgeAbi:any,private enabled=false,private clock=()=>Math.floor(Date.now()/1000)){}
     private read(functionName:string,args:unknown[],blockNumber:bigint,target=this.network.DemoV1,abi=this.abi.demo){return this.client.readContract({address:target,abi,functionName,args,blockNumber});}
     private prune(now:number){for(const [id,e] of this.entries)if(now-Date.parse(e.record.checkIn.lastVerifiedAt)/1000>=RETENTION)this.entries.delete(id);for(const [id,c] of this.counters)if(now-c.at>=RETENTION)this.counters.delete(id);}
     private async head(){const head=await this.client.getBlock();const now=this.clock();require(Number(head.timestamp)<=now+5&&now-Number(head.timestamp)<45);return head;}
     private async canonical(head:any){const again=await this.client.getBlock({blockNumber:head.number});require(again.hash===head.hash);}
     async listing(){
+        const now=this.clock();
+        if(this.listingCache&&now-this.listingCache.at<5)return structuredClone(this.listingCache.value);
+        if(!this.listingInFlight){
+            const revision=this.revision;
+            this.listingInFlight=this.observeListing().then(value=>{if(revision===this.revision)this.listingCache={at:this.clock(),value};return value;}).finally(()=>{this.listingInFlight=undefined;});
+        }
+        return structuredClone(await this.listingInFlight);
+    }
+    private async observeListing(){
         const now=this.clock();this.prune(now);
         const common={schema:1,type:'dsmack-native-directory',generatedAt:iso(now),network:{chainId:this.network.chainId,registry:this.network.DemoV1.toLowerCase()},coverage:'explicit-opt-in',freshness:{heartbeatTtlSeconds:TTL,staleRetentionSeconds:RETENTION,receiptFreshnessSeconds:RECEIPT_TTL}};
         if(!this.enabled)return {...common,status:'not-configured',error:{code:'DIRECTORY_DISABLED'},nodes:[]};
         try {
-            const head=await this.head();const nodes=[];
-            for(const entry of this.entries.values()) {
+            const head=await this.head();const epoch=await this.read('keyEpochs',[ZERO],head.number);
+            const blocks=new Map<bigint,Promise<any>>();
+            const nodes=await Promise.all([...this.entries.values()].map(async entry=> {
                 const record=structuredClone(entry.record);
                 record.checkIn.status=now<Date.parse(record.checkIn.expiresAt)/1000?'fresh':'stale';
-                const epoch=await this.read('keyEpochs',[record.sync.scope],head.number);
+                if(entry.receiptBlock){
+                    let block=blocks.get(entry.receiptBlock.number);
+                    if(!block){block=this.client.getBlock({blockNumber:entry.receiptBlock.number});blocks.set(entry.receiptBlock.number,block!);}
+                    if((await block).hash!==entry.receiptBlock.hash)record.sync={scope:record.sync.scope,keyEpoch:record.sync.keyEpoch,groupPublicFingerprint:null,status:'unverified',receiptTransaction:null,receiptCheckedAt:null,receiptBlockTime:null};
+                }
                 if(record.sync.receiptBlockTime && (now-Date.parse(record.sync.receiptBlockTime)/1000>RECEIPT_TTL||epoch!==entry.epoch))record.sync.status='stale';
                 // Account control is rechecked; a later handoff must not leave a verified old owner binding.
                 if(record.account.status==='verified') {
                     const generation=await this.read('generation',[],head.number,record.account.address,this.badgeAbi.account);
                     if(generation!==entry.record.accountGeneration)record.account={status:'unavailable',address:null,participantToken:null};
                 }
-                delete record.accountGeneration;nodes.push(record);
-            }
+                delete record.accountGeneration;return record;
+            }));
             await this.canonical(head);return {...common,status:'available',error:null,nodes};
         } catch {return {...common,status:'unavailable',error:{code:'RPC_UNAVAILABLE'},nodes:[]};}
     }
-    checkIn(input:unknown):Promise<unknown>{require(this.pending<16);this.pending++;const operation=this.queue.then(()=>this.accept(input)).finally(()=>this.pending--);this.queue=operation.catch(()=>{});return operation;}
+    checkIn(input:unknown):Promise<unknown>{require(this.pending<16);this.pending++;const operation=this.queue.then(()=>this.accept(input)).catch(()=>{throw new Error('DIRECTORY_INVALID');}).finally(()=>this.pending--);this.queue=operation.catch(()=>{});return operation;}
     private async accept(input:unknown){
         require(this.enabled);const now=this.clock();this.prune(now);const b=validateCheckIn(input,now);
         const kid=toHex(binary(b.keyId,64));require(keccak256(join(hexToBytes(this.network.macCategory),hexToBytes(kid)))===b.member);
@@ -119,15 +136,19 @@ export class NativeDirectory {
             if(token>0n)require((await this.read('ownerOf',[token],head.number,this.network.ResearchBadges,this.badgeAbi.badges)).toLowerCase()===b.account);
             account={status:'verified',address:b.account,participantToken:token>0n?token.toString():null};
         }
-        const sync=await this.receipt(b,head,now);
+        const receiptState=await this.receipt(b,head,now);const sync=receiptState.record;
         await this.canonical(head);
-        const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash},checkIn:{lastVerifiedAt:iso(now),expiresAt:iso(b.expiresAt),status:'fresh'},sync};
-        this.counters.set(kid,{count,at:now});this.entries.set(b.member,{record,sessionPublic:b.sessionPublic,context,epoch:BigInt(b.keyEpoch)});
+        const verifiedAt=this.clock();require(verifiedAt>=now&&verifiedAt-Number(head.timestamp)<45&&verifiedAt<=b.expiresAt);
+        if(sync.receiptBlockTime){sync.receiptCheckedAt=iso(verifiedAt);if(verifiedAt-Date.parse(sync.receiptBlockTime)/1000>RECEIPT_TTL)sync.status='stale';}
+        const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash},checkIn:{lastVerifiedAt:iso(verifiedAt),expiresAt:iso(verifiedAt+TTL),status:'fresh'},sync};
+        this.counters.set(kid,{count,at:verifiedAt});this.entries.set(b.member,{record,sessionPublic:b.sessionPublic,context,epoch:BigInt(b.keyEpoch),receiptBlock:receiptState.block});
+        this.revision++;this.listingCache=undefined;
         return {accepted:true,context,expiresAt:record.checkIn.expiresAt,account:account.address,admittedCodeHash:cdhash,syncStatus:sync.status};
     }
     private async receipt(b:CheckIn,head:any,now:number){
         const result:any={scope:b.scope,keyEpoch:b.keyEpoch,groupPublicFingerprint:null,status:'unverified',receiptTransaction:null,receiptCheckedAt:null,receiptBlockTime:null};
-        if(!b.receiptTransaction)return result;
+        let canonicalBlock:{number:bigint,hash:Hex}|null=null;
+        if(!b.receiptTransaction)return {record:result,block:canonicalBlock};
         try {
             const receipt=await this.client.getTransactionReceipt({hash:b.receiptTransaction});require(receipt.status==='success'&&receipt.blockNumber<=head.number);
             const block=await this.client.getBlock({blockNumber:receipt.blockNumber});require(block.hash===receipt.blockHash&&Number(block.timestamp)<=now+5);
@@ -143,14 +164,14 @@ export class NativeDirectory {
             require(c.member===b.member&&c.category===this.network.macCategory.toLowerCase()&&c.context===expected&&c.sessionKeyHash===keccak256(b.sessionPublic));
             require(k.member===b.member&&k.scope===b.scope&&k.context===expected&&k.envelopeDigest===request.envelopeDigest);
             result.groupPublicFingerprint='sha256:'+toHex(await digest(join(new Uint8Array([4]),word(key[0]),word(key[1])))).slice(2);
-            result.status=now-Number(block.timestamp)<=RECEIPT_TTL?'receipt-verified-current-epoch':'stale';result.receiptTransaction=b.receiptTransaction;result.receiptCheckedAt=iso(now);result.receiptBlockTime=iso(Number(block.timestamp));
+            result.status=now-Number(block.timestamp)<=RECEIPT_TTL?'receipt-verified-current-epoch':'stale';result.receiptTransaction=b.receiptTransaction;result.receiptCheckedAt=iso(now);result.receiptBlockTime=iso(Number(block.timestamp));canonicalBlock={number:receipt.blockNumber,hash:receipt.blockHash};
         } catch { /* A claimed receipt is not promoted when any linkage or RPC check fails. */ }
-        return result;
+        return {record:result,block:canonicalBlock};
     }
-    leave(input:any):Promise<unknown>{const operation=this.queue.then(async()=>{
+    leave(input:any):Promise<unknown>{require(this.pending<16);this.pending++;const operation=this.queue.then(async()=>{
         require(this.enabled);const now=this.clock();this.prune(now);require(input&&Object.keys(input).sort().join(',')==='at,context,member,signature');hex(input.member,32);hex(input.context,32);hex(input.signature,64);require(Number.isSafeInteger(input.at)&&input.at>=now-30&&input.at<=now+5);
         const entry=this.entries.get(input.member);require(entry&&entry.context===input.context);
         require(await verifyP256(entry.sessionPublic,input.signature,leavePayload(this.network,input.member,entry.sessionPublic,input.context,input.at)));
-        this.entries.delete(input.member);return {left:true};
-    });this.queue=operation.catch(()=>{});return operation;}
+        this.entries.delete(input.member);this.revision++;this.listingCache=undefined;return {left:true};
+    }).catch(()=>{throw new Error('DIRECTORY_INVALID');}).finally(()=>this.pending--);this.queue=operation.catch(()=>{});return operation;}
 }

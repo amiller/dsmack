@@ -3,9 +3,15 @@
 This candidate exposes authenticated, explicitly public native check-ins through
 the existing relay. It does not enumerate on-chain members, count unique people,
 grant membership, or change a personal account. It requires separate deployment
-and live qualification. Public sharing defaults off in both the app and relay.
+and live qualification. Public sharing defaults off in both the app and relay. The relay enables this
+feature only with `NATIVE_DIRECTORY_ENABLED=true`; enabling it is an operator
+deployment decision, separate from a source review.
 
 `GET /nft/directory` returns the schema below for the selected Mac NFT network.
+An isolated deployment that mounts a complete NFT-enabled network at the relay
+root exposes the same routes under `/directory`; it derives its verifier pins
+from that exact root deployment, separately from `/nft`. There is no directory
+route on the legacy deployment without badge/account configuration.
 The dashboard can fetch that endpoint through an explicitly configured URL or a
 same-origin operator proxy. A static `directory.json` may contain a dated copy;
 copying it never refreshes its node check-in timestamps.
@@ -76,3 +82,58 @@ check-in. It removes only that matching entry and does not revoke membership,
 erase enrollment, or alter account control. App shutdown tries a bounded leave;
 an interrupted process instead expires. There are no stakes, stop tokens, or
 consensus leases in this protocol.
+
+## Signed request encoding
+
+`POST /nft/directory/check-in` accepts exactly `member`, `keyId` (base64 Apple
+key ID), `sessionPublic` (65-byte P256 SEC1 point), `issuedAt`, `expiresAt`
+(integer Unix seconds), `selfReported`, `buildNumber`, `scope`, `keyEpoch`,
+`receiptTransaction`, `account`, `accountGeneration`, `accountSignature` and
+`assertion` (base64 Apple CBOR). Nullable fields use JSON null. `scope` is the
+zero overall scope. Account generation is a canonical UInt64 decimal string.
+An unbound account requires generation `"0"` and null signature.
+
+The record context is Keccak256 of the following concatenated ABI-width values:
+domain hash `Keccak256("DSMACK_NATIVE_DIRECTORY_CHECK_IN_V1")`, chain ID,
+registry address, category, member, session-public-key Keccak256, issuedAt,
+expiresAt, version UTF-8 Keccak256, build number, scope, key epoch, receipt
+transaction (zero if null), account address (zero if null), and generation.
+Integers and hashes occupy 32 bytes; addresses have twelve zero padding bytes.
+The request expires exactly 90 seconds after issuedAt and must arrive within
+30 seconds, allowing five seconds of forward clock skew. Accepted public
+check-in clocks use relay verification time and expire 90 seconds later.
+
+The personal account signature is raw 64-byte P256 ECDSA over SHA256 of
+concatenated domain hash `Keccak256("DSMACK_DIRECTORY_ACCOUNT_CONSENT_V1")`,
+chain ID, registry, member, session-public-key Keccak256, account, generation
+and record context, using the same widths. Every listed account generation is
+rechecked on GET; a later handoff removes the old verified account binding.
+No private account key, group key or encrypted parcel is sent to the directory.
+
+Leave accepts exactly member, latest accepted context, Unix-second at, and a
+raw 64-byte P256 session signature. Its SHA256 payload contains domain hash
+`Keccak256("DSMACK_NATIVE_DIRECTORY_LEAVE_V1")`, chain ID, registry, member,
+session-public-key Keccak256, context and at. Leave is valid for 30 seconds with
+five seconds of forward skew. It cannot remove a subsequently refreshed record.
+
+Public GETs share one in-flight verification and a five-second observation cache.
+Cached responses preserve their original generatedAt and node clocks. Receipt
+canonical blocks are rechecked (deduplicated by block) on each new observation;
+a reorg removes the verified receipt label.
+
+The relay retains at most 64 entries, 256 replay counters and 16 queued changes.
+The replay cache and entries are in memory, reset on relay restart and removed
+after 300 seconds. A restart therefore starts with an empty directory; the
+30-second signed request window limits replay across restart. This is observation
+state, not on-chain membership or a new consensus mechanism.
+
+The app menu offers explicit consent, a validated public membership ID to copy,
+and an off switch. The consent preference is scoped to chain and registry and
+starts false. Global application termination (including the updater and system
+quit) attempts a session-signed leave with a three-second network timeout and a
+five-second GUI fallback. Failed leave expires naturally and never deletes
+Application Support, App Attest enrollment, Keychain identity or NFT ownership.
+
+Unit tests use synthetic adapter/RPC fixtures to exercise policy and the exact
+browser schema. They are not Apple attestation, independent-friend, public-chain,
+GUI first-open or live relay deployment acceptance evidence.

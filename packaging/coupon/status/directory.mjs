@@ -34,7 +34,7 @@ export function directoryView(value, now = Date.now() / 1000) {
         || !exact(n.account, ["status", "address", "participantToken"])
         || !["verified", "unavailable"].includes(n.account.status)
         || (n.account.status === "verified" ? !hex(n.account.address, 40) : n.account.address !== null || n.account.participantToken !== null)
-        || !(n.account.participantToken === null || uint(n.account.participantToken, (1n << 256n) - 1n))
+        || !(n.account.participantToken === null || (uint(n.account.participantToken, (1n << 256n) - 1n) && BigInt(n.account.participantToken) > 0n))
         || !exact(n.version, ["selfReported", "buildNumber", "admittedCodeHash"])
         || typeof n.version.selfReported !== "string" || !/^[0-9][A-Za-z0-9._-]{0,63}$/.test(n.version.selfReported)
         || !uint(n.version.buildNumber, 2147483647n) || !hex(n.version.admittedCodeHash, 64)
@@ -50,6 +50,7 @@ export function directoryView(value, now = Date.now() / 1000) {
     const receiptBlock = n.sync.receiptBlockTime === null ? null : stamp(n.sync.receiptBlockTime);
     if ((receiptCheck !== null && (!Number.isFinite(receiptCheck) || receiptCheck > generated + 1 || receiptCheck > now + 30))
         || (receiptBlock !== null && (!Number.isFinite(receiptBlock) || receiptCheck === null || receiptBlock > receiptCheck + 15))) return unknown();
+    if (n.sync.status === "unverified" && [n.sync.receiptTransaction, n.sync.receiptCheckedAt, n.sync.receiptBlockTime, n.sync.groupPublicFingerprint].some(v => v !== null)) return unknown();
     if (n.sync.status !== "unverified" && (receiptBlock === null || receiptCheck === null || n.sync.receiptTransaction === null || n.sync.groupPublicFingerprint === null)) return unknown();
     ids.add(n.id); members.add(n.member);
     const stale = now - generated > 90 || now >= expires || n.checkIn.status === "stale";

@@ -33,6 +33,23 @@ final class PersonalAccountKey {
         try need(status == errSecSuccess,"Could not save personal account Keychain identity (\(status))")
         return PersonalAccountKey(key:generated)
     }
+    /// Directory consent must never create or replace an account key.
+    static func loadExisting(chainId: UInt64,factory: String) throws -> PersonalAccountKey? {
+        let identity=hex(try keccak(word(chainId)+addressWord(factory)))
+        let query:[String:Any]=[kSecClass as String:kSecClassGenericPassword,
+            kSecAttrService as String:"dev.attestnode.personal-badge-key.v1",
+            kSecAttrAccount as String:identity,kSecUseDataProtectionKeychain as String:true,
+            kSecAttrSynchronizable as String:false,kSecReturnData as String:true,
+            kSecMatchLimit as String:kSecMatchLimitOne]
+        var item:CFTypeRef?;let status=SecItemCopyMatching(query as CFDictionary,&item)
+        if status == errSecItemNotFound {return nil}
+        try need(status == errSecSuccess,"Existing personal account Keychain unavailable")
+        guard let data=item as? Data else {throw DemoError.invalid("Personal account Keychain data")}
+        return PersonalAccountKey(key:try P256.Signing.PrivateKey(rawRepresentation:data))
+    }
+    func directoryConsent(_ payload: Data) throws -> Data {
+        try key.signature(for:RawDigest(data:Data(SHA256.hash(data:payload)))).rawRepresentation
+    }
     func consent(chainId: UInt64,account: String,generation: UInt64,claim: Data) throws -> Data {
         let digest=try PersonalAccountEncoding.consentDigest(chainId:chainId,account:account,generation:generation,claim:claim)
         return try key.signature(for:RawDigest(data:digest)).rawRepresentation

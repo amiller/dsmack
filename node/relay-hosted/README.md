@@ -69,3 +69,17 @@ new sponsor transaction inside the shared queue. `/status` reports this flag;
 mailboxes and read-only routes remain available. Drain/reconcile pending entries
 before external administrator transactions, then redeploy with the flag false.
 This is separate from the on-chain network pause and does not alter admission.
+
+
+The opt-in native directory candidate adds `directory.ts` to the deployment
+package. Its public `GET /nft/directory` permits cross-origin reads without
+credentials; check-in and leave POSTs have no CORS grant. It defaults disabled
+unless `NATIVE_DIRECTORY_ENABLED=true`. Enabling/redeploying is a separate
+operator action, not implied by checking in this source. See
+[the signed protocol and evidence limits](../../docs/native-directory-v1.md).
+The source tests use synthetic adapter/RPC fixtures and do not qualify Apple
+attestation or independent friend acceptance.
+
+```sh
+deno test --config node/relay-hosted/deno.json --frozen --node-modules-dir=none --allow-read --allow-write --allow-net --allow-env=CBOR_NATIVE_ACCELERATION_DISABLED node/relay-hosted/directory_test.ts node/relay-hosted/server_test.ts
+```

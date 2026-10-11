@@ -1,3 +1,4 @@
+import {NativeDirectory} from "./directory.ts";
 import {createPublicClient, http, encodeFunctionData, encodeAbiParameters, keccak256, toHex, parseTransaction, type Hex, type Address} from "npm:viem@2.38.0";
 import {privateKeyToAccount} from "npm:viem@2.38.0/accounts";
 import {decode} from "npm:cbor-x@1.6.0/decode-no-eval";
@@ -40,10 +41,14 @@ export class Relay {
     private directory:string;
     private initialized:Promise<void>;
     private readonly sponsorWritesPaused:boolean;
+    private nativeDirectory?:NativeDirectory;
+    private rootNativeDirectory?:NativeDirectory;
     constructor(context:Context) {
         this.sponsorWritesPaused=context.env.SPONSOR_WRITES_PAUSED==='true';
         this.account=privateKeyToAccount(hex(context.env.PRIVATE_KEY,32));
         this.client=createPublicClient({transport:http(context.env.RPC_URL || 'https://sepolia.base.org',{timeout:30000,retryCount:1})});
+        if(deployment.ResearchBadges&&deployment.PersonalBadgeAccountFactory)this.rootNativeDirectory=new NativeDirectory(this.client,deployment,abi,badgeAbi,context.env.NATIVE_DIRECTORY_ENABLED==='true');
+        if(nftDeployment)this.nativeDirectory=new NativeDirectory(this.client,nftDeployment,abi,badgeAbi,context.env.NATIVE_DIRECTORY_ENABLED==='true');
         this.directory=context.dataDir;
         this.initialized=this.load();
     }
@@ -138,6 +143,8 @@ export class Relay {
         const selected=ios?iosDeployment:nft?nftDeployment:deployment;
         const path=(ios||nft)?incoming.slice(4):incoming;
         const mailboxPrefix=(ios||nft)?'nft:':'';
+        const nativeDirectory=nft?this.nativeDirectory:ios?undefined:this.rootNativeDirectory;
+        if(path==='/directory'&&request.method==='GET'){if(!nativeDirectory)return response({error:'directory route not configured'},404);const result=response(await nativeDirectory.listing());result.headers.set('Access-Control-Allow-Origin','*');result.headers.set('Cache-Control','no-store');return result;}
         if(request.method==='GET' && ['/info','/_warmup'].includes(path))return response({owner:this.account.address,chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2});
         if(request.method==='GET' && path==='/status')return response({sponsorWritesPaused:this.sponsorWritesPaused,pending:Object.values(this.state.transactions).filter(e=>!e.complete).map(e=>({hash:e.hash,gas:parseTransaction(e.raw).gas?.toString()})),completed:Object.values(this.state.transactions).filter(e=>e.complete).length});
         if(request.method==='GET' && path.startsWith('/recv/')) {
@@ -150,6 +157,8 @@ export class Relay {
         const reader=request.body?.getReader();need(reader,'missing request body');let raw='';let size=0;const decoder=new TextDecoder();
         while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.length;if(size>65536){await reader.cancel();throw new Error('request too large');}raw+=decoder.decode(chunk.value,{stream:true});}raw+=decoder.decode();
         const body=JSON.parse(raw);
+        if(path==='/directory/check-in'){need(nativeDirectory&&size<=16384,'DIRECTORY_INVALID');return response(await nativeDirectory.checkIn(body));}
+        if(path==='/directory/leave'){need(nativeDirectory&&size<=4096,'DIRECTORY_INVALID');return response(await nativeDirectory.leave(body));}
         if(path.startsWith('/send/')) {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
             need(size<=8192 && typeof body.from==='string' && /^[a-zA-Z0-9_-]{1,80}$/.test(body.from),'invalid message');

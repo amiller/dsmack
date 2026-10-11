@@ -1,5 +1,10 @@
 # Join the Dsmack testnet
 
+This is the entry point for joining as a peer. The public testnet is the planned
+friend-facing network; [mainnet is not launched](mainnet.md). Read
+[joining, updating and leaving](node-lifecycle.md) for account continuity and
+release lifecycle expectations.
+
 **Native joining is temporarily unavailable as of 21:56 UTC, 11 October 2026.**
 The configured seed needs recovery. Wait for the release coordinator to confirm
 joining works before opening the app. See the
@@ -11,7 +16,7 @@ notes on 11 October 2026; it is not a live endpoint-health claim.
 | I want to… | Package and current scope |
 | --- | --- |
 | Join the native peer research network | [AttestNode v0.1.0-rc.3](https://github.com/amiller/apple-attest-p2p/releases/tag/v0.1.0-rc.3): signed/notarized Mac app; current joining blocked at seed recovery. Scoped shared-key exchange and participation receipt are the release’s intended journey. |
-| Redeem a coupon for inference | [Abalone v0.1.0-preview.3](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.3): the preview.2 Linux archive with a new wallet-authorized issuer bundle; **redemption paused** pending the new epoch’s useful-document canary and independent readiness review. Do not redeem a NEAR coupon while this gate remains closed. |
+| Redeem a coupon for inference | [Abalone v0.1.0-preview.4](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.4): updated Linux client and signed wallet-epoch inputs pinned to this release; **redemption paused** until the full five-cent coupon document canary passes and the owner handoff is ready. Do not redeem a NEAR coupon while this gate remains closed. |
 | Operate a coupon issuer | [Mac issuer deployment profile](../packaging/coupon/public-testnet.md): operator setup and qualification, not an automatic capability granted by native joining. |
 
 ## Install after the coordinator confirms recovery

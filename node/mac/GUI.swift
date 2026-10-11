@@ -80,6 +80,11 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var peerNames=Set<String>()
     private var node: Node?
     private var updateProgress: NSPanel?
+    private let directoryLabel=NSTextField(wrappingLabelWithString:"Public directory sharing is off.")
+    private var directoryRequested=false
+    private var directoryPreferenceKey:String?
+    private var terminationPending=false
+    private var terminationReplied=false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -109,7 +114,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let scroll=diagnosticScroll;scroll.isHidden=true;scroll.documentView=diagnostics;scroll.hasVerticalScroller=true
         let caption=participationCaption
         caption.font = .systemFont(ofSize:11);caption.textColor = .secondaryLabelColor
-        let stack=NSStackView(views:[stateLabel,titleLabel,detailLabel,receiptLabel,badgeLabel,badgeReceiptButton,upgradeButton,caption,detailsButton,shareReportButton])
+        directoryLabel.font = .systemFont(ofSize:11);directoryLabel.textColor = .secondaryLabelColor
+        let stack=NSStackView(views:[stateLabel,titleLabel,detailLabel,receiptLabel,badgeLabel,badgeReceiptButton,upgradeButton,caption,directoryLabel,detailsButton,shareReportButton])
         stack.orientation = .vertical;stack.alignment = .leading;stack.spacing=16;stack.translatesAutoresizingMaskIntoConstraints=false
         let content=window.contentView!;content.addSubview(foldStage);content.addSubview(stack);content.addSubview(scroll)
         foldStage.translatesAutoresizingMaskIntoConstraints=false;scroll.translatesAutoresizingMaskIntoConstraints=false
@@ -128,6 +134,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(withTitle:"Save status image…",action:#selector(saveStatusImage),keyEquivalent:"").target=self
         menu.addItem(withTitle:"Check for updates…",action:#selector(checkForUpdates),keyEquivalent:"").target=self
         menu.addItem(withTitle:"Recover a previous version…",action:#selector(recoverVersion),keyEquivalent:"").target=self
+        let sharing=menu.addItem(withTitle:"Share in public node directory…",action:#selector(toggleDirectorySharing),keyEquivalent:"");sharing.target=self;sharing.isEnabled=false
+        let copyID=menu.addItem(withTitle:"Copy public node ID",action:#selector(copyPublicNodeID),keyEquivalent:"");copyID.target=self;copyID.isEnabled=false
         menu.addItem(.separator())
         menu.addItem(withTitle:"Quit peer",action:#selector(quit),keyEquivalent:"q").target=self
         menuItem=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
@@ -380,7 +388,48 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         foldStage.image=image;foldStage.token=String(format:"%03d",Int(number) ?? 0)
         titleLabel.stringValue="Your Fold.\n"+String(format:"%03d",Int(number) ?? 0)
     }
+    @objc private func toggleDirectorySharing() {
+        if !directoryRequested {
+            let alert=NSAlert();alert.messageText="Share your node publicly?"
+            alert.informativeText="The public testnet dashboard will show your membership ID, existing account address and participant receipt when verified, app version and admitted code hash, check-in times, and key-exchange receipt evidence. This does not establish a unique person or continuous availability. Turning sharing off removes the entry when reachable; interrupted entries expire. Your enrollment and account stay intact."
+            alert.addButton(withTitle:"Share publicly");alert.addButton(withTitle:"Keep private")
+            guard alert.runModal() == .alertFirstButtonReturn else {return}
+        }
+        directoryRequested.toggle()
+        if let key=directoryPreferenceKey {UserDefaults.standard.set(directoryRequested,forKey:key)}
+        directoryLabel.stringValue=directoryRequested ? "Public sharing requested; waiting for a verified check-in." : "Public sharing off; removing the previous entry when reachable."
+        refreshDirectoryMenu()
+        let enabled=directoryRequested
+        node?.enqueueOperation{$0.setDirectoryOptIn(enabled)}
+    }
+    private func publicNodeID()->String? {
+        guard let member=status["member"] as? String,member.range(of:"^0x[0-9a-f]{64}$",options:.regularExpression) != nil else {return nil}
+        return member
+    }
+    @objc private func copyPublicNodeID() {
+        guard let member=publicNodeID() else {return}
+        NSPasteboard.general.clearContents();NSPasteboard.general.setString(member,forType:.string)
+    }
+    private func refreshDirectoryMenu() {
+        let menus=[menuItem?.menu,NSApp.mainMenu?.items.first?.submenu]
+        for menu in menus {for item in menu?.items ?? [] {
+            if item.action == #selector(toggleDirectorySharing) {item.isEnabled=node != nil;item.state=directoryRequested ? .on:.off;item.title=directoryRequested ? "Turn off public node sharing":"Share in public node directory…"}
+            if item.action == #selector(copyPublicNodeID) {item.isEnabled=publicNodeID() != nil}
+        }}
+    }
     @objc private func quit() {NSApp.terminate(nil)}
+    func applicationShouldTerminate(_ sender:NSApplication)->NSApplication.TerminateReply {
+        if terminationPending {return .terminateLater}
+        guard let node else {return .terminateNow}
+        terminationPending=true
+        let finish:()->Void={
+            guard !self.terminationReplied else {return}
+            self.terminationReplied=true;sender.reply(toApplicationShouldTerminate:true)
+        }
+        node.requestDirectoryLeave {DispatchQueue.main.async(execute:finish)}
+        DispatchQueue.main.asyncAfter(deadline:.now()+5,execute:finish)
+        return .terminateLater
+    }
     func applicationShouldTerminateAfterLastWindowClosed(_ sender:NSApplication)->Bool {false}
 
     private func runParticipant() {
@@ -406,7 +455,16 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let cfg=try Config(config)
             try need(!cfg.peer.isEmpty,"missing faucet peer")
             emit("configured",["network":ReleaseNetwork.name,"chainId":cfg.chainId,"registry":cfg.registry,"participant":cfg.name])
-            let participant=Node(cfg,log:emit);DispatchQueue.main.async {self.node=participant}
+            let participant=Node(cfg,log:emit)
+            let preference="dsmack.public-directory.v1."+hex(keccak(word(cfg.chainId)+(try addressWord(cfg.registry))))
+            DispatchQueue.main.async {
+                self.node=participant;self.directoryPreferenceKey=preference
+                self.directoryRequested=UserDefaults.standard.bool(forKey:preference)
+                if self.directoryRequested {self.directoryLabel.stringValue="Public sharing requested; waiting for a verified check-in."}
+                self.refreshDirectoryMenu()
+                let enabled=self.directoryRequested
+                participant.enqueueOperation{$0.setDirectoryOptIn(enabled)}
+            }
             var delay:Double=2
             while true {
                 do {try participant.participate();return}
@@ -429,7 +487,15 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             self.eventLines.append(line);self.eventLines=Array(self.eventLines.suffix(100))
             self.diagnostics.string=self.eventLines.joined(separator:"\n")
             self.status.merge(fields){_,new in new};self.status["lastEvent"]=event;self.status["updatedAt"]=entry["t"]
+            self.refreshDirectoryMenu()
             switch event {
+            case "directory sharing changed":
+                let enabled=fields["enabled"] as? Bool ?? false
+                self.directoryLabel.stringValue=enabled ? "Public sharing on; waiting for a verified check-in." : "Public directory sharing is off."
+            case "directory checked in":
+                if self.directoryRequested {self.directoryLabel.stringValue="Public check-in verified · expires \(fields["expiresAt"] ?? "unknown")"}
+            case "directory unavailable":
+                if self.directoryRequested {self.directoryLabel.stringValue="Public directory check-in unavailable; previous records expire automatically."}
             case "account handed off":self.badgeLabel.stringValue="This account was handed off. Continue in your independently signed copy.";self.upgradeButton.isEnabled=false;self.badgeReceiptButton.isEnabled=false
             case "upgrade awaiting approval":self.badgeLabel.stringValue="Waiting for your original app to approve the handoff…";self.badgeReceiptButton.isEnabled=false
             case "upgrade approved":self.badgeLabel.stringValue="Account handoff confirmed. Continue in your independently signed app."

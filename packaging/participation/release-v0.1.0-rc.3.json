@@ -1,0 +1,16 @@
+{
+  "release": "v0.1.0-rc.3",
+  "protocolVersion": 2,
+  "asset": {
+    "url": "https://github.com/amiller/apple-attest-p2p/releases/download/v0.1.0-rc.3/AttestNode-macOS27-arm64-v0.1.0-rc.3.zip",
+    "bytes": 2198437,
+    "sha256": "d546375abf7a92b04ede2127bbc159cd504a60078af3ef4cf4c2f20e5c0152db"
+  },
+  "chain": {
+    "rpc": "https://sepolia.base.org",
+    "id": 84532,
+    "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+    "receipts": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B"
+  },
+  "relay": "https://pod.dstack.soc1024.com/apple-attest-p2p-relay/nft"
+}

@@ -1,0 +1,20 @@
+{
+  "schemaVersion": 1,
+  "observedDateUtc": "2026-10-11",
+  "release": "v0.1.0-rc.3",
+  "source": "Fresh unauthenticated download from the published release asset",
+  "zipSha256": "d546375abf7a92b04ede2127bbc159cd504a60078af3ef4cf4c2f20e5c0152db",
+  "platform": "macOS 27.0 arm64",
+  "strictSignatureVerification": true,
+  "stapledNotarizationValidation": true,
+  "signedExecutableSha256": "e47f94f018816fdd16c03d0883037c2ae2b2402dbecdad06765fd127000e5b8a",
+  "commands": [
+    "codesign --verify --deep --strict --verbose=2 extracted/Node.app",
+    "xcrun stapler validate extracted/Node.app",
+    "shasum -a 256 extracted/Node.app/Contents/MacOS/node"
+  ],
+  "appLaunched": false,
+  "cleanFriendGatekeeperFirstOpen": false,
+  "independentDeviceAcceptance": false,
+  "scope": "Signature, notarization ticket and payload integrity only"
+}

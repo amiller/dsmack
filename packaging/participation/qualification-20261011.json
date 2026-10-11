@@ -1,0 +1,39 @@
+{
+  "schemaVersion": 1,
+  "release": "v0.1.0-rc.3",
+  "observedAtUnix": 1791754021,
+  "passed": true,
+  "checks": [
+    {
+      "check": "published-package",
+      "passed": true,
+      "sha256": "d546375abf7a92b04ede2127bbc159cd504a60078af3ef4cf4c2f20e5c0152db",
+      "bytes": 2198437
+    },
+    {
+      "check": "chain-readiness",
+      "passed": true,
+      "chainId": 84532,
+      "block": "0x2dc5022",
+      "contractCodeBytes": {
+        "registry": 6439,
+        "receipts": 9923
+      },
+      "paused": false
+    },
+    {
+      "check": "relay-readiness",
+      "passed": true,
+      "protocolVersion": 2,
+      "sponsorWritesPaused": false,
+      "pendingSponsorTransactions": 0
+    }
+  ],
+  "scope": "Public package integrity and read-only relay/chain readiness only",
+  "nodeStarted": false,
+  "enrollmentSent": false,
+  "transactionsSent": false,
+  "freshPeerAdmission": false,
+  "independentDeviceAcceptance": false,
+  "couponReadiness": "not checked"
+}

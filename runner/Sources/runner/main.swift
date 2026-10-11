@@ -11,7 +11,7 @@ func hex(_ d: some Sequence<UInt8>) -> String { d.map { String(format: "%02x", $
 func sha256hex(_ d: Data) -> String { hex(SHA256.hash(data: d)) }
 func log(_ s: String) { FileHandle.standardError.write(Data("runner: \(s)\n".utf8)) }
 
-// Kata 3.17.0 vmlinux-6.12.28 (data/vz-spike-20261008/RESULTS.md). Any other kernel is refused.
+// Kata 3.17.0 vmlinux-6.12.28. Any other kernel is refused.
 let kernelSHA256 = "67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af6ea0"
 // vminit 0.33.4, version-matched to the Containerization library (0.26.5 cannot bind-mount relayed sockets).
 let initfsReference = "ghcr.io/apple/containerization/vminit@sha256:4551a4627a8575ee625e139fa8a1fbdc5b09f06d03c8dc2c3863dcd2e33e98af"

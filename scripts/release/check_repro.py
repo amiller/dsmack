@@ -25,7 +25,7 @@ def main():
             # A local clone handles ordinary checkouts and Git worktrees alike.
             # Overlay current build inputs so uncommitted edits are measured too.
             subprocess.run(['git', 'clone', '--quiet', '--no-hardlinks', str(ROOT), str(tree)], check=True)
-            for item in ('node/shared', 'node/mac', 'scripts/release', 'release'):
+            for item in ('node/shared', 'node/mac', 'scripts/release'):
                 shutil.copytree(ROOT / item, tree / item,
                                 dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns('build', '__pycache__', 'entitlements.plist'))

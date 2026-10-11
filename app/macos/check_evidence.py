@@ -15,7 +15,7 @@ ROOT = Path(__file__).resolve().parents[2] / 'trust/apple-app-attestation-root.p
 ROOT_SHA256 = '1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932'
 APP_ID = 'DC9JH5DRMY.dev.dsmack.provider'
 # macOS App Attest attestations carry apple_validation_category_01; every real Mac
-# capture in evidence-20260916 reports 3. Older iOS attestations omit it; the
+# selected macOS regression capture reports 3. Older iOS attestations omit it; the
 # 2026-09-23 iPhone ad hoc captures report 5. Mac admission requires 3 so an iOS
 # attestation or an unexpected category cannot be admitted under this Mac policy.
 MACOS_VALIDATION_CATEGORY = 3

@@ -26,3 +26,16 @@ local-data/
 !.env.example
 node_modules/
 .DS_Store
+
+# Historical/operator output stays outside the maintained public tree.
+data/
+release/
+artwork/
+explainer/
+app/macos/evidence-*/
+app/macos/custody/custody-*/
+app/macos/demo/evidence/
+runner/evidence/
+contracts/network/*.json
+!contracts/network/cd-args-ios.json
+!contracts/network/cd-args-macos.json

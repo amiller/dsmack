@@ -61,13 +61,13 @@ def replay(base, at_time=None):
             identity_only_policy='accept' if without_hash else 'reject'))
     return dict(status='six_step_hardware_experiment_verified',
                 verification_time=at_time or 'current', results=results,
-                membership_admission='not_implemented', iOS_cdhash='see_iphone-20260923',
+                membership_admission='not_implemented', iOS_cdhash='not_qualified_by_this_fixture',
                 independent_developer_team='not_tested')
 
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('--evidence', type=Path, default=Path(__file__).parent / 'evidence-20260916')
+    parser.add_argument('--evidence', type=Path, default=Path(__file__).resolve().parents[2] / 'tests/fixtures/macos-attestation')
     parser.add_argument('--at-time', type=int, help='Explicit historical replay time; not fresh admission')
     args = parser.parse_args()
     print(json.dumps(replay(args.evidence, args.at_time), indent=2, sort_keys=True))

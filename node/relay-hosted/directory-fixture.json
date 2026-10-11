@@ -1,0 +1,48 @@
+{
+  "schema": 1,
+  "type": "dsmack-native-directory",
+  "fixture": true,
+  "generatedAt": "2026-10-11T23:00:00Z",
+  "network": {
+    "chainId": 31337,
+    "registry": "0x1111111111111111111111111111111111111111"
+  },
+  "coverage": "explicit-opt-in",
+  "status": "available",
+  "error": null,
+  "freshness": {
+    "heartbeatTtlSeconds": 90,
+    "staleRetentionSeconds": 300,
+    "receiptFreshnessSeconds": 120
+  },
+  "nodes": [
+    {
+      "id": "0x2222222222222222222222222222222222222222222222222222222222222222",
+      "member": "0x3333333333333333333333333333333333333333333333333333333333333333",
+      "account": {
+        "status": "verified",
+        "address": "0x4444444444444444444444444444444444444444",
+        "participantToken": "1"
+      },
+      "version": {
+        "selfReported": "0.1.0",
+        "buildNumber": "3",
+        "admittedCodeHash": "0x5555555555555555555555555555555555555555555555555555555555555555"
+      },
+      "checkIn": {
+        "lastVerifiedAt": "2026-10-11T22:59:45Z",
+        "expiresAt": "2026-10-11T23:01:15Z",
+        "status": "fresh"
+      },
+      "sync": {
+        "scope": "0x0000000000000000000000000000000000000000000000000000000000000000",
+        "keyEpoch": "1",
+        "groupPublicFingerprint": "sha256:6666666666666666666666666666666666666666666666666666666666666666",
+        "status": "receipt-verified-current-epoch",
+        "receiptTransaction": "0x7777777777777777777777777777777777777777777777777777777777777777",
+        "receiptCheckedAt": "2026-10-11T22:59:30Z",
+        "receiptBlockTime": "2026-10-11T22:59:20Z"
+      }
+    }
+  ]
+}

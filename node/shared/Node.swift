@@ -48,6 +48,9 @@ final class Node {
     var sessionPublic: Data {session.publicKey.x963Representation}
     var keyID=""; var owner=""; var me=Data(); var held=[Data:P256.Signing.PrivateKey](); var heldEpoch=[Data:UInt64](); var nonces=[String:Data]()
     var badgeParticipation=false;var badgeComplete=false;var nextBadgeAttempt=Date.distantPast
+    let directoryState=NativeDirectoryState()
+    var nextDirectoryAttempt=Date.distantPast
+    var directoryReceipt: String?
     private let operationLock=NSLock()
     private var operations=[(Node)->Void]()
     func enqueueOperation(_ operation:@escaping (Node)->Void) {
@@ -172,6 +175,7 @@ final class Node {
         let signature=try group.map{hex(try $0.signature(for:RawDigest(data:context)).rawRepresentation)} ?? "0x"
         guard let tx=try relay("execute",["request":request.json,"context":hex(context),"assertion":assertion.base64EncodedString(),
                                           "keyId":keyID,"groupSignature":signature])["tx"] as? String else {throw DemoError.invalid("relay tx")}
+        if action==3 && scope==zero32 {directoryReceipt=tx}
         log("executed",["action":action,"scope":hex(scope),"keyEpoch":epoch,"tx":tx]);return (tx,request)
     }
     func join() throws -> String {try execute(0)}
@@ -266,6 +270,7 @@ final class Node {
             }
             runOperations()
             attemptParticipantBadge()
+            attemptDirectoryCheckIn()
             var message: [String:Any]
             do {message=try receive(timeout:15)}
             catch DemoError.invalid(let reason) where reason=="receive timeout" {continue}

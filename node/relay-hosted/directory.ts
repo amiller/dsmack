@@ -1,0 +1,156 @@
+import {decode} from "npm:cbor-x@1.6.0/decode-no-eval";
+import {encodeAbiParameters, encodeFunctionData, decodeFunctionData, decodeEventLog, keccak256, toHex, hexToBytes, type Hex} from "npm:viem@2.38.0";
+
+const ZERO=('0x'+'00'.repeat(32)) as Hex;
+const ZERO_ADDRESS='0x'+'00'.repeat(20);
+const TTL=90, RETENTION=300, RECEIPT_TTL=120, LIMIT=64;
+const encoder=new TextEncoder();
+const iso=(seconds:number)=>new Date(seconds*1000).toISOString();
+function require(ok:unknown):asserts ok {if(!ok)throw new Error('DIRECTORY_INVALID');}
+export function decimal(value:unknown,max:bigint):string {
+    require(typeof value==='string'&&/^(0|[1-9][0-9]{0,77})$/.test(value)&&BigInt(value)<=max);return value;
+}
+function hex(value:unknown,bytes:number):Hex {require(typeof value==='string'&&new RegExp('^0x[0-9a-f]{'+bytes*2+'}$').test(value));return value as Hex;}
+function word(value:bigint|number|string):Uint8Array {return hexToBytes(toHex(BigInt(value),{size:32}));}
+function address(value:string):Uint8Array {return hexToBytes(('0x'+'00'.repeat(12)+value.slice(2)) as Hex);}
+function join(...parts:Uint8Array[]):Uint8Array {const out=new Uint8Array(parts.reduce((n,p)=>n+p.length,0));let at=0;for(const p of parts){out.set(p,at);at+=p.length;}return out;}
+const domain=(name:string)=>hexToBytes(keccak256(encoder.encode(name)));
+const buffer=(bytes:Uint8Array)=>new Uint8Array(bytes).buffer;
+const digest=async(bytes:Uint8Array)=>new Uint8Array(await crypto.subtle.digest('SHA-256',buffer(bytes)));
+function binary(value:unknown,max:number):Uint8Array {require(typeof value==='string'&&value.length<=max);return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
+function signature(der:Uint8Array):[bigint,bigint] {
+    require(der.length>=8&&der[0]===48&&der[1]===der.length-2);let at=2;
+    function scalar(){require(der[at++]===2);const n=der[at++];require(n>0&&n<=33&&at+n<=der.length);const bytes=der.slice(at,at+n);at+=n;require(bytes[0]<128&&(bytes[0]!==0||n===1||bytes[1]>=128));return BigInt(toHex(bytes));}
+    const r=scalar(),s=scalar();require(at===der.length);return [r,s];
+}
+export type CheckIn={member:Hex,keyId:string,sessionPublic:Hex,issuedAt:number,expiresAt:number,selfReported:string,buildNumber:string,scope:Hex,keyEpoch:string,receiptTransaction:Hex|null,account:Hex|null,accountGeneration:string,accountSignature:Hex|null,assertion:string};
+type Network={chainId:number,DemoV1:Hex,macCategory:Hex,macAdapter:Hex,macCDRegistry:Hex,ResearchBadges?:Hex,PersonalBadgeAccountFactory?:Hex};
+type Entry={record:any,sessionPublic:Hex,context:Hex,epoch:bigint};
+export function validateCheckIn(input:unknown,now:number):CheckIn {
+    require(input&&typeof input==='object'&&!Array.isArray(input));const b=input as CheckIn;
+    require(Object.keys(b).sort().join(',')===['member','keyId','sessionPublic','issuedAt','expiresAt','selfReported','buildNumber','scope','keyEpoch','receiptTransaction','account','accountGeneration','accountSignature','assertion'].sort().join(','));
+    hex(b.member,32);hex(b.sessionPublic,65);require(b.sessionPublic.startsWith('0x04'));
+    require(Number.isSafeInteger(b.issuedAt)&&b.issuedAt>=now-30&&b.issuedAt<=now+5&&b.expiresAt===b.issuedAt+TTL);
+    require(typeof b.selfReported==='string'&&/^[0-9][A-Za-z0-9._-]{0,63}$/.test(b.selfReported));decimal(b.buildNumber,2147483647n);
+    hex(b.scope,32);decimal(b.keyEpoch,18446744073709551615n);decimal(b.accountGeneration,18446744073709551615n);
+    if(b.receiptTransaction!==null)hex(b.receiptTransaction,32);
+    if(b.account===null)require(b.accountSignature===null&&b.accountGeneration==='0');else {hex(b.account,20);hex(b.accountSignature,64);}
+    require(binary(b.keyId,64).length===32);binary(b.assertion,14000);return b;
+}
+export function recordContext(network:Network,b:CheckIn):Hex {
+    return keccak256(join(domain('DSMACK_NATIVE_DIRECTORY_CHECK_IN_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(network.macCategory),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),word(b.issuedAt),word(b.expiresAt),hexToBytes(keccak256(encoder.encode(b.selfReported))),word(b.buildNumber),hexToBytes(b.scope),word(b.keyEpoch),hexToBytes(b.receiptTransaction??ZERO),address(b.account??ZERO_ADDRESS),word(b.accountGeneration)));
+}
+export async function accountConsent(network:Network,b:CheckIn,context:Hex):Promise<Uint8Array> {
+    return await digest(join(domain('DSMACK_DIRECTORY_ACCOUNT_CONSENT_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),address(b.account!),word(b.accountGeneration),hexToBytes(context)));
+}
+export function leavePayload(network:Network,member:Hex,session:Hex,context:Hex,at:number):Uint8Array {
+    return join(domain('DSMACK_NATIVE_DIRECTORY_LEAVE_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(member),hexToBytes(keccak256(session)),hexToBytes(context),word(at));
+}
+async function verifyP256(point:Hex,signature:Hex,payload:Uint8Array):Promise<boolean> {
+    const key=await crypto.subtle.importKey('raw',buffer(hexToBytes(point)),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+    return await crypto.subtle.verify({name:'ECDSA',hash:'SHA-256'},key,buffer(hexToBytes(signature)),buffer(payload));
+}
+/** No sponsor or send method exists here. All verification uses pinned read-only RPC. */
+export class NativeDirectory {
+    private entries=new Map<string,Entry>();
+    private counters=new Map<string,{count:number,at:number}>();
+    private queue:Promise<unknown>=Promise.resolve();
+    private pending=0;
+    constructor(private client:any,private network:Network,private abi:any,private badgeAbi:any,private enabled=false,private clock=()=>Math.floor(Date.now()/1000)){}
+    private read(functionName:string,args:unknown[],blockNumber:bigint,target=this.network.DemoV1,abi=this.abi.demo){return this.client.readContract({address:target,abi,functionName,args,blockNumber});}
+    private prune(now:number){for(const [id,e] of this.entries)if(now-Date.parse(e.record.checkIn.lastVerifiedAt)/1000>=RETENTION)this.entries.delete(id);for(const [id,c] of this.counters)if(now-c.at>=RETENTION)this.counters.delete(id);}
+    private async head(){const head=await this.client.getBlock();const now=this.clock();require(Number(head.timestamp)<=now+5&&now-Number(head.timestamp)<45);return head;}
+    private async canonical(head:any){const again=await this.client.getBlock({blockNumber:head.number});require(again.hash===head.hash);}
+    async listing(){
+        const now=this.clock();this.prune(now);
+        const common={schema:1,type:'dsmack-native-directory',generatedAt:iso(now),network:{chainId:this.network.chainId,registry:this.network.DemoV1.toLowerCase()},coverage:'explicit-opt-in',freshness:{heartbeatTtlSeconds:TTL,staleRetentionSeconds:RETENTION,receiptFreshnessSeconds:RECEIPT_TTL}};
+        if(!this.enabled)return {...common,status:'not-configured',error:{code:'DIRECTORY_DISABLED'},nodes:[]};
+        try {
+            const head=await this.head();const nodes=[];
+            for(const entry of this.entries.values()) {
+                const record=structuredClone(entry.record);
+                record.checkIn.status=now<Date.parse(record.checkIn.expiresAt)/1000?'fresh':'stale';
+                const epoch=await this.read('keyEpochs',[record.sync.scope],head.number);
+                if(record.sync.receiptBlockTime && (now-Date.parse(record.sync.receiptBlockTime)/1000>RECEIPT_TTL||epoch!==entry.epoch))record.sync.status='stale';
+                // Account control is rechecked; a later handoff must not leave a verified old owner binding.
+                if(record.account.status==='verified') {
+                    const generation=await this.read('generation',[],head.number,record.account.address,this.badgeAbi.account);
+                    if(generation!==entry.record.accountGeneration)record.account={status:'unavailable',address:null,participantToken:null};
+                }
+                delete record.accountGeneration;nodes.push(record);
+            }
+            await this.canonical(head);return {...common,status:'available',error:null,nodes};
+        } catch {return {...common,status:'unavailable',error:{code:'RPC_UNAVAILABLE'},nodes:[]};}
+    }
+    checkIn(input:unknown):Promise<unknown>{require(this.pending<16);this.pending++;const operation=this.queue.then(()=>this.accept(input)).finally(()=>this.pending--);this.queue=operation.catch(()=>{});return operation;}
+    private async accept(input:unknown){
+        require(this.enabled);const now=this.clock();this.prune(now);const b=validateCheckIn(input,now);
+        const kid=toHex(binary(b.keyId,64));require(keccak256(join(hexToBytes(this.network.macCategory),hexToBytes(kid)))===b.member);
+        const previous=this.entries.get(b.member);require(!previous||now-Date.parse(previous.record.checkIn.lastVerifiedAt)/1000>=5);
+        require(previous||this.entries.size<LIMIT);require(this.counters.has(kid)||this.counters.size<256);
+        const context=recordContext(this.network,b);const head=await this.head();
+        require(await this.read('keyEpochs',[b.scope],head.number)===BigInt(b.keyEpoch));
+        require(await this.read('paused',[],head.number)===false);
+        const category=await this.read('categories',[this.network.macCategory],head.number);
+        require(category[0].toLowerCase()===this.network.macAdapter.toLowerCase()&&category[5]===true);
+        const code=await this.client.getBytecode({address:this.network.macAdapter,blockNumber:head.number});require(code&&keccak256(code)===category[1]);
+        const revoked=await this.read('members',[b.member],head.number);require(revoked[3]===false);
+        require((await this.read('registry',[],head.number,this.network.macAdapter,this.abi.adapter)).toLowerCase()===this.network.DemoV1.toLowerCase());
+        require((await this.read('cds',[],head.number,this.network.macAdapter,this.abi.adapter)).toLowerCase()===this.network.macCDRegistry.toLowerCase());
+        const assertion=decode(binary(b.assertion,14000));require(assertion&&assertion.authenticatorData instanceof Uint8Array&&assertion.signature instanceof Uint8Array);
+        const auth=assertion.authenticatorData;require(auth.length>=38);const count=new DataView(auth.buffer,auth.byteOffset,auth.byteLength).getUint32(33,false);require(count>(this.counters.get(kid)?.count??0));
+        const [r,s]=signature(assertion.signature);
+        const proof=encodeAbiParameters([{type:'bytes32'},{type:'bytes'},{type:'uint256'},{type:'uint256'}],[kid,toHex(auth),r,s]);
+        const verified=await this.client.call({account:this.network.DemoV1,to:this.network.macAdapter,data:encodeFunctionData({abi:this.abi.adapter,functionName:'verify',args:[context,proof]}),blockNumber:head.number});
+        require(verified.data?.toLowerCase()===encodeAbiParameters([{type:'bytes32'}],[kid]));
+        // The deployed canonical parser has already rejected duplicate/unknown/malformed extensions.
+        const extensions=decode(auth.slice(37));const cdhash=toHex(extensions.apple_cd_hash_hash_01);hex(cdhash,32);
+        await crypto.subtle.importKey('raw',buffer(hexToBytes(b.sessionPublic)),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
+        let account:any={status:'unavailable',address:null,participantToken:null};
+        if(b.account!==null) {
+            require(this.network.PersonalBadgeAccountFactory&&this.network.ResearchBadges);
+            require(await this.read('isAccount',[b.account],head.number,this.network.PersonalBadgeAccountFactory,this.badgeAbi.factory)===true);
+            const generation=await this.read('generation',[],head.number,b.account,this.badgeAbi.account);require(generation===BigInt(b.accountGeneration));
+            const x=await this.read('keyX',[],head.number,b.account,this.badgeAbi.account),y=await this.read('keyY',[],head.number,b.account,this.badgeAbi.account);
+            // WebCrypto hashes payload once; native signs SHA256(payload) as a RawDigest.
+            const consentPayload=join(domain('DSMACK_DIRECTORY_ACCOUNT_CONSENT_V1'),word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),address(b.account),word(b.accountGeneration),hexToBytes(context));
+            require(await verifyP256(toHex(join(new Uint8Array([4]),word(x),word(y))),b.accountSignature!,consentPayload));
+            const token=await this.read('participantOf',[b.account],head.number,this.network.ResearchBadges,this.badgeAbi.badges);decimal(token.toString(),(1n<<256n)-1n);
+            if(token>0n)require((await this.read('ownerOf',[token],head.number,this.network.ResearchBadges,this.badgeAbi.badges)).toLowerCase()===b.account);
+            account={status:'verified',address:b.account,participantToken:token>0n?token.toString():null};
+        }
+        const sync=await this.receipt(b,head,now);
+        await this.canonical(head);
+        const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash},checkIn:{lastVerifiedAt:iso(now),expiresAt:iso(b.expiresAt),status:'fresh'},sync};
+        this.counters.set(kid,{count,at:now});this.entries.set(b.member,{record,sessionPublic:b.sessionPublic,context,epoch:BigInt(b.keyEpoch)});
+        return {accepted:true,context,expiresAt:record.checkIn.expiresAt,account:account.address,admittedCodeHash:cdhash,syncStatus:sync.status};
+    }
+    private async receipt(b:CheckIn,head:any,now:number){
+        const result:any={scope:b.scope,keyEpoch:b.keyEpoch,groupPublicFingerprint:null,status:'unverified',receiptTransaction:null,receiptCheckedAt:null,receiptBlockTime:null};
+        if(!b.receiptTransaction)return result;
+        try {
+            const receipt=await this.client.getTransactionReceipt({hash:b.receiptTransaction});require(receipt.status==='success'&&receipt.blockNumber<=head.number);
+            const block=await this.client.getBlock({blockNumber:receipt.blockNumber});require(block.hash===receipt.blockHash&&Number(block.timestamp)<=now+5);
+            const tx=await this.client.getTransaction({hash:b.receiptTransaction});require(tx.to?.toLowerCase()===this.network.DemoV1.toLowerCase());
+            const decoded=decodeFunctionData({abi:this.abi.demo,data:tx.input});require(decoded.functionName==='execute');const request=(decoded.args as any)[0];
+            require(request.action===3&&request.category===this.network.macCategory.toLowerCase()&&request.scope===b.scope&&request.sessionKeyHash===keccak256(b.sessionPublic));
+            const epoch=await this.read('keyEpochs',[b.scope],head.number);require(epoch===BigInt(b.keyEpoch));
+            const key=await this.read('sharedKeys',[b.scope],head.number);require(key[3]===true&&key[0]===request.keyX&&key[1]===request.keyY);
+            const expected=await this.read('contextHash',[request],head.number);
+            const logs=receipt.logs.filter((log:any)=>log.address.toLowerCase()===this.network.DemoV1.toLowerCase()).map((log:any)=>{try{return decodeEventLog({abi:this.abi.demo,data:log.data,topics:log.topics});}catch{return null;}});
+            const checked=logs.filter((log:any)=>log?.eventName==='Checked'),receipts=logs.filter((log:any)=>log?.eventName==='KeyReceipt');require(checked.length===1&&receipts.length===1);
+            const c:any=checked[0]!.args,k:any=receipts[0]!.args;
+            require(c.member===b.member&&c.category===this.network.macCategory.toLowerCase()&&c.context===expected&&c.sessionKeyHash===keccak256(b.sessionPublic));
+            require(k.member===b.member&&k.scope===b.scope&&k.context===expected&&k.envelopeDigest===request.envelopeDigest);
+            result.groupPublicFingerprint='sha256:'+toHex(await digest(join(new Uint8Array([4]),word(key[0]),word(key[1])))).slice(2);
+            result.status=now-Number(block.timestamp)<=RECEIPT_TTL?'receipt-verified-current-epoch':'stale';result.receiptTransaction=b.receiptTransaction;result.receiptCheckedAt=iso(now);result.receiptBlockTime=iso(Number(block.timestamp));
+        } catch { /* A claimed receipt is not promoted when any linkage or RPC check fails. */ }
+        return result;
+    }
+    leave(input:any):Promise<unknown>{const operation=this.queue.then(async()=>{
+        require(this.enabled);const now=this.clock();this.prune(now);require(input&&Object.keys(input).sort().join(',')==='at,context,member,signature');hex(input.member,32);hex(input.context,32);hex(input.signature,64);require(Number.isSafeInteger(input.at)&&input.at>=now-30&&input.at<=now+5);
+        const entry=this.entries.get(input.member);require(entry&&entry.context===input.context);
+        require(await verifyP256(entry.sessionPublic,input.signature,leavePayload(this.network,input.member,entry.sessionPublic,input.context,input.at)));
+        this.entries.delete(input.member);return {left:true};
+    });this.queue=operation.catch(()=>{});return operation;}
+}

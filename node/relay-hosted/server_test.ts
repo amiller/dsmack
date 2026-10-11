@@ -11,7 +11,7 @@ Deno.test('iPhone and Mac share NFT mailboxes with separate admission; legacy st
     });
     const check=(condition:unknown,message:string)=>{if(!condition)throw new Error(message);};
     try {
-        for(const name of ['server.ts','abi.json','badge-abi.json'])
+        for(const name of ['server.ts','directory.ts','abi.json','badge-abi.json'])
             await Deno.copyFile(new URL(name,import.meta.url),directory+'/'+name);
         const fixture=JSON.parse(await Deno.readTextFile(new URL('network.json',import.meta.url)));
         fixture.chainId=31337;fixture.admin=privateKeyToAccount(key).address;
@@ -65,7 +65,7 @@ for(const mode of ['absent','wrong-registry','wrong-sponsor','reused-category','
             return Response.json({jsonrpc:'2.0',id:value.id,result:'0x7a69'});
         });
         try {
-            for(const name of ['server.ts','abi.json','badge-abi.json'])
+            for(const name of ['server.ts','directory.ts','abi.json','badge-abi.json'])
                 await Deno.copyFile(new URL(name,import.meta.url),directory+'/'+name);
             const base=JSON.parse(await Deno.readTextFile(new URL('network.json',import.meta.url)));
             base.chainId=31337;base.admin=privateKeyToAccount(key).address;

@@ -1,5 +1,7 @@
 """Public read transport failures never replay a transaction or provider POST."""
 import itertools
+import http.client
+import io
 import json
 import tempfile
 import unittest
@@ -9,6 +11,7 @@ from unittest.mock import patch
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.x25519 import X25519PrivateKey
 from .issuance_guard import GuardRPC, GuardReadUnavailable
+from .mac_transport import MacGuardRPC
 from .spike import Store, IssuedKey, RedemptionError
 from .test_base_guard import BaseGuardTests
 from . import test_async_service_v4 as async_fixture
@@ -22,10 +25,53 @@ class Response:
     def read(self, limit): return self.data[:limit]
 
 
+def incomplete_chunk_response():
+    # Real stdlib chunk parser, including a partial-body secret canary which
+    # must never become trusted JSON or diagnostic text.
+    body = b'PRIVATE_PARTIAL_BODY_CANARY'
+    wire = (b'HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n'
+            + format(len(body), 'x').encode() + b'\r\n' + body
+            + b'\r\nnot-hex\r\n')
+    class Socket:
+        def makefile(self, *_args, **_kwargs): return io.BytesIO(wire)
+    response = http.client.HTTPResponse(Socket())
+    response.begin()
+    return response
+
+
 class ResponseEvidenceTests(unittest.TestCase):
     def test_decode_retry_is_at_most_two_then_terminal(self):
         rpc = GuardRPC('https://example.invalid')
         with patch.object(rpc.opener, 'open', return_value=Response(b'<html>')) as opener:
+            for _ in range(2):
+                with self.assertRaises(GuardReadUnavailable): rpc.call('eth_getBlockByNumber', ['safe', False])
+            with self.assertRaises(RedemptionError) as raised: rpc.call('eth_getBlockByNumber', ['safe', False])
+            self.assertNotIsInstance(raised.exception, GuardReadUnavailable)
+            self.assertEqual(opener.call_count, 3)
+
+    def test_actual_mac_chunk_failure_is_bounded_static_and_send_is_not_replayed(self):
+        for method in ('eth_getBlockByNumber', 'eth_sendRawTransaction'):
+            rpc = MacGuardRPC('https://mainnet.base.org'); evidence = []
+            rpc.diagnostic_observer = evidence.append
+            with patch.object(rpc.opener, 'open', side_effect=lambda *_a, **_k: incomplete_chunk_response()) as opener:
+                count = 3 if method == 'eth_getBlockByNumber' else 1
+                for attempt in range(count):
+                    with self.assertRaises(RedemptionError) as raised:
+                        rpc.call(method, ['PRIVATE_PARAMETER_CANARY'])
+                    self.assertEqual(isinstance(raised.exception, GuardReadUnavailable),
+                                     method == 'eth_getBlockByNumber' and attempt < 2)
+                self.assertEqual(opener.call_count, count)
+            self.assertEqual(evidence[-1]['category'], 'response_read')
+            self.assertEqual(evidence[-1]['exception_class'], 'IncompleteRead')
+            self.assertEqual(evidence[-1]['http_status'], 200)
+            self.assertIsNone(evidence[-1]['response_bytes'])
+            self.assertEqual(evidence[-1]['response_partial_bytes'], len(b'PRIVATE_PARTIAL_BODY_CANARY'))
+            self.assertNotIn('PRIVATE_', json.dumps(evidence))
+            self.assertNotIn('PRIVATE_', str(raised.exception))
+
+    def test_decode_and_incomplete_read_share_one_retry_budget(self):
+        rpc = GuardRPC('https://example.invalid')
+        with patch.object(rpc.opener, 'open', side_effect=[Response(b'<html>'), incomplete_chunk_response(), Response(b'<html>')]) as opener:
             for _ in range(2):
                 with self.assertRaises(GuardReadUnavailable): rpc.call('eth_getBlockByNumber', ['safe', False])
             with self.assertRaises(RedemptionError) as raised: rpc.call('eth_getBlockByNumber', ['safe', False])
@@ -66,20 +112,23 @@ class ResponseEvidenceTests(unittest.TestCase):
             store.note_guard_rpc(digest, 'guard_read', dict(detail, attempt=2))
             self.assertEqual(store.db.execute('SELECT COUNT(*) FROM issuance_rpc_diagnostics').fetchone()[0], 1)
             for change in [dict(detail, body='PRIVATE_BODY_CANARY'), dict(detail, method='PRIVATE_CANARY'),
-                    dict(detail, category='PRIVATE_CANARY'), dict(detail, elapsed_ms=True), dict(detail, response_bytes=65538)]:
+                    dict(detail, category='PRIVATE_CANARY'), dict(detail, elapsed_ms=True), dict(detail, response_bytes=65538),
+                    dict(detail, exception_class='PRIVATE_BODY_CANARY', response_partial_bytes=0),
+                    dict(detail, exception_class='IncompleteRead', response_partial_bytes=65538)]:
                 with self.assertRaises(RedemptionError): store.note_guard_rpc(digest, 'guard_read', change)
             store.close()
 
 
 class OriginalAttemptTests(BaseGuardTests):
-    def exercise(self, always):
+    def exercise(self, always, framing=False):
         fixture = self.rpc; rpc = GuardRPC('https://mainnet.base.org'); reads = []
         class Opener:
             def open(self, request, timeout):
                 value = json.loads(request.data); method, params = value['method'], value['params']
                 if method == 'eth_getBlockByNumber':
                     reads.append(params)
-                    if always or len(reads) == 1: return Response(b'<html>PRIVATE_UPSTREAM_CANARY</html>')
+                    if always or len(reads) == 1:
+                        return incomplete_chunk_response() if framing else Response(b'<html>PRIVATE_UPSTREAM_CANARY</html>')
                 return Response(json.dumps({'jsonrpc':'2.0','id':1,'result':fixture.call(method, params)}).encode())
         rpc.opener = Opener(); self.rpc = rpc
         guard = self.guard(); provider_calls = []
@@ -104,11 +153,13 @@ class OriginalAttemptTests(BaseGuardTests):
             self.assertEqual(store.db.execute('SELECT state FROM coupons').fetchone()[0], 'quarantined' if always else 'delivered')
             evidence = store.db.execute('SELECT * FROM issuance_rpc_diagnostics').fetchone()
             self.assertEqual(evidence['stage'], 'guard_read')
-            self.assertEqual(json.loads(evidence['metadata'])['category'], 'response_decode')
+            self.assertEqual(json.loads(evidence['metadata'])['category'], 'response_read' if framing else 'response_decode')
             self.assertNotIn('PRIVATE_UPSTREAM', str(tuple(evidence)))
             store.close()
         self.assertGreater(len(reads), 1)
 
+    def test_framing_failure_then_safe_one_send_one_provider(self): self.exercise(False, framing=True)
+    def test_framing_budget_quarantines_without_resend_or_provider(self): self.exercise(True, framing=True)
     def test_decode_failure_then_safe_one_send_one_provider(self): self.exercise(False)
     def test_decode_budget_quarantines_without_resend_or_provider(self): self.exercise(True)
 

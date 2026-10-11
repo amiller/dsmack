@@ -4,6 +4,7 @@ RPC is a transaction courier, never the finality authority. No nonce, signed
 transaction, or permission is written to state. A fresh object owns one attempt.
 """
 import hashlib
+import http.client
 import json
 import multiprocessing
 import os
@@ -146,12 +147,12 @@ class GuardRPC:
         self.observer = None
         self.diagnostic_observer = None
         self._attempts = {}
-        self._decode_failures = {}
+        self._response_failures = {}
 
     def call(self, method, params, *, timeout=15):
         started = time.monotonic()
         self._attempts[method] = self._attempts.get(method, 0) + 1
-        status = code = count = None
+        status = code = count = partial_count = exception_class = None
         if self.observer is not None:
             self.observer(method, None)
         request = urllib.request.Request(self.url,
@@ -173,7 +174,7 @@ class GuardRPC:
                     or type(result.get('id')) is not int or result['id'] != 1):
                 raise ValueError()
             if set(result) == {'jsonrpc', 'id', 'result'}:
-                self._decode_failures[method] = 0
+                self._response_failures[method] = 0
                 return result['result']
             error = result.get('error')
             if (set(result) != {'jsonrpc', 'id', 'error'} or type(error) is not dict
@@ -188,6 +189,13 @@ class GuardRPC:
                         and error['message'] == 'transaction indexing is in progress'
                         else 'rpc_error')
             code = error['code']
+        except http.client.IncompleteRead as error:
+            # A truncated/malformed chunk frame is not a JSON envelope. Never
+            # parse or retain its partial body, or repeat an ambiguous send.
+            category = 'response_read'
+            exception_class = 'IncompleteRead'
+            if type(error.partial) is bytes and len(error.partial) <= 65537:
+                partial_count = len(error.partial)
         except GuardResponseRefused as error:
             category = error.category
         except urllib.error.HTTPError as error:
@@ -200,21 +208,22 @@ class GuardRPC:
             category = 'redirect_refused'
         except Exception:
             category = 'invalid_response'
-        if category == 'response_decode':
-            self._decode_failures[method] = self._decode_failures.get(method, 0) + 1
+        if category in ('response_decode', 'response_read'):
+            self._response_failures[method] = self._response_failures.get(method, 0) + 1
         else:
-            self._decode_failures[method] = 0
+            self._response_failures[method] = 0
         if self.diagnostic_observer is not None:
             self.diagnostic_observer({'method': method, 'category': 'response_envelope' if category == 'invalid_response' else category,
                 'http_status': status if type(status) is int and 100 <= status <= 599 else None,
                 'rpc_code': code if type(code) is int and -2147483648 <= code <= 2147483647 else None,
-                'response_bytes': count,
+                'response_bytes': count, 'response_partial_bytes': partial_count,
+                'exception_class': exception_class,
                 'attempt': self._attempts[method],
                 'elapsed_ms': max(0, int((time.monotonic() - started) * 1000))})
         if self.observer is not None:
             self.observer(method, category)
         if method in SAFE_READ_METHODS and (category in ('http_retryable', 'network_unavailable', 'receipt_indexing')
-                or category == 'response_decode' and self._decode_failures[method] <= 2):
+                or category in ('response_decode', 'response_read') and self._response_failures[method] <= 2):
             raise GuardReadUnavailable(category) from None
         refusal = RedemptionError('guard transaction outcome unavailable')
         refusal.category = category  # Static private diagnostic, never raw RPC text.

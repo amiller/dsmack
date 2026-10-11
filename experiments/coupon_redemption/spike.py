@@ -127,9 +127,9 @@ class Store:
                    'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt',
                    'eth_getTransactionCount', 'eth_sendRawTransaction'}
         categories = {'http_retryable', 'http_terminal', 'network_unavailable', 'receipt_indexing',
-                      'rpc_error', 'response_oversized', 'response_decode', 'response_envelope', 'redirect_refused'}
+                      'rpc_error', 'response_oversized', 'response_decode', 'response_read', 'response_envelope', 'redirect_refused'}
         if (stage not in {'guard_entered', 'guard_submit_started', 'guard_submitted', 'guard_read'}
-                or type(detail) is not dict or set(detail) != fields
+                or type(detail) is not dict or set(detail) not in (fields, fields | {'exception_class', 'response_partial_bytes'})
                 or detail['method'] not in methods or detail['category'] not in categories
                 or self.db.execute('SELECT 1 FROM coupons WHERE digest=?', (digest,)).fetchone() is None):
             raise RedemptionError('invalid private RPC diagnostic')
@@ -139,6 +139,15 @@ class Store:
             value = detail[field]
             if not (nullable and value is None) and (type(value) is not int or not low <= value <= high):
                 raise RedemptionError('invalid private RPC diagnostic')
+        if 'exception_class' in detail:
+            klass, partial = detail['exception_class'], detail['response_partial_bytes']
+            if (klass not in (None, 'IncompleteRead')
+                    or not (partial is None or type(partial) is int and 0 <= partial <= 65537)
+                    or (detail['category'] == 'response_read') != (klass == 'IncompleteRead')
+                    or klass is None and partial is not None):
+                raise RedemptionError('invalid private RPC diagnostic')
+        elif detail['category'] == 'response_read':
+            raise RedemptionError('invalid private RPC diagnostic')
         self.db.execute('INSERT INTO issuance_rpc_diagnostics VALUES (?,?,?) '
             'ON CONFLICT(digest) DO UPDATE SET stage=excluded.stage, metadata=excluded.metadata',
             (digest, stage, json.dumps(detail, sort_keys=True, separators=(',', ':'))))

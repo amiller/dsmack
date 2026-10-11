@@ -65,9 +65,26 @@ class MacNearHTTPS(NearHTTPS):
     _worker_target = staticmethod(_near_worker)
 
 
-class RunnerHTTPSHandler(urllib.request.HTTPSHandler):
+class GuardRunnerHTTPS(RunnerHTTPS):
+    def __init__(self, host, port=None, **kwargs):
+        if host not in ('mainnet.base.org', 'mainnet.base.org:443'):
+            raise ValueError('Mac Base-only courier required')
+        super().__init__(host, port, **kwargs)
+
+    def request(self, method, url, body=None, headers=None, *, encode_chunked=False):
+        # urllib forces Connection: close. The admitted Runner path can truncate
+        # chunked bodies when the upstream closes; retain it until body completion.
+        # urllib/HTTPResponse still closes this one local connection afterwards.
+        copied = {key: value for key, value in (headers or {}).items()
+                  if key.lower() != 'connection'}
+        copied['Connection'] = 'keep-alive'
+        return super().request(method, url, body=body, headers=copied,
+                               encode_chunked=encode_chunked)
+
+
+class GuardRunnerHTTPSHandler(urllib.request.HTTPSHandler):
     def https_open(self, request):
-        return self.do_open(RunnerHTTPS, request)
+        return self.do_open(GuardRunnerHTTPS, request)
 
 
 class MacGuardRPC(GuardRPC):
@@ -76,4 +93,4 @@ class MacGuardRPC(GuardRPC):
             raise ValueError('Mac Base-only courier required')
         super().__init__(url)
         self.opener = urllib.request.build_opener(urllib.request.ProxyHandler({}),
-                                                NoRedirect, RunnerHTTPSHandler())
+                                                NoRedirect, GuardRunnerHTTPSHandler())

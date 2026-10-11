@@ -1,0 +1,9 @@
+{
+  "chainId": 31337,
+  "cdhash": "0x89805d18ad08009e3fba1ae787fec6aebe17df590b75e4bd8a0db4b764d19fa6",
+  "registrationTransaction": "0xec9b966978a1112cdd2196c76f6e5d9072092563744a3f602b6658b98949e78d",
+  "repeatedRequestSameTransaction": true,
+  "modifiedPageRejected": true,
+  "rejectedRequestSpentNoSponsorNonce": true,
+  "gasUsed": 602750
+}

@@ -1,0 +1,11 @@
+{
+  "crypto_vectors": {
+    "consentDigest": "0x2df8f1c27b1e058d0efafdd5d5beb887d8c2650c854408996c4d04366d719f32",
+    "handoffDigest": "0xbcecee4309169ca1d70f98d8cf7d90c2497e0deb3d3552fcb572c54c66b39b52",
+    "handoffSignature": "0xeb51641dbfa79915b7a14124ccee55998f6503bff85ca6654579417315c91dd8ed992476a9cb583c307bbe37e5cae5f7877a9c91ea3885e548d7d8df55c0b73f",
+    "publicPoint": "0x046b17d1f2e12c4247f8bce6e563a440f277037d812deb33a0f4a13945d898c2964fe342e2fe1a7f9b8ee7eb4a7c0f9e162bce33576b315ececbb6406837bf51f5",
+    "signature": "0xda5e41a3d690525511fe721d54e519501734e88a01bec4196f01e17e7236d48092653ee0b4d216cd0e50bb7f30225a9e0418feca4179a1ad6b2c019c0acd5136"
+  },
+  "keychain_test": "Personal account Keychain create/reload/sign passed; temporary test entry removed",
+  "scope": "Mac crypto interoperability and signed Keychain persistence; not a live NFT journey"
+}

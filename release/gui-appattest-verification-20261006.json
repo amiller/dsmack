@@ -1,0 +1,18 @@
+{
+  "apple_chain_and_nonce_verified": true,
+  "signed_binary_code_pages_verified": true,
+  "signals": {
+    "validation_category": 6,
+    "bundle_version": null,
+    "cdhash": "d8ee277dc6694f5bafdc366617fd78df34382ffdcb7b3cda75f7bea95c5b59c1",
+    "extension_names": [
+      "apple_cd_hash_hash_01",
+      "apple_cd_hash_type_01",
+      "apple_validation_category_01"
+    ]
+  },
+  "network_enrollment_submitted": true,
+  "historical_replay_time": null,
+  "enrollment_transaction": "0xa2f0b446cdb3dfc384e121133f9161c65cb21811ddf8ee088c072373a288ee4b",
+  "evidence_source": "persistent release seed enrollment; final notarized binary has identical admitted CodeDirectory"
+}

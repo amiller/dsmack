@@ -1,0 +1,17 @@
+{
+  "files": {
+    "Contents/Info.plist": "9294428b350b65a239a3f2193f0f75e3b35db3dc2d96b95369d7801659c13dfe",
+    "Contents/MacOS/node": "56b618d28494cfefb4841261709ccd16a2f45b2a8dc27361d7099483b0f81c1f"
+  },
+  "schema": 1,
+  "scope": "clean source on independent GitHub and Mac mini builders",
+  "toolchain": {
+    "sdk_build": "26A425",
+    "sdk_version": "27.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0\nBuild version 27A266a"
+  },
+  "unsigned_bundle_identical": true,
+  "github_run": "https://github.com/amiller/apple-attest-p2p/actions/runs/37549470397",
+  "source_commit": "ee74923b13f82ea4d66ad4783d5b3a3bfd412a80"
+}

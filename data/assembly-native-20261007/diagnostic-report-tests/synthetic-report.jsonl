@@ -1,0 +1,4 @@
+{"event":"start","rpc":"https:\/\/rpc.example:8545"}
+{"error":"HTTP 403 [redacted] https:\/\/rpc.example:8545 [redacted] [redacted]","event":"retrying"}
+{"error":"upstream echoed [redacted]","event":"diagnostic-fixture","nested":{"groupPublic":"0x04b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8b8"}}
+{"errorChain":[{"code":3,"domain":"com.apple.devicecheck.error"}],"event":"apple operation failed"}

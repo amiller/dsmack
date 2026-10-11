@@ -1,0 +1,33 @@
+{
+  "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+  "code_limit": 164368,
+  "code_slots": {
+    "count": 11,
+    "first": "f0f3c0c8beefcbae1bc7cad994c840c963e6e9ed8738131989037137a2c02c74",
+    "last": "472457424a8553c709cc1c6dc65304d1599325093690a24244a7a2f201e9fe41"
+  },
+  "flags": "0x0",
+  "hash_size": 32,
+  "hash_type": 2,
+  "identifier": "dev.dsmack.provider",
+  "n_code_slots": 11,
+  "n_special_slots": 7,
+  "page_size": 16384,
+  "special_slots": {
+    "-1 Info.plist": "7b8a2b418b6850b4a35acfa0e7beaf276909e75e338372c1e5fcd5ffe3e5b926",
+    "-2 Requirements": "db8bd1265e87899cf294065f3006970fea21180b3f1debd2ed8a7b33a8dbb25c",
+    "-3 ResourceDir": "2b18fb29973972cb71e29ce3c35f71c1a1ef6ece61d6130b1e1415ecde9125ab",
+    "-4 Application": null,
+    "-5 Entitlements": "ca1dcbef4485302627cfd8b627bcf70c37f3d922d7d716b5acf45a4bc64efac8",
+    "-6 RepSpecific": null,
+    "-7 DER-Entitlements": "0067d3a1a33c34294b6ffad9173038cc656d6f42e77a41669ea40cd1123a5255"
+  },
+  "superblob": {
+    "CodeDirectory": "0xfade0c02",
+    "DER-Entitlements": "0xfade7172",
+    "Entitlements": "0xfade7171",
+    "RequirementSet": "0xfade0b01",
+    "Requirements": "0xfade0c01"
+  },
+  "version": "0x20400"
+}

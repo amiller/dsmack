@@ -1,0 +1,17 @@
+{
+  "chainId": 84532,
+  "registry": "0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB",
+  "launch_arguments": [],
+  "automatic_key_receipt_verified": true,
+  "persistent_participant": true,
+  "scope": "two processes on one Mac mini, real Apple App Attest and Base Sepolia over deployed HTTPS relay",
+  "receipt": {
+    "event": "key verified",
+    "groupPublic": "0x04ed293abcb0372211102af2e438a698683ecb473405d8fd5163db87a3e629ed370ca7feaca3d1ec3f8fb86419ea79c68ba1c8dfe8cfc1bab1c8eeea20b3f900c2",
+    "keyEpoch": 0,
+    "receipt": "0x4c155f1b8ddb2ba0b7f32848d0d5bcfa380cef9ba316bd3e2b47fd2a5f0722e8",
+    "scope": "0x0000000000000000000000000000000000000000000000000000000000000000",
+    "senderReceipt": "0x01464edcde9caec6f7809043241803e400d474af5cb72bc1549c01156a75af9c",
+    "t": 1791331542.637567
+  }
+}

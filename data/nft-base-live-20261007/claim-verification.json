@@ -1,0 +1,22 @@
+{
+  "chainId": 84532,
+  "contract": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B",
+  "token": 1,
+  "owner": "0xAc089f563703F8811073C758d6E1E8aAD89C7cCD",
+  "sponsor": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+  "owner_is_sponsor": false,
+  "nextId": 2,
+  "mintTransaction": "0x111c7b5e723dc290df0694c6bcc34c6cf4f1c8b04b321fee52391a08c4b56037",
+  "receiptStatus": 1,
+  "gasUsed": 274082,
+  "blockNumber": 47784781,
+  "elapsedLaunchToClaimSeconds": 48.08173108100891,
+  "restart": {
+    "sameOwner": true,
+    "sameToken": true,
+    "mintSubmitted": false,
+    "nextId": 2,
+    "source": "participant-restart.jsonl",
+    "packagedZip": true
+  }
+}

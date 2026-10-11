@@ -1,0 +1,1 @@
+{"t": 1791307488.1930747, "launched": "a", "variant": "honest", "role": "listen", "config": {"rpc": "https://sepolia.base.org", "registry": "0x0505b620b4557235dBD05ee2cc8D25C52d958fB1", "chainId": 84532, "category": "0x2a8098bcc8f94bfd106e7c7bfd217978220a065354397da995151c75f757a0f2", "relay": "http://127.0.0.1:18556", "name": "a"}}

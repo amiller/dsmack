@@ -1,0 +1,13 @@
+{
+  "size": 128,
+  "spp": 16,
+  "sameHostPixelsIdentical": true,
+  "geometryIdentical": true,
+  "imageSha256": "004eb1f8a9473e6ec5d79f3368beb2a33fabc5af47b0e60b22135ff519723d0f",
+  "scope": "Two separate renderer processes on this host; other toolchains/architectures not verified",
+  "rendererSourceSha256": "b3e174877a6ffa5d651543f4e989049014ee8e9bb74e4fac37fd9190867376c3",
+  "geometryTestsPassed": 4,
+  "sampleIdentitiesChecked": 8,
+  "synchronousWriteFixPreservesPixels": true,
+  "publishedRendererSourceSha256": "39d8dd08c65dd0212a8487f1fd18c6fa8650323ae7c2ef40754bb07830b9c309"
+}

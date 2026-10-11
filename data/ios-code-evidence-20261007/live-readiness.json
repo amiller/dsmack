@@ -1,0 +1,53 @@
+{
+  "checkedAt": "2026-10-07T21:59:28.306434+00:00",
+  "block": 47821039,
+  "chainId": 84532,
+  "readOnly": true,
+  "networkPaused": false,
+  "macCategory": [
+    "0x46b425674d361a5E2A0ec5F486A6c1FA5aE012BB",
+    "0x82d05a6fbfeeb7fbed9e04482adaad4ce9a72b2201d3bfa3af41b12d99ca9c40",
+    "0x6170706c652d6d61636f73000000000000000000000000000000000000000000",
+    "0xc174ab4dce6dd90bfa1e579e2e691e98ba6b06d88426c7776930b48da5d51f6f",
+    true,
+    true
+  ],
+  "macBuildId": "0xbbc2665689f1666bb03226d9f1fa38b58280d55f43b6f5e8db5bdd40dcd99cd4",
+  "iosCategory": [
+    "0x20396C92906A7B0A75DB5141e9E412bcc41b2b26",
+    "0x0014b6f7ea7a9d0ac1d379667d3b13ceed73c2d7da23b2431befd22332b7013c",
+    "0x6170706c652d696f732d74657374666c69676874000000000000000000000000",
+    "0x0c18822bf974bf34e481cce67695b9696d6881c529342adb8a36b869d77e5e97",
+    true,
+    false
+  ],
+  "iosBuildId": "0x0000000000000000000000000000000000000000000000000000000000000000",
+  "build5LocalExportCdhash": "0xc581c360d17784c8c62192bb8a355878a9c69ed2c2beac3677e177bd0548c4c2",
+  "build5ContractMeasurement": [
+    [
+      "0x244cd01a938151097c5ba257850a6a334b795c1d92b3f23b1bc1d3c666834580",
+      "0x88ccac45a42ae394ed4b486a8a33e55bfbf229117b206d8218b942d5f17982b5",
+      "0xeb19d571d7db237826b4af9eecfc0bda6b4ad000b289aa76c8bb6987bd8c6976",
+      "0x942e08484f34a959951c5f53411e982c42e00bd668f5e75f7beb79afe4e0c41d",
+      457216,
+      2720,
+      5168
+    ],
+    "0x90a07dc69293aa64c279caed89cfebd3fde0ad92b510f752ed45ba829157fff6"
+  ],
+  "scope": "eth_call validates local build 5 export format against deployed iPhone registry; no admission, installed TestFlight measurement or Apple attestation proven",
+  "nftRelay": {
+    "httpStatus": 200,
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61"
+  },
+  "iosRelay": {
+    "httpStatus": 200,
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61"
+  },
+  "friendLevel1Recheck": {
+    "passed": true,
+    "receiptRecord": "release/friend-level1-receipt.json",
+    "recordUnchanged": true,
+    "nextId": 3
+  }
+}

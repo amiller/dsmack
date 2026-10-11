@@ -1,0 +1,17 @@
+[
+  "xcodebuild",
+  "-project",
+  "/Users/amiller/agent-drop/iphone-friend-flow/build/ios-upgrade-consent-validation-v2/node/ios/AttestNode.xcodeproj",
+  "-scheme",
+  "AttestNode",
+  "-configuration",
+  "Debug",
+  "-destination",
+  "platform=iOS Simulator,id=94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+  "-derivedDataPath",
+  "/Users/amiller/agent-drop/iphone-friend-flow/build/ios-upgrade-consent-validation-v2/derived",
+  "-resultBundlePath",
+  "/Users/amiller/agent-drop/iphone-friend-flow/build/ios-upgrade-consent-validation-v2/ui.xcresult",
+  "CODE_SIGNING_ALLOWED=NO",
+  "test"
+]

@@ -1,0 +1,18 @@
+{
+  "sourceRevision": "70d43ab",
+  "bundleId": "dev.dsmack.provider",
+  "version": "0.1.0",
+  "build": "4",
+  "team": "DC9JH5DRMY",
+  "archive": "mini-mesh:~/agent-drop/iphone-friend-flow/build/AttestNode-iOS27-upgrade.xcarchive",
+  "uploadExitCode": 0,
+  "uploadSucceeded": true,
+  "lastObservedAppleState": "Uploaded package is processing",
+  "uploadLogTimestamp": "2026-10-07 13:57:17.515 (Mac local log time)",
+  "submittedVersionEvidence": "Structured cfBundleVersion and cfBundleShortVersionString parsed from ContentDelivery.log JSON",
+  "nonExemptEncryption": false,
+  "externalDistributionVerified": false,
+  "installedBuildVerified": false,
+  "iosAdmissionEnabled": false,
+  "scope": "Successful upload of upgrade UI candidate; processing completion, tester assignment and installed-code admission are unverified"
+}

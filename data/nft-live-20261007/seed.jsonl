@@ -1,0 +1,13 @@
+{"event":"connecting","t":1791334522.531538}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18585","t":1791334522.643235,"variant":"honest"}
+{"event":"attesting","t":1791334522.646251}
+{"event":"enrolled","keyId":"0x1b366fbd914df360e1dd9e4aba050e8d6a102eb7b41810ef99ce8af01c4067e2","member":"0xeead9990546b295da8adc31ce0e4e66686b2f29865f60b99db1f760066bcadcf","sessionPublic":"0x044cf9eecd9bdbdc61ba473ae44dca4301e4da9601785a9e241f4f4054305a94d8fd4ae86d69735754302d8736d62f8436e11c29eb070fb02efafad6e363b5c264","t":1791334527.0056829,"tx":"0x4d9c38d3635d00370cd8020e33d8e5fa9d122cdc2ef29efaeff6058a03956c70"}
+{"action":2,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334528.267051,"tx":"0x4c9d58fe8eec746e06aea35d0236b84b6bf70832e8666222d989f25e6916164e"}
+{"event":"seed ready","keyEpoch":0,"t":1791334528.267324}
+{"event":"network reachable","t":1791334528.4024429}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334545.893337,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334547.1728492,"tx":"0x53f1e86ad3bb0a3e2fb438f11ac938ceba56ff0f0b1950ed0ee4f712c3aa62c0"}
+{"event":"sent","t":1791334547.192179,"to":"77bedd75-7c89-4955-aee5-920500b492b0","type":"PARCEL"}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334549.2550869,"type":"PROOF"}
+{"event":"peer holds group key","peer":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334549.268703}
+{"event":"network reachable","t":1791334564.763994}

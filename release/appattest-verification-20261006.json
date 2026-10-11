@@ -1,0 +1,15 @@
+{
+  "apple_chain_and_nonce_verified": true,
+  "signed_binary_code_pages_verified": true,
+  "signals": {
+    "validation_category": 3,
+    "bundle_version": null,
+    "cdhash": "130f3dfd74daf2e6af5b6f76fa6931cc814dd67eeeb86422affc289de2729fbf",
+    "extension_names": [
+      "apple_cd_hash_hash_01",
+      "apple_cd_hash_type_01",
+      "apple_validation_category_01"
+    ]
+  },
+  "network_enrollment_submitted": false
+}

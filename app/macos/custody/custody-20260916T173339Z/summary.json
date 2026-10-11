@@ -1,0 +1,49 @@
+{
+  "authority_public_key": "BAoRBZrFRPT7xEBnILs6lsyIy1j6wsiYS+z5oX9RVsSo4yUJc0mfFEFdWFC05IgJnP9p8t/0wPvBwH2x7WW/HnM=",
+  "category_public_key": "BOwR3yN31IphRfdwbPgtu3srywcgLml/YQGKbUm3VNqZDWz3kah09gZ+m3RKIOkWVoDbqxwgUiBVpGev7JZZQK0=",
+  "decisions": [
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "6eb14fcb6dd55c6dbc8c618a54b540a3cb7397087486c99323ce796ac358854f",
+      "step": "persist-store"
+    },
+    {
+      "admission": false,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "e808adf81b2eccd49a3668ac764a368d1298928cc8c28e3fad7020164513e55b",
+      "step": "persist-replaced"
+    },
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "211221eb2a4f50d55768a6d60e8478bc058974a5f0d410a31ec60ea04fc6fca3",
+      "step": "volatile-first"
+    },
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "211221eb2a4f50d55768a6d60e8478bc058974a5f0d410a31ec60ea04fc6fca3",
+      "step": "volatile-restart"
+    },
+    {
+      "admission": false,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "cf20e2fe4e5749dd3db899cb2967b87a30e315fdb5230be79f3e1253c53b1792",
+      "step": "volatile-modified"
+    }
+  ],
+  "fresh_checkin_restores_same_category_key": true,
+  "limitations": [
+    "single Mac and same signing credential",
+    "no OS/kernel, swap, hibernation or core-dump attack",
+    "Python coordinator is a trusted test authority, not a TEE peer or smart contract",
+    "old delivery fails under fresh session/key; no general forensic erasure claim"
+  ],
+  "modified_restart_denied_release": true,
+  "persistent_replacement_can_use_key": true,
+  "persistent_test_keychain_account": "custody-test-eae61997c1ecb4f3e7c491ad",
+  "raw_category_key_found_in_outputs": false,
+  "run": "custody-20260916T173339Z",
+  "volatile_restart_stale_delivery_rejected": true
+}

@@ -1,0 +1,20 @@
+{
+  "ipaSHA256": "3ab85739300d83f77fbc21d9f1526ab95bd53ae6fa1a2745e9aed5c8b5bd1ca2",
+  "executableSHA256": "3d70e34a4b54adec67317176e980ceda756a896c72d839d1630ee3369eb0b05c",
+  "codeDirectory": [
+    "CandidateCDHashFull sha256=8e9240a60b761423a33a38179b54ea8d25df4f7c1dfa29a82c28a4397590459b"
+  ],
+  "bundleId": "dev.dsmack.provider",
+  "minimumOS": "27.0",
+  "version": "0.1.0",
+  "build": "3",
+  "strictSignatureVerified": true,
+  "appAttestEnvironment": "production",
+  "appAttestOptIn": [
+    "CDhash"
+  ],
+  "networkConfigSHA256": "6bf7f2bcd80d9c0ed25cace9c4f8804281338fa4ac1856571bbae03970d881aa",
+  "simulatorSelectorPresent": false,
+  "uploaded": false,
+  "scope": "Configured local App Store export; category disabled, installed TestFlight measurement pending"
+}

@@ -1,0 +1,24 @@
+{
+  "baseRevision": "d490215bb903bf982d87411045661b0d038fa2af",
+  "sourceFilesSHA256": {
+    "node/shared/Upgrade.swift": "8fe8e84af0ff0ac8660cf72b2f501095099f1026289028ad63f163d135482b71",
+    "node/shared/PersonalAccount.swift": "f980f88d8207d7431b98a36ae5b8fef9c30687390e33bcbc00c5b1d2bc4a1740",
+    "node/shared/Chain.swift": "108737ad299ec9de924fd4df5fc725795597c33c468effc245d102621fae0922",
+    "node/shared/Protocol.swift": "73abe9f77d3a43bdc19abc8a31e059175fa4c3575b6092ad75ca0128faf720dd",
+    "node/shared/NativeAttestation.swift": "af13ea7a586d40728e37fa4a2d02e9192a6ea0649d21c1f7d22bdecb2866bae2",
+    "node/shared/Node.swift": "8a9149ed66c7872996e1f72e26681099ee96de0c8376bf802c2c5b0027f42558",
+    "node/shared/BadgeClaim.swift": "4bf99b887829702a383378abf3c064409ce0ea61d353f51180dcdadb00fdd7ca",
+    "node/ios/NodeApp.swift": "b691d8d90a78130c76442de012fb48ec2aa10affcbf1dcd783b52882b1b8c785",
+    "node/ios/NodeUITests.swift": "5b0073e6c837a125d8be57adf5a05bc2854d90e104af2612d4c63838c03b224b",
+    "node/mac/NetworkConfig.swift": "1cdd62f770caca38dd50802b2e2c45ac4b265d54713f53d0c3d89401db08f22e",
+    "scripts/release/make_node_project.py": "4aed189d9f0cec4d574aa45c91d185267ae8ecb4efcbbf33909824745b952891",
+    "scripts/release/test_ios_simulator.py": "ef2dc72897602cc689042af9ceb88d45f527232c1cde03c3b927ca295abaecbb"
+  },
+  "deviceArchive": {
+    "minimumOS": "27.0",
+    "executableSHA256": "68b9ab32b13bf196d0a3b11dd27c7b2237be35b6a06bf169c5a9261a652dbf42",
+    "signed": false,
+    "simulatorFixtureSelectorPresent": false
+  },
+  "scope": "UI scenarios and injected callbacks; no iPhone hardware attestation or NFT mint"
+}

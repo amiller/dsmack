@@ -1,0 +1,13 @@
+{"event":"connecting","t":1791334753.270828}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18585","t":1791334753.3199229,"variant":"honest"}
+{"event":"attesting","t":1791334753.3217978}
+{"event":"identity resumed","expires":1791507323,"member":"0xeead9990546b295da8adc31ce0e4e66686b2f29865f60b99db1f760066bcadcf","t":1791334753.349999}
+{"action":2,"event":"executed","keyEpoch":1,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334754.554435,"tx":"0x665b8b1261cbb9df0f726ca4571af4695218f9489e5c44d8d8371ed27a59ce98"}
+{"event":"seed ready","keyEpoch":1,"t":1791334754.5546319}
+{"event":"network reachable","t":1791334754.5856509}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334766.396668,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":1,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334767.675411,"tx":"0x75161e1d3812b37d7390ebefc0e21df062d6ed8a328d9d4ca44a670b1456fd33"}
+{"event":"sent","t":1791334767.6999979,"to":"77bedd75-7c89-4955-aee5-920500b492b0","type":"PARCEL"}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334769.7712579,"type":"PROOF"}
+{"event":"peer holds group key","peer":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791334769.7809091}
+{"event":"network reachable","t":1791334785.160634}

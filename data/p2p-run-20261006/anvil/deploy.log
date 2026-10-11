@@ -1,0 +1,37 @@
+Warning: This is a nightly build of Foundry. It is recommended to use the latest stable version. To mute this warning set `FOUNDRY_DISABLE_NIGHTLY_WARNING` in your environment. 
+
+No files changed, compilation skipped
+Script ran successfully.
+
+== Return ==
+demo: contract DemoV1 0x0165878A594ca255338adfa4d48449f69242Eb8F
+ios: contract AppleAttestRegistryV1 0xa513E6E4b8f2a923D98304ec87F64353C4D5C853
+mac: contract AppleAttestRegistryV1 0x610178dA211FEF7D417bC0e6FeD39F05609AD788
+
+== Logs ==
+  network/deploy-anvil.json
+  {"AdapterArtifact":"out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json","CDRegistryArtifact":"out/CDRegistry.sol/CDRegistry.json","DemoTokenV1":"0x3B02fF1e626Ed7a8fd6eC5299e2C54e1421B626B","DemoV1":"0x0165878A594ca255338adfa4d48449f69242Eb8F","DemoV1Artifact":"out/DemoV1.sol/DemoV1.json","MembershipReceiptV1":"0xBA12646CC07ADBe43F8bD25D83FB628D29C8A762","admin":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","iosAdapter":"0xa513E6E4b8f2a923D98304ec87F64353C4D5C853","iosCDRegistry":"0x5FbDB2315678afecb367f032d93F642f64180aa3","iosCategory":"0x34e67816a8b7b6ed4854ea2dcfd5a690ffe42f4cbfa0198cdcd6a873117b0729","macAdapter":"0x610178dA211FEF7D417bC0e6FeD39F05609AD788","macCDRegistry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","macCategory":"0xf01b2a7826eb209c5735d7d233d4e232f75dda417e910b13b4dd3de2efab4725"}
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 31337
+
+Estimated gas price: 2.000000001 gwei
+
+Estimated total gas used for script: 33664618
+
+Estimated amount required: 0.067329236033664618 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+
+Transactions saved to: /home/amiller/projects/apple-attest-p2p/contracts/broadcast/Network.s.sol/31337/run-latest.json
+
+Sensitive values saved to: /home/amiller/projects/apple-attest-p2p/contracts/cache/Network.s.sol/31337/run-latest.json
+

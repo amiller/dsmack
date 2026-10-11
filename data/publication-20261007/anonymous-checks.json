@@ -1,0 +1,26 @@
+{
+  "repo": {
+    "status": 200,
+    "bytes": 5354,
+    "private": false
+  },
+  "builderGuide": {
+    "status": 200,
+    "bytes": 5938
+  },
+  "prd": {
+    "status": 200,
+    "bytes": 11147
+  },
+  "macApp": {
+    "status": 200,
+    "bytes": 192063,
+    "sha256": "145cd977390c0c01be006c2a056a1890449cbf26c7e6d0a24820f11de1ad3b25"
+  },
+  "privateHistory": {
+    "unauthenticatedStatus": 404
+  },
+  "removedProfile": {
+    "unauthenticatedStatus": 404
+  }
+}

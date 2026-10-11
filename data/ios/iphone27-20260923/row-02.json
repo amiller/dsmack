@@ -1,0 +1,12 @@
+{
+ "row": 2,
+ "evidence": "assertion",
+ "key": "A",
+ "running_build": "honest",
+ "timestamp": 1790207863.129555,
+ "challenge_id": "10ddc9a532277579f2b18769727858ccf84f005fb5438931",
+ "challenge": "b+9Rnp5LDntgaJlxx+ukjtwVlmHn1lVViXLj/jvmBjY=",
+ "key_id": "q0X0StnNN9JfoBrCwiVeEPKbRp9YI6YKK1GIKt3XbwE=",
+ "assertion": "omlzaWduYXR1cmVYRzBFAiEAr59/tKuQyzqskxe42JvNDiFO8icuiYd/+6cgT6riDPoCIBwbWDygwdSEik7SWDKVX7VjkACnrTofOzcOXoHRWnCpcWF1dGhlbnRpY2F0b3JEYXRhWLOQoH3GkpOqZMJ5yu2Jz+vT/eCtkrUQ91LtRbqCkVf/9sAAAAABpHVhcHBsZV9jZF9oYXNoX2hhc2hfMDFYIFOVvzns3tR6uATreLf4eMJGuqSGDKMsrRxj7UaHg7WRdWFwcGxlX2NkX2hhc2hfdHlwZV8wMUECd2FwcGxlX2J1bmRsZV92ZXJzaW9uXzAxYTF4HGFwcGxlX3ZhbGlkYXRpb25fY2F0ZWdvcnlfMDFEBQAAAA==",
+ "client_data": "eyJjaGFsbGVuZ2UiOiJiKzlSbnA1TERudGdhSmx4eCt1a2p0d1ZsbUhuMWxWVmlYTGpcL2p2bUJqWT0iLCJjaGFsbGVuZ2VfaWQiOiIxMGRkYzlhNTMyMjc3NTc5ZjJiMTg3Njk3Mjc4NThjY2Y4NGYwMDVmYjU0Mzg5MzEiLCJpbnB1dCI6Miwia2V5X2lkIjoicTBYMFN0bk5OOUpmb0JyQ3dpVmVFUEtiUnA5WUk2WUtLMUdJS3QzWGJ3RT0iLCJvcGVyYXRpb24iOiJkb3VibGUiLCJvdXRwdXQiOjQsInByb3RvY29sIjoiaW9zLWFwcC1hdHRlc3Qtc29rXC92MSJ9"
+}

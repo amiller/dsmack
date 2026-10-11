@@ -1,0 +1,42 @@
+{"chainId":31337,"event":"configured","network":"Apple peer testnet","participant":"gui-participant","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","t":1791330469.3668299}
+{"event":"connecting","t":1791330469.3675351}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18575","t":1791330469.409163,"variant":"honest"}
+{"event":"attesting","t":1791330469.4097891}
+{"event":"identity resumed","expires":1791502691,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330469.43221}
+{"event":"getting key","t":1791330469.4471159}
+{"action":0,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330470.5952101,"tx":"0x50ccc04717990b7af9b6a667b3d3d9e2c9457fd52d89508f31b75e12fffc5221"}
+{"event":"sent","t":1791330470.6311522,"to":"gui-seed","type":"HELLO"}
+{"event":"received","from":"gui-seed","t":1791330472.5523591,"type":"PARCEL"}
+{"action":3,"event":"executed","keyEpoch":3,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330474.3646641,"tx":"0x9a64e8bdaff21851361153d8a71264d542d39633e2fa576242aece8ee4f8d2ce"}
+{"event":"key verified","groupPublic":"0x0434271a380504523e6e4155a73aa0fd23b3e5cb9a73be646a31da6f7d5f732ed9203c8fd1509c0cf4eaae37ff990607011d316ab86e72cb699a6d7fa0f91b43c2","keyEpoch":3,"receipt":"0x9a64e8bdaff21851361153d8a71264d542d39633e2fa576242aece8ee4f8d2ce","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","senderReceipt":"0x6bc712087a075e3ac20f13a9b282c524928eac81583b79e93ba48bb8ced07255","t":1791330474.36607}
+{"event":"imported group key","groupPublic":"0x0434271a380504523e6e4155a73aa0fd23b3e5cb9a73be646a31da6f7d5f732ed9203c8fd1509c0cf4eaae37ff990607011d316ab86e72cb699a6d7fa0f91b43c2","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330474.418118}
+{"event":"sent","t":1791330474.484823,"to":"gui-seed","type":"PROOF"}
+{"event":"participating","keyEpoch":3,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330474.4882479}
+{"event":"network reachable","t":1791330474.6456709}
+{"event":"network reachable","t":1791330504.9188662}
+{"event":"network reachable","t":1791330535.3799429}
+{"event":"received","from":"gui-third-peer","t":1791330538.5040741,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":3,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330539.7799768,"tx":"0x2f2aa68b58c97bc9f788effd1f1ddb588faa1a0106bd20dfaa8f289325d928ac"}
+{"event":"sent","t":1791330539.8201361,"to":"gui-third-peer","type":"PARCEL"}
+{"event":"received","from":"gui-third-peer","t":1791330541.663723,"type":"PROOF"}
+{"event":"peer holds group key","peer":"gui-third-peer","t":1791330541.675688}
+{"event":"network reachable","t":1791330572.3085999}
+{"error":"Error Domain=NSURLErrorDomain Code=-1005 \"The network connection was lost.\" UserInfo={_kCFStreamErrorCodeKey=-4, NSUnderlyingError=0x75c30fdfb0 {Error Domain=kCFErrorDomainCFNetwork Code=-1005 \"(null)\" UserInfo={NSErrorPeerAddressKey=<CFData 0x75c3080000 [0x1fd9c6f70]>{length = 16, capacity = 16, bytes = 0x100248917f0000010000000000000000}, _kCFStreamErrorCodeKey=-4, _kCFStreamErrorDomainKey=4}}, _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <37283D6A-5CDA-40C7-ADC0-6DC89A526581>.<211>, _NSURLErrorRelatedURLSessionTaskErrorKey=(\n    \"LocalDataTask <37283D6A-5CDA-40C7-ADC0-6DC89A526581>.<211>\"\n), NSLocalizedDescription=The network connection was lost., NSErrorFailingURLStringKey=http:\/\/127.0.0.1:18577\/recv\/gui-participant, NSErrorFailingURLKey=http:\/\/127.0.0.1:18577\/recv\/gui-participant, _kCFStreamErrorDomainKey=4}","event":"retrying","retryAfterSeconds":2,"t":1791330576.4238172}
+{"event":"connecting","t":1791330578.533762}
+{"error":"Error Domain=NSURLErrorDomain Code=-1005 \"The network connection was lost.\" UserInfo={_kCFStreamErrorCodeKey=-4, NSUnderlyingError=0x75c30fc870 {Error Domain=kCFErrorDomainCFNetwork Code=-1005 \"(null)\" UserInfo={NSErrorPeerAddressKey=<CFData 0x75c30803c0 [0x1fd9c6f70]>{length = 16, capacity = 16, bytes = 0x100248917f0000010000000000000000}, _kCFStreamErrorCodeKey=-4, _kCFStreamErrorDomainKey=4}}, _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <4DE6DE04-DA95-4C78-90D9-44989CE01B9C>.<213>, _NSURLErrorRelatedURLSessionTaskErrorKey=(\n    \"LocalDataTask <4DE6DE04-DA95-4C78-90D9-44989CE01B9C>.<213>\"\n), NSLocalizedDescription=The network connection was lost., NSErrorFailingURLStringKey=http:\/\/127.0.0.1:18577\/info, NSErrorFailingURLKey=http:\/\/127.0.0.1:18577\/info, _kCFStreamErrorDomainKey=4}","event":"retrying","retryAfterSeconds":4,"t":1791330578.6603169}
+{"event":"connecting","t":1791330582.8038721}
+{"error":"Error Domain=NSURLErrorDomain Code=-1005 \"The network connection was lost.\" UserInfo={_kCFStreamErrorCodeKey=-4, NSUnderlyingError=0x75c30ff300 {Error Domain=kCFErrorDomainCFNetwork Code=-1005 \"(null)\" UserInfo={NSErrorPeerAddressKey=<CFData 0x75c30804b0 [0x1fd9c6f70]>{length = 16, capacity = 16, bytes = 0x100248917f0000010000000000000000}, _kCFStreamErrorCodeKey=-4, _kCFStreamErrorDomainKey=4}}, _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <1017314C-AF86-4D30-870B-51B5B23848BB>.<215>, _NSURLErrorRelatedURLSessionTaskErrorKey=(\n    \"LocalDataTask <1017314C-AF86-4D30-870B-51B5B23848BB>.<215>\"\n), NSLocalizedDescription=The network connection was lost., NSErrorFailingURLStringKey=http:\/\/127.0.0.1:18577\/info, NSErrorFailingURLKey=http:\/\/127.0.0.1:18577\/info, _kCFStreamErrorDomainKey=4}","event":"retrying","retryAfterSeconds":8,"t":1791330582.8564181}
+{"event":"connecting","t":1791330590.9774771}
+{"error":"Error Domain=NSURLErrorDomain Code=-1005 \"The network connection was lost.\" UserInfo={_kCFStreamErrorCodeKey=-4, NSUnderlyingError=0x75c30fd710 {Error Domain=kCFErrorDomainCFNetwork Code=-1005 \"(null)\" UserInfo={NSErrorPeerAddressKey=<CFData 0x75c3080500 [0x1fd9c6f70]>{length = 16, capacity = 16, bytes = 0x100248917f0000010000000000000000}, _kCFStreamErrorCodeKey=-4, _kCFStreamErrorDomainKey=4}}, _NSURLErrorFailingURLSessionTaskErrorKey=LocalDataTask <4DFEA076-F4D8-4240-9F97-752AD1591EB5>.<217>, _NSURLErrorRelatedURLSessionTaskErrorKey=(\n    \"LocalDataTask <4DFEA076-F4D8-4240-9F97-752AD1591EB5>.<217>\"\n), NSLocalizedDescription=The network connection was lost., NSErrorFailingURLStringKey=http:\/\/127.0.0.1:18577\/info, NSErrorFailingURLKey=http:\/\/127.0.0.1:18577\/info, _kCFStreamErrorDomainKey=4}","event":"retrying","retryAfterSeconds":16,"t":1791330591.0234871}
+{"event":"connecting","t":1791330607.1259279}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18575","t":1791330607.155103,"variant":"honest"}
+{"event":"attesting","t":1791330607.1562891}
+{"event":"identity resumed","expires":1791502691,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330607.17994}
+{"action":0,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330608.4215441,"tx":"0xc863599872596668ffdd1dc4d76dfea33a0eb26b318d55f972614433cba006fd"}
+{"event":"participating","keyEpoch":3,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330608.421833}
+{"event":"network reachable","t":1791330608.4574161}
+{"event":"network reachable","t":1791330639.1829929}
+{"event":"network reachable","t":1791330670.0677099}
+{"event":"network reachable","t":1791330700.758955}
+{"event":"network reachable","t":1791330731.4379091}
+{"event":"network reachable","t":1791330761.9329782}

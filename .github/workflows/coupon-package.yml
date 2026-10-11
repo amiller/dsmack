@@ -1,0 +1,28 @@
+name: Synthetic coupon node package
+on:
+  workflow_dispatch:
+    inputs:
+      paired_source_url:
+        description: Approved HTTPS URL of the allowlisted Abalone 0737ed57 source archive (no credentials)
+        required: true
+        type: string
+permissions:
+  contents: read
+jobs:
+  package:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Fetch explicitly approved paired source without repository credentials
+        env:
+          PAIRED_SOURCE_URL: ${{ inputs.paired_source_url }}
+        run: |
+          mkdir -p local-data
+          case "$PAIRED_SOURCE_URL" in https://*) ;; *) echo 'HTTPS source URL required'; exit 1 ;; esac
+          curl --fail --location --proto '=https' --proto-redir '=https' --max-time 60 --max-filesize 2000000 "$PAIRED_SOURCE_URL" -o local-data/paired.tar.gz
+          python3 tools/coupon_pair_archive.py local-data/paired.tar.gz local-data/paired
+      - name: Reproducible source and isolated actual-package smoke
+        run: bash tools/coupon_ci.sh "$PWD/local-data/paired"

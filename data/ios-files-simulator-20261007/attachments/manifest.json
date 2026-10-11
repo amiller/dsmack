@@ -1,0 +1,35 @@
+[
+  {
+    "attachments": [
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName": "AttestNode-Friend-Flow",
+        "exportedFileName": "B74598C8-E6B1-4B2D-BCE3-0AA431B74D8F.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "SIMULATED-invitation-reimport-picker_0_8ACBFB15-42FC-43EE-B757-2A81ED759A24.png",
+        "timestamp": 1791406945.671
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName": "AttestNode-Friend-Flow",
+        "exportedFileName": "B8827C68-2928-4432-BADF-2FD91A8F2EBE.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "SIMULATED-invitation-export-readback_0_1A119E72-9BD9-4908-8E65-A00256AAE1D3.png",
+        "timestamp": 1791406943.623
+      },
+      {
+        "configurationName": "Test Scheme Action",
+        "deviceId": "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName": "AttestNode-Friend-Flow",
+        "exportedFileName": "7A7F9397-96F0-49EC-979C-E8EDB1626F65.png",
+        "isAssociatedWithFailure": false,
+        "suggestedHumanReadableName": "SIMULATED-invitation-export-picker_0_1716816A-0EB3-4488-9AC1-70C5F2CF2085.png",
+        "timestamp": 1791406939.485
+      }
+    ],
+    "testIdentifier": "NodeUITests/testUpgradeInvitationExport()",
+    "testIdentifierURL": "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUpgradeInvitationExport"
+  }
+]

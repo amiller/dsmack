@@ -1,0 +1,22 @@
+{
+  "chainId": 84532,
+  "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+  "codeRegistry": "0x9e513E19fCE48563c89E91C4ca571b1B089484a4",
+  "cdhash": "0x219d24c18c8fc7c7e46cb3c1fdd0f746e60831d49b93890ffe715d28583248fa",
+  "transactions": [
+    {
+      "action": "set final signed release baseline",
+      "hash": "0x4883bd0635a48a2f1f0807d8221f79e8eaeba8e3fcd16e83e8b166d636a8a905",
+      "nonce": 26,
+      "status": "confirmed"
+    },
+    {
+      "action": "register final signed release",
+      "hash": "0xd38df40e94291189ca6be5bde63fa4d86746451674e1edb3d5ca3df31f201be5",
+      "nonce": 27,
+      "status": "confirmed"
+    }
+  ],
+  "admitted": true,
+  "paused": true
+}

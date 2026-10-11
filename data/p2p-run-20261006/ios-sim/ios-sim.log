@@ -1,0 +1,4 @@
+{"error":"Error Domain=com.apple.devicecheck.error Code=1 \"(null)\"","event":"generateKey","keyId":"nil"}
+{"appAttestSupported":false,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0x0165878A594ca255338adfa4d48449f69242Eb8F","rpc":"http:\/\/127.0.0.1:18555","variant":"honest"}
+{"error":"invalid(\"App Attest unsupported\")","event":"error"}
+dev.dsmack.provider: 59026

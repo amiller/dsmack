@@ -1,0 +1,17 @@
+{
+  "version": "v0.1.0-rc.1",
+  "platform": "macOS 27 Apple Silicon",
+  "source_build_commit": "ee74923b13f82ea4d66ad4783d5b3a3bfd412a80",
+  "unsigned_executable_sha256": "56b618d28494cfefb4841261709ccd16a2f45b2a8dc27361d7099483b0f81c1f",
+  "signed_executable_sha256": "a50eb03fc8ac511365ede18db311182108d70d7651a018836859db9a3fd22c07",
+  "zip_sha256": "fdf555e412cc39f03a50cfb9a81974f7d404094d29a7e841d759976e39341530",
+  "cdhash": "d8ee277dc6694f5bafdc366617fd78df34382ffdcb7b3cda75f7bea95c5b59c1",
+  "notarized": true,
+  "stapler_validated": true,
+  "clean_mac_gatekeeper_test": "pending; builder Gatekeeper disabled",
+  "network": "Base Sepolia",
+  "registry": "0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB",
+  "relay": "https://pod.dstack.soc1024.com/apple-attest-p2p-relay",
+  "live_zero_setup_test": "passed, two processes on one Mac",
+  "testflight": "not yet distributed"
+}

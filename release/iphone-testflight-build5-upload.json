@@ -1,0 +1,20 @@
+{
+  "sourceRevision": "42a0beba0e650c118332472399443877e2f730d0",
+  "bundleId": "dev.dsmack.provider",
+  "version": "0.1.0",
+  "build": "5",
+  "team": "DC9JH5DRMY",
+  "archive": "mini-mesh:~/agent-drop/iphone-friend-flow/build/AttestNode-iOS27-build5.xcarchive",
+  "uploadExitCode": 0,
+  "uploadSucceeded": true,
+  "lastObservedAppleState": "Uploaded package is processing",
+  "nonExemptEncryption": false,
+  "externalDistributionVerified": false,
+  "installedBuildVerified": false,
+  "iosAdmissionEnabled": false,
+  "scope": "Uploaded diagnostic candidate; processing completion, tester assignment and installed-code admission unverified",
+  "uploadStatusLines": [
+    "2026-10-07 14:57:04.869 xcodebuild[5424:24271396] Progress 100%: Uploaded package is processing.",
+    "Uploaded AttestNode"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "chainId": 31337,
+  "isolatedAnvil": true,
+  "macStillActive": true,
+  "macBuildStillAdmitted": true,
+  "iosDisabled": true,
+  "iosBaselineEmpty": true,
+  "iosValidationCategory": 2,
+  "inactiveExecutionRejected": true,
+  "badgePolicyBound": true,
+  "repeatInvocationRefusedWithoutTransactions": true,
+  "liveDeploymentChanged": false
+}

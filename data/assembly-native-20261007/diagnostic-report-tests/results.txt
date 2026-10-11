@@ -1,0 +1,5 @@
+PASS RPC origin retained; URL credentials, path and query values removed
+PASS credential echoes and nested private-key field removed
+PASS public key and Apple domain/code preserved; four valid JSONL records
+PASS exported report file roundtrip
+Scope: actual production exporter with injected synthetic events; no save-picker automation or live credential access.

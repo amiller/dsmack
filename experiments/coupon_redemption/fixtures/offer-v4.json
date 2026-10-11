@@ -1,0 +1,37 @@
+{
+  "mode": "synthetic-contract-vector",
+  "coupon": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "offer": {
+    "version": 4,
+    "coupon_digest": "0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a",
+    "issuer": {
+      "peer_id": "IssuerPeer00000001",
+      "policy": "dstack-tdx-coupon-v1",
+      "identity_policy_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "issuance_policy_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "issuer_public_key_sha256": "3097e2dee2cb4a34b53840cdb705aed71067c36f68db0e0f559c3f3fa043315f"
+    },
+    "provider": {
+      "id": "synthetic-near",
+      "scope_commitment": "abababababababababababababababababababababababababababababababab"
+    },
+    "delivery_profile": "x25519-aesgcm-session-only",
+    "budget_nano_usd": "9223372036854775807",
+    "cap_semantics": "nominal-provider-limit",
+    "claim_expires_at": "2030-10-10T00:00:00Z",
+    "provider_expires_at": null,
+    "sponsor_powers": [
+      "revoke",
+      "change_limits"
+    ],
+    "claim_policy": "first-authenticated-bearer"
+  },
+  "offer_hash": "b1683704600a094a54bf8e0f1f253949bf4963a636916b9ccf2821af9bc23313",
+  "recipient_public_key": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "provider_key_id": "synthetic-fixture-key",
+  "aad_utf8": "{\"coupon_digest\":\"0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a\",\"domain\":\"dsmack-coupon-delivery-v4\",\"key_id\":\"synthetic-fixture-key\",\"offer_hash\":\"b1683704600a094a54bf8e0f1f253949bf4963a636916b9ccf2821af9bc23313\",\"recipient_key_sha256\":\"ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9\",\"recipient_peer_sha256\":\"556210c11405b96dc36783ab56ef8ae07d6cbf6736ac3e8715fc3ccb662ed1eb\",\"version\":4}",
+  "recipient_peer": "PeerA",
+  "recipient_peer_sha256": "556210c11405b96dc36783ab56ef8ae07d6cbf6736ac3e8715fc3ccb662ed1eb",
+  "environment": "synthetic-only-not-hardware",
+  "issuer_public_key_hex": "2152f8d19b791d24453242e15f2eab6cb7cffa7b6a5ed30097960e069881db12"
+}

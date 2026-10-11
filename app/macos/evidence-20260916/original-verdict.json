@@ -1,0 +1,18 @@
+{
+  "expected_cdhash": "e7009ad9e7bea17cbaf40d94d0779d14217f56617160711c7fef37abc23382ed",
+  "public_key": "BMVieSjk8HWBAAlrbIacLET4zta+iBgcYS8UvhD5UWFVGQhtkycjPp4QOgMTXj7bh8128039qZlD/TFo1HUHHCU=",
+  "receipt_status": "retained_not_validated",
+  "root_sha256": "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932",
+  "signals": {
+    "bundle_version": null,
+    "cdhash": "e7009ad9e7bea17cbaf40d94d0779d14217f56617160711c7fef37abc23382ed",
+    "extension_names": [
+      "apple_cd_hash_hash_01",
+      "apple_cd_hash_type_01",
+      "apple_validation_category_01"
+    ],
+    "validation_category": 3
+  },
+  "status": "verified_capture_not_membership_admission",
+  "verification_time": "current"
+}

@@ -1,0 +1,8 @@
+{
+  "account": "custody-test-eae61997c1ecb4f3e7c491ad",
+  "ciphertext": "/Users/amiller/custody-20260916T173339Z/captures/persist-store/sealed.bin",
+  "data_ciphertext": "/Users/amiller/custody-20260916T173339Z/stored-ciphertext.bin",
+  "mode": "receive",
+  "nonce": "b6af5c51600f3d81c31dd45a074807e2bd4a535488c6af43e4c3690d002d9c29",
+  "session": "custody-20260916T173339Z/volatile-modified"
+}

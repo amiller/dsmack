@@ -1,0 +1,20 @@
+{"chainId":31337,"event":"configured","network":"Apple peer testnet","participant":"gui-participant","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","t":1791330286.7852941}
+{"event":"connecting","t":1791330286.7860169}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18575","t":1791330286.8485861,"variant":"honest"}
+{"event":"attesting","t":1791330286.8490682}
+{"event":"identity resumed","expires":1791502691,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330286.8729949}
+{"event":"getting key","t":1791330286.8834591}
+{"action":0,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330287.6665092,"tx":"0xe92803bcdeba99fb919ebf46887c5ae38219ab0274ecf0511d646d1130d95a11"}
+{"event":"sent","t":1791330287.694109,"to":"gui-seed","type":"HELLO"}
+{"event":"received","from":"gui-seed","t":1791330289.017015,"type":"PARCEL"}
+{"action":3,"event":"executed","keyEpoch":2,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330289.666043,"tx":"0x5de77a8b14a23471a867d5d18db88b0931a27b802757b28861612d4a4dfecb58"}
+{"event":"key verified","groupPublic":"0x04ebcd7ed07fdb05d94426f84b07018f417e9f78278d3d0bec71a3bd690333564637cb6e86aa2220dbf8a0e1209c4678534853fbdb1e2a3388f73d528d372515d0","keyEpoch":2,"receipt":"0x5de77a8b14a23471a867d5d18db88b0931a27b802757b28861612d4a4dfecb58","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","senderReceipt":"0xf255043fcb4b264b3c9b76be06c596bb1e8068742358873d3ff53efd84dff6ea","t":1791330289.666656}
+{"event":"imported group key","groupPublic":"0x04ebcd7ed07fdb05d94426f84b07018f417e9f78278d3d0bec71a3bd690333564637cb6e86aa2220dbf8a0e1209c4678534853fbdb1e2a3388f73d528d372515d0","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791330289.6774321}
+{"event":"sent","t":1791330289.7090979,"to":"gui-seed","type":"PROOF"}
+{"event":"participating","keyEpoch":2,"member":"0xfe3b561488b2c87b8df71a838e2a72b00f6205f4b8e6d07d2063db3b68706183","t":1791330289.7092991}
+{"event":"network reachable","t":1791330289.7504148}
+{"event":"network reachable","t":1791330320.3864222}
+{"event":"network reachable","t":1791330351.2758121}
+{"event":"network reachable","t":1791330382.0570841}
+{"event":"network reachable","t":1791330412.4269872}
+{"event":"network reachable","t":1791330443.068588}

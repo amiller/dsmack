@@ -1,0 +1,6 @@
+{"appAttestSupported":true,"event":"start","owner":"0x97883cb4B2f21530277F86490d8881654E36E6aA","registry":"0x0505b620b4557235dBD05ee2cc8D25C52d958fB1","rpc":"https:\/\/sepolia.base.org","t":1791307569.4740729,"variant":"honest"}
+{"event":"enrolled","keyId":"0x08d525f0568782c114aee6bc006c1872e70a925230cb67f3d2dab96fb88b4fe1","member":"0xd81bfb4b878c22e3d497a6eefdef2f9d9cbbb8fe3db6893868a796d24ec20013","sessionPublic":"0x04f8329f9de85a0336c76f340370899a358d034b1d3e12a483ba3775502dbb828f5116a2cb74793110183836a6363b18c14bf58f37acc7c46af37b58bc9f7c1796","t":1791307575.458771,"tx":"0xccf8d34e6fa183d81d9c2de6012a50715a26b8a9e841791571d800289fe30dc3"}
+{"action":0,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307580.170083,"tx":"0x73bd14e8caee838d899926ea0592bddca914245d1bc2027bf00703fe2565862b"}
+{"event":"sent","t":1791307645.2100868,"to":"a","type":"HELLO"}
+{"event":"received","from":"a","t":1791307645.7492509,"type":"ERROR"}
+{"error":"invalid(\"peer replied ERROR: invalid(\\\"stale peer check-in\\\")\")","event":"error","t":1791307645.7498369}

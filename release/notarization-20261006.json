@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "export_notarized_app": "succeeded",
+  "codesign_strict_verification": "passed",
+  "stapler_validation": "passed",
+  "spctl_source": "Notarized Developer ID",
+  "spctl_override": "security disabled",
+  "clean_mac_download_open_test": "pending",
+  "candidate_unsigned_sha256": "89697437b904571409a94ada5f64a68c9e72078b2606ee9c64bb619adb635f72"
+}

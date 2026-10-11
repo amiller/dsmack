@@ -1,0 +1,1 @@
+NativeAttestation: 19 checks passed (injected callbacks; no hardware attestation)

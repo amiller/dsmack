@@ -1,0 +1,35 @@
+{
+  "historicalBlobsScanned": 849,
+  "hits": [],
+  "removedPaths": [
+    "data/iphone-20260923/honest/export/AppAttestLab.ipa",
+    "data/iphone-20260923/honest/export/AppAttestLab.v1.ipa",
+    "data/iphone-20260923/honest/prof.plist",
+    "data/iphone-20260923/modified/export/AppAttestLab.ipa",
+    "data/iphone-20260923/modified/export/AppAttestLab.v1.ipa",
+    "data/iphone-20260923/modified/prof.plist"
+  ],
+  "changedPaths": [
+    "data/iphone-20260923/BUILD.md",
+    "data/iphone-20260923/RESULTS.md",
+    "data/iphone-20260923/digests.json",
+    "data/iphone-20261005-xs18/RESULTS.md"
+  ],
+  "candidateRefs": [
+    "refs/heads/main 34894f729e0b3db868e1962cc9535c07b55cda10",
+    "refs/heads/release/mac-distribution 34894f729e0b3db868e1962cc9535c07b55cda10",
+    "refs/tags/v0.1.0-rc.1 38953de0e720c09bbc2dc928fc6c625f37c59d1b",
+    "refs/tags/v0.1.0-rc.2 c2301686e5427ccc5472e838191ce5797aefa3a2"
+  ],
+  "priorSourceRevision": "51341b5d39a3983d9c978e9146e7adea07f13347",
+  "published": false,
+  "pythonTests": {
+    "passed": 72,
+    "skipped": 5
+  },
+  "contractTests": {
+    "passed": 68,
+    "failed": 0
+  },
+  "scope": "Known provisioned-device identifiers, provisioning profiles, private PEM/GitHub-token patterns, and exact dedicated sponsor-key scan; core source blobs unchanged"
+}

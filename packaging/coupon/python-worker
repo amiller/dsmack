@@ -1,0 +1,16 @@
+#!/usr/bin/python3
+"""Worker entry point using only dependencies inside the reviewed package."""
+from pathlib import Path
+import runpy
+import sys
+
+root = Path(__file__).resolve().parents[2]
+sys.path[:0] = [str(root / 'python-deps'), str(root)]
+if len(sys.argv) < 3 or sys.argv[1] != '-m' or sys.argv[2] not in (
+        'experiments.coupon_redemption.peer_worker', 'experiments.coupon_redemption.dstack_bootstrap'):
+    raise SystemExit('unsupported worker invocation')
+module = sys.argv[2]
+sys.argv = [module, *sys.argv[3:]]
+# Spawned transport children must re-import the admitted module, not this CLI
+# wrapper (whose -m invocation guard is intentionally unavailable in a child).
+runpy.run_module(module, run_name='__main__', alter_sys=True)

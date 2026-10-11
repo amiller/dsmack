@@ -1,0 +1,50 @@
+{
+  "authority_public_key": "BMOJCIJUEyN2rLSAtlkyQnbxf/RSLHKGMKbUgkuba3bDVFljsxZS4N2OFBsNfL/RejkA10XbSGBnazFjTyAvuKU=",
+  "category_public_key": "BPVjNq1mEZMamRdk3X9S/PxlikRaj6xQxPVz6G08Ga5Ekog1TLw39P0niA7Fd3/kl4iy4CB5XarQYqPE0H32XtE=",
+  "decisions": [
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "b0c0a1749dbcc3ac875bf3f050678d913e33e59efbf04c715878632189528401",
+      "step": "persist-store"
+    },
+    {
+      "admission": false,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "a511ab8ee135b39dc7559b096839f0cc6632646fa35a579808f36f3580a0743d",
+      "step": "persist-replaced"
+    },
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "c161f5d991caed5e3b8c00125b03559228a93d473f1efd7c9cf3e49d96590141",
+      "step": "volatile-first"
+    },
+    {
+      "admission": true,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "c161f5d991caed5e3b8c00125b03559228a93d473f1efd7c9cf3e49d96590141",
+      "step": "volatile-restart"
+    },
+    {
+      "admission": false,
+      "apple_chain_acl_and_code_valid": true,
+      "cdhash": "a64fe791e7449845878e428ed6be324ddf373790e4c3f741af912fa96a7c3fb5",
+      "step": "volatile-modified"
+    }
+  ],
+  "fresh_checkin_restores_same_category_key": true,
+  "limitations": [
+    "single Mac and same signing credential",
+    "no OS/kernel, swap, hibernation or core-dump attack",
+    "Python coordinator is a trusted test authority, not a TEE peer or smart contract",
+    "old delivery fails under fresh session/key; no general forensic erasure claim"
+  ],
+  "modified_restart_denied_release": true,
+  "old_ciphertext_reauthorized_for_new_session_still_rejected": true,
+  "persistent_replacement_can_use_key": true,
+  "persistent_test_keychain_account": "custody-test-cb423784c5be5ab4fd9b0ade",
+  "raw_category_key_found_in_outputs": false,
+  "run": "custody-20260916T173508Z",
+  "volatile_restart_stale_delivery_rejected": true
+}

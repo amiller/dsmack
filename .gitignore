@@ -1,0 +1,28 @@
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+__pycache__/
+.venv/
+build/
+DerivedData/
+contracts/network/deploy-test.json
+node/mac/build/
+node/mac/entitlements.plist
+*.pid
+
+# Hosted relay runtime caches and local state
+node/relay-hosted/node_modules/
+node/relay-hosted/relay-data/
+
+.release-secrets/
+
+contracts/network/cd-args-gui4-development.json
+contracts/network/deploy-gui-live.json
+
+# Private development runtime outputs (planning remains versioned)
+local-data/
+.env
+.env.*
+!.env.example
+node_modules/
+.DS_Store

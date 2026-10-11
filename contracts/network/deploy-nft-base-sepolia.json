@@ -1,0 +1,26 @@
+{
+  "protocolVersion": 2,
+  "chainId": 84532,
+  "admin": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+  "DemoV1": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+  "macCDRegistry": "0x9e513E19fCE48563c89E91C4ca571b1B089484a4",
+  "macAdapter": "0x46b425674d361a5E2A0ec5F486A6c1FA5aE012BB",
+  "macCategory": "0xbbbb9ea44ff8fbd35e60f06bdf52445c102d8d1ffa10f5df51582dbd45cda9b6",
+  "DemoV1Artifact": "out/DemoV2.sol/DemoV2.json",
+  "CDRegistryArtifact": "out/CDRegistry.sol/CDRegistry.json",
+  "AdapterArtifact": "out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json",
+  "transactions": [
+    "0x9492444c2631864c9a36fbf9163929baae5a88cad6afe07dd60235144f55edf9",
+    "0x4de5a86ab4a933090b58a4452b8d81d0706b209b74b5c977b355ce2475b79319",
+    "0xcd6883ebe685dbccd12612364d0dd722d6886fbfbbf19bbf9bde59ed79a92ffc",
+    "0x5503ceed7b6bb65f55f700b89b3923b36b1afc626ed413f91422e04fb66636be",
+    "0x0ab8b8565f443389312793f2e62bb049947db93ef42abdffda17f3196d7a3c0b",
+    "0x55e7dab05cdd7439a879c6d56a279f5acf6b3c4233d7b12fe26cb4bcea8457d5",
+    "0xba0eed0ab72fb2a3449fefdc42865b39318d655efdfd70e3e064ea637d9af885",
+    "0xfa10b8fcd5b2437605bb169891e5f0b5813e65264bc362191c36f6f14e6bcd19",
+    "0x26d28cf281713f30daa96123ac3105f1ff213fb665a5f997922b9d6b367f163b"
+  ],
+  "ResearchBadges": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B",
+  "PersonalBadgeAccountFactory": "0x18B5c72c48622661aEEadb596443C5E0E99F5188",
+  "publisherTeam": "DC9JH5DRMY"
+}

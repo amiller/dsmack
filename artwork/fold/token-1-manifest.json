@@ -1,0 +1,45 @@
+{
+  "schema": 1,
+  "renderer": "attest-fold-v1",
+  "sourceSha256": "39d8dd08c65dd0212a8487f1fd18c6fa8650323ae7c2ef40754bb07830b9c309",
+  "identity": "attest-fold-v1:84532:0x6ac5fb83f5bf615842b5a9a6c50b8011fab50c3b:1",
+  "seed": "632545c9cdc8bd11ec7b48f708470f8c726286f2d166def2bee6e3c358f5c324",
+  "parameters": {
+    "folds": 6,
+    "twist": 1.3298039215686275,
+    "aperture": 0.26705882352941174,
+    "fullness": 0.9715294117647059,
+    "phase": 5.051188188124765,
+    "vermilion": [
+      0.5149019607843137,
+      0.027,
+      0.008
+    ]
+  },
+  "size": 1024,
+  "spp": 256,
+  "mitsuba": "3.7.1",
+  "numpy": "1.26.2",
+  "meshes": {
+    "outer-0.ply": "9b7401888c1635ee64fb31d72124a1a2348da652ac0a5be62e3a7da6c43b55b0",
+    "inner-0.ply": "ae6def8b40b11dceaab65c7f2467bfede4348634108f60b19785189833f1c6ae",
+    "edge-0.ply": "54e1e8751f6d3b070aa516925cbbf3733e863873dd62239e34ae7be862f64acb",
+    "outer-1.ply": "05aa8ae7d42be080b61d1894f17d1c69c56296eec360ad81b1d74608f4ff3485",
+    "inner-1.ply": "586a8960af0ff8bb9c05c651066cb6668d69074c29e8ba66dc38981255b2f8e1",
+    "edge-1.ply": "064a4a5f244dc4459fd625976b5f2a2e8fa8278c1512e81096767bdac320cd6d",
+    "outer-2.ply": "f789b24c3975749d2ae83d40cda9fc858776703008b42cccc6ba1d477c6ef5d0",
+    "inner-2.ply": "de5f170a1b62f2a5b1c3b613c51ac10ebd600542da8c14f5c42dc28348e61f36",
+    "edge-2.ply": "f9cfe1ca8efae63e4272912bd909135e83dd858b4e61ba9a3fffe335ad71e2e2",
+    "outer-3.ply": "e1f39da1bdbc59a3fb1108a734099eda47c63546c696b320b1bbeefad1fe50c3",
+    "inner-3.ply": "06cffd304b54c5cd812d563c6c32c7f2b1292a9b5d255906ea13cf49e4d78928",
+    "edge-3.ply": "40bc07b431d300adb2607a3b4203947bde27f2d54aaba99e618980ca24471cb1",
+    "outer-4.ply": "5d4c0f9834b9a6668c7167bbbaafa28dddc49a733b7647925770aec8c567b933",
+    "inner-4.ply": "664ec54cd725fee67ca67245589dce381af4c2236f94ecdc60205b6343b098d7",
+    "edge-4.ply": "c69e8eb326a6099b61ebfc169232c35753140801fcb11ed7ffeba052a86dc6df",
+    "outer-5.ply": "0586e492be8c3d7ec7d506a09f78277eec0d3ea003bcf80fb740fcae7a9691b0",
+    "inner-5.ply": "67bb422065b3ddb6f11affc9e656d692417874d021fa9c41e4eef50b116b7493",
+    "edge-5.ply": "c338d6fdf596ee8f35ceff09fc9fcea4d03d8163998058a0267adf1f60a09235"
+  },
+  "imageSha256": "09ed2eff9b74460ded5dace49d25541a780c1ce55eb2084afa78ba2aebc8fb5a",
+  "scope": "Offline procedural art study, not tokenURI metadata. Receipt supplied by caller; renderer does not verify chain ownership. Geometry deterministic; cross-platform pixel identity unverified."
+}

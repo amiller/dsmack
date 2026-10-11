@@ -1,0 +1,20 @@
+services:
+  observer:
+    image: dsmack-coupon-observer:local
+    build:
+      context: .
+    pull_policy: never
+    read_only: true
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - type: bind
+        source: /var/run/dstack.sock
+        target: /var/run/dstack.sock
+        read_only: true
+        bind:
+          create_host_path: false
+    tmpfs:
+      - /tmp:size=16m,mode=1777

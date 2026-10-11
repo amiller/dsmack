@@ -1,0 +1,20 @@
+{
+  "version": "v0.1.0-rc.2",
+  "platform": "macOS 27 Apple Silicon",
+  "source_build_commit": "adda809826358d2466b74a2f206c5921f75443a1",
+  "unsigned_executable_sha256": "131ec74d226181401891f0c1e22136683e21b83d2917dd9ebe2b3b836b841c08",
+  "signed_executable_sha256": "216fa89c21d2acf98eee665140e01ba5ddbf925c0045a534923bd410858b1367",
+  "zip_sha256": "145cd977390c0c01be006c2a056a1890449cbf26c7e6d0a24820f11de1ad3b25",
+  "cdhash": "92abfec17a3bc7cc10d0839cb6d8b8e0e3548f9b1f791ad92bd7bafbf1c5c99f",
+  "notarized": true,
+  "stapler_validated": true,
+  "independent_unsigned_builds_match": true,
+  "clean_mac_gatekeeper_test": "pending; builder Gatekeeper disabled",
+  "network": "Base Sepolia",
+  "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+  "badges": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B",
+  "relay": "https://pod.dstack.soc1024.com/apple-attest-p2p-relay/nft",
+  "level1_live_test": "passed, two processes on one Mac; automatic personal NFT and packaged restart verified",
+  "level2_live_test": "pending independent developer team",
+  "testflight": "not yet distributed"
+}

@@ -1,0 +1,41 @@
+name: Signed Mac candidate
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  candidate:
+    environment: apple-release
+    runs-on: xcode-27
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Build unsigned candidate
+        env:
+          BUNDLE_ID: ${{ vars.APPLE_BUNDLE_ID || 'dev.dsmack.provider' }}
+        run: python3 scripts/release/build_mac.py --gui --out build/unsigned --bundle-id "$BUNDLE_ID"
+      - name: Sign and notarize
+        env:
+          MAC_CERTIFICATE_P12_BASE64: ${{ secrets.MAC_CERTIFICATE_P12_BASE64 }}
+          MAC_CERTIFICATE_PASSWORD: ${{ secrets.MAC_CERTIFICATE_PASSWORD }}
+          MAC_PROFILE_BASE64: ${{ secrets.MAC_PROFILE_BASE64 }}
+          ASC_KEY_P8_BASE64: ${{ secrets.ASC_KEY_P8_BASE64 }}
+          ASC_KEY_ID: ${{ vars.ASC_KEY_ID }}
+          ASC_ISSUER_ID: ${{ vars.ASC_ISSUER_ID }}
+          APPLE_TEAM_ID: ${{ vars.APPLE_TEAM_ID }}
+          MAC_SIGNING_IDENTITY: ${{ vars.MAC_SIGNING_IDENTITY }}
+        run: python3 scripts/release/ci_sign_mac.py
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: mac-notarized-candidate
+          path: |
+            build/signed/Node-macOS-arm64.zip
+            build/signed/SHA256SUMS
+            build/signed/codesign.txt
+            build/signed/notarization.json
+            build/signed/payload-verification.json
+            build/signed/unsigned-build-manifest.json
+          if-no-files-found: error
+          retention-days: 14

@@ -1,0 +1,23 @@
+[Unit]
+Description=Bounded DSMACK public testnet owner renewal
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+Environment=PATH=%h/dsmack-operator/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=/usr/bin/python3 %h/dsmack-operator/source/tools/coupon_testnet_supervisor.py --plan %h/dsmack-operator/private/supervisor-plan.json
+Restart=on-failure
+RestartSec=30
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+StandardInput=null
+StandardOutput=null
+StandardError=null
+# Detached holder preserves the existing stdin admission channel if this
+# controller alone exits. Reconciliation markers prevent a duplicate restart.
+KillMode=process
+
+[Install]
+WantedBy=default.target

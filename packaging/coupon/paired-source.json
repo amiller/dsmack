@@ -1,0 +1,18 @@
+{
+  "files": {
+    "anchors/apple-app-attestation-root.pem": "c778d09ac341f7fd9f8f3b19e2b815af6aed4ad4490e1e92c05cb355212a5013",
+    "lib/appattest.mjs": "d888e711c463748bf8c6f8a8931a528fc930af01d3a176bdaf664d31f66e4d32",
+    "lib/config.mjs": "1e6309dfa7887c5cc664ffd7f16ea30febd9aee63c5c3e34d82f4611b954e73c",
+    "lib/coupon-accountless.mjs": "508980f7d67664ce1a391865455a19f1a4ac080999404e04930ef290e2af2cf6",
+    "lib/coupon-offer.mjs": "37d25291df6bf0eb2d8e6e2f1e1c997abadebba4bec5605ea05ce63a374bfaab",
+    "lib/coupon.mjs": "d09990466a6510fa87c01045307176ef62c4eab25d3f2e6ad0990a24e4529cef",
+    "lib/macrunner.mjs": "57fff81621f5204ec9a01555d3fb99099921a223f1a5a59045516a3937c14cd9",
+    "lib/p2p.mjs": "b237588e4c89d91291e74b727d037115077d424ff8bdbe1239d35204c482ad48",
+    "lib/vendor/macrunner.mjs": "ac2d0669441bbe31c97c9561d628e49de3193abafd07ad782ac05408c4aa11a6",
+    "package-lock.json": "512409cfd3ea41460968fbabedc50b357b87c1802cae9849d00921606de8d1fc",
+    "package.json": "2f502768a86fcba8135699f28c16d6d4a277b753d153eca3eed101d9c8a6b8ed"
+  },
+  "repository": "https://github.com/amiller/abalone",
+  "revision": "0737ed57ff993acfbfd69a38f6df7042cc0b0c1e",
+  "version": 1
+}

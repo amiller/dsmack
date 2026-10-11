@@ -1,0 +1,26 @@
+{
+  "checkedAt": "2026-10-07T20:32:47.600090+00:00",
+  "/info": {
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+    "chainId": 84532,
+    "registry": "0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB",
+    "protocolVersion": 2
+  },
+  "/nft/info": {
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+    "chainId": 84532,
+    "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+    "protocolVersion": 2
+  },
+  "/ios/info": {
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+    "chainId": 84532,
+    "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+    "protocolVersion": 2
+  },
+  "/status": {
+    "sponsorWritesPaused": false,
+    "pending": [],
+    "completed": 31
+  }
+}

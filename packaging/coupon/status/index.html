@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>DSMACK testnet status</title>
+<style>
+  body { max-width: 36rem; margin: 3rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; color: #18232e; background: #f7f9fb; }
+  h1 { font-size: 1.5rem; } #claiming { font-size: 1.3rem; font-weight: 650; }
+  dt { font-weight: 600; } dd { margin: 0 0 1rem; } small { color: #455568; }
+</style>
+<main>
+  <h1>DSMACK public testnet</h1>
+  <p id="claiming" role="status">Claim readiness: unknown</p>
+  <p id="observation">No fresh operator observation.</p>
+  <dl>
+    <dt>Issuer reachability</dt><dd>Not checked by this page.</dd>
+    <dt>Provider admission</dt><dd>Checked by your client before inference.</dd>
+    <dt>Participants</dt><dd>Unknown.</dd>
+  </dl>
+  <small>This is an operator observation, not an attestation. Your client still verifies the signed trial and issuer identity. A ready observation does not guarantee a successful claim or inference.</small>
+</main>
+<script type="module" src="status.mjs"></script>
+</html>

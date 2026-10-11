@@ -1,0 +1,5 @@
+{"appBuild":"3","appVersion":"0.1.0","event":"app launched","os":"Version 26.5 (Build 23F77)","t":1791405105.8652639}
+{"event":"simulator scenario","scenario":"apple-failure","t":1791405105.865509}
+{"chainId":84532,"event":"configured","participant":"SIMULATED","t":1791405105.86553}
+{"errorChain":[{"code":0,"domain":"com.apple.devicecheck.error"},{"code":-3,"domain":"CryptoTokenKit"}],"event":"apple operation failed","stage":"attestKey","t":1791405105.8655469}
+{"error":"Injected Apple failure","event":"stopped","t":1791405105.8655701}

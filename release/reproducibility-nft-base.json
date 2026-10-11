@@ -1,0 +1,20 @@
+{
+  "source_commit": "eace7a3129607cadee2a07c59bd05ecd37dc4093",
+  "ci_run": "https://github.com/amiller/apple-attest-p2p/actions/runs/37558205220",
+  "independent_builders": [
+    "GitHub Actions xcode-27",
+    "mini-mesh clean Git bundle checkout"
+  ],
+  "unsigned_bundle_identical": true,
+  "toolchain": {
+    "sdk_build": "26A425",
+    "sdk_version": "27.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0\nBuild version 27A266a"
+  },
+  "files": {
+    "Contents/Info.plist": "9294428b350b65a239a3f2193f0f75e3b35db3dc2d96b95369d7801659c13dfe",
+    "Contents/MacOS/node": "7de9b4f1a77ae6d28f246738a65ec89df745f21e6b2808b78306eed0a33f64d9"
+  },
+  "scope": "Unsigned app bytes only; Apple signatures and notarization are checked separately."
+}

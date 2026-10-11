@@ -1,0 +1,6 @@
+{
+  "result": "passed",
+  "scope": "Actual exporter with synthetic events and file roundtrip; no picker, network, Keychain, live credentials or production mutation.",
+  "gui_sha256": "cfd07453d32683b200a1d33c2971890945ba7cc42161f83750f52ce9db1e8783",
+  "tests_sha256": "d2977b6bf2ba164757034208e899a36c9a69f9f45ac57ad77bbd1e1050b59a29"
+}

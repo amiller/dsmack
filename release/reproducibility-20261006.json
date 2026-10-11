@@ -1,0 +1,15 @@
+{
+  "files": {
+    "Contents/Info.plist": "9294428b350b65a239a3f2193f0f75e3b35db3dc2d96b95369d7801659c13dfe",
+    "Contents/MacOS/node": "89697437b904571409a94ada5f64a68c9e72078b2606ee9c64bb619adb635f72"
+  },
+  "schema": 1,
+  "scope": "two isolated source paths and module caches on one host; not independent builders",
+  "toolchain": {
+    "sdk_build": "26A425",
+    "sdk_version": "27.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0\nBuild version 27A266a"
+  },
+  "unsigned_bundle_identical": true
+}

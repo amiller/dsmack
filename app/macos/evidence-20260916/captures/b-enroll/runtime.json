@@ -1,0 +1,8 @@
+{
+  "bundle" : "dev.dsmack.provider",
+  "executable" : "\/Users\/amiller\/appattest-codebinding-20260916\/active\/CodeBindingProbe.app\/Contents\/MacOS\/probe",
+  "mode" : "enroll",
+  "operation_result" : 5,
+  "os" : "Version 27.0 (Build 26A428)",
+  "supported" : true
+}

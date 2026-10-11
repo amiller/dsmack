@@ -1,0 +1,15 @@
+{
+  "AdapterArtifact": "out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json",
+  "CDRegistryArtifact": "out/CDRegistry.sol/CDRegistry.json",
+  "DemoTokenV1": "0xd9D46a88D61AcE601924a531Fc0D3DDbB0bBE154",
+  "DemoV1": "0x0505b620b4557235dBD05ee2cc8D25C52d958fB1",
+  "DemoV1Artifact": "out/DemoV1.sol/DemoV1.json",
+  "MembershipReceiptV1": "0x6EFcEA076598fA6B042F152aBFd44938FA9A75E7",
+  "admin": "0x97883cb4B2f21530277F86490d8881654E36E6aA",
+  "iosAdapter": "0x105dd06DDf914C372505fACAe09243c1F9A58681",
+  "iosCDRegistry": "0x898a453Df25d27b57fE9872310C16Dd5A3d726D2",
+  "iosCategory": "0xbe66af5e03700eabe436dd219dde72863f5c84321f9e502e79f34b5cead84003",
+  "macAdapter": "0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8",
+  "macCDRegistry": "0x266eB9D201170dA1acb9CdB96B7A6a3e1A8f880d",
+  "macCategory": "0x2a8098bcc8f94bfd106e7c7bfd217978220a065354397da995151c75f757a0f2"
+}

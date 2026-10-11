@@ -1,0 +1,43 @@
+{
+ "honest": {
+  "cdhash_sha256_full": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+  "ipa_sha256": "d5b92f8cf11f0d3b280ada2de106487400a81ad833c564838f01552a1a2eb55b",
+  "special_slots": {
+   "-1 Info.plist": "7b8a2b418b6850b4a35acfa0e7beaf276909e75e338372c1e5fcd5ffe3e5b926",
+   "-2 Requirements": "db8bd1265e87899cf294065f3006970fea21180b3f1debd2ed8a7b33a8dbb25c",
+   "-3 ResourceDir": "2b18fb29973972cb71e29ce3c35f71c1a1ef6ece61d6130b1e1415ecde9125ab",
+   "-4 Application": null,
+   "-5 Entitlements": "ca1dcbef4485302627cfd8b627bcf70c37f3d922d7d716b5acf45a4bc64efac8",
+   "-6 RepSpecific": null,
+   "-7 DER-Entitlements": "0067d3a1a33c34294b6ffad9173038cc656d6f42e77a41669ea40cd1123a5255"
+  },
+  "n_code_slots": 11
+ },
+ "modified": {
+  "cdhash_sha256_full": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+  "ipa_sha256": "a123059fb8b624657c8a4830ec5799c824e3d4f1d3b1bf37b43695dc732d0262",
+  "special_slots": {
+   "-1 Info.plist": "7b8a2b418b6850b4a35acfa0e7beaf276909e75e338372c1e5fcd5ffe3e5b926",
+   "-2 Requirements": "db8bd1265e87899cf294065f3006970fea21180b3f1debd2ed8a7b33a8dbb25c",
+   "-3 ResourceDir": "2b18fb29973972cb71e29ce3c35f71c1a1ef6ece61d6130b1e1415ecde9125ab",
+   "-4 Application": null,
+   "-5 Entitlements": "ca1dcbef4485302627cfd8b627bcf70c37f3d922d7d716b5acf45a4bc64efac8",
+   "-6 RepSpecific": null,
+   "-7 DER-Entitlements": "0067d3a1a33c34294b6ffad9173038cc656d6f42e77a41669ea40cd1123a5255"
+  },
+  "n_code_slots": 11
+ },
+ "identical_except_code_pages": true,
+ "profile": {
+  "name": "iOS Team Ad Hoc Provisioning Profile: dev.dsmack.provider",
+  "uuid": "7a691543-fd07-4680-a15a-235a2afb2dc7",
+  "expires": "2027-06-13",
+  "devices": 18,
+  "papi_udid_included": "REDACTED_DEVICE_IDENTIFIER"
+ },
+ "signing_certificate": {
+  "type": "Cloud Managed Apple Distribution",
+  "sha1": "401062772153056EFDA30A0491BC4A27752AF0C0"
+ },
+ "appattest_environment": "production"
+}

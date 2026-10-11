@@ -1,0 +1,23 @@
+{
+  "protocolVersion": 2,
+  "chainId": 84532,
+  "admin": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+  "DemoV1": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+  "iosCDRegistry": "0xd6f7451A13ED26B96B62CCa4E19Cf1318e647f5e",
+  "iosAdapter": "0x20396C92906A7B0A75DB5141e9E412bcc41b2b26",
+  "iosCategory": "0x654effd95d2f6a4403e34c4f0965b3b2e22622d2468ce95baeb3d9a31bd474db",
+  "ResearchBadges": "0xaFc976776bBB397636657B1AE05915C34917591D",
+  "PersonalBadgeAccountFactory": "0xcEd9EE12852DE52326B20CeD10bB56652500ceb4",
+  "publisherTeam": "DC9JH5DRMY",
+  "validationCategory": 2,
+  "enabled": false,
+  "baselineConfigured": false,
+  "existingMacPolicyUnchanged": true,
+  "transactions": [
+    "0x6507432d20532d75447da19bbf61a384dd6909d1400092a6636bd36ea5b8a15e",
+    "0x0c2e08f71ac4dc18b5d68e3bf921f09fb5e6fa88f7b4068ecfbb754a5e0e7007",
+    "0x0d80d2bbabc5d2370a645a56ea891ce96551772231700f057a6ac40acb6199ad",
+    "0x810bdb6af586f5e587b4f4f3ad88e5869e38278b8c3ce0e14f6768e18c0a6087",
+    "0x42a0e52074c38416050ba66cc82f8fd51f0297f64546f4c1a5e2bb73ea0e39be"
+  ]
+}

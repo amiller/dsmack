@@ -1,0 +1,19 @@
+{
+  "chainId": 84532,
+  "registry": "0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB",
+  "cdhash": "0xd8ee277dc6694f5bafdc366617fd78df34382ffdcb7b3cda75f7bea95c5b59c1",
+  "transactions": [
+    {
+      "action": "approve protected release GUI",
+      "tx": "0x4b1890a61ccd9642b5a2ceebf382146b198dbb1cd262ecbcf23423b8820f22af"
+    },
+    {
+      "action": "register Developer ID code hash",
+      "tx": "0x5dc65759f0aefd480e5e21ef70b0d85e759d2676129b4fa1a6bb5a3612ca5175"
+    },
+    {
+      "action": "enable separate release network",
+      "tx": "0x5e63b04cb4a8d4dac4e6438fcffce25c37793c678f3d0d2b2805ecba47243c6f"
+    }
+  ]
+}

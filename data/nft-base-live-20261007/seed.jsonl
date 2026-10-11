@@ -1,0 +1,21 @@
+{"event":"connecting","t":1791337782.3032889}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0xd4B33C83576a6049d29c6B849ec73491e52781a0","rpc":"https:\/\/sepolia.base.org","t":1791337783.0001321,"variant":"honest"}
+{"event":"attesting","t":1791337783.00176}
+{"event":"enrolled","keyId":"0x7ea66492da4512d0d9a1d03e92792a612f70c641f7e84b18e83035f223b6771e","member":"0xcf9c3362a1e1b01600bd1724c23c20fd4446db9f2f8289ec1298c56368c57ffa","sessionPublic":"0x04c237ff83c546023490276de51f7fe717daaef1015b5143ed73d43d7cbfe48b6977e411e169546f3b4a3d1213bab9d15969f0e6a05316ec2f7e02bc53e9c08d1b","t":1791337789.6979299,"tx":"0x8adf1dcddc046ab3db53b845148be633ed1d4d1b5511e4a73b31d76559673310"}
+{"action":2,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791337795.5344839,"tx":"0xfc16aab24b316a60c4c1031a958b3e2536c57038831f1968c9e8be9ba9bfb315"}
+{"event":"seed ready","keyEpoch":0,"t":1791337795.534749}
+{"event":"network reachable","t":1791337795.6318979}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337817.3890381,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791337823.2302852,"tx":"0xd4008e71370cae24fe54f9e311491e68707971a7f0c14f6414df8fe8d9ac3666"}
+{"event":"sent","t":1791337823.396698,"to":"77bedd75-7c89-4955-aee5-920500b492b0","type":"PARCEL"}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337830.4324689,"type":"PROOF"}
+{"event":"peer holds group key","peer":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337830.463069}
+{"event":"network reachable","t":1791337830.5618591}
+{"event":"network reachable","t":1791337861.124716}
+{"event":"network reachable","t":1791337892.0308189}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337901.121449,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791337907.003449,"tx":"0x8b38c622e84a388632a2c466517ec4a98f86cdd0453fd3c1518763b090faffad"}
+{"event":"sent","t":1791337907.1449051,"to":"77bedd75-7c89-4955-aee5-920500b492b0","type":"PARCEL"}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337914.494302,"type":"PROOF"}
+{"event":"peer holds group key","peer":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791337914.5311751}
+{"event":"network reachable","t":1791337929.692071}

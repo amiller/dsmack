@@ -1,0 +1,2 @@
+Upgrade invitation export passed; wrong network, unbound assertion, publisher team, and invalid new-key signature rejected; account control unchanged
+{"participantToken":1,"factory":"0x2279B7A0a67DB372996a5FaB50D91eAA73d2eBe6","chainId":31337,"badges":"0xa513E6E4b8f2a923D98304ec87F64353C4D5C853","account":"0xbdbef2ab24a0016aedffb2fb866348ae4309205e","bundleId":"dev.attestnode.builder.a0xbdbef2ab24a0016aedffb2fb866348ae4309205e","version":2}

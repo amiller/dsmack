@@ -1,0 +1,14 @@
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0x0165878A594ca255338adfa4d48449f69242Eb8F","rpc":"http:\/\/127.0.0.1:18555","t":1791307680.9679461,"variant":"honest"}
+{"event":"enrolled","keyId":"0x9c4efb62775699fc8df81c0c2076b28aa858bc6505bfb76b9a51c7cdde3841e5","member":"0xa2b511cf86cd3c358145c45e94f497ce22fa29c1b2537b4ba32edac7fd84a831","sessionPublic":"0x04e740e9ecedb9a39e655ceb9a0eea235616db6e1791a092d7a5f061226767b3c57ca7b9186a7bfbbe4edc248504c7879da03513cdeab6bd4e97817b4a35c94c50","t":1791307683.2439179,"tx":"0x7bba64a542c4d01bb93f07023c22e8729536dadfb30343d2e34ef27c15a23fb8"}
+{"action":2,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307683.528877,"tx":"0xa7cbdbf623c54c76be0f218350e455e0bf4bd37448416b449af9ed15531c5459"}
+{"event":"received","from":"b","t":1791307690.259052,"type":"HELLO"}
+{"action":3,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307690.531096,"tx":"0x8fac0e07e9b8745d092c2364aa703096c2d8b751cf138531ebf28fe04366d656"}
+{"event":"sent","t":1791307690.547858,"to":"b","type":"PARCEL"}
+{"event":"received","from":"b","t":1791307691.61461,"type":"PROOF"}
+{"event":"peer holds group key","peer":"b","t":1791307691.6244149}
+{"event":"received","from":"b-stale","t":1791307764.102344,"type":"HELLO"}
+{"error":"invalid(\"stale peer check-in\")","event":"refused","peer":"b-stale","t":1791307764.1323271,"type":"HELLO"}
+{"event":"sent","t":1791307764.153969,"to":"b-stale","type":"ERROR"}
+{"event":"received","from":"driver","t":1791307769.4184608,"type":"STOP"}
+{"event":"stop","t":1791307769.4185948}
+{"event":"done","t":1791307769.4186521}

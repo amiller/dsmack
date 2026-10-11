@@ -1,0 +1,53 @@
+{
+  "iOS_cdhash": "not_tested",
+  "independent_developer_team": "not_tested",
+  "membership_admission": "not_implemented",
+  "results": [
+    {
+      "cdhash": "67dfc08f0eca771ae2787870ab3bffc7dfb39a7fac4db6b0c087e58c2f488d70",
+      "decision": "accept",
+      "signature": "valid_Apple_rooted",
+      "step": "a-enroll"
+    },
+    {
+      "cdhash": "d91322464a3b4e528f8faec1b6ff8bb4d7b102a9a578f7ba997000750f43521c",
+      "decision": "cdhash_policy_failed",
+      "signature": "valid_Apple_rooted",
+      "step": "b-enroll"
+    },
+    {
+      "cdhash": "67dfc08f0eca771ae2787870ab3bffc7dfb39a7fac4db6b0c087e58c2f488d70",
+      "counter": 1,
+      "decision": "accept",
+      "identity_only_policy": "accept",
+      "signature": "valid_enrolled_key",
+      "step": "a-assert"
+    },
+    {
+      "cdhash": "d91322464a3b4e528f8faec1b6ff8bb4d7b102a9a578f7ba997000750f43521c",
+      "counter": 2,
+      "decision": "cdhash_policy_failed",
+      "identity_only_policy": "accept",
+      "signature": "valid_enrolled_key",
+      "step": "b-old-key"
+    },
+    {
+      "cdhash": "d91322464a3b4e528f8faec1b6ff8bb4d7b102a9a578f7ba997000750f43521c",
+      "counter": 1,
+      "decision": "cdhash_policy_failed",
+      "identity_only_policy": "accept",
+      "signature": "valid_enrolled_key",
+      "step": "b-assert"
+    },
+    {
+      "cdhash": "67dfc08f0eca771ae2787870ab3bffc7dfb39a7fac4db6b0c087e58c2f488d70",
+      "counter": 3,
+      "decision": "accept",
+      "identity_only_policy": "accept",
+      "signature": "valid_enrolled_key",
+      "step": "a-restored"
+    }
+  ],
+  "status": "six_step_hardware_experiment_verified",
+  "verification_time": "current"
+}

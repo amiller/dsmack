@@ -1,0 +1,142 @@
+{
+  "status": "iphone_session_verified",
+  "verification_time": "current",
+  "reference_cdhashes": {
+    "honest": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+    "modified": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c"
+  },
+  "results": [
+    {
+      "row": 1,
+      "evidence": "attestation",
+      "key": "A",
+      "running_build": "honest",
+      "counter": null,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 2,
+      "evidence": "assertion",
+      "key": "A",
+      "running_build": "honest",
+      "counter": 1,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 3,
+      "evidence": "attestation",
+      "key": "B",
+      "running_build": "modified",
+      "counter": null,
+      "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+      "identity_only": "accept",
+      "approved_cdhash": "cdhash_policy_failed",
+      "validation_category": 5
+    },
+    {
+      "row": 4,
+      "evidence": "assertion",
+      "key": "B",
+      "running_build": "modified",
+      "counter": 1,
+      "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+      "identity_only": "accept",
+      "approved_cdhash": "cdhash_policy_failed",
+      "validation_category": 5
+    },
+    {
+      "row": 5,
+      "evidence": "assertion",
+      "key": "B",
+      "running_build": "honest",
+      "counter": 2,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 6,
+      "evidence": "attestation",
+      "key": "C",
+      "running_build": "honest",
+      "counter": null,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 7,
+      "evidence": "assertion",
+      "key": "C",
+      "running_build": "honest",
+      "counter": 1,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 8,
+      "evidence": "attestation",
+      "key": "D",
+      "running_build": "modified",
+      "counter": null,
+      "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+      "identity_only": "accept",
+      "approved_cdhash": "cdhash_policy_failed",
+      "validation_category": 5
+    },
+    {
+      "row": 9,
+      "evidence": "assertion",
+      "key": "D",
+      "running_build": "modified",
+      "counter": 1,
+      "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+      "identity_only": "accept",
+      "approved_cdhash": "cdhash_policy_failed",
+      "validation_category": 5
+    },
+    {
+      "row": 10,
+      "evidence": "attestation",
+      "key": "E",
+      "running_build": "honest",
+      "counter": null,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 11,
+      "evidence": "assertion",
+      "key": "E",
+      "running_build": "honest",
+      "counter": 1,
+      "cdhash": "5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591",
+      "identity_only": "accept",
+      "approved_cdhash": "accept",
+      "validation_category": 5
+    },
+    {
+      "row": 12,
+      "evidence": "assertion",
+      "key": "E",
+      "running_build": "modified",
+      "counter": 2,
+      "cdhash": "85678f245cf838860723c1374e78a9321fa4c87c91900e4921e5877ed0f31b2c",
+      "identity_only": "accept",
+      "approved_cdhash": "cdhash_policy_failed",
+      "validation_category": 5
+    }
+  ]
+}

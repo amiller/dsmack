@@ -1,0 +1,22 @@
+{
+  "protocolVersion": 2,
+  "chainId": 31337,
+  "admin": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "DemoV1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  "macCDRegistry": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
+  "macAdapter": "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+  "macCategory": "0xc74823c806be6ac234fdb49f4f84cd01ecc265c7f21c82a2c7baeb86862e03ef",
+  "DemoV1Artifact": "out/DemoV2.sol/DemoV2.json",
+  "CDRegistryArtifact": "out/CDRegistry.sol/CDRegistry.json",
+  "AdapterArtifact": "out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json",
+  "transactions": [
+    "0x1e918a238c494a9b4e6281f5f1c2e08b254ee7020be99776c7ae566e0b9a0806",
+    "0x72718aa61c30d9ec245b0e76001c6384984bd489ae291e7c6efcf5d84ed6b541",
+    "0x5bf6f07f27e7441f3fa9a16dbd43b27329d9dfe444bebe8e830d50a714c04fae",
+    "0xe9f14afd8fdb850e5e916950895c6188d1ee1bc3b6fe1ab003ad4baf9363aa68",
+    "0xf620bb0c8021dc44b90e366eba397a80c14c86a5b77e707a4d6dda79b7f48294",
+    "0xb8627be8e5f90d735e25c35d6a748e84e46459d5ab4d4e90df90ef2d6453db8f",
+    "0xe9470fa808b87efde0ce51ea026729e8fb8867805cfb95965ac2e793703d1948",
+    "0x95acacfbf9f3482eba5b1a3c3e6a3a214bd5995bf06a645866668c9ee70d97f1"
+  ]
+}

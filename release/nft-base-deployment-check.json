@@ -1,0 +1,23 @@
+{
+  "checked_at": "2026-10-07T01:39:28.716725+00:00",
+  "deployment": "contracts/network/deploy-nft-base-sepolia.json",
+  "implementation_commit": "93672a2f846b1308c7ca683ad75dd9996aae952f",
+  "chainId": 84532,
+  "receipts_confirmed": 9,
+  "runtime_matches_artifacts_excluding_declared_immutables": [
+    "DemoV2",
+    "CDRegistry",
+    "AppleAttestRegistryV1",
+    "ResearchBadges",
+    "PersonalBadgeAccountFactory"
+  ],
+  "checked_bindings": [
+    "badges.network",
+    "badges.adapter",
+    "badges.publisherTeam",
+    "factory.badges",
+    "badges.builderBundleId(admin)"
+  ],
+  "paused": true,
+  "activation_pending": "Replace temporary old-release code baseline with final NFT candidate before enabling admission."
+}

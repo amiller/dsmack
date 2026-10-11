@@ -1,0 +1,54 @@
+{
+  "schema": 1,
+  "renderer": "attest-fold-v1",
+  "sourceSha256": "b3e174877a6ffa5d651543f4e989049014ee8e9bb74e4fac37fd9190867376c3",
+  "identity": "attest-fold-v1:84532:0x6ac5fb83f5bf615842b5a9a6c50b8011fab50c3b:2",
+  "seed": "bafccd9f651c6fd92f95a418b45ce031fa64c9ce66e81573a7fc03d39eede67a",
+  "parameters": {
+    "folds": 6,
+    "twist": 1.7935294117647058,
+    "aperture": 0.3203921568627451,
+    "fullness": 0.9649411764705882,
+    "phase": 2.488634180490738,
+    "vermilion": [
+      0.46768627450980393,
+      0.027,
+      0.008
+    ]
+  },
+  "size": 1024,
+  "spp": 1024,
+  "mitsuba": "3.7.1",
+  "numpy": "1.26.2",
+  "meshes": {
+    "outer-0.ply": "97993c97c052dbcc64ce3e98cc535deac82530cee0a48e9e2d64546f73ceb287",
+    "inner-0.ply": "e94cc4761a140413a2e42a1b04d95f5970c078930d3df6f9d7f3cd04092772e3",
+    "edge-0.ply": "9f2daf4a79e4ecf549b412923af79b5ddf2f7e1b4d31ee072cb6701b9d348e85",
+    "outer-1.ply": "fdcfbfa7edbe9027102162db80b2a42c9cfe9de4a5b46c63aa211fd9ec13f904",
+    "inner-1.ply": "27194c3699549137441f3c0f2280322072917aa2078044ef7880cccd2061ad56",
+    "edge-1.ply": "76313f99c56676c2c2392ed52526ba995d2ed478d8ef469aebb6c5513420825f",
+    "outer-2.ply": "c1f155116b32d2691afffda2ea5d5c16d612eb212f4ae7d8aef59013977c3117",
+    "inner-2.ply": "0bcbdeadb3b89f5cee0abf9a02332449b987b9b3e08066fd5ddc9b6b94028fb6",
+    "edge-2.ply": "985429326471248d474c9cdf92c97484376ec0d7409d66fcebd80b589fdce61a",
+    "outer-3.ply": "ad6e12349d7119e8dac5d6bb780e595a2c191f138826b65b9bb1a724ead48071",
+    "inner-3.ply": "0446226c8b7c8ceda4114f1238159920bc92f460bdfd83e3e5fc26a9e8522c66",
+    "edge-3.ply": "8b2fa5e1338ec89cf95adaf94c5277d1bb2bc690f8fd61c63c8f6552bed74dae",
+    "outer-4.ply": "ec57d14840a49b0eb7de4f66a0ac7539f226e34f6b34e95a37acd4449847056a",
+    "inner-4.ply": "ba7458dfcacd9b5629f9e6e81cc5cc8f35cf2f6708a0fade2b398c77ceda77be",
+    "edge-4.ply": "8955d590ebbd6edd8ff7e08a751e612246d2e61b622033bd93a56d81e1a12359",
+    "outer-5.ply": "c224f01f83a11112bdea82dfa42b5b1dc9ec938bfa12fad9842dfafb47c24671",
+    "inner-5.ply": "aecab92fe12def0e89612ab5336ca70841a2bad0dc306668550f9e6a7287ccc5",
+    "edge-5.ply": "548c54e4fea254d05fec413ba602ec7937601b12a6f99fb45f1c7250882c0a4c"
+  },
+  "imageSha256": "95a7276504ce5b95e28c83fff027df6ee12392745bafc9d753474881c84589d5",
+  "scope": "Offline procedural art study, not tokenURI metadata. Receipt supplied by caller; renderer does not verify chain ownership. Geometry deterministic; cross-platform pixel identity unverified.",
+  "publishedSourceSha256": "39d8dd08c65dd0212a8487f1fd18c6fa8650323ae7c2ef40754bb07830b9c309",
+  "manifestRecovery": {
+    "reason": "PNG save completed asynchronously after the first manifest attempt. Image was retained; mesh hashes match the successful smaller render.",
+    "sourceChange": "Added write_async=False to mi.util.write_bitmap. No geometry, material, lighting, sampling, or pixel conversion changes.",
+    "publishedToCaptureSourceReplacement": {
+      "from": "mi.util.write_bitmap(str(args.out/'fold.png'),image,write_async=False)",
+      "to": "mi.util.write_bitmap(str(args.out/'fold.png'),image)"
+    }
+  }
+}

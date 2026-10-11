@@ -1,0 +1,14 @@
+{
+  "chainId": 31337,
+  "scope": "real Mac App Attest and signed app on isolated Anvil; not Base Sepolia distribution or second-device acceptance",
+  "badge": "0xa513E6E4b8f2a923D98304ec87F64353C4D5C853",
+  "tokenId": 1,
+  "owner": "0xbdBef2aB24A0016AEdFFb2FB866348AE4309205e",
+  "sponsor": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "ownerIsNotSponsor": true,
+  "transaction": "0x6b1f8b0a0a5d1bb161ca8c0cccf4d82e1a72f1b296038aeea04da1b040c87762",
+  "transactionStatus": 1,
+  "mintGasUsed": 273974,
+  "nextTokenIdAfterRestart": 2,
+  "blockHash": "0xcbf24a5e8cd6a1a35b66bd33652a3c599d682905b42fe4b61dbb38f3405bbec9"
+}

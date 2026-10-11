@@ -1,0 +1,77 @@
+{
+  "chainId": 31337,
+  "admin": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+  "DemoV1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+  "before": {
+    "paused": false,
+    "macBuildId": "0x7b04b476c126763cf13d1a1df34b5dd09baadd1932de1b64b26842c449139f26",
+    "macCategory": [
+      "0xDc64a140Aa3E981100a9becA4E685f962f0cF6C9",
+      "0x3fa3a811c7185b5abcd35d4c161ca668d40bd8335d6e0d674f5a037e1970c6ff",
+      "0x6170706c652d6d61636f73000000000000000000000000000000000000000000",
+      "0xbc6a4497b953a9c1590fe377d9146b84eedce1cd5fe2ea7701ccc0e3f9208c52",
+      true,
+      true
+    ]
+  },
+  "transactions": [
+    {
+      "action": "deploy CDRegistry",
+      "hash": "0x169df147063b56bf78080cbdb55790dbac97d46b245e2704a4873f0aa1574b73",
+      "nonce": 10,
+      "status": "confirmed",
+      "contractAddress": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788"
+    },
+    {
+      "action": "deploy AppleAttestRegistryV1",
+      "hash": "0xea5fd827d14232962e2af5b8a48d69fd721356f5e72ee0dbdc841e8354ecfce4",
+      "nonce": 11,
+      "status": "confirmed",
+      "contractAddress": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e"
+    },
+    {
+      "action": "add disabled iPhone category",
+      "hash": "0x205f7e6387aabd124b0b7fccb00b52d26a81714ad14e005b746a4b0b593127a6",
+      "nonce": 12,
+      "status": "confirmed",
+      "contractAddress": null
+    },
+    {
+      "action": "deploy ResearchBadges",
+      "hash": "0xdab6e3a71a1760df77c25f83dcf5a87b2ce9f59a483d1af655124dcfaebf303a",
+      "nonce": 13,
+      "status": "confirmed",
+      "contractAddress": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82"
+    },
+    {
+      "action": "deploy PersonalBadgeAccountFactory",
+      "hash": "0x7e436fde449cd1cea0ec287c36d90bae041381736e884aef64374e9325959b9f",
+      "nonce": 14,
+      "status": "confirmed",
+      "contractAddress": "0x9A676e781A523b5d0C0e43731313A708CB607508"
+    }
+  ],
+  "result": {
+    "protocolVersion": 2,
+    "chainId": 31337,
+    "admin": "0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266",
+    "DemoV1": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "iosCDRegistry": "0x610178dA211FEF7D417bC0e6FeD39F05609AD788",
+    "iosAdapter": "0xB7f8BC63BbcaD18155201308C8f3540b07f84F5e",
+    "iosCategory": "0xbd738a80359489c346d0541007731b067cabcaa6b0bf5332672b6ce5ff05adcb",
+    "ResearchBadges": "0x0DCd1Bf9A1b36cE34237eEaFef220932846BCD82",
+    "PersonalBadgeAccountFactory": "0x9A676e781A523b5d0C0e43731313A708CB607508",
+    "publisherTeam": "DC9JH5DRMY",
+    "validationCategory": 2,
+    "enabled": false,
+    "baselineConfigured": false,
+    "existingMacPolicyUnchanged": true,
+    "transactions": [
+      "0x169df147063b56bf78080cbdb55790dbac97d46b245e2704a4873f0aa1574b73",
+      "0xea5fd827d14232962e2af5b8a48d69fd721356f5e72ee0dbdc841e8354ecfce4",
+      "0x205f7e6387aabd124b0b7fccb00b52d26a81714ad14e005b746a4b0b593127a6",
+      "0xdab6e3a71a1760df77c25f83dcf5a87b2ce9f59a483d1af655124dcfaebf303a",
+      "0x7e436fde449cd1cea0ec287c36d90bae041381736e884aef64374e9325959b9f"
+    ]
+  }
+}

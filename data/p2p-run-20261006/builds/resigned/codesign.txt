@@ -1,0 +1,30 @@
+Executable=/Users/amiller/apple-attest-p2p/node/mac/build/resigned/Node.app/Contents/MacOS/node
+Identifier=dev.dsmack.provider
+Format=app bundle with Mach-O thin (arm64)
+CodeDirectory v=20500 size=799 flags=0x10000(runtime) hashes=14+7 location=embedded
+VersionPlatform=1
+VersionMin=1769472
+VersionSDK=1769472
+Hash type=sha256 size=32
+CandidateCDHash sha256=d2c7d77868d363e72a62ef4aa83578e5a6ff0965
+CandidateCDHashFull sha256=d2c7d77868d363e72a62ef4aa83578e5a6ff096546284eff5da5dbc965063b29
+Hash choices=sha256
+CMSDigest=d2c7d77868d363e72a62ef4aa83578e5a6ff096546284eff5da5dbc965063b29
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=114688
+Executable Segment flags=0x1
+Page size=16384
+CDHash=d2c7d77868d363e72a62ef4aa83578e5a6ff0965
+Signature size=4798
+Authority=Apple Development: Andrew Miller (QJUJ9F2UE4)
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Signed Time=Oct 6, 2026 at 10:03:53 AM
+Info.plist entries=9
+TeamIdentifier=DC9JH5DRMY
+Runtime Version=27.0.0
+Sealed Resources version=2 rules=13 files=1
+Internal requirements count=1 size=184
+Total signatures=1
+Chosen signature=1

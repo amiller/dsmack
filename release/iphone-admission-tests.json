@@ -1,0 +1,17 @@
+{
+  "scope": "Disposable local-chain integration only; no TestFlight attestation or live admission",
+  "chainId": 31337,
+  "testsPassed": 5,
+  "seconds": 9.274,
+  "checks": [
+    "keyless read-only inspection sends no transactions",
+    "aliased registry/category, wrong adapter/chain and bad hash rejected without writes",
+    "two confirmed admission transactions preserve active Mac state and disabled iPhone category",
+    "enabled iPhone category rejected",
+    "pending administrator transaction rejected"
+  ],
+  "sourceSHA256": {
+    "scripts/release/admit_ios_release.py": "1babf1f06869d176152ff614fb8190ea353d1650d22be36ddcbfbf642087d923",
+    "tests/test_ios_admission.py": "bc8a8e5368fb1d8fd61c1f81352455c91a2751f4abe375a5dccebd4238b1763b"
+  }
+}

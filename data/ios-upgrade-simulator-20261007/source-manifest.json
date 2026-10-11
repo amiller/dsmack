@@ -1,0 +1,27 @@
+{
+  "scope": "Simulator UI and injected callbacks only; no hardware attestation or NFT transaction",
+  "runtime": "iOS 26.5; isolated project deployment override; production remains iOS 27",
+  "remoteRun": "mini-mesh:~/agent-drop/iphone-friend-flow/build/ios-upgrade-consent-validation-v2",
+  "swiftSHA256": {
+    "tests/UpgradeValidation.swift": "5db4c7a16c6413eb64f8a2914d051a509a88ea9ddc9ae486b5022d982c52a895",
+    "tests/PersonalAccountKeychain.swift": "f3a6112dc505945b3429794776fd18855a46bd1ec7892dfbc90175c6ba6c9a49",
+    "tests/NativeAttestationTests.swift": "d1902644ef674fee33023eab7c7ef6f7e45663cd963bd475037ae8053de9f17f",
+    "tests/PersonalAccountVectors.swift": "ac76446b4be662ac05c2d420ba415b8fad85e44a66d073708a917ed8eaf2e963",
+    "tests/RequestVectors.swift": "ce0661b10015b692012a11a174b9998eeb1aceb820208f6349de2a7361812992",
+    "shared/Protocol.swift": "73abe9f77d3a43bdc19abc8a31e059175fa4c3575b6092ad75ca0128faf720dd",
+    "shared/PersonalAccount.swift": "f980f88d8207d7431b98a36ae5b8fef9c30687390e33bcbc00c5b1d2bc4a1740",
+    "shared/BadgeClaim.swift": "4bf99b887829702a383378abf3c064409ce0ea61d353f51180dcdadb00fdd7ca",
+    "shared/Chain.swift": "108737ad299ec9de924fd4df5fc725795597c33c468effc245d102621fae0922",
+    "shared/Upgrade.swift": "8fe8e84af0ff0ac8660cf72b2f501095099f1026289028ad63f163d135482b71",
+    "shared/NativeAttestation.swift": "af13ea7a586d40728e37fa4a2d02e9192a6ea0649d21c1f7d22bdecb2866bae2",
+    "shared/Node.swift": "8a9149ed66c7872996e1f72e26681099ee96de0c8376bf802c2c5b0027f42558",
+    "ios/NodeApp.swift": "e501f81eabab09958b121f70cfd3a6338daca67507763d6c512176328a38e2d5",
+    "ios/NodeUITests.swift": "a276c193d4681fc95ca87eaaaf94b0d4b628062efe09059a247f657931096186",
+    "ios/NetworkConfig.swift": "6bf7f2bcd80d9c0ed25cace9c4f8804281338fa4ac1856571bbae03970d881aa",
+    "mac/GUI.swift": "e4fe2819f9611d4ffb97f0d0dc752d65f9de06188991d184fad32aff39d1bd27",
+    "mac/main.swift": "2a560c1b249b61e9cef3257e9e04a2c0c2cc711e32d9e4f186f73bfd8242b533",
+    "mac/NetworkConfig.swift": "1cdd62f770caca38dd50802b2e2c45ac4b265d54713f53d0c3d89401db08f22e"
+  },
+  "uiTestsPassed": 8,
+  "nativeCallbackChecksPassed": 19
+}

@@ -1,0 +1,8 @@
+{
+  "deviceCompileExitCode": 0,
+  "executableSHA256": "41513ff3d95b74dab0e125184b59a37b5db6d1c00b5ff6ee0e9200c4c66e93e0",
+  "simulatorExportFixturePresent": false,
+  "signed": false,
+  "remoteDerivedData": "mini-mesh:~/agent-drop/iphone-friend-flow/build/ios-file-device-validation",
+  "scope": "Unsigned iOS 27 Release compilation and simulator fixture exclusion; not distribution evidence"
+}

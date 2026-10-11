@@ -1,0 +1,432 @@
+/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+Command line invocation:
+    /Applications/Xcode-27.0.0.app/Contents/Developer/usr/bin/xcodebuild -project /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj -scheme AppAttestLab -configuration Release -destination generic/platform=iOS -derivedDataPath /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd -archivePath /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/AppAttestLab.xcarchive -allowProvisioningUpdates DEVELOPMENT_TEAM=DC9JH5DRMY PRODUCT_BUNDLE_IDENTIFIER=dev.dsmack.provider CODE_SIGN_STYLE=Automatic APP_ATTEST_ENVIRONMENT=production "LAB_DEFAULT_ENDPOINT=https://probe.ln.soc1024.com" CURRENT_PROJECT_VERSION=1 SWIFT_ACTIVE_COMPILATION_CONDITIONS= "OTHER_CODE_SIGN_FLAGS=--keychain /Users/amiller/Library/Keychains/dsmack.keychain-db" archive
+
+Build settings from command line:
+    APP_ATTEST_ENVIRONMENT = production
+    CODE_SIGN_STYLE = Automatic
+    CURRENT_PROJECT_VERSION = 1
+    DEVELOPMENT_TEAM = DC9JH5DRMY
+    LAB_DEFAULT_ENDPOINT = https://probe.ln.soc1024.com
+    OTHER_CODE_SIGN_FLAGS = --keychain /Users/amiller/Library/Keychains/dsmack.keychain-db
+    PRODUCT_BUNDLE_IDENTIFIER = dev.dsmack.provider
+    SWIFT_ACTIVE_COMPILATION_CONDITIONS = 
+
+ComputePackagePrebuildTargetDependencyGraph
+
+Prepare packages
+
+CreateBuildRequest
+
+SendProjectDescription
+
+CreateBuildOperation
+
+ComputeTargetDependencyGraph
+note: Building targets in dependency order
+note: Target dependency graph (1 target)
+    Target 'AppAttestLab' in project 'AppAttestLab' (no dependencies)
+
+GatherProvisioningInputs
+
+CreateBuildDescription
+
+ExecuteExternalTool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -v -E -dM -isysroot /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -x c -c /dev/null
+
+ExecuteExternalTool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc --version
+
+ExecuteExternalTool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/ld -version_details
+
+Build description signature: 6aed4f636af7d61652f8a3bc60bfa1ea
+Build description path: /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/XCBuildData/6aed4f636af7d61652f8a3bc60bfa1ea.xcbuilddata
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/CompilationCache.noindex
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/CompilationCache.noindex
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/PrecompiledHeaders
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/PrecompiledHeaders
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation
+
+ClangStatCache /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKStatCaches.noindex/iphoneos27.0-24A430-1fbf9a8c2e33c77c19098db08c7af4fe.sdkstatcache
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang-stat-cache /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKStatCaches.noindex/iphoneos27.0-24A430-1fbf9a8c2e33c77c19098db08c7af4fe.sdkstatcache
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos
+
+CreateBuildDirectory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    builtin-create-build-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab-f527ef4205f893639b8ba157f106976a-VFS-iphoneos/all-product-headers.yaml
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.xcodeproj
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab-f527ef4205f893639b8ba157f106976a-VFS-iphoneos/all-product-headers.yaml
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-project-headers.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-project-headers.hmap
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.hmap
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-own-target-headers.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-own-target-headers.hmap
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-generated-files.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-generated-files.hmap
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-target-headers.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-target-headers.hmap
+
+SymLink /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.app ../../InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /bin/ln -sfh ../../InstallationBuildProductsLocation/Applications/AppAttestLab.app /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.app
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-non-framework-target-headers.hmap (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-non-framework-target-headers.hmap
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-OutputFileMap.json (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-OutputFileMap.json
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_const_extract_protocols.json (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_const_extract_protocols.json
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.LinkFileList (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.LinkFileList
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftConstValuesFileList (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftConstValuesFileList
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/Entitlements.plist (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/Entitlements.plist
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyStaticMetadataFileList (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyStaticMetadataFileList
+
+WriteAuxiliaryFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyMetadataFileList (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    write-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyMetadataFileList
+
+MkDir /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /bin/mkdir -p /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+ProcessProductPackaging /Users/amiller/Library/Developer/Xcode/UserData/Provisioning\ Profiles/bea1b870-3667-4902-b62d-4b0001b9aca6.mobileprovision /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/embedded.mobileprovision (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-productPackagingUtility /Users/amiller/Library/Developer/Xcode/UserData/Provisioning\ Profiles/bea1b870-3667-4902-b62d-4b0001b9aca6.mobileprovision -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/embedded.mobileprovision
+
+ProcessProductPackaging /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.entitlements /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    
+    Entitlements:
+    
+    {
+    "application-identifier" = "DC9JH5DRMY.dev.dsmack.provider";
+    "com.apple.developer.devicecheck.app-attest-opt-in" =     (
+        CDhash
+    );
+    "com.apple.developer.devicecheck.appattest-environment" = production;
+    "com.apple.developer.team-identifier" = DC9JH5DRMY;
+    "get-task-allow" = 1;
+}
+    
+    builtin-productPackagingUtility /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.entitlements -entitlements -format xml -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent
+
+ProcessProductPackagingDER /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent.der (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /usr/bin/derq query -f xml -i /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent.der --raw
+
+ProcessInfoPlistFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Info.plist /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/Info.plist (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-infoPlistUtility /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/Info.plist -producttype com.apple.product-type.application -genpkginfo /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/PkgInfo -expandbuildsettings -format binary -platform iphoneos -requiredArchitecture arm64 -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Info.plist
+
+SwiftDriver AppAttestLab normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-SwiftDriver -- /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AppAttestLab -O @/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -F /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -parse-as-library -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKStatCaches.noindex/iphoneos27.0-24A430-1fbf9a8c2e33c77c19098db08c7af4fe.sdkstatcache -output-file-map /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -sdk-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_const_extract_protocols.json -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-generated-files.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-own-target-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-target-headers.hmap -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-project-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/include -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources-normal/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-Swift.h -working-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app -experimental-emit-module-separately -disable-cmo
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_AvailabilityInternal-EPZ9YTPBVDCGSX4M6Y5XPFYI9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_stdarg-6M9SLXR187GHZ8OHEQBNKWADM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_stddef-CRM6A8L7FXSQIJMSBD4FQTZP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/ptrauth-EQK3SW9PXRVKL8VSJODBG4HYB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_float-CPWJ5368UCHNLCRTS7QHFSRAM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/SwiftShims-53WKYVDN183NR1WLBCFNZJJ47.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_SwiftConcurrencyShims-4PW8PFW6WNDJIAR1DG4PWF1S8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/DeveloperToolsSupport-7D04WO75K7NS1EG8HUAWMFDPN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/ptrcheck-C1ID2HQ3NHJRKO6PXM4HJSBQO.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_stdbool-6BCSMWISQR1161423AKHJO0E.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_DarwinFoundation1-5BE5MUJO69QO3E1UE3QK2E7RU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_DarwinFoundation2-7R80JHFXVL0VC5ND4RM5GVVAP.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_limits-86BKNEEV564CD7Z2HWBW7IH6C.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/string_h-FD5P8WLD4RLLX8DC664DDZ1D.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/sys_types-AZR49JTG1G7PZWMT9HBAZ5DW6.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_tgmath-EBAM4XKRHOTUZLFEJO4FQTMXR.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_stdint-3V3C3SF9IM4JEH6NFE2T7NVJ0.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_DarwinFoundation3-CO2RS3IVV2SHN5AYOGUXQ5SXK.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_intrinsics-AXDX0QFN2DS84IJXXFNBJPXMB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_stdatomic-7C303BEPZ38C468JKR0ZU59M9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_Builtin_inttypes-6YDIP3Q4FMGFJ3AQUI5ASUXZH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Darwin-91XXQYMU25NIC2M1IA4FFPA33.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/simd-ELYDYAQ9GKOHHNOEXP0HA1X3D.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/MachO-CIP9V3H9GCB196PE5X2IUVT2P.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/ObjectiveC-B5X64L52HHRB2500XURBM9TB5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/os_object-3PQOOG1DSNSPYKFOIT49XVK2J.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/os_workgroup-2LCQELVIP8OH0UKYQC6AMCPCJ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Spatial-DKGTORE7HML12VQY2GKTUCEZH.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Dispatch-7D2QRMXQ0FSCO325IBK758UA1.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreFoundation-EA3PKS15J62FUWWOVY8HKZJ5Z.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/XPC-4APHJ769HXLI957QHS3V0OW6T.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/os-47V247HP84YVMP7TKULP43KOZ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreAudioTypes-1AEOMHJBGOUKO0F4CHL4NRB7X.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreGraphics-87N1EWU7YD4VMZMTZAWQ028OD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Security-BWRVQUND4UPXIKNHMB5FJ4ZRM.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CFNetwork-89ESQTF4OI95YLCL5TS1XRB0D.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreAudio-9EQUOVLPMC5IOEGF1PIP3HY86.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Foundation-EFWV5T6VTVNCKA9HYKUQQ5FI9.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/ImageIO-DH48JLYBU09BFNL41RU3VHLJD.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreText-3RZG3HJ12JNOHQOUZCKKMDPCU.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/UniformTypeIdentifiers-CAOW80MJ82XMTO71XJ3U93F5A.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Accessibility-23RS7J9PVLJMHHAMRTJ2T4O7W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreTransferable-30FD4MF1EJSIY317FBR3T49FS.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/IOSurface-8TL1COMNYA2JPRYCJT37LA84W.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/DataDetection-C1HEY1RN9KRJVC54VI15I73IC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Symbols-CCNKS3ZEWXAWAUNKH7X5KJ0EI.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/FileProvider-WM1X6489SFV53CBU9KFLK4ML.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/OSLog-CI9EABYLBDSVLFKICNUMFMO36.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreData-1BGJJUGYGDH4R8XVFGPOMBN5Q.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/DeviceCheck-EVP9LNI7R9Q4H56ONL2I6R3AF.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/UIUtilities-9S2L2IGIPR34YNIOUQMFNJEF5.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/_LocationEssentials-84Z0RSPEEK7TCX2ZEIHO7QTS4.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/UserNotifications-39MAAEZUDDKF9FS2NTIO90IQ7.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/LocalAuthentication-5II7K982KETDBYI8876VRLLA8.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreLocation-7AOW50CD1Z1DPAO65Z4E69ZEQ.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/OpenGLES-31TQ5Y87BP2JOJYFO0PK5DAUW.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/Metal-CK7PVP5RWVTD08PV4PVYLOYZA.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreMotion-8PPLNTCXKIR69TLUFFM871ZRC.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreVideo-7H8KVIWBGSCIZ1A55X80HCSH2.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreMedia-8Z93A91T7GLBK04PUTS0LTVMB.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/CoreImage-5489JB5V1EN6FXV3FJUW9DDN.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/QuartzCore-7QNJTQ9FEQV5PFNZAOO9IJ0IG.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/SwiftUICore-AJTMN1NW7NM5O9LOSQJR7QSUX.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/UIKit-33H6W0QF68QPZYR8Q6VKBPM8K.pcm
+
+SwiftExplicitDependencyGeneratePcm arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules/SwiftUI-CRXCKWLWZOPRAQ6C07OZ3ASEN.pcm
+
+SwiftEmitModule normal arm64 Emitting\ module\ for\ AppAttestLab (in target 'AppAttestLab' from project 'AppAttestLab')
+
+SwiftCompile normal arm64 (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    
+
+SwiftCompile normal arm64 Compiling\ AppAttestLab.swift /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.swift (in target 'AppAttestLab' from project 'AppAttestLab')
+
+SwiftCompile normal arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app/AppAttestLab.swift (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-SwiftPerFileCompile AppAttestLab.swift
+
+SwiftDriverJobDiscovery normal arm64 Emitting module for AppAttestLab (in target 'AppAttestLab' from project 'AppAttestLab')
+
+SwiftDriver\ Compilation\ Requirements AppAttestLab normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-Swift-Compilation-Requirements -- /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AppAttestLab -O @/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -F /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -parse-as-library -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKStatCaches.noindex/iphoneos27.0-24A430-1fbf9a8c2e33c77c19098db08c7af4fe.sdkstatcache -output-file-map /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -sdk-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_const_extract_protocols.json -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-generated-files.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-own-target-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-target-headers.hmap -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-project-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/include -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources-normal/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-Swift.h -working-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app -experimental-emit-module-separately -disable-cmo
+
+SwiftMergeGeneratedHeaders /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/AppAttestLab-Swift.h /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-Swift.h (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-swiftHeaderTool -arch arm64 /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-Swift.h -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/AppAttestLab-Swift.h
+
+Copy /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.swiftdoc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftdoc (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftdoc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.swiftdoc
+
+Copy /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.abi.json /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.abi.json (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.abi.json /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.abi.json
+
+Copy /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.swiftmodule /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-copy -exclude .DS_Store -exclude CVS -exclude .svn -exclude .git -exclude .hg -strip-unsigned-binaries -strip-deterministic -strip-tool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -resolve-src-symlinks -rename /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.swiftmodule/arm64-apple-ios.swiftmodule
+
+SwiftDriverJobDiscovery normal arm64 Compiling AppAttestLab.swift (in target 'AppAttestLab' from project 'AppAttestLab')
+
+SwiftDriver\ Compilation AppAttestLab normal arm64 com.apple.xcode.tools.swift.compiler (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-Swift-Compilation -- /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/swiftc -module-name AppAttestLab -O @/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList -enable-bare-slash-regex -enable-experimental-feature DebugDescriptionMacro -sdk /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -target arm64-apple-ios16.0 -g -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -Xfrontend -serialize-debugging-options -swift-version 5 -I /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -F /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -parse-as-library -c -j14 -enable-batch-mode -incremental -Xcc -ivfsstatcache -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKStatCaches.noindex/iphoneos27.0-24A430-1fbf9a8c2e33c77c19098db08c7af4fe.sdkstatcache -output-file-map /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-OutputFileMap.json -save-temps -no-color-diagnostics -explicit-module-build -module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules -clang-scanner-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex -sdk-module-cache-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules -emit-dependencies -emit-module -emit-module-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule -serialize-diagnostics -dependency-scan-serialize-diagnostics-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-dependency-scan.dia -validate-clang-modules-once -clang-build-session-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/ModuleCache.noindex/Session.modulevalidation -Xcc -fmodules-prune-interval\=86400 -Xcc -fmodules-prune-after\=345600 -emit-const-values -const-gather-protocols-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_const_extract_protocols.json -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-generated-files.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-own-target-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-all-target-headers.hmap -Xcc -iquote -Xcc /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab-project-headers.hmap -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/include -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources-normal/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources/arm64 -Xcc -I/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/DerivedSources -emit-objc-header -emit-objc-header-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab-Swift.h -working-directory /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app -experimental-emit-module-separately -disable-cmo
+
+Ld /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab normal (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/clang -Xlinker -reproducible -target arm64-apple-ios16.0 -isysroot /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk -Os -Xlinker -no_warn_duplicate_libraries -L/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos -L/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -F/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/EagerLinkingTBDs/Release-iphoneos -F/Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos -filelist /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.LinkFileList -Xlinker -rpath -Xlinker /usr/lib/swift -Xlinker -dead_strip -Xlinker -object_path_lto -Xlinker /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_lto.o -Xlinker -final_output -Xlinker /Applications/AppAttestLab.app/AppAttestLab -Xlinker -dependency_info -Xlinker /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_dependency_info.dat -fobjc-link-runtime -L/Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/iphoneos -L/usr/lib/swift -Xlinker -add_ast_path -Xlinker /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.swiftmodule -Xlinker -no_adhoc_codesign -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab
+
+CopySwiftLibs /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-swiftStdLibTool --copy --verbose --sign 7B08CCB90D02268C501CF0B19FC5611617C882E2 --Xcodesign --keychain --Xcodesign /Users/amiller/Library/Keychains/dsmack.keychain-db --scan-executable /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab --scan-folder /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Frameworks --scan-folder /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/PlugIns --scan-folder /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/SystemExtensions --scan-folder /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Extensions --platform iphoneos --toolchain /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --destination /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Frameworks --unsigned-destination /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/SwiftSupport --strip-bitcode --strip-bitcode-tool /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/bitcode_strip --emit-dependency-info /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/SwiftStdLibToolInputDependencies.dep --filter-for-swift-os --back-deploy-swift-span
+
+ExtractAppIntentsMetadata (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsmetadataprocessor --toolchain-dir /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain --module-name AppAttestLab --sdk-root /Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/SDKs/iPhoneOS27.0.sdk --xcode-version 27A266a --platform-family iOS --deployment-target 16.0 --bundle-identifier dev.dsmack.provider --output /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app --target-triple arm64-apple-ios16.0 --binary-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab --dependency-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab_dependency_info.dat --stringsdata-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/ExtractedAppShortcutsMetadata.stringsdata --source-file-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftFileList --metadata-file-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyMetadataFileList --static-metadata-file-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyStaticMetadataFileList --swift-const-vals-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/Objects-normal/arm64/AppAttestLab.SwiftConstValuesFileList --compile-time-extraction --deployment-aware-processing --no-app-shortcuts-localization
+2026-09-23 11:16:21.516 appintentsmetadataprocessor[77968:5876048] Starting appintentsmetadataprocessor export
+2026-09-23 11:16:21.517 appintentsmetadataprocessor[77968:5876048] warning: Metadata extraction skipped, no AppIntents.framework dependency found
+
+GenerateDSYMFile /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.app.dSYM /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    export PATH\=/Applications/Xcode-27.0.0.app/Contents/SharedFrameworks/SwiftBuild.framework/Versions/A/PlugIns/SWBBuildService.bundle/Contents/PlugIns/SWBUniversalPlatformPlugin.bundle/Contents/Frameworks/SWBUniversalPlatform.framework/Resources:/Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/local/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/libexec:/Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/usr/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/usr/local/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/Platforms/iPhoneOS.platform/Developer/usr/local/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/usr/bin:/Applications/Xcode-27.0.0.app/Contents/Developer/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/dsymutil /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab -o /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/BuildProductsPath/Release-iphoneos/AppAttestLab.app.dSYM
+
+AppIntentsSSUTraining (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/appintentsnltrainingprocessor --infoplist-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Info.plist --temp-dir-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/ssu --bundle-id dev.dsmack.provider --product-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app --extracted-metadata-path /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Metadata.appintents --deployment-postprocessing --metadata-file-list /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.DependencyMetadataFileList --source-file /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/Info.plist --archive-ssu-assets
+2026-09-23 11:16:21.554 appintentsnltrainingprocessor[77970:5876051] Parsing options for appintentsnltrainingprocessor
+2026-09-23 11:16:21.554 appintentsnltrainingprocessor[77970:5876051] Starting AppIntents SSU YAML Generation
+2026-09-23 11:16:21.555 appintentsnltrainingprocessor[77970:5876051] No AppShortcuts found - Skipping.
+
+Strip /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /Applications/Xcode-27.0.0.app/Contents/Developer/Toolchains/XcodeDefault.xctoolchain/usr/bin/strip -D /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app/AppAttestLab
+
+SetOwnerAndGroup amiller:staff /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /usr/sbin/chown -RH amiller:staff /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+SetMode u+w,go-w,a+rX /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /bin/chmod -RH u+w,go-w,a+rX /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+CodeSign /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    
+    Signing Identity:     "Apple Development: Andrew Miller (QJUJ9F2UE4)"
+    Provisioning Profile: "iOS Team Provisioning Profile: dev.dsmack.provider"
+                          (bea1b870-3667-4902-b62d-4b0001b9aca6)
+    
+    /usr/bin/codesign --force --sign 7B08CCB90D02268C501CF0B19FC5611617C882E2 --keychain /Users/amiller/Library/Keychains/dsmack.keychain-db --entitlements /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/AppAttestLab.build/Release-iphoneos/AppAttestLab.build/AppAttestLab.app.xcent --generate-entitlement-der /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+RegisterExecutionPolicyException /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-RegisterExecutionPolicyException /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+Validate /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    builtin-validationUtility /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app -shallow-bundle -infoplist-subpath Info.plist
+
+Touch /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app (in target 'AppAttestLab' from project 'AppAttestLab')
+    cd /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/app
+    /usr/bin/touch -c /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/InstallationBuildProductsLocation/Applications/AppAttestLab.app
+
+PruneExplicitPrecompiledModules /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/ExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/SDKExplicitPrecompiledModules
+
+PruneExplicitPrecompiledModules /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/dd/Build/Intermediates.noindex/ArchiveIntermediates/AppAttestLab/IntermediateBuildFilesPath/SwiftExplicitPrecompiledModules
+
+** ARCHIVE SUCCEEDED **
+
+2026-09-23 11:16:22.086 xcodebuild[77977:5876078] [MT] IDEDistribution: -[IDEDistributionLogging _createLoggingBundleAtPath:]: Created bundle at path "/var/folders/zw/ztdxnkhs069cqlx39s60cdjc0000gn/T/AppAttestLab_2026-09-23_11-16-22.086.xcdistributionlogs".
+Exported AppAttestLab to: /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/export
+** EXPORT SUCCEEDED **
+
+Exported /Users/amiller/projects/appattest-iphone-20260923/ios-app-attest/build/adhoc/honest/export/AppAttestLab.ipa

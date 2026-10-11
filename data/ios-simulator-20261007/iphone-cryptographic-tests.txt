@@ -1,0 +1,28 @@
+No files changed, compilation skipped
+
+Ran 3 tests for test/MacAppAttestV1.t.sol:MacAppAttestV1Test
+[PASS] test_IPhoneEnrollmentAndAssertions() (gas: 19998056)
+[PASS] test_IPhoneEvidenceRejectedUnderMacACL() (gas: 11858150)
+[PASS] test_IPhoneTamperedCDHashRejected() (gas: 19434502)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 46.22ms (95.25ms CPU time)
+
+Ran 3 tests for test/AppleAttestRegistryV1.t.sol:AppleAttestRegistryV1Test
+[PASS] test_IPhoneEnrollAndAssertThroughRegistry() (gas: 25039984)
+[PASS] test_IPhoneUnderMacProfileRejected() (gas: 16795455)
+[PASS] test_IPhoneUnregisteredBuildRejected() (gas: 12359918)
+Suite result: ok. 3 passed; 0 failed; 0 skipped; finished in 80.49ms (101.01ms CPU time)
+
+Ran 2 tests for test/Network.t.sol:NetworkTest
+[PASS] test_IPhoneOnIOSAdapter() (gas: 12847920)
+Logs:
+  network/deploy-test.json
+  {"AdapterArtifact":"out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json","CDRegistryArtifact":"out/CDRegistry.sol/CDRegistry.json","DemoTokenV1":"0x3B02fF1e626Ed7a8fd6eC5299e2C54e1421B626B","DemoV1":"0x0165878A594ca255338adfa4d48449f69242Eb8F","DemoV1Artifact":"out/DemoV1.sol/DemoV1.json","MembershipReceiptV1":"0xBA12646CC07ADBe43F8bD25D83FB628D29C8A762","admin":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","iosAdapter":"0xa513E6E4b8f2a923D98304ec87F64353C4D5C853","iosCDRegistry":"0x5FbDB2315678afecb367f032d93F642f64180aa3","iosCategory":"0x34e67816a8b7b6ed4854ea2dcfd5a690ffe42f4cbfa0198cdcd6a873117b0729","macAdapter":"0x610178dA211FEF7D417bC0e6FeD39F05609AD788","macCDRegistry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","macCategory":"0xf01b2a7826eb209c5735d7d233d4e232f75dda417e910b13b4dd3de2efab4725"}
+
+[PASS] test_IPhoneOnMacAdapterRejected() (gas: 861163)
+Logs:
+  network/deploy-test.json
+  {"AdapterArtifact":"out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json","CDRegistryArtifact":"out/CDRegistry.sol/CDRegistry.json","DemoTokenV1":"0x3B02fF1e626Ed7a8fd6eC5299e2C54e1421B626B","DemoV1":"0x0165878A594ca255338adfa4d48449f69242Eb8F","DemoV1Artifact":"out/DemoV1.sol/DemoV1.json","MembershipReceiptV1":"0xBA12646CC07ADBe43F8bD25D83FB628D29C8A762","admin":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","iosAdapter":"0xa513E6E4b8f2a923D98304ec87F64353C4D5C853","iosCDRegistry":"0x5FbDB2315678afecb367f032d93F642f64180aa3","iosCategory":"0x34e67816a8b7b6ed4854ea2dcfd5a690ffe42f4cbfa0198cdcd6a873117b0729","macAdapter":"0x610178dA211FEF7D417bC0e6FeD39F05609AD788","macCDRegistry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","macCategory":"0xf01b2a7826eb209c5735d7d233d4e232f75dda417e910b13b4dd3de2efab4725"}
+
+Suite result: ok. 2 passed; 0 failed; 0 skipped; finished in 103.61ms (90.06ms CPU time)
+
+Ran 3 test suites in 104.99ms (230.32ms CPU time): 8 tests passed, 0 failed, 0 skipped (8 total tests)

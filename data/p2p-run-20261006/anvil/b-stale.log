@@ -1,0 +1,6 @@
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0x0165878A594ca255338adfa4d48449f69242Eb8F","rpc":"http:\/\/127.0.0.1:18555","t":1791307696.4154911,"variant":"honest"}
+{"event":"enrolled","keyId":"0x3606ecfdcdcac85a82c48841f953fb9df98a3f910cb6b88b77c436ff447c7c01","member":"0xff55e4859ce84ed6f0167c7d5f5f24478902d2d1c357a0eaa1ca7ff19e4b81df","sessionPublic":"0x04105c964bfb4252e83053923bda3bab17a50fe731b2fa4c44d19affb7c43d9e8f5966df43ce4ae10d27bccc14eff8959a8868b619dbb3fe26dd2a660e13c9834f","t":1791307698.750798,"tx":"0xf1601e7a69b3ec078a4b5920fbbaadc1b713d6ddb0c2f6b9bd412d073bcf1229"}
+{"action":0,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307698.976903,"tx":"0x474b4cda5210df71ea908b16c0abeba76063afb813aeda5c515a52b42a585349"}
+{"event":"sent","t":1791307764.0936399,"to":"a","type":"HELLO"}
+{"event":"received","from":"a","t":1791307764.698545,"type":"ERROR"}
+{"error":"invalid(\"peer replied ERROR: invalid(\\\"stale peer check-in\\\")\")","event":"error","t":1791307764.6991749}

@@ -1,0 +1,25 @@
+{
+  "host": "mini-mesh",
+  "date": "2026-10-07",
+  "result": "passed",
+  "checks": [
+    "valid production ECDH/HKDF/AES-GCM roundtrip",
+    "tampered ciphertext",
+    "tampered authentication tag",
+    "wrong scope",
+    "wrong recipient identity",
+    "wrong receiver ECDH key",
+    "wrong chain binding",
+    "wrong registry binding",
+    "production import rejects foreign recipient before RPC",
+    "production import rejects truncated parcel before RPC",
+    "no held key or verified receipt from rejected imports"
+  ],
+  "scope": "Production Node.aad/transport and CryptoKit authentication; exact production importParcel pre-RPC size/recipient guards. Not full-chain receipt validation. No enrollment, Keychain writes, RPC requests, or saved secret material.",
+  "source_sha256": {
+    "node/tests/ParcelCryptoTests.swift": "d959d1c60e73afa12fd3e6aa20b0875831d8644f387be954e46f93d6fba3e0a4",
+    "node/shared/Node.swift": "8a9149ed66c7872996e1f72e26681099ee96de0c8376bf802c2c5b0027f42558",
+    "node/shared/Protocol.swift": "73abe9f77d3a43bdc19abc8a31e059175fa4c3575b6092ad75ca0128faf720dd"
+  },
+  "command": "xcrun swiftc -O -framework DeviceCheck node/shared/Protocol.swift node/shared/PersonalAccount.swift node/shared/BadgeClaim.swift node/shared/Upgrade.swift node/shared/Chain.swift node/shared/NativeAttestation.swift node/shared/Node.swift node/tests/ParcelCryptoTests.swift -o /tmp/attest-parcel-crypto-tests-20261007 && /tmp/attest-parcel-crypto-tests-20261007"
+}

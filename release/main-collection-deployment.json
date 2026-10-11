@@ -1,0 +1,116 @@
+{
+  "chainId": 84532,
+  "name": "Attest Testnet Research Badges",
+  "ResearchCollection": "0xc3da5f4d5013dD6fB4a16EF3ace0C0F9e1F8C1Ed",
+  "receiptContract": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B",
+  "publisher": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+  "verifiedBlock": 47826297,
+  "runtimeMatchesCompiledArtifact": true,
+  "runtimeSHA256": "2c6a246785d2131c20ab06bbe5e60d6e3a52043f2b3a0d9c12299f60a806daab",
+  "sourceCommit": "8079dd96ab564b0e079daddd8f9d1924cf59d34a",
+  "tokens": [
+    {
+      "tokenId": 1,
+      "owner": "0xAc089f563703F8811073C758d6E1E8aAD89C7cCD",
+      "metadata": {
+        "name": "Attest Participant #1",
+        "description": "Fold: porcelain and vermilion. Historical research receipt; not unique-person or unique-device identity. No monetary value.",
+        "image": "https://raw.githubusercontent.com/amiller/apple-attest-p2p/8079dd96ab564b0e079daddd8f9d1924cf59d34a/artwork/fold/token-1.png",
+        "image_sha256": "0x09ed2eff9b74460ded5dace49d25541a780c1ce55eb2084afa78ba2aebc8fb5a",
+        "renderer_sha256": "0x39d8dd08c65dd0212a8487f1fd18c6fa8650323ae7c2ef40754bb07830b9c309",
+        "receipt_contract": "0x6ac5fb83f5bf615842b5a9a6c50b8011fab50c3b",
+        "receipt_token": 1,
+        "level": 1,
+        "parent": 0,
+        "member": "0x9e409a94bc31fae9aa60f74dca068cb7de7cf69f505417703c7395eafaa28e9c",
+        "teamHash": "0xe68a1331c5be9d81c69671004180c14cbc3984430769fb661f5f950363cbba17",
+        "attributes": [
+          {
+            "trait_type": "Level",
+            "value": 1
+          },
+          {
+            "trait_type": "Material",
+            "value": "Porcelain and vermilion"
+          },
+          {
+            "trait_type": "Artwork frozen",
+            "value": "no"
+          }
+        ]
+      },
+      "explorer": "https://sepolia.basescan.org/token/0xc3da5f4d5013dD6fB4a16EF3ace0C0F9e1F8C1Ed?a=1"
+    },
+    {
+      "tokenId": 2,
+      "owner": "0x6e250b3f230bD1912b9cFf13a8FD6209aFE5480b",
+      "metadata": {
+        "name": "Attest Participant #2",
+        "description": "Fold: porcelain and vermilion. Historical research receipt; not unique-person or unique-device identity. No monetary value.",
+        "image": "https://raw.githubusercontent.com/amiller/apple-attest-p2p/8079dd96ab564b0e079daddd8f9d1924cf59d34a/artwork/fold/gabe-token-2.png",
+        "image_sha256": "0x95a7276504ce5b95e28c83fff027df6ee12392745bafc9d753474881c84589d5",
+        "renderer_sha256": "0xb3e174877a6ffa5d651543f4e989049014ee8e9bb74e4fac37fd9190867376c3",
+        "receipt_contract": "0x6ac5fb83f5bf615842b5a9a6c50b8011fab50c3b",
+        "receipt_token": 2,
+        "level": 1,
+        "parent": 0,
+        "member": "0x751c1bcdcf9f1995b4e186aa1cc407eb714324a6f8ee0c263b4f67316be60dc3",
+        "teamHash": "0xe68a1331c5be9d81c69671004180c14cbc3984430769fb661f5f950363cbba17",
+        "attributes": [
+          {
+            "trait_type": "Level",
+            "value": 1
+          },
+          {
+            "trait_type": "Material",
+            "value": "Porcelain and vermilion"
+          },
+          {
+            "trait_type": "Artwork frozen",
+            "value": "no"
+          }
+        ]
+      },
+      "explorer": "https://sepolia.basescan.org/token/0xc3da5f4d5013dD6fB4a16EF3ace0C0F9e1F8C1Ed?a=2"
+    }
+  ],
+  "transactions": [
+    {
+      "hash": "0x8a00e0bbc3cf8e55873ab2536afad682f4c33f9d5f6b698654f183aa3009b8b6",
+      "nonce": 60,
+      "status": "confirmed",
+      "blockNumber": 47826245,
+      "contractAddress": "0xc3da5f4d5013dD6fB4a16EF3ace0C0F9e1F8C1Ed"
+    },
+    {
+      "hash": "0x7848e2a6ed93f3b847a5b7f39a9ef7e9f25f6602404364179931d31f1de6c441",
+      "nonce": 61,
+      "status": "confirmed",
+      "blockNumber": 47826261,
+      "contractAddress": null
+    },
+    {
+      "hash": "0x8745bdd8762e6a396654c7615bc6ee985993ec3f8b41d383dffdb87d9e218a49",
+      "nonce": 62,
+      "status": "confirmed",
+      "blockNumber": 47826262,
+      "contractAddress": null
+    },
+    {
+      "hash": "0x4bfe9d00b1c50c7b2f87db6e3b046da7b24959d77cf86addbbe2ca7a05514f69",
+      "nonce": 63,
+      "status": "confirmed",
+      "blockNumber": 47826280,
+      "contractAddress": null
+    },
+    {
+      "hash": "0xe2541fcfe39192a1f82a97dc58266428d4a56b5f7c5e5c444e595079af77ead9",
+      "nonce": 64,
+      "status": "confirmed",
+      "blockNumber": 47826283,
+      "contractAddress": null
+    }
+  ],
+  "artworkFrozen": false,
+  "appIntegration": "RC2 still opens original receipt; automatic artwork production for future claims pending"
+}

@@ -1,0 +1,37 @@
+{
+  "files": [
+    {
+      "path": "rc1/AttestNode-macOS27-arm64-v0.1.0-rc.1.zip",
+      "sha256": "fdf555e412cc39f03a50cfb9a81974f7d404094d29a7e841d759976e39341530"
+    },
+    {
+      "path": "rc1/AttestNode-v0.1.0-rc.1-evidence.zip",
+      "sha256": "65b25f969b37ae6112346835276cd6c130aced6345fa1f576760b9771dbe2c0e"
+    },
+    {
+      "path": "rc1/SHA256SUMS",
+      "sha256": "3f9ad0758493c6413f4bf4d43bf7b0aa8093e217935eb871ac73c734dd4468b0"
+    },
+    {
+      "path": "rc1/release-manifest.json",
+      "sha256": "a8a4920b241604a0d2616bd0d3a14595390295fdc6a9bea0e1695228a230f6c7"
+    },
+    {
+      "path": "rc2/AttestNode-macOS27-arm64-v0.1.0-rc.2.zip",
+      "sha256": "145cd977390c0c01be006c2a056a1890449cbf26c7e6d0a24820f11de1ad3b25"
+    },
+    {
+      "path": "rc2/AttestNode-v0.1.0-rc.2-evidence.zip",
+      "sha256": "368a80294e4bff7c1cc479431d5c9bec716337711acd4da8945a484ad7a5c0cc"
+    },
+    {
+      "path": "rc2/SHA256SUMS",
+      "sha256": "9e10de3661f211f237a9913f69b049589b31bdd768f568ecb2ef6a286f08f6c0"
+    },
+    {
+      "path": "rc2/release-manifest.json",
+      "sha256": "c07e7f44a7a7d4ce887b58cbe71d42c84d73bff1afb391892baeeed060a5d95c"
+    }
+  ],
+  "hits": []
+}

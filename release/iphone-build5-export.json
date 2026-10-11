@@ -1,0 +1,24 @@
+{
+  "sourceRevision": "42a0beb",
+  "version": "0.1.0",
+  "build": "5",
+  "bundleId": "dev.dsmack.provider",
+  "minimumOS": "27.0",
+  "nonExemptEncryption": false,
+  "ipaSHA256": "60874c2134a3b91cc2e65421b1c7e08e157c35e3284ed9350a93e6f1fb3cc0ed",
+  "executableSHA256": "aa08233f2adffe17fb9f5a3a23b1b4ff988abb1a0761d99d58c93e1653204ea3",
+  "strictSignatureVerified": true,
+  "appAttestEnvironment": "production",
+  "appAttestOptIn": [
+    "CDhash"
+  ],
+  "simulatorSelectorsPresent": false,
+  "applicationIdentifier": "DC9JH5DRMY.dev.dsmack.provider",
+  "debuggerEntitlement": false,
+  "provisionedDeviceListPresent": false,
+  "enterpriseProfile": false,
+  "scope": "Signed local export; installed TestFlight evidence and admission unverified",
+  "codeDirectorySha256": "0xc581c360d17784c8c62192bb8a355878a9c69ed2c2beac3677e177bd0548c4c2",
+  "parserChecksPassed": 16,
+  "pythonCdArgsExactMatch": true
+}

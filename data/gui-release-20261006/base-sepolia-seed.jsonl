@@ -1,0 +1,40 @@
+{"event":"connecting","t":1791331073.732259}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB","rpc":"https:\/\/sepolia.base.org","t":1791331074.3782492,"variant":"honest"}
+{"event":"attesting","t":1791331074.379657}
+{"error":"invalid(\"HTTP 503 \/apple-attest-p2p-relay\/enroll: {\\\"error\\\":\\\"relay transaction unavailable; retry\\\"}\")","event":"seed retrying","retryAfterSeconds":2,"t":1791331167.0666261}
+{"event":"connecting","t":1791331169.0683808}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB","rpc":"https:\/\/sepolia.base.org","t":1791331169.197891,"variant":"honest"}
+{"event":"attesting","t":1791331169.199208}
+{"event":"resuming enrollment","t":1791331169.2698989}
+{"error":"invalid(\"HTTP 503 \/apple-attest-p2p-relay\/enroll: {\\\"error\\\":\\\"relay transaction unavailable; retry\\\"}\")","event":"seed retrying","retryAfterSeconds":4,"t":1791331259.574075}
+{"event":"connecting","t":1791331263.5755591}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB","rpc":"https:\/\/sepolia.base.org","t":1791331263.7083189,"variant":"honest"}
+{"event":"attesting","t":1791331263.7100379}
+{"event":"resuming enrollment","t":1791331263.787637}
+{"error":"invalid(\"HTTP 500 \/apple-attest-p2p-relay\/enroll: 500 Internal Server Error\\n\\nServer got itself in trouble\")","event":"seed retrying","retryAfterSeconds":8,"t":1791331284.7472029}
+{"event":"connecting","t":1791331292.749347}
+{"error":"invalid(\"HTTP 500 \/apple-attest-p2p-relay\/info: 500 Internal Server Error\\n\\nServer got itself in trouble\")","event":"seed retrying","retryAfterSeconds":16,"t":1791331296.3409262}
+{"event":"connecting","t":1791331312.343116}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB","rpc":"https:\/\/sepolia.base.org","t":1791331313.2249689,"variant":"honest"}
+{"event":"attesting","t":1791331313.2265968}
+{"event":"resuming enrollment","t":1791331313.292233}
+{"error":"invalid(\"HTTP 500 \/apple-attest-p2p-relay\/enroll: 500 Internal Server Error\\n\\nServer got itself in trouble\")","event":"seed retrying","retryAfterSeconds":32,"t":1791331376.282146}
+{"event":"connecting","t":1791331408.2837901}
+{"appAttestSupported":true,"event":"start","owner":"0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61","registry":"0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB","rpc":"https:\/\/sepolia.base.org","t":1791331409.2785881,"variant":"honest"}
+{"event":"attesting","t":1791331409.2797151}
+{"event":"resuming enrollment","t":1791331409.3369031}
+{"event":"enrolled","keyId":"0xb82d5b62f792be6f0949f2c7c909197eaa4b1ed359b99d22eb858ca9998cc58a","member":"0x370ecffacf225c201181c590b3d19ec9e8360dbb3b134caea31df307bc796d5d","sessionPublic":"0x048dceb90da4effca6fb15c5c874b0f11e4016bb6f61a0c80362e75370780fd43c0a7ec748ec41746b252d1d93effb419ac942f3158c5800859f0b4dc9d04b6a81","t":1791331415.113101,"tx":"0xa2f0b446cdb3dfc384e121133f9161c65cb21811ddf8ee088c072373a288ee4b"}
+{"action":2,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791331420.8479419,"tx":"0x32d76aa8d7db2ef601ad67c104d0a7ac7cb080557e648083f93b6d54a3c54a58"}
+{"event":"seed ready","keyEpoch":0,"t":1791331420.848212}
+{"event":"network reachable","t":1791331420.943414}
+{"event":"network reachable","t":1791331451.3876262}
+{"event":"network reachable","t":1791331481.665931}
+{"event":"network reachable","t":1791331512.024677}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791331530.8330641,"type":"HELLO"}
+{"action":3,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791331536.668251,"tx":"0x01464edcde9caec6f7809043241803e400d474af5cb72bc1549c01156a75af9c"}
+{"event":"sent","t":1791331536.792726,"to":"77bedd75-7c89-4955-aee5-920500b492b0","type":"PARCEL"}
+{"event":"received","from":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791331542.9316001,"type":"PROOF"}
+{"event":"peer holds group key","peer":"77bedd75-7c89-4955-aee5-920500b492b0","t":1791331542.9670401}
+{"event":"network reachable","t":1791331543.066726}
+{"event":"network reachable","t":1791331573.307797}
+{"event":"network reachable","t":1791331603.6276031}

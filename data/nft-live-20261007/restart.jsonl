@@ -1,0 +1,20 @@
+{"chainId":31337,"event":"configured","network":"Apple peer testnet — NFT validation","participant":"77bedd75-7c89-4955-aee5-920500b492b0","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","t":1791334629.291604}
+{"event":"connecting","t":1791334629.292459}
+{"appAttestSupported":true,"event":"start","owner":"0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266","registry":"0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9","rpc":"http:\/\/127.0.0.1:18585","t":1791334629.336726,"variant":"honest"}
+{"event":"attesting","t":1791334629.337327}
+{"event":"identity resumed","expires":1791507341,"member":"0x98ebeebfa8a62103a1c2588215a151956972254329fd36cbf3859d1438dc1ae3","t":1791334629.3616419}
+{"event":"getting key","t":1791334629.369236}
+{"action":0,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334630.535917,"tx":"0xab5d71827eb5b8d630ea9cbd5395d4d262e94e881f660337f2c4b320846fdd81"}
+{"event":"sent","t":1791334630.5669651,"to":"nft-seed-20261007","type":"HELLO"}
+{"event":"received","from":"nft-seed-20261007","t":1791334632.5167022,"type":"PARCEL"}
+{"action":3,"event":"executed","keyEpoch":0,"scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334633.762965,"tx":"0x37cb0b86c8d2001e929070f73943d05058c82e4a759ddf2c9cb0de65c9ce5922"}
+{"event":"key verified","groupPublic":"0x045e57c3b6570583436f03f5fa302c4de43e6ec1522b920837419dd28eeeb8ca395cb50e0c3cd8e7d1c18c825649533ddbcf56b536dd6cebf3e380f5f38478caae","keyEpoch":0,"receipt":"0x37cb0b86c8d2001e929070f73943d05058c82e4a759ddf2c9cb0de65c9ce5922","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","senderReceipt":"0xd35ad5ee4aaa0a08d6eaf1feae52dcfa8f15f615e78ceb79cc9bd9171709b9c6","t":1791334633.765285}
+{"event":"imported group key","groupPublic":"0x045e57c3b6570583436f03f5fa302c4de43e6ec1522b920837419dd28eeeb8ca395cb50e0c3cd8e7d1c18c825649533ddbcf56b536dd6cebf3e380f5f38478caae","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791334633.777535}
+{"event":"sent","t":1791334633.796005,"to":"nft-seed-20261007","type":"PROOF"}
+{"event":"participating","keyEpoch":0,"member":"0x98ebeebfa8a62103a1c2588215a151956972254329fd36cbf3859d1438dc1ae3","t":1791334633.796129}
+{"event":"badge preparing","personalAccount":"0xbdbef2ab24a0016aedffb2fb866348ae4309205e","t":1791334633.81617}
+{"badgeContract":"0xa513E6E4b8f2a923D98304ec87F64353C4D5C853","badgeLevel":1,"badgeToken":1,"badgeTransaction":"","chainId":31337,"event":"badge claimed","personalAccount":"0xbdbef2ab24a0016aedffb2fb866348ae4309205e","t":1791334633.8854251}
+Status image saved
+{"event":"network reachable","t":1791334633.9111462}
+{"event":"network reachable","t":1791334664.534934}
+{"event":"network reachable","t":1791334695.5132608}

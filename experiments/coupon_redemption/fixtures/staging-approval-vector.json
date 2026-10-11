@@ -1,0 +1,118 @@
+{
+  "approval": {
+    "envelope": "{\"domain\":\"dsmack-coupon-staging-approval-v1\",\"payload\":{\"app_id\":\"0505050505050505050505050505050505050505\",\"compose_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"generation\":1,\"guard\":{\"address\":\"0x1111111111111111111111111111111111111111\",\"chain_id\":11155111,\"code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\"},\"identity_policy_sha256\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"issuance_policy_sha256\":\"0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_public_key_sha256\":\"9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4\",\"max_coupon_nano_usd\":\"5000000000\",\"max_total_nano_usd\":\"5000000000\",\"powers\":[\"operator-secret-access\",\"application-exec\",\"debugger\",\"host-clock\"],\"profile\":\"debug-staging\",\"prompt_policy\":\"synthetic-only\",\"provider_scope_commitment\":\"f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57\",\"version\":1},\"signature_hex\":\"0110256885f9d7a64ec188066a6290d46d9467d20e9a42749639fffc750ad2abcd39880b473168fc6157e07dad3e650ba462cd025f57a4860b96fa73081a4f0d\"}",
+    "payload": {
+      "app_id": "0505050505050505050505050505050505050505",
+      "compose_hash": "0101010101010101010101010101010101010101010101010101010101010101",
+      "expires_at": "2099-01-01T00:00:00Z",
+      "generation": 1,
+      "guard": {
+        "address": "0x1111111111111111111111111111111111111111",
+        "chain_id": 11155111,
+        "code_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "issuer_address": "0x5975c152fe58cdcb7e25586a3c9b994a16dbb615"
+      },
+      "identity_policy_sha256": "0202020202020202020202020202020202020202020202020202020202020202",
+      "issuance_policy_sha256": "0303030303030303030303030303030303030303030303030303030303030303",
+      "issuer_public_key_sha256": "9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4",
+      "max_coupon_nano_usd": "5000000000",
+      "max_total_nano_usd": "5000000000",
+      "powers": [
+        "operator-secret-access",
+        "application-exec",
+        "debugger",
+        "host-clock"
+      ],
+      "profile": "debug-staging",
+      "prompt_policy": "synthetic-only",
+      "provider_scope_commitment": "f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57",
+      "version": 1
+    },
+    "sha256": "7f9460ad6b6e9a93cd2cb9d6c2c7af28387b011325a650f1cb68a50d5da56ba1"
+  },
+  "authority_public_key_hex": "332ebe8d27cb7323b3a401c1c13b5dd64bccc0e10ecda1c2b5d11a03779a85e5",
+  "authority_seed_hex_for_regeneration_only": "9999999999999999999999999999999999999999999999999999999999999999",
+  "config": {
+    "envelope": "{\"domain\":\"dsmack-coupon-staging-config-v1\",\"payload\":{\"approval_sha256\":\"7f9460ad6b6e9a93cd2cb9d6c2c7af28387b011325a650f1cb68a50d5da56ba1\",\"finality_profile\":{\"bootstrap_checkpoint\":\"0x8888888888888888888888888888888888888888888888888888888888888888\",\"chain_id\":11155111,\"consensus_rpc\":\"https://example.invalid\",\"execution_rpc\":\"https://example.invalid\",\"genesis_validators_root\":\"0x7777777777777777777777777777777777777777777777777777777777777777\",\"guard_address\":\"0x1111111111111111111111111111111111111111\",\"guard_code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuance_policy_hash\":\"0x0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\",\"max_finalized_age_seconds\":1200,\"timeout_seconds\":30,\"trust_profile\":\"helios-ethereum-sepolia-finalized-experiment\",\"version\":1},\"gas_price_wei\":1000,\"issuer_peer_id\":\"IssuerPeer00000001\",\"job_deadline_seconds\":120,\"max_active_jobs\":1,\"observer_subject\":\"operator:observer\",\"peers\":{\"ObserverPeer0001\":{\"roles\":[\"observer\"],\"subject\":\"operator:observer\"},\"SponsorPeer0000001\":{\"roles\":[\"sponsor\"],\"subject\":\"operator:sponsor\"}},\"provider\":{\"organization_id\":\"22222222-2222-4222-8222-222222222222\",\"reporting_token\":\"SYNTHETIC-NOT-CREDENTIAL\",\"session_jwt\":\"SYNTHETIC-NOT-CREDENTIAL\",\"workspace_id\":\"11111111-1111-4111-8111-111111111111\"},\"scope_salt_hex\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"sponsor_subject\":\"operator:sponsor\",\"state_dir\":\"/operator/coupon-staging/state\",\"version\":1},\"signature_hex\":\"b7de9455ea8e533b596e59985c2f361d1912d858f72bb207af099237a3e4758315f776e11caeb3f3cbb8b7a84c96f3f22f21c07e20c0c5ee49cb90271efe860f\"}",
+    "payload": {
+      "approval_sha256": "7f9460ad6b6e9a93cd2cb9d6c2c7af28387b011325a650f1cb68a50d5da56ba1",
+      "finality_profile": {
+        "bootstrap_checkpoint": "0x8888888888888888888888888888888888888888888888888888888888888888",
+        "chain_id": 11155111,
+        "consensus_rpc": "https://example.invalid",
+        "execution_rpc": "https://example.invalid",
+        "genesis_validators_root": "0x7777777777777777777777777777777777777777777777777777777777777777",
+        "guard_address": "0x1111111111111111111111111111111111111111",
+        "guard_code_hash": "0x2222222222222222222222222222222222222222222222222222222222222222",
+        "issuance_policy_hash": "0x0303030303030303030303030303030303030303030303030303030303030303",
+        "issuer_address": "0x5975c152fe58cdcb7e25586a3c9b994a16dbb615",
+        "max_finalized_age_seconds": 1200,
+        "timeout_seconds": 30,
+        "trust_profile": "helios-ethereum-sepolia-finalized-experiment",
+        "version": 1
+      },
+      "gas_price_wei": 1000,
+      "issuer_peer_id": "IssuerPeer00000001",
+      "job_deadline_seconds": 120,
+      "max_active_jobs": 1,
+      "observer_subject": "operator:observer",
+      "peers": {
+        "ObserverPeer0001": {
+          "roles": [
+            "observer"
+          ],
+          "subject": "operator:observer"
+        },
+        "SponsorPeer0000001": {
+          "roles": [
+            "sponsor"
+          ],
+          "subject": "operator:sponsor"
+        }
+      },
+      "provider": {
+        "organization_id": "22222222-2222-4222-8222-222222222222",
+        "reporting_token": "SYNTHETIC-NOT-CREDENTIAL",
+        "session_jwt": "SYNTHETIC-NOT-CREDENTIAL",
+        "workspace_id": "11111111-1111-4111-8111-111111111111"
+      },
+      "scope_salt_hex": "6666666666666666666666666666666666666666666666666666666666666666",
+      "sponsor_subject": "operator:sponsor",
+      "state_dir": "/operator/coupon-staging/state",
+      "version": 1
+    }
+  },
+  "note": "Shared signed staging primitive vector for client/service schema interoperability. The authority is a published test key, not the measured image approval root: it admits no live credential or provider effect. Signature bytes are Ed25519 over DOMAIN_ASCII + 0x00 + canonical(payload), where canonical(value) is recursively key-sorted compact ASCII JSON (json.dumps with sort_keys=True, separators=(\",\",\":\"), ensure_ascii=True, ASCII-only strings). The envelope is exactly {\"domain\",\"payload\",\"signature_hex\"} with a lowercase 128-character hex signature. Approval hashes are sha256 hex of DOMAIN_ASCII + 0x00 + canonical(payload).",
+  "refused": [
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-approval-v1\",\"payload\":{\"app_id\":\"0505050505050505050505050505050505050505\",\"compose_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"generation\":1,\"guard\":{\"address\":\"0x1111111111111111111111111111111111111111\",\"chain_id\":11155111,\"code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\"},\"identity_policy_sha256\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"issuance_policy_sha256\":\"0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_public_key_sha256\":\"9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4\",\"max_coupon_nano_usd\":\"5000000000\",\"max_total_nano_usd\":\"5000000000\",\"powers\":[\"operator-secret-access\",\"application-exec\",\"debugger\",\"host-clock\"],\"profile\":\"debug-staging\",\"prompt_policy\":\"synthetic-only\",\"provider_scope_commitment\":\"f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57\",\"version\":1},\"signature_hex\":\"48b1ede51de37aa5c3a1dfc76fef90a65d3b091e7cc2e6dcffaaed4f18ab3a86593ba887d462caa39603bfd3dc10b1840528f34e08fb2c74efb041e328e88305\"}",
+      "name": "approval signed by an authority outside the pinned root",
+      "validator": "approval"
+    },
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-config-v1\",\"payload\":{\"approval_sha256\":\"7f9460ad6b6e9a93cd2cb9d6c2c7af28387b011325a650f1cb68a50d5da56ba1\",\"finality_profile\":{\"bootstrap_checkpoint\":\"0x8888888888888888888888888888888888888888888888888888888888888888\",\"chain_id\":11155111,\"consensus_rpc\":\"https://example.invalid\",\"execution_rpc\":\"https://example.invalid\",\"genesis_validators_root\":\"0x7777777777777777777777777777777777777777777777777777777777777777\",\"guard_address\":\"0x1111111111111111111111111111111111111111\",\"guard_code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuance_policy_hash\":\"0x0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\",\"max_finalized_age_seconds\":1200,\"timeout_seconds\":30,\"trust_profile\":\"helios-ethereum-sepolia-finalized-experiment\",\"version\":1},\"gas_price_wei\":1000,\"issuer_peer_id\":\"IssuerPeer00000001\",\"job_deadline_seconds\":120,\"max_active_jobs\":1,\"observer_subject\":\"operator:observer\",\"peers\":{\"ObserverPeer0001\":{\"roles\":[\"observer\"],\"subject\":\"operator:observer\"},\"SponsorPeer0000001\":{\"roles\":[\"sponsor\"],\"subject\":\"operator:sponsor\"}},\"provider\":{\"organization_id\":\"22222222-2222-4222-8222-222222222222\",\"reporting_token\":\"SYNTHETIC-NOT-CREDENTIAL\",\"session_jwt\":\"SYNTHETIC-NOT-CREDENTIAL\",\"workspace_id\":\"11111111-1111-4111-8111-111111111111\"},\"scope_salt_hex\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"sponsor_subject\":\"operator:sponsor\",\"state_dir\":\"/operator/coupon-staging/state\",\"version\":1},\"signature_hex\":\"a33a58d3df6f1db7af8d2686739020f2b4358043c2efbf4fb41da35673c799acff3ae170d1aadfde7dfd77a103fd42fdc52c6cfceb9d9139ca176ebcbd3fca0f\"}",
+      "name": "config signed by an authority outside the pinned root",
+      "validator": "configuration"
+    },
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-config-v1\",\"payload\":{\"app_id\":\"0505050505050505050505050505050505050505\",\"compose_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"generation\":1,\"guard\":{\"address\":\"0x1111111111111111111111111111111111111111\",\"chain_id\":11155111,\"code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\"},\"identity_policy_sha256\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"issuance_policy_sha256\":\"0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_public_key_sha256\":\"9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4\",\"max_coupon_nano_usd\":\"5000000000\",\"max_total_nano_usd\":\"5000000000\",\"powers\":[\"operator-secret-access\",\"application-exec\",\"debugger\",\"host-clock\"],\"profile\":\"debug-staging\",\"prompt_policy\":\"synthetic-only\",\"provider_scope_commitment\":\"f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57\",\"version\":1},\"signature_hex\":\"bbd7ae066c1d9b2770f5aeba345de60123e6bcb3a1517d46b7b4a45f5a9f699fd7c34839fd9fb06caa99561eafafd4d1ef5fa2f7d3ee49870a40375592c79b03\"}",
+      "name": "approval envelope presented under the config domain",
+      "validator": "approval"
+    },
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-approval-v1\",\"payload\":{\"app_id\":\"0505050505050505050505050505050505050505\",\"compose_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"expires_at\":\"2099-01-01T00:00:00Z\",\"generation\":1,\"guard\":{\"address\":\"0x1111111111111111111111111111111111111111\",\"chain_id\":11155111,\"code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\"},\"identity_policy_sha256\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"issuance_policy_sha256\":\"0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_public_key_sha256\":\"9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4\",\"max_coupon_nano_usd\":\"9000000000\",\"max_total_nano_usd\":\"5000000000\",\"powers\":[\"operator-secret-access\",\"application-exec\",\"debugger\",\"host-clock\"],\"profile\":\"debug-staging\",\"prompt_policy\":\"synthetic-only\",\"provider_scope_commitment\":\"f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57\",\"version\":1},\"signature_hex\":\"0110256885f9d7a64ec188066a6290d46d9467d20e9a42749639fffc750ad2abcd39880b473168fc6157e07dad3e650ba462cd025f57a4860b96fa73081a4f0d\"}",
+      "name": "approval budget raised after signing",
+      "validator": "approval"
+    },
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-approval-v1\",\"payload\":{\"app_id\":\"0505050505050505050505050505050505050505\",\"compose_hash\":\"0101010101010101010101010101010101010101010101010101010101010101\",\"expires_at\":\"2100-01-01T00:00:00Z\",\"generation\":1,\"guard\":{\"address\":\"0x1111111111111111111111111111111111111111\",\"chain_id\":11155111,\"code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\"},\"identity_policy_sha256\":\"0202020202020202020202020202020202020202020202020202020202020202\",\"issuance_policy_sha256\":\"0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_public_key_sha256\":\"9a92d2b54a9a5402de3e65a07a5cb12a8dc6758bd8e8c2ec459563d6b2c081c4\",\"max_coupon_nano_usd\":\"9000000000\",\"max_total_nano_usd\":\"5000000000\",\"powers\":[\"operator-secret-access\",\"application-exec\",\"debugger\",\"host-clock\"],\"profile\":\"debug-staging\",\"prompt_policy\":\"synthetic-only\",\"provider_scope_commitment\":\"f42501a7bd27b7daf043985f5c707a7b75d97fc1c214bcae192606af36d39c57\",\"version\":1},\"signature_hex\":\"0110256885f9d7a64ec188066a6290d46d9467d20e9a42749639fffc750ad2abcd39880b473168fc6157e07dad3e650ba462cd025f57a4860b96fa73081a4f0d\"}",
+      "name": "approval expiry extended after signing",
+      "validator": "approval"
+    },
+    {
+      "envelope": "{\"domain\":\"dsmack-coupon-staging-config-v1\",\"payload\":{\"approval_sha256\":\"7f9460ad6b6e9a93cd2cb9d6c2c7af28387b011325a650f1cb68a50d5da56ba1\",\"finality_profile\":{\"bootstrap_checkpoint\":\"0x8888888888888888888888888888888888888888888888888888888888888888\",\"chain_id\":11155111,\"consensus_rpc\":\"https://example.invalid\",\"execution_rpc\":\"https://example.invalid\",\"genesis_validators_root\":\"0x7777777777777777777777777777777777777777777777777777777777777777\",\"guard_address\":\"0x1111111111111111111111111111111111111111\",\"guard_code_hash\":\"0x2222222222222222222222222222222222222222222222222222222222222222\",\"issuance_policy_hash\":\"0x0303030303030303030303030303030303030303030303030303030303030303\",\"issuer_address\":\"0x5975c152fe58cdcb7e25586a3c9b994a16dbb615\",\"max_finalized_age_seconds\":1200,\"timeout_seconds\":30,\"trust_profile\":\"helios-ethereum-sepolia-finalized-experiment\",\"version\":1},\"gas_price_wei\":1000,\"issuer_peer_id\":\"IssuerPeer00000001\",\"job_deadline_seconds\":120,\"max_active_jobs\":1,\"observer_subject\":\"operator:observer\",\"peers\":{\"ObserverPeer0001\":{\"roles\":[\"observer\"],\"subject\":\"operator:observer\"},\"SponsorPeer0000001\":{\"roles\":[\"sponsor\"],\"subject\":\"operator:sponsor\"}},\"provider\":{\"organization_id\":\"33333333-3333-4333-8333-333333333333\",\"reporting_token\":\"SYNTHETIC-NOT-CREDENTIAL\",\"session_jwt\":\"SYNTHETIC-NOT-CREDENTIAL\",\"workspace_id\":\"11111111-1111-4111-8111-111111111111\"},\"scope_salt_hex\":\"6666666666666666666666666666666666666666666666666666666666666666\",\"sponsor_subject\":\"operator:sponsor\",\"state_dir\":\"/operator/coupon-staging/state\",\"version\":1},\"signature_hex\":\"b7de9455ea8e533b596e59985c2f361d1912d858f72bb207af099237a3e4758315f776e11caeb3f3cbb8b7a84c96f3f22f21c07e20c0c5ee49cb90271efe860f\"}",
+      "name": "config provider account substituted after signing",
+      "validator": "configuration"
+    }
+  ]
+}

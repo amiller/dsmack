@@ -1,0 +1,14 @@
+{"appAttestSupported":true,"event":"start","owner":"0x97883cb4B2f21530277F86490d8881654E36E6aA","registry":"0x0505b620b4557235dBD05ee2cc8D25C52d958fB1","rpc":"https:\/\/sepolia.base.org","t":1791307521.578084,"variant":"honest"}
+{"event":"enrolled","keyId":"0xbdbfa00c896f2249f3867b6f20c74e99d989d48d69459a46869b5eb2cd63cb8a","member":"0xc94bc5c6a51a2b553b2246f1641938b5c2f18ee579a2e2f1aaa9483626a661be","sessionPublic":"0x04d0e09140ebea5aa3f01c0878a711b80d0359d7e44727c9b9dbd7fdfd1b270f0e6c86ae7a92bc420af5528eea3d19860464071c85919be600a52c64f3964f9b5d","t":1791307527.6406121,"tx":"0x16ba60030ef072a8b6197cfe10ba079a824c0242ba53cdce91ab22bdd0e5a82a"}
+{"action":2,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307532.331053,"tx":"0x3dadf30dd5ae279fcde7592ef526233a75a207de7c215acf2c52ad516ca62641"}
+{"event":"received","from":"b","t":1791307552.629988,"type":"HELLO"}
+{"action":3,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307557.53756,"tx":"0x2341b7cb9ef710861959b5aa307fedaa5fea6512423826640ad9da05f57bc138"}
+{"event":"sent","t":1791307557.5550351,"to":"b","type":"PARCEL"}
+{"event":"received","from":"b","t":1791307563.586647,"type":"PROOF"}
+{"event":"peer holds group key","peer":"b","t":1791307563.6149559}
+{"event":"received","from":"b-stale","t":1791307645.446449,"type":"HELLO"}
+{"error":"invalid(\"stale peer check-in\")","event":"refused","peer":"b-stale","t":1791307645.510227,"type":"HELLO"}
+{"event":"sent","t":1791307645.5322561,"to":"b-stale","type":"ERROR"}
+{"event":"received","from":"driver","t":1791307662.1004629,"type":"STOP"}
+{"event":"stop","t":1791307662.100601}
+{"event":"done","t":1791307662.1006598}

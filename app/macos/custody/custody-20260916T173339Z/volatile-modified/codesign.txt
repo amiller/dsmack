@@ -1,0 +1,30 @@
+Executable=/Users/amiller/custody-20260916T173339Z/active/CodeBindingProbe.app/Contents/MacOS/probe
+Identifier=dev.dsmack.provider
+Format=app bundle with Mach-O thin (arm64)
+CodeDirectory v=20500 size=607 flags=0x10000(runtime) hashes=8+7 location=embedded
+VersionPlatform=1
+VersionMin=1769472
+VersionSDK=1769472
+Hash type=sha256 size=32
+CandidateCDHash sha256=cf20e2fe4e5749dd3db899cb2967b87a30e315fd
+CandidateCDHashFull sha256=cf20e2fe4e5749dd3db899cb2967b87a30e315fdb5230be79f3e1253c53b1792
+Hash choices=sha256
+CMSDigest=cf20e2fe4e5749dd3db899cb2967b87a30e315fdb5230be79f3e1253c53b1792
+CMSDigestType=2
+Executable Segment base=0
+Executable Segment limit=49152
+Executable Segment flags=0x1
+Page size=16384
+CDHash=cf20e2fe4e5749dd3db899cb2967b87a30e315fd
+Signature size=4798
+Authority=Apple Development: Andrew Miller (QJUJ9F2UE4)
+Authority=Apple Worldwide Developer Relations Certification Authority
+Authority=Apple Root CA
+Signed Time=Sep 16, 2026 at 10:33:45 AM
+Info.plist entries=8
+TeamIdentifier=DC9JH5DRMY
+Runtime Version=27.0.0
+Sealed Resources version=2 rules=13 files=1
+Internal requirements count=1 size=184
+Total signatures=1
+Chosen signature=1

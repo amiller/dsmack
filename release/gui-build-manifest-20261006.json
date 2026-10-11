@@ -1,0 +1,53 @@
+{
+  "build_number": "3",
+  "bundle_id": "dev.dsmack.provider",
+  "compiler_flags": [
+    "-O",
+    "-whole-module-optimization",
+    "-module-name",
+    "AttestNode",
+    "-target",
+    "arm64-apple-macos27.0",
+    "-framework",
+    "DeviceCheck",
+    "-D",
+    "HONEST",
+    "-file-prefix-map",
+    "/src=/src",
+    "-debug-prefix-map",
+    "/src=/src",
+    "-Xlinker",
+    "-no_adhoc_codesign",
+    "-D",
+    "GUI",
+    "-framework",
+    "AppKit"
+  ],
+  "dirty_build_inputs": false,
+  "files": {
+    "Contents/Info.plist": "9294428b350b65a239a3f2193f0f75e3b35db3dc2d96b95369d7801659c13dfe",
+    "Contents/MacOS/node": "56b618d28494cfefb4841261709ccd16a2f45b2a8dc27361d7099483b0f81c1f"
+  },
+  "flavor": "gui",
+  "inputs": {
+    "node/mac/GUI.swift": "a7ed73313f9a75356eafc64cc512bc55db524cee01ff45190e2e53436f76f992",
+    "node/mac/Info.plist": "8dd13e81bdd1bc20813a1bbeccd08595d501ec98444efba66ee94726e8b4d390",
+    "node/mac/NetworkConfig.swift": "c942f7fc85f6f328c14fc9befa9240029d60fd54debd0351073c7ed3a34d03e8",
+    "node/mac/main.swift": "2a560c1b249b61e9cef3257e9e04a2c0c2cc711e32d9e4f186f73bfd8242b533",
+    "node/shared/Chain.swift": "108737ad299ec9de924fd4df5fc725795597c33c468effc245d102621fae0922",
+    "node/shared/Node.swift": "7020455885926ba3b3cae4feebeb632613762521a0b9b9540634a52c97b21613",
+    "node/shared/Protocol.swift": "dbc14a87f91813da3c41f5da51e31dc35e031e3090343c8f4085e7ef9b8e7a3b",
+    "release/toolchain.json": "1695f4c78f02ff91d3c6f0f00b7f6ccb583f03b24ca1dc1fe702efb7a9eb5dac",
+    "scripts/release/build_mac.py": "adf075229eec452396b64785a56445db8d11a70e55e1d4040d4303ab0f3c3b4d"
+  },
+  "kind": "unsigned-build",
+  "schema": 1,
+  "source_commit": "ee74923b13f82ea4d66ad4783d5b3a3bfd412a80",
+  "toolchain": {
+    "sdk_build": "26A425",
+    "sdk_version": "27.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0\nBuild version 27A266a"
+  },
+  "version": "0.1.0"
+}

@@ -1,0 +1,86 @@
+[
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "D78DBA30-3448-48FC-A834-870C8D4900A4.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-attesting_0_C5067C2E-6869-48BA-938C-D626657F3E74.png",
+        "timestamp" : 1791404030.846
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testAttesting()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testAttesting"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "FC429BBC-831D-4DDF-A6C5-8C44D9D2BEFF.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-claimed_0_97CCB60E-E90C-44B2-B78F-D72D18B24474.png",
+        "timestamp" : 1791404035.313
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testClaimed()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testClaimed"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "400753C8-FB96-40E6-BFEC-CA4FBD335E7B.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-share-report_0_429A526B-ADE5-44FF-B673-1956AF3DACCA.png",
+        "timestamp" : 1791404041.865
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "7E9B77AD-077C-4B01-B197-5C481CBCAD32.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-apple-failure-details_0_FEF553F9-8A46-4B49-B8FF-BE81E58B23E0.png",
+        "timestamp" : 1791404040.071
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testFailureReport()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testFailureReport"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "1E5D5FF1-CE2B-447A-AC5A-7BBB18CBAC6B.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-retry_0_0E0ED3B1-4A23-4A92-82BF-AA72FC40970D.png",
+        "timestamp" : 1791404047.016
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testRetry()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testRetry"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "E28BFC04-212F-4442-855D-31C040BF41B1.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "REAL-simulator-unsupported_0_F82C584F-D5B0-4E83-9C8F-824C40C66BEF.png",
+        "timestamp" : 1791404051.823
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testUnsupportedSimulatorAndPersistentIdentity()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUnsupportedSimulatorAndPersistentIdentity"
+  }
+]

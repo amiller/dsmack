@@ -1,0 +1,8 @@
+{
+  "account": "custody-test-8e3b203c60ec459ad2df824e",
+  "ciphertext": "/Users/amiller/custody-20260916T173234Z/captures/persist-store/sealed.bin",
+  "data_ciphertext": "/Users/amiller/custody-20260916T173234Z/stored-ciphertext.bin",
+  "mode": "read",
+  "nonce": "ce9d9d87d1aec9b54bc6eb8660c132a0aa71171692cbd75ffc58784ee80aa6bd",
+  "session": "custody-20260916T173234Z/persist-replaced"
+}

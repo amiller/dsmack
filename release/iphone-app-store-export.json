@@ -1,0 +1,22 @@
+{
+  "sourceRevision": "4023bbc",
+  "bundleId": "dev.dsmack.provider",
+  "version": "0.1.0",
+  "build": "3",
+  "minimumOS": "27.0",
+  "ipaFile": "AttestNode.ipa",
+  "ipaSHA256": "828e6684c2e7a9e766a29f32698473ea4aef1d394c74df538d05f1c0ce6b5c36",
+  "executableSHA256": "4c401739aae40302e089fb5779fb21db640775320ed654f63e2ed64f2cf5d443",
+  "strictSignatureVerified": true,
+  "team": "DC9JH5DRMY",
+  "appAttestEnvironment": "production",
+  "appAttestOptIn": [
+    "CDhash"
+  ],
+  "debuggerAllowed": false,
+  "provisionedDeviceCount": 0,
+  "profileExpiration": "2027-06-13T19:54:01",
+  "simulatorFixtureSelectorPresent": false,
+  "uploaded": false,
+  "scope": "Local App Store Connect export only; not Apple-processed installed TestFlight identity or live iPhone admission"
+}

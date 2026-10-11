@@ -1,0 +1,12 @@
+[
+  {
+    "tokenId": 1,
+    "manifest": "artwork/fold/token-1-manifest.json",
+    "image": "https://raw.githubusercontent.com/amiller/apple-attest-p2p/8079dd96ab564b0e079daddd8f9d1924cf59d34a/artwork/fold/token-1.png"
+  },
+  {
+    "tokenId": 2,
+    "manifest": "artwork/fold/gabe-token-2-manifest.json",
+    "image": "https://raw.githubusercontent.com/amiller/apple-attest-p2p/8079dd96ab564b0e079daddd8f9d1924cf59d34a/artwork/fold/gabe-token-2.png"
+  }
+]

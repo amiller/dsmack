@@ -1,0 +1,12 @@
+{
+  "chainId": 84532,
+  "contract": "0x6Ac5fb83f5BF615842b5A9a6C50b8011FaB50c3B",
+  "account": "0x6e250b3f230bD1912b9cFf13a8FD6209aFE5480b",
+  "participantToken": 2,
+  "participantTeamHash": "0xe68a1331c5be9d81c69671004180c14cbc3984430769fb661f5f950363cbba17",
+  "mintTransaction": "0x07129281c2b87b9e38ba5ece13a30025a4b4b7619373bdbe3096eba086453379",
+  "mintBlock": 47814927,
+  "nextId": 3,
+  "verified": true,
+  "scope": "RPC-backed receipt and current ownership; not proof of clean installation or unique person/device"
+}

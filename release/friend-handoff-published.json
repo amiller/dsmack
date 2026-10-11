@@ -1,0 +1,16 @@
+{
+  "url": "https://pod.dstack.soc1024.com/artifact-reports-2026b/attestnode-friend-handoff--D8rHDc-ANNzKZ_C7Vcy5bQ/",
+  "source_documentation_commit": "7f35b1d64d09187cfbf5a0881433b7aa9c448b3c",
+  "app_build_commit": "adda809826358d2466b74a2f206c5921f75443a1",
+  "html_sha256": "72ccc00a74e2fa865770c73fa49077f493bcf6e1eb7e3ff28a1b7e53ed81b627",
+  "archive_sha256": "cc38a679e020ce86058f44811229b1b6608ccd17ed0eb12608819329d4b79c58",
+  "archive_local": "/home/amiller/.local/share/wake/report-archives/D8rHDc-ANNzKZ_C7Vcy5bQ.zip",
+  "checked_at": "2026-10-07T01:59:36.918046+00:00",
+  "browser_checks": [
+    "desktop 1200px",
+    "mobile 390px without horizontal overflow",
+    "image loaded",
+    "actual app download SHA256 equals RC2"
+  ],
+  "access": "Unlisted; anyone holding the link can view and download. Private source remains on GitHub."
+}

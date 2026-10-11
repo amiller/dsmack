@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "unsigned_payload_matches_signed": true,
+  "unsigned_sha256": "7de9b4f1a77ae6d28f246738a65ec89df745f21e6b2808b78306eed0a33f64d9",
+  "signed_sha256": "8fb9993706fd04dbc00db2636dfc725ed86af45a4457444f6445a2aadbbe1a81",
+  "signature_offset": 489520,
+  "signature_size": 18416,
+  "zero_alignment_padding": 0,
+  "comparison": "all original bytes, except appended signature load command and validated LINKEDIT sizes; only zero padding to 16-byte signature alignment"
+}

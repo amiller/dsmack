@@ -1,0 +1,140 @@
+[
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "34EFF565-8F25-4DD1-83C9-3309DF506E43.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-attesting_0_CF47C830-CA78-4DCC-A63A-2EDD9BDF6212.png",
+        "timestamp" : 1791406327.682
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testAttesting()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testAttesting"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "101C9664-F43F-4BE7-B50D-04A4AB515D51.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-claimed_0_084A8A6D-E429-4952-98C4-969CE743F8D6.png",
+        "timestamp" : 1791406332.163
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testClaimed()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testClaimed"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "6068F6DE-4871-4237-8518-10CFF644C922.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-share-report_0_4BF01B8E-381C-45B1-BAEC-623F73258672.png",
+        "timestamp" : 1791406338.757
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "D9C350E4-7DD9-4DA7-965B-82485A09789C.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-apple-failure-details_0_EBF31153-5773-4F79-9DC9-B709BD315B83.png",
+        "timestamp" : 1791406336.953
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testFailureReport()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testFailureReport"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "CE943827-80C6-48D6-A983-E977C9C7B4B9.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-retry_0_EEEB691A-8189-4604-8D0A-1A96B6BFE0FE.png",
+        "timestamp" : 1791406343.918
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testRetry()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testRetry"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "F751C28C-A330-4B41-98D8-54B12E2FA29C.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "REAL-simulator-unsupported_0_3D143A8F-6E52-433B-B2EE-A334743E15E0.png",
+        "timestamp" : 1791406348.69
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testUnsupportedSimulatorAndPersistentIdentity()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUnsupportedSimulatorAndPersistentIdentity"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "435D49E6-5BE0-4197-A336-B4DB95486016.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-upgrade-consent_0_63A2CF1B-1AFE-479A-A7C6-20435BC6AD96.png",
+        "timestamp" : 1791406357.769
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testUpgradeConsentAndCancellation()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUpgradeConsentAndCancellation"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "FC4144B4-6442-44EC-8177-44861A026E55.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-upgrade-file-picker_0_CCE92C74-80D4-48D7-B20B-2BD86C4E611F.png",
+        "timestamp" : 1791406370.764
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testUpgradeControlsAndFilePicker()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUpgradeControlsAndFilePicker"
+  },
+  {
+    "attachments" : [
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "BD3F7D98-1A7F-4ED2-9290-325B58838E9F.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-upgrade-oversize-file_0_ADF1EBFB-ADFB-41E9-9C95-FC44E70DE52B.png",
+        "timestamp" : 1791406383.645
+      },
+      {
+        "configurationName" : "Test Scheme Action",
+        "deviceId" : "94AF2D7C-C88D-4CF1-A087-D73F9765DA81",
+        "deviceName" : "AttestNode-Friend-Flow",
+        "exportedFileName" : "F3AB1F06-5AB2-46E6-BB71-75502158C593.png",
+        "isAssociatedWithFailure" : false,
+        "suggestedHumanReadableName" : "SIMULATED-upgrade-invalid-file_0_6E5AAC9B-7011-4A18-9CDF-0836D484ECE7.png",
+        "timestamp" : 1791406378.849
+      }
+    ],
+    "testIdentifier" : "NodeUITests/testUpgradeRejectsMalformedAndOversizedFiles()",
+    "testIdentifierURL" : "test://com.apple.xcode/AttestNode/AttestNodeUITests/NodeUITests/testUpgradeRejectsMalformedAndOversizedFiles"
+  }
+]

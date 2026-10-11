@@ -1,0 +1,32 @@
+{
+  "mode": "synthetic-contract-vector",
+  "coupon": "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA",
+  "offer": {
+    "version": 3,
+    "coupon_digest": "0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a",
+    "issuer": {
+      "peer_id": "Issuer1",
+      "policy": "experimental-local-unattested"
+    },
+    "provider": {
+      "id": "synthetic-near",
+      "scope_commitment": "abababababababababababababababababababababababababababababababab"
+    },
+    "delivery_profile": "x25519-aesgcm-session-only",
+    "budget_nano_usd": "9223372036854775807",
+    "cap_semantics": "nominal-provider-limit",
+    "claim_expires_at": "2030-10-10T00:00:00Z",
+    "provider_expires_at": null,
+    "sponsor_powers": [
+      "revoke",
+      "change_limits"
+    ],
+    "claim_policy": "first-authenticated-bearer"
+  },
+  "offer_hash": "80d98c77166a5f8bffb09d9208e9d677e0f9d36960b728062a2d8f618210d1e2",
+  "recipient_public_key": "AQIDBAUGBwgJCgsMDQ4PEBESExQVFhcYGRobHB0eHyA=",
+  "provider_key_id": "synthetic-fixture-key",
+  "aad_utf8": "{\"coupon_digest\":\"0f007385b6f9d4b7eeb2748605afe1a984a0a3bfa3f014d09e2a784ce9e5cd1a\",\"domain\":\"dsmack-coupon-delivery-v3\",\"key_id\":\"synthetic-fixture-key\",\"offer_hash\":\"80d98c77166a5f8bffb09d9208e9d677e0f9d36960b728062a2d8f618210d1e2\",\"recipient_key_sha256\":\"ae216c2ef5247a3782c135efa279a3e4cdc61094270f5d2be58c6204b7a612c9\",\"recipient_peer_sha256\":\"93bc61ecb7dea29e30c9dfd3aca116e8f912960dd394af2105ee4f5d0e0ad335\",\"version\":3}",
+  "recipient_peer": "PeerA",
+  "recipient_peer_sha256": "93bc61ecb7dea29e30c9dfd3aca116e8f912960dd394af2105ee4f5d0e0ad335"
+}

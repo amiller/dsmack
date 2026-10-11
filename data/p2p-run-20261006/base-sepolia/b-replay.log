@@ -1,0 +1,5 @@
+{"appAttestSupported":true,"event":"start","owner":"0x97883cb4B2f21530277F86490d8881654E36E6aA","registry":"0x0505b620b4557235dBD05ee2cc8D25C52d958fB1","rpc":"https:\/\/sepolia.base.org","t":1791307648.048172,"variant":"honest"}
+{"event":"enrolled","keyId":"0x0ed7ff6cccf67497de8fbf9be3351e582ce8fd894fc283f33f668523f3a39adc","member":"0x3ff267c9e69c2940efae10a2431868477e000dc0090660bcad2e5b010b3ea3aa","sessionPublic":"0x048837ec0e292f5ead8cec1fe9fb9541a3bbc55ecf835912d1e6e2fe2a277c215f52923ce1531416e1602ce0b548037d805fbeb4f629ec8be8cb0c204678a653a5","t":1791307654.2050018,"tx":"0xa88bcaeeb32310fb93a1e38d9afe4016a232d1693531be6ec2716a9b2555c9ee"}
+{"action":0,"event":"executed","scope":"0x0000000000000000000000000000000000000000000000000000000000000000","t":1791307658.813201,"tx":"0xc81f8d5ae3f01ce4e375762d25a2318967412d992a9af9bd89aafc81a83070f1"}
+{"event":"received","from":"a","t":1791307659.350955,"type":"PARCEL"}
+{"error":"invalid(\"parcel recipient\")","event":"error","t":1791307659.3518081}

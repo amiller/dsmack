@@ -1,0 +1,55 @@
+{
+  "build_number": "3",
+  "bundle_id": "dev.dsmack.provider",
+  "compiler_flags": [
+    "-O",
+    "-whole-module-optimization",
+    "-module-name",
+    "AttestNode",
+    "-target",
+    "arm64-apple-macos27.0",
+    "-framework",
+    "DeviceCheck",
+    "-D",
+    "HONEST",
+    "-file-prefix-map",
+    "/src=/src",
+    "-debug-prefix-map",
+    "/src=/src",
+    "-Xlinker",
+    "-no_adhoc_codesign",
+    "-D",
+    "GUI",
+    "-framework",
+    "AppKit"
+  ],
+  "dirty_build_inputs": true,
+  "files": {
+    "Contents/Info.plist": "9294428b350b65a239a3f2193f0f75e3b35db3dc2d96b95369d7801659c13dfe",
+    "Contents/MacOS/node": "34acd3ff9bb9bc561b6ebd989768fe9f52a1e833a67fc99a65db68841963d3fa"
+  },
+  "flavor": "gui",
+  "inputs": {
+    "node/mac/GUI.swift": "3990c7b58932a2db67a04689fac2378aba7fc325b013ca92449b3491e9996c46",
+    "node/mac/Info.plist": "8dd13e81bdd1bc20813a1bbeccd08595d501ec98444efba66ee94726e8b4d390",
+    "node/mac/NetworkConfig.swift": "a16117e959fb0f0909ee3495667f157452a3c9a657b33c224faf8afe5a65f3db",
+    "node/mac/main.swift": "2a560c1b249b61e9cef3257e9e04a2c0c2cc711e32d9e4f186f73bfd8242b533",
+    "node/shared/BadgeClaim.swift": "c5d56514f3b6ddfb783a1ad1d8a1299cb0adb7ae4827e08ae25176eb6beb191f",
+    "node/shared/Chain.swift": "108737ad299ec9de924fd4df5fc725795597c33c468effc245d102621fae0922",
+    "node/shared/Node.swift": "f8897131c7dc316e17c5d95823c4fbd414ed8e5799e4237e96108c9555221340",
+    "node/shared/PersonalAccount.swift": "f980f88d8207d7431b98a36ae5b8fef9c30687390e33bcbc00c5b1d2bc4a1740",
+    "node/shared/Protocol.swift": "d70726711c5ceddd3018a535355a638729b555bdce49f440cc006c8e5d975e47",
+    "release/toolchain.json": "1695f4c78f02ff91d3c6f0f00b7f6ccb583f03b24ca1dc1fe702efb7a9eb5dac",
+    "scripts/release/build_mac.py": "fcf46fe24d2eda459f48f83c04c6a171dd7a685797de1985197fe8ffd4987c53"
+  },
+  "kind": "unsigned-build",
+  "schema": 1,
+  "source_commit": "3acbe779a7e060f3213a429f725cad7ea73e95b9",
+  "toolchain": {
+    "sdk_build": "26A425",
+    "sdk_version": "27.0",
+    "swift": "Apple Swift version 6.4 (swiftlang-6.4.0.34.1 clang-2100.3.34.1)",
+    "xcode": "Xcode 27.0\nBuild version 27A266a"
+  },
+  "version": "0.1.0"
+}

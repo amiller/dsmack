@@ -1,0 +1,1 @@
+let networkPublicKeyBase64 = "BMOJCIJUEyN2rLSAtlkyQnbxf/RSLHKGMKbUgkuba3bDVFljsxZS4N2OFBsNfL/RejkA10XbSGBnazFjTyAvuKU="

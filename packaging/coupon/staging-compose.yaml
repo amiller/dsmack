@@ -1,0 +1,34 @@
+# Coupon staging compose TEMPLATE. Concrete values (image digest, volume names,
+# guest socket path) come from the ignored operator packet; nothing here is a
+# deploy approval. Requires independent review and root approval before use.
+#
+# The staging service exposes no public port. stdin/stdout are the protected
+# operator pipes: bootstrap-staging prints public SDK metadata, then admits the
+# two signed control files, then serves operator frames on the same pipe.
+services:
+  coupon-staging:
+    image: COUPON_STAGING_IMAGE_DIGEST_PLACEHOLDER  # reviewed digest; approval root baked at build
+    command: ["bootstrap-staging", "--dir", "/operator/coupon-staging",
+              "--listen", "/ip4/127.0.0.1/tcp/0"]  # loopback default; private route only if reviewed in the packet
+    stdin_open: true  # protected operator pipe for admission and operator frames
+    # Provision responses carry a bearer coupon on the protected attach stream.
+    # Retain no general container logs; public/cloud logs must also be disabled.
+    logging:
+      driver: none
+    init: false       # the node reaps its own worker/job process groups
+    environment: []   # no secrets: provider credentials come only from the signed config
+    volumes:
+      # Distinct coupon namespace: must not collide with, mount or overwrite any
+      # existing coordinator/APNs state volume on the target node.
+      # A fresh named volume is root-owned; initialize it to uid/gid 1000 mode
+      # 0700 (staging-deployment.md section 2 step 4) before first start — the
+      # launcher/worker uid+mode checks are not relaxed for it.
+      - COUPON_STAGING_STATE_VOLUME_PLACEHOLDER:/operator/coupon-staging
+      # Guest dstack socket: verify the exact platform path and mount in the
+      # packet before first start (positive socket/key/quote evidence required).
+      - DSTACK_GUEST_SOCKET_PATH_PLACEHOLDER:/var/run/dstack.sock
+    restart: "no"  # an interrupted issuance job requires deliberate reconciliation, not a restart
+
+volumes:
+  COUPON_STAGING_STATE_VOLUME_PLACEHOLDER:
+    external: false

@@ -1,0 +1,22 @@
+{
+  "/info": {
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+    "chainId": 84532,
+    "registry": "0x46113dF78D1D412c3B01f0Cf9d4265044336e3FB",
+    "protocolVersion": 2
+  },
+  "/nft/info": {
+    "owner": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+    "chainId": 84532,
+    "registry": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+    "protocolVersion": 2
+  },
+  "/status": {
+    "pending": [],
+    "completed": 8
+  },
+  "checked_at": "2026-10-07T01:47:14.664968+00:00",
+  "source_commit": "adda809",
+  "prior_completed": 7,
+  "initial_probe": "A probe during deployment returned HTTP 500; subsequent probes succeeded. The completed count advanced while the legacy network remained active."
+}

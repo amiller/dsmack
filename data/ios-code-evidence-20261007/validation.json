@@ -1,0 +1,20 @@
+{
+  "scope": "Local signed export parser and simulator UX; no physical iPhone attestation or NFT mint",
+  "parserChecks": 16,
+  "pythonCdArgsExactMatch": true,
+  "fixture": "App Store export build 4; not installed TestFlight code",
+  "fixtureCdhash": "0xe67330c1e73166fa83e0b0485dd7898bd4454ce5f4a368d11512dd1953ca521c",
+  "uiTestsPassed": 10,
+  "injectedCallbackChecksPassed": 19,
+  "simulatorRuntime": "iOS 26.5; isolated test target lowered from production iOS 27",
+  "deviceReleaseCompilePassed": true,
+  "sourceSha256": {
+    "node/ios/CodeEvidence.swift": "9b371e47df07b363d4e94ef7694c9e4f19bebfa5ef42b3b5226e8b97ad6316ef",
+    "node/tests/CodeEvidenceTests.swift": "e54d9793776e4403f4f902363b4bd018957737778bcfac26cf53d23c33f533ee",
+    "node/ios/NodeApp.swift": "d0dd5c7d8152b64afbba469b223a33df713b92db5b93a03c354df6c99da31693",
+    "node/ios/NodeUITests.swift": "461cd3a76cb3e31d14bc4a8dccfac197995058e1a27ebb9bcb86913c46e20146",
+    "node/ios/AttestNode.xcodeproj/project.pbxproj": "e82fca90d713272ef011e1befcc13005a81640841e22b3eb330adc387a33da52"
+  },
+  "knownPriorFailure": "Intermediate failure-report test did not open share sheet after collapsing details. Moved diagnostic share above disclosure; full rerun passed.",
+  "physicalDeviceExportVerified": false
+}

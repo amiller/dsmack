@@ -1,0 +1,171 @@
+No files changed, compilation skipped
+Script ran successfully.
+
+== Return ==
+demo: contract DemoV1 0x0505b620b4557235dBD05ee2cc8D25C52d958fB1
+ios: contract AppleAttestRegistryV1 0x105dd06DDf914C372505fACAe09243c1F9A58681
+mac: contract AppleAttestRegistryV1 0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8
+
+== Logs ==
+  network/deploy-base-sepolia.json
+  {"AdapterArtifact":"out/AppleAttestRegistryV1.sol/AppleAttestRegistryV1.json","CDRegistryArtifact":"out/CDRegistry.sol/CDRegistry.json","DemoTokenV1":"0xd9D46a88D61AcE601924a531Fc0D3DDbB0bBE154","DemoV1":"0x0505b620b4557235dBD05ee2cc8D25C52d958fB1","DemoV1Artifact":"out/DemoV1.sol/DemoV1.json","MembershipReceiptV1":"0x6EFcEA076598fA6B042F152aBFd44938FA9A75E7","admin":"0x97883cb4B2f21530277F86490d8881654E36E6aA","iosAdapter":"0x105dd06DDf914C372505fACAe09243c1F9A58681","iosCDRegistry":"0x898a453Df25d27b57fE9872310C16Dd5A3d726D2","iosCategory":"0xbe66af5e03700eabe436dd219dde72863f5c84321f9e502e79f34b5cead84003","macAdapter":"0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8","macCDRegistry":"0x266eB9D201170dA1acb9CdB96B7A6a3e1A8f880d","macCategory":"0x2a8098bcc8f94bfd106e7c7bfd217978220a065354397da995151c75f757a0f2"}
+
+## Setting up 1 EVM.
+
+==========================
+
+Chain 84532
+
+Estimated gas price: 0.011 gwei
+
+Estimated total gas used for script: 33682104
+
+Estimated amount required: 0.000370503144 ETH
+
+==========================
+
+
+==========================
+
+ONCHAIN EXECUTION COMPLETE & SUCCESSFUL.
+##
+Start verification for (7) contracts
+Start verifying contract `0x898a453Df25d27b57fE9872310C16Dd5A3d726D2` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+
+Submitting verification for [src/CDRegistry.sol:CDRegistry] 0x898a453Df25d27b57fE9872310C16Dd5A3d726D2.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `eisv2cwmzgicemh1kmc7ufj2uaygxzqqyt5ybqv7czbahdp7pn`
+	URL: https://sepolia.basescan.org/address/0x898a453df25d27b57fe9872310c16dd5a3d726d2
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x266eB9D201170dA1acb9CdB96B7A6a3e1A8f880d` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+
+Submitting verification for [src/CDRegistry.sol:CDRegistry] 0x266eB9D201170dA1acb9CdB96B7A6a3e1A8f880d.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `ihw7ayzr1tedpzgudkgiruhvvw5zkhbssagitsi7zbq4tpabud`
+	URL: https://sepolia.basescan.org/address/0x266eb9d201170da1acb9cdb96b7a6a3e1a8f880d
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x0505b620b4557235dBD05ee2cc8D25C52d958fB1` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+Constructor args: 00000000000000000000000097883cb4b2f21530277f86490d8881654e36e6aa
+
+Submitting verification for [src/application/DemoV1.sol:DemoV1] 0x0505b620b4557235dBD05ee2cc8D25C52d958fB1.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `13q7xpqsc6ts5igdmfiyak29je4e47jue7h8bkdtitgdez6xme`
+	URL: https://sepolia.basescan.org/address/0x0505b620b4557235dbd05ee2cc8d25c52d958fb1
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0xd9D46a88D61AcE601924a531Fc0D3DDbB0bBE154` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+
+Submitting verification for [src/application/DemoAssetsV1.sol:DemoTokenV1] 0xd9D46a88D61AcE601924a531Fc0D3DDbB0bBE154.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `cvtmef2gpikbnwmzmyc8dstgf85pva9ysqwpsiu27uwwh85lsf`
+	URL: https://sepolia.basescan.org/address/0xd9d46a88d61ace601924a531fc0d3ddbb0bbe154
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x6EFcEA076598fA6B042F152aBFd44938FA9A75E7` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+
+Submitting verification for [src/application/DemoAssetsV1.sol:MembershipReceiptV1] 0x6EFcEA076598fA6B042F152aBFd44938FA9A75E7.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `l7ufba3c7vackdadjy1xywva1ivxz74ipgq2dmejlfbxsu9jvw`
+	URL: https://sepolia.basescan.org/address/0x6efcea076598fa6b042f152abfd44938fa9a75e7
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `OK`
+Details: `Pass - Verified`
+Contract successfully verified
+Start verifying contract `0x105dd06DDf914C372505fACAe09243c1F9A58681` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+Constructor args: 0000000000000000000000000505b620b4557235dbd05ee2cc8d25c52d958fb1000000000000000000000000898a453df25d27b57fe9872310c16dd5a3d726d2617070617474657374000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000050000000000000000000000000000000000000000000000000000000000000001
+
+Submitting verification for [src/AppleAttestRegistryV1.sol:AppleAttestRegistryV1] 0x105dd06DDf914C372505fACAe09243c1F9A58681.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `qxluhhcjetf6ezthp5pyaxjgbiiy96zl24ixxuz7ri8kfgbcva`
+	URL: https://sepolia.basescan.org/address/0x105dd06ddf914c372505facae09243c1f9a58681
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `NOTOK`
+Details: `Fail - Unable to verify. Compiled contract deployment bytecode does NOT match the transaction deployment bytecode.`
+Error: Failed to verify contract: Checking verification result failed; Contract verification failed:
+Status: `0`
+Result: `Fail - Unable to verify. Compiled contract deployment bytecode does NOT match the transaction deployment bytecode.`
+Start verifying contract `0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8` deployed on base-sepolia
+EVM version: shanghai
+Compiler version: 0.8.21
+Optimizations:    200
+Constructor args: 0000000000000000000000000505b620b4557235dbd05ee2cc8d25c52d958fb1000000000000000000000000266eb9d201170da1acb9cdb96b7a6a3e1a8f880d617070617474657374000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000030000000000000000000000000000000000000000000000000000000000000000
+
+Submitting verification for [src/AppleAttestRegistryV1.sol:AppleAttestRegistryV1] 0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8.
+Submitted contract for verification:
+	Response: `OK`
+	GUID: `65vpvsd6hqz4byjt5ahwkv6h8gpy1vh73y1wre9giscb8m8a2l`
+	URL: https://sepolia.basescan.org/address/0x7d55e98058cacf7579606ee4a5ed865b81c5e8e8
+Contract verification status:
+Response: `NOTOK`
+Details: `Pending in queue`
+Warning: Verification is still pending...; waiting 15 seconds before trying again (7 tries remaining)
+Contract verification status:
+Response: `NOTOK`
+Details: `Fail - Unable to verify. Compiled contract deployment bytecode does NOT match the transaction deployment bytecode.`
+Error: Failed to verify contract: Checking verification result failed; Contract verification failed:
+Status: `0`
+Result: `Fail - Unable to verify. Compiled contract deployment bytecode does NOT match the transaction deployment bytecode.`
+
+Transactions saved to: /home/amiller/projects/apple-attest-p2p/contracts/broadcast/Network.s.sol/84532/run-latest.json
+
+Sensitive values saved to: /home/amiller/projects/apple-attest-p2p/contracts/cache/Network.s.sol/84532/run-latest.json
+
+Error: Not all (5 / 7) contracts were verified!

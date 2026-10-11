@@ -34,7 +34,7 @@ The production node uses these message types:
 
 | Message | Fields besides `type` and routing `from` | Meaning |
 | --- | --- | --- |
-| `HELLO` | `member`, `joinTx`, `sessionPublic`, `nonce` | Request a scoped key after an on-chain check-in. The sender derives the authenticated member from the checked transaction, not the claimed `member` field. |
+| `HELLO` | `member`, `joinTx`, `sessionPublic`, `nonce` | Request a scoped key after an on-chain check-in. The key sender derives the authenticated member from the checked transaction, not the claimed `member` field. |
 | `PARCEL` | `parcel`, `receiptTx` | Encrypted key and on-chain release commitment. |
 | `PROOF` | `signature` | Shared-key signature over the pending challenge. This shows key possession, not a unique device or exclusive custody. |
 | `ERROR` | `reason` | Exchange failed; grants no authority. |

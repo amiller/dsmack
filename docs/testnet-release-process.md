@@ -204,10 +204,23 @@ workload/source/compose pins, fresh issuer admission, private control channel,
 credential renewal, funding and durable obligation recovery. Native RC3 joining
 does not install this service or opt a participant into it.
 
-Abalone [preview.3](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.3)
-reuses the exact preview.2 Linux archive with a new wallet-authorized NEAR issuer
-bundle. Redemption remains paused pending the new epoch’s useful-document canary
-and independent readiness review.
+Abalone [preview.4](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.4)
+publishes the new Linux client archive `abalone-993de6e.tar.gz`, its installer and
+signed wallet-epoch inputs pinned to that immutable release. Check
+`release-provenance.json`, `SHA256SUMS` and `FRIEND-SHA256SUMS` for the exact bytes
+and limitations; do not substitute an earlier preview archive.
+The client preserves sanitized admission diagnostics and retries one transient
+DNS failure on a verification GET within the original deadline. Inference POSTs
+are never automatically replayed.
+
+Redemption remains **paused** until the full five-cent Mac coupon document canary
+passes and the owner handoff is ready. A separate already-created one-cent key
+produced the correct synthetic document answer through genuine encrypted NEAR
+inference; it did not exercise a fresh coupon claim or establish owner acceptance.
+This is a synthetic text-only preview on a trusted Linux Node 24 host, with an
+identity-only Mac issuer, operator/KMS-readable custody and an explicitly admitted
+verified OutOfDate NEAR debug profile. It does not qualify PDF use, OS/tool
+isolation or stronger private guarantees.
 Publish that state even if the public transport and issuer admission succeed.
 Before reopening, exercise the authorized bounded coupon-to-inference journey
 and preserve its accounting/recovery evidence. Neither a relay health check nor

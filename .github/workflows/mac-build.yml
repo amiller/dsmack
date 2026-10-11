@@ -1,10 +1,10 @@
 name: Mac unsigned build and reproducibility
 on:
   pull_request:
-    paths: ['node/**', 'scripts/release/**', 'release/**', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'scripts/release/**', '.github/workflows/mac-build.yml']
   push:
     branches: [main, 'release/**']
-    paths: ['node/**', 'scripts/release/**', 'release/**', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'scripts/release/**', '.github/workflows/mac-build.yml']
   workflow_dispatch:
 permissions:
   contents: read

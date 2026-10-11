@@ -11,7 +11,7 @@ sys.path.insert(0, str(CUSTODY))
 from verify_evidence import verify
 from verifier.core import Reject
 
-DATA = CUSTODY / 'custody-20260916T173508Z'
+DATA = Path(__file__).resolve().parent / 'fixtures/macos-custody'
 AT_TIME = 1789581600
 
 

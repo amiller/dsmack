@@ -82,10 +82,10 @@ The [bridge](../experiments/coupon_redemption/peer_bridge.mjs) declares
 `/dsmack/coupon/4` and `/dsmack/coupon/issuer/2`. Available handlers depend on the
 selected node/profile; the presence of a constant is not deployment support.
 
-Use the [service protocol](../experiments/coupon_redemption/SERVICE.md),
-[v2 offers](../experiments/coupon_redemption/OFFER_V2.md),
-[v3 offers](../experiments/coupon_redemption/OFFER_V3.md) and
-[v4 offers](../experiments/coupon_redemption/OFFER_V4.md) for exact frames,
+Use the [service protocol](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/experiments/coupon_redemption/SERVICE.md),
+[v2 offers](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/experiments/coupon_redemption/OFFER_V2.md),
+[v3 offers](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/experiments/coupon_redemption/OFFER_V3.md) and
+[v4 offers](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/experiments/coupon_redemption/OFFER_V4.md) for exact frames,
 operations, recipient binding and retry semantics. Fresh issuer admission binds
 both Noise peers, nonce, code, workload compose, issuer key and signed policies.
 A Noise connection alone does not admit the workload or provider.

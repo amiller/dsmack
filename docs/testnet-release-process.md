@@ -140,7 +140,12 @@ actual fresh check-in, encrypted parcel exchange, matching public commitment/epo
 and a key-possession result; two running processes or a relay HTTP 200 do not pass.
 Quit and restart each process in turn under the supported bootstrap conditions,
 then verify fresh exchange/rejoin and preservation of each personal account and
-receipt. Record refusals and bootstrap/relay dependencies. Do not log the shared
+receipt. Keep at least one verified current-epoch key holder running throughout
+the rehearsal. Before restarting the seed, require a separately reviewed recovery
+peer configuration pointing to the other verified holder: an empty seed `peer`
+does not rediscover it. If both processes exit, their RAM-held keys are lost;
+without another live holder, recovery requires an explicit owner-approved plan,
+not an automatic epoch reset. Record refusals and bootstrap/relay dependencies. Do not log the shared
 secret or treat same-host success as replicated coupon accounting.
 
 Retain a dated pass/fail record with the exact steps and observations. This

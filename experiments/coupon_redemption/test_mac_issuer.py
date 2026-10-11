@@ -42,6 +42,26 @@ class MacIssuerTests(unittest.TestCase):
         self.assertEqual(self.runner.calls,[('/attest',{'data':data})])
         Ed25519PublicKey.from_public_bytes(bytes.fromhex(self.binding['public_key_hex'])).verify(
             bytes.fromhex(evidence['possession_signature_hex']),POSSESSION_DOMAIN+data.encode())
+    def test_real_worker_bridge_uses_mac_issuer_context(self):
+        from .peer_worker import Worker, ISSUER_PROTOCOL
+        worker = object.__new__(Worker)
+        worker.peers = {}
+        worker.issuer_service = self.service
+        request = {'seq': 1, 'kind': 'issuer_dispatch',
+                   'peer': self.binding['recipient_peer_id'], 'protocol': ISSUER_PROTOCOL,
+                   'local_peer': self.binding['peer_id'],
+                   'frame': base64.b64encode(canonical({'id': 'bridge', 'op': 'info'})).decode()}
+        reply = json.loads(base64.b64decode(worker.request(request)['frame']))
+        self.assertTrue(reply['ok'])
+        self.assertEqual(reply['result']['issuer_public_key_hex'], self.identity.public_key_hex())
+        request['frame'] = base64.b64encode(canonical({'id': 'bridge', 'op': 'evidence',
+                                                    'binding': self.binding})).decode()
+        reply = json.loads(base64.b64decode(worker.request(request)['frame']))
+        self.assertTrue(reply['ok'])
+        self.assertEqual(reply['result']['binding'], self.binding)
+        request['local_peer'] = 'WrongIssuerPeer001'
+        with self.assertRaises(RedemptionError): worker.request(request)
+
     def test_changed_peer_signer_or_policy_refused_before_assertion(self):
         for field,value in [('peer_id','DifferentPeer00001'),('recipient_peer_id','DifferentPeer00001'),
                             ('public_key_hex','44'*32),('identity_policy_sha256','44'*32),

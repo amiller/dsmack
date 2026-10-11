@@ -120,7 +120,7 @@ class MacIssuerIdentity:
 class MacIssuerEvidenceService:
     def __init__(self, *, issuer_peer, signing_key, identity_policy_sha256,
                  issuance_policy_sha256, collector, app_compose):
-        self.peer = issuer_peer
+        self.peer = self.issuer_peer = issuer_peer
         self.collector = collector
         self.identity = identity_policy_sha256
         self.issuance = issuance_policy_sha256

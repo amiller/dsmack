@@ -6,6 +6,23 @@ remains unverified. The stable entry point is [Join the Dsmack testnet](join-tes
 a release is not promoted to independent-operator qualification by publishing it.
 This process covers native participation and the separate coupon issuer profile.
 
+## Environments
+
+The native public testnet uses Base Sepolia (chain `84532`) and its pinned public
+relay, registry and seed. It is the intended destination for friends; its current
+joining availability is stated on the join page above.
+
+Release qualification currently uses a temporary, isolated Anvil network
+(chain `31337`) with separate contracts, relay state and participant identity
+namespaces. Real signed apps and Apple attestation can be exercised there on the
+operator Mac. This is a staging rehearsal, not an always-on staging service or
+independent-device acceptance. No stable staging invitation is published.
+
+Promote reviewed source and signed artifacts through a separately qualified
+public-network build. Do not copy staging identities, contract addresses, epoch
+state or test balances into the public network, or present isolated results as
+public availability. Mainnet remains [planned, not launched](mainnet.md).
+
 ## Stages and ownership
 
 | Stage | Required result | Allowed claim |

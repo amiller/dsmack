@@ -90,18 +90,18 @@ function options(args) {
   const result = {};
   for (let index = 0; index < args.length; index += 2) {
     const key = args[index];
-    if (!['--dir', '--listen'].includes(key) || !args[index + 1] || result[key] !== undefined) throw new Error('invalid options');
+    if (!['--dir', '--listen', '--control-port', '--relay'].includes(key) || !args[index + 1] || result[key] !== undefined) throw new Error('invalid options');
     result[key] = args[index + 1];
   }
   if (!result['--dir']) throw new Error('operator directory required');
   return result;
 }
 
-async function* operatorLines() {
+async function* operatorLines(input = process.stdin) {
   // One shared bounded reader for the whole process lifetime: bootstrap
   // admission lines and later operator frames use the same protected pipe.
   let buffer = Buffer.alloc(0);
-  for await (const chunk of process.stdin) {
+  for await (const chunk of input) {
     if (buffer.length + chunk.length > 65536) throw new Error('operator frame too large');
     buffer = Buffer.concat([buffer, chunk]);
     let end;
@@ -124,11 +124,21 @@ export async function main(args = process.argv.slice(2)) {
   }
   const opts = options(rest), dir = opts['--dir'];
   if (command === 'init-synthetic' && !opts['--listen']) { console.log(JSON.stringify(await initializeSynthetic(dir))); return; }
-  if (!['serve', 'serve-staging', 'bootstrap-staging'].includes(command)) throw new Error('unsupported command');
+  if (!['serve', 'serve-staging', 'bootstrap-staging', 'bootstrap-mac'].includes(command)) throw new Error('unsupported command');
+  if (opts['--control-port'] && command !== 'bootstrap-mac') throw new Error('Mac control only');
+  if (opts['--relay'] && command !== 'bootstrap-mac') throw new Error('Mac relay only');
+  let control, lines, controlChallenge;
+  if (command === 'bootstrap-mac') {
+    const module = await import('./mac-coupon-control.mjs');
+    control = await module.connectMacControl(Number(opts['--control-port']));
+    lines = operatorLines(control);
+    controlChallenge = await module.readControlChallenge(lines);
+  } else lines = operatorLines();
   let service, stopped = false, shutdown;
   const stop = () => {
     stopped = true;
     process.stdin.destroy();
+    control?.destroy();
     return service ? shutdown ??= service.close() : Promise.resolve();
   };
   const onSignal = () => { void stop().catch(() => { process.exitCode = 1; }); };
@@ -138,7 +148,8 @@ export async function main(args = process.argv.slice(2)) {
   const write = async value => {
     let timer;
     try {
-      await Promise.race([new Promise((resolve, reject) => process.stdout.write(JSON.stringify(value) + '\n', error => error ? reject(error) : resolve())),
+      if (control && Object.hasOwn(value, 'noise_seed_hex')) throw new Error('private seed cannot leave bootstrap child');
+      await Promise.race([new Promise((resolve, reject) => (control ?? process.stdout).write(JSON.stringify(value) + '\n', error => error ? reject(error) : resolve())),
         new Promise((_, reject) => { timer = setTimeout(() => reject(new Error('operator pipe timeout')), 5000); })]);
     } finally { clearTimeout(timer); }
   };
@@ -147,18 +158,25 @@ export async function main(args = process.argv.slice(2)) {
     if (command !== 'serve') {
       const live = await import('./coupon-live-node.mjs');
       start = live.startLiveCouponNode;
-      if (command === 'bootstrap-staging') {
+      if (command === 'bootstrap-staging' || command === 'bootstrap-mac') {
         // Public SDK metadata first: the operator signs approval and boot
         // configuration against these exact measurements, then pipes the two
         // signed control files back through the same protected operator pipe.
         await live.prepareStagingDirectory(dir);
-        await write({ op: 'bootstrap_metadata', ...(await live.probeLiveIdentity()), admission: live.STAGING_ADMISSION });
-        admit = live.admitStagingFiles;
+        const mac = command === 'bootstrap-mac';
+        const metadata = await live.probeLiveIdentity({ profile: mac ? 'mac' : 'tdx', ...(mac ? { controlChallenge } : {}) });
+        if (mac) {
+          control.write(JSON.stringify({ binding: metadata.control_binding, evidence: metadata.control_evidence,
+            possession_signature_hex: metadata.control_possession_signature_hex }) + '\n');
+          control.setTimeout(0);
+        }
+        await write({ op: 'bootstrap_metadata', ...metadata, admission: mac ? live.MAC_ADMISSION : live.STAGING_ADMISSION });
+        admit = (directory, input) => live.admitStagingFiles(directory, input, mac ? live.MAC_ADMISSION : live.STAGING_ADMISSION);
       }
     }
-    const lines = operatorLines();
     if (admit) await admit(dir, lines);
-    service = await start({ dir, ...(opts['--listen'] ? { listen: [opts['--listen']] } : {}) });
+    service = await start({ dir, ...(opts['--listen'] ? { listen: [opts['--listen']] } : {}),
+      ...(opts['--relay'] ? { macRelay: opts['--relay'] } : {}) });
     if (stopped) return;
     await write(service.ready);
     for await (const frame of lines) {

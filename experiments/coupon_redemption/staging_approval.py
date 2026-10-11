@@ -64,6 +64,10 @@ def signed_payload(raw, domain, trusted_public_key):
 
 def approval(raw, trusted_public_key, *, now=None):
     payload = signed_payload(raw, APPROVAL_DOMAIN, trusted_public_key)
+    return validate_approval_payload(payload, now=now)
+
+
+def validate_approval_payload(payload, *, now=None, mac=False):
     fields = {'version', 'profile', 'app_id', 'compose_hash', 'identity_policy_sha256',
               'issuance_policy_sha256', 'issuer_public_key_sha256', 'provider_scope_commitment',
               'guard', 'powers', 'prompt_policy', 'max_coupon_nano_usd', 'max_total_nano_usd',
@@ -71,11 +75,16 @@ def approval(raw, trusted_public_key, *, now=None):
     try:
         # 'generation' is coordination metadata: shape-checked here, never
         # enforced monotonic (see staging-deployment.md section 4).
-        if (set(payload) != fields or type(payload['version']) is not int or payload['version'] != 1
+        if mac:
+            fields |= {'issuer_profile', 'cdhash'}
+        if (set(payload) != fields or type(payload['version']) is not int or payload['version'] != (2 if mac else 1)
                 or payload['profile'] != 'debug-staging' or payload['powers'] != POWERS
                 or payload['prompt_policy'] != 'synthetic-only'
                 or type(payload['generation']) is not int or not 1 <= payload['generation'] <= 2**53-1
-                or not re.fullmatch(r'[0-9a-f]{40}', payload['app_id'])):
+                or type(payload['app_id']) is not str
+                or not re.fullmatch(r'[A-Za-z0-9_.:|/-]{1,200}' if mac else r'[0-9a-f]{40}', payload['app_id'])
+                or (mac and (payload['issuer_profile'] != 'mac-appattest-coupon-v1'
+                    or type(payload['cdhash']) is not str or not re.fullmatch(r'[0-9a-f]{64}', payload['cdhash'])))):
             raise ValueError()
         for field in ('compose_hash', 'identity_policy_sha256', 'issuance_policy_sha256',
                       'issuer_public_key_sha256', 'provider_scope_commitment'):
@@ -111,6 +120,10 @@ def _absolute_directory(value):
 
 def configuration(raw, trusted_public_key, approved):
     payload = signed_payload(raw, CONFIG_DOMAIN, trusted_public_key)
+    return validate_configuration_payload(payload, approved)
+
+
+def validate_configuration_payload(payload, approved, *, approval_domain=APPROVAL_DOMAIN):
     fields = {'version', 'approval_sha256', 'issuer_peer_id', 'state_dir', 'sponsor_subject',
               'observer_subject', 'peers', 'provider', 'scope_salt_hex', 'finality_profile',
               'gas_price_wei', 'job_deadline_seconds', 'max_active_jobs'}
@@ -123,7 +136,7 @@ def configuration(raw, trusted_public_key, approved):
     try:
         if (set(payload) != fields or type(payload['version']) is not int or payload['version'] != 1
                 or type(payload['approval_sha256']) is not str
-                or payload['approval_sha256'] != payload_hash(APPROVAL_DOMAIN, approved)
+                or payload['approval_sha256'] != payload_hash(approval_domain, approved)
                 or not _absolute_directory(payload['state_dir'])
                 or type(payload['issuer_peer_id']) is not str
                 or not re.fullmatch(r'[A-Za-z0-9]{16,128}', payload['issuer_peer_id'])):

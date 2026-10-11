@@ -30,15 +30,16 @@ Preserve the original local repositories and historical worktrees unchanged.
 
 Before any hosted action, record:
 
-- The exact source revision and selected files for DSMACK and Abalone, including
+- The exact source revision and selected files for Dsmack and Abalone, including
   any omitted historical material and the reason for each omission category.
 - The proposed first-party license and existing third-party obligations. Abalone's
-  MIT approval does not itself settle DSMACK's first-party licensing.
+  MIT approval does not itself settle Dsmack's first-party licensing.
 - Checks for embedded credentials, device/user identifiers, captured bearer
   traffic, private paths and generated binaries; review findings without putting
   their values in issue comments or ordinary logs.
 - Clean-clone build/test results for supported components. Historical Mac
-  qualification cannot substitute for the Linux coupon-service build.
+  qualification cannot substitute for the new ARM coupon workload, its genuine
+  current runner evidence, or the installed Linux recipient journey.
 - The exact repository destination and history strategy. Existing private hosted
   history is not cleared by review of a fresh selected snapshot.
 - Release asset digests, install URL, public configuration and its expiry or
@@ -69,5 +70,7 @@ The [client release gate](https://github.com/amiller/abalone/issues/4),
 [feedback tracker](https://github.com/amiller/dsmack/issues/47) and
 [operator release packet](https://github.com/amiller/dsmack/issues/15) retain
 their evidence. Optimistic redemption, another provider, a full peer directory
-and the Mac release do not block this bounded Linux preview. Production custody,
+do not block this Mac-issuer/Linux-recipient preview. The selected Mac issuer
+integration is a release gate; the historical cloud issuer is not a substitute.
+Production custody,
 economic settlement and broader decentralization claims require their own gates.

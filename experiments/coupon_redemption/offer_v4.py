@@ -13,7 +13,7 @@ ISSUER_POLICY = 'dstack-tdx-coupon-v1'
 
 def validate_issuer(value):
     fields = {'peer_id', 'policy', 'identity_policy_sha256', 'issuance_policy_sha256', 'issuer_public_key_sha256'}
-    if (type(value) is not dict or set(value) != fields or value['policy'] != ISSUER_POLICY
+    if (type(value) is not dict or set(value) != fields or value['policy'] not in (ISSUER_POLICY, 'mac-appattest-coupon-v1')
             or type(value['peer_id']) is not str or not re.fullmatch(r'[A-Za-z0-9]{16,128}', value['peer_id'])
             or any(type(value[k]) is not str or not re.fullmatch(r'[0-9a-f]{64}', value[k])
                    for k in fields - {'peer_id', 'policy'})):

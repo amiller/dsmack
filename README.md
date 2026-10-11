@@ -1,14 +1,17 @@
-# dsmack
+# Dsmack
 
-dsmack is a peer-to-peer service network for private inference. It is being built
+Dsmack is a peer-to-peer service network for private inference. It is being built
 to redeem coupons for provider access and route requests through contributed API
 authorization. [Abalone](https://github.com/amiller/abalone) is the companion
 guide and client for starting an incognito inference session.
 
-**Public testnet release in preparation.** The bounded NEAR coupon trial has
-delivered a capped provider credential and supported useful inference. Public
-installation, the persistent testnet profile and independent friend acceptance
-are still being qualified. This source candidate is not a production release.
+**Mac-mini public testnet in preparation.** The selected issuer architecture
+hosts Dsmack on the Mac mini through the native Apple runner and an ordinary
+local ARM container.
+No project cloud CVM is part of this release. Earlier staging NEAR trials supported
+useful inference; they do not qualify the new Mac issuer. Its fresh admission,
+public installation and independent friend acceptance remain pending. This source
+candidate is not a production release.
 
 ## Try a gift
 
@@ -54,8 +57,12 @@ observation times and distinguish healthy, stale, unknown and not deployed.
 Historical relay activity is not a peer census.
 
 Attestation and privacy claims belong to the exact selected runtime profile.
-The current debug trial does not qualify private issuer custody or rollback
-protection. Its accepted provider security-update exceptions must remain visible
+The Mac issuer profile verifies Apple App Attest code identity, exact workload
+compose and a fresh binding to the issuer key, policies and Noise peers. It is
+identity-only: the host/operator and stand-in KMS can read issuer secrets, and
+private custody or rollback protection is not qualified. This is separate from
+Abalone's verification and encryption of the direct NEAR inference connection.
+Its accepted provider security-update exceptions must remain visible
 at admission. Incognito does not promise IP anonymity, and session-only
 credentials are lost when the session closes. See the [charter](docs/charter.md)
 for the project's requirements on privileged control.
@@ -64,8 +71,11 @@ for the project's requirements on privileged control.
 
 Start with [Contributing](CONTRIBUTING.md), [source orientation](docs/start-here.md)
 and the [roadmap](docs/roadmap.md). The
-[synthetic coupon package](packaging/coupon/README.md) provides a bounded local
-development exercise; it is not the public testnet deployment recipe.
+[Mac ARM Base-only package](packaging/coupon/mac-base.md) is the selected issuer
+build profile. Its image build is not proof of actual Mac admission. The
+[legacy synthetic coupon package](packaging/coupon/README.md) and TDX/cloud
+operating guides retain their historical scope; they are not the Mac deployment
+recipe.
 Native Mac participation has its own [builder guide](release/builder-guide.md)
 and [historical acceptance record](release/assembly-acceptance.md).
 

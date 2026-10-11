@@ -1,0 +1,62 @@
+# linux/arm64 Base-only development profile of the packaged dsmack coupon node.
+# Build only with: --platform linux/arm64 (the TARGETARCH gate below refuses
+# anything else). See packaging/coupon/mac-base.md before use.
+#
+# Same base pin, source layout, approval-root measurement, npm ci flags,
+# wrapped python-worker child execution as
+# packaging/coupon/Dockerfile, with exactly these profile differences:
+#
+# Root entry initializes only the protected runner named volume and drops
+# to UID/GID1000 before invoking any coupon runtime or control protocol.
+#
+# 1. linux/arm64 only. The pinned Node base digest below is the supplied
+#    multiarch OCI index and already contains linux/arm64/v8; it is unchanged.
+# 2. The `finality` stage and bin/dsmack-ethereum-finality are OMITTED. That
+#    Rust Helios checker, its pinned upstream checkout
+#    2af9b41887e069144ee56cd710f3ddca195473f8 and its reviewed build and
+#    refusal evidence exist only for the linux/amd64 profile; no arm64 build
+#    of it is reviewed in this snapshot, so it is not shipped here.
+# 3. Sepolia finalized-consumption issuance is therefore UNSUPPORTED on this
+#    image, and this is a fail-closed omission. The Sepolia path
+#    (FinalizedIssuanceGuard, trust profile
+#    helios-ethereum-sepolia-finalized-experiment, chain 11155111) cannot
+#    succeed: its guard loop needs bin/dsmack-ethereum-finality, which is not
+#    present. Only the Base mainnet single-RPC guard
+#    (BaseSafeIssuanceGuard, chain 8453, trust profile
+#    base-mainnet-rpc-safe-debug-v1, pure Python, no checker binary) remains.
+#    Do not sign or admit an approval whose guard.chain_id is not 8453 for
+#    this profile; with the checker absent such an attempt fails at the
+#    checker boundary rather than producing a reviewed refusal record.
+# 4. The Python closure is the same 25 pinned package names and versions as
+#    python-wheels.json, with the five compiled wheels replaced by the
+#    aarch64 builds from the same upstream releases
+#    (python-wheels-mac-base.json, installed by install_python_mac_base.py).
+#    The linux/amd64 lock and installer are still copied for review parity;
+#    running them on arm64 fails closed because pip rejects the x86_64 wheel
+#    tags against the arm64 interpreter.
+FROM node:24.15.0-bookworm@sha256:f22d6a1f082c02f292e86929b5b0442ac2e5eaf438a5dea9b1566601c3e05940
+ARG TARGETARCH
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+WORKDIR /opt/dsmack
+COPY node/coupon-node.mjs node/coupon-live-node.mjs node/
+ARG COUPON_APPROVAL_PUBLIC_KEY
+COPY packaging/coupon/approval-root.json packaging/coupon/approval-root.json
+RUN if [ -n "$COUPON_APPROVAL_PUBLIC_KEY" ]; then node -e 'const fs=require("fs");const key=process.argv[1];if(!/^[0-9a-f]{64}$/.test(key))process.exit(1);fs.writeFileSync("packaging/coupon/approval-root.json",JSON.stringify({public_key_hex:key})+"\n");fs.chmodSync("packaging/coupon/approval-root.json",0o444);' "$COUPON_APPROVAL_PUBLIC_KEY"; fi
+COPY experiments/coupon_redemption/__init__.py experiments/coupon_redemption/evidence.py experiments/coupon_redemption/near.py experiments/coupon_redemption/offer_v2.py experiments/coupon_redemption/offer_v3.py experiments/coupon_redemption/offer_v4.py experiments/coupon_redemption/dstack_issuer_identity.py experiments/coupon_redemption/dstack_bootstrap.py experiments/coupon_redemption/live_worker.py experiments/coupon_redemption/staging_approval.py experiments/coupon_redemption/issuance_guard.py experiments/coupon_redemption/async_service_v4.py experiments/coupon_redemption/issuer_service.py experiments/coupon_redemption/peer_worker.py experiments/coupon_redemption/service.py experiments/coupon_redemption/service_v2.py experiments/coupon_redemption/service_v3.py experiments/coupon_redemption/service_v4.py experiments/coupon_redemption/spike.py experiments/coupon_redemption/transport.py experiments/coupon_redemption/peer_bridge.mjs experiments/coupon_redemption/
+COPY experiments/coupon_redemption/mac_bootstrap.py experiments/coupon_redemption/mac_issuer_identity.py experiments/coupon_redemption/mac_live_worker.py experiments/coupon_redemption/mac_transport.py experiments/coupon_redemption/mac_init.py experiments/coupon_redemption/
+COPY node/mac-coupon-control.mjs node/
+COPY experiments/coupon_redemption/fixtures/offer-v2.json experiments/coupon_redemption/fixtures/offer-v3.json experiments/coupon_redemption/fixtures/
+COPY packaging/coupon/README.md packaging/coupon/smoke.mjs packaging/coupon/paired-source.json packaging/coupon/python-wheels.json packaging/coupon/install_python.py packaging/coupon/python-worker packaging/coupon/mac-base.md packaging/coupon/python-wheels-mac-base.json packaging/coupon/install_python_mac_base.py packaging/coupon/
+COPY vendor/abalone/package.json vendor/abalone/package-lock.json vendor/abalone/
+COPY vendor/abalone/lib/p2p.mjs vendor/abalone/lib/appattest.mjs vendor/abalone/lib/config.mjs vendor/abalone/lib/macrunner.mjs vendor/abalone/lib/coupon.mjs vendor/abalone/lib/coupon-offer.mjs vendor/abalone/lib/coupon-accountless.mjs vendor/abalone/lib/
+COPY vendor/abalone/lib/vendor/macrunner.mjs vendor/abalone/lib/vendor/
+COPY vendor/abalone/anchors/apple-app-attestation-root.pem vendor/abalone/anchors/
+COPY source-manifest.json ./
+RUN test "$TARGETARCH" = arm64 && python3 packaging/coupon/install_python_mac_base.py \
+    && mkdir -p /usr/local/lib/python3.11/dist-packages \
+    && cp -a python-deps/. /usr/local/lib/python3.11/dist-packages/ \
+    && cd vendor/abalone && npm ci --ignore-scripts --omit=dev --no-audit --no-fund \
+    && npm cache clean --force
+USER root
+ENTRYPOINT ["/usr/bin/python3", "-m", "experiments.coupon_redemption.mac_init"]
+CMD ["--help"]

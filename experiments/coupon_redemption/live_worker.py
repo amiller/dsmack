@@ -64,23 +64,52 @@ class StagingProvider:
 
 
 class LiveWorker(Worker):
-    def _initialize(self, config_path):
-        os.umask(0o077)
-        root = approval_root()
-        self.approved = approval(_private_file(Path(config_path).parent / 'approval.json'), root)
-        config = configuration(_private_file(config_path), root, self.approved)
-        # Genuine Unix SDK factory enforces SDK0.5.4 and guest >=0.5.7. SDK info
-        # is local measured-runtime input; recipient independently verifies quote.
-        collector = DstackIssuerIdentity.from_socket('/var/run/dstack.sock')
+    approval_domain = APPROVAL_DOMAIN
+    issuer_policy = ISSUER_POLICY
+    noise_key_path = NOISE_KEY_PATH
+    guard_key_path = GUARD_KEY_PATH
+
+    def _authorization(self, config_path, root):
+        approved = approval(_private_file(Path(config_path).parent / 'approval.json'), root)
+        return approved, configuration(_private_file(config_path), root, approved)
+
+    def _collector(self, config):
+        return DstackIssuerIdentity.from_socket('/var/run/dstack.sock')
+
+    def _runtime_info(self, collector, config):
         info = collector._client.info()
         if (info.app_id != self.approved['app_id'] or info.compose_hash != self.approved['compose_hash']
                 or info.tcb_info.compose_hash != self.approved['compose_hash']):
             raise RedemptionError('signed configuration differs from actual application')
+        return info.tcb_info.app_compose
+
+    def _key(self, collector, path, algorithm):
+        purpose = ('coupon encrypted peer identity' if path == NOISE_KEY_PATH
+                   else 'coupon irreversible issuance attempt')
+        return collector._client.get_key(path, purpose=purpose, algorithm=algorithm).decode_key()
+
+    def _rpc(self, config):
+        return None
+
+    def _transport(self):
+        return NearHTTPS()
+
+    def _evidence_service(self, collector, app_compose):
+        return IssuerEvidenceService(issuer_peer=self.issuer_peer, signing_key=collector._signer,
+            identity_policy_sha256=self.approved['identity_policy_sha256'],
+            issuance_policy_sha256=self.approved['issuance_policy_sha256'], collector=collector,
+            app_compose=app_compose)
+
+    def _initialize(self, config_path):
+        os.umask(0o077)
+        root = approval_root()
+        self.approved, config = self._authorization(config_path, root)
+        collector = self._collector(config)
+        app_compose = self._runtime_info(collector, config)
         public = bytes.fromhex(collector.public_key_hex())
         if hashlib.sha256(public).hexdigest() != self.approved['issuer_public_key_sha256']:
             raise RedemptionError('signed configuration differs from SDK issuer key')
-        self.noise_seed = collector._client.get_key(NOISE_KEY_PATH,
-            purpose='coupon encrypted peer identity', algorithm='ed25519').decode_key()
+        self.noise_seed = self._key(collector, self.noise_key_path, 'ed25519')
         if type(self.noise_seed) is not bytes or len(self.noise_seed) != 32:
             raise RedemptionError('SDK peer identity unavailable')
         self.issuer_peer = config['issuer_peer_id']
@@ -111,7 +140,7 @@ class LiveWorker(Worker):
             if os.path.lexists(directory / name):
                 _private_file(directory / name, read=False)
         self.store = Store(directory / 'state.sqlite')
-        binding = canonical({'approval_sha256': payload_hash(APPROVAL_DOMAIN, self.approved),
+        binding = canonical({'approval_sha256': payload_hash(self.approval_domain, self.approved),
                              'issuer_peer': self.issuer_peer}).decode()
         self.store.db.execute('CREATE TABLE IF NOT EXISTS staging_binding (singleton INTEGER PRIMARY KEY, value TEXT NOT NULL)')
         self.store.db.execute('INSERT OR IGNORE INTO staging_binding VALUES (1,?)', (binding,))
@@ -145,18 +174,17 @@ class LiveWorker(Worker):
             fd = os.open(profile_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
             with os.fdopen(fd, 'wb') as file:
                 file.write(encoded_profile); file.flush(); os.fsync(file.fileno())
-        guard_key = collector._client.get_key(GUARD_KEY_PATH,
-            purpose='coupon irreversible issuance attempt', algorithm='secp256k1').decode_key()
+        guard_key = self._key(collector, self.guard_key_path, 'secp256k1')
         guard_type = BaseSafeIssuanceGuard if self.approved['guard']['chain_id'] == 8453 else FinalizedIssuanceGuard
         guard = guard_type(profile=config['finality_profile'], profile_path=profile_path,
             binary=str(Path(__file__).resolve().parents[2] / 'bin/dsmack-ethereum-finality'),
             private_key=guard_key, gas_price_wei=config['gas_price_wei'],
-            deadline_seconds=config['job_deadline_seconds'] - 10)
+            deadline_seconds=config['job_deadline_seconds'] - 10, rpc=self._rpc(config))
         credentials = config['provider']
         near = Near(credentials['workspace_id'], credentials['organization_id'], credentials['session_jwt'],
-                    credentials['reporting_token'], NearHTTPS())
+                    credentials['reporting_token'], self._transport())
         provider = StagingProvider(near, self.approved)
-        issuer = {'peer_id': self.issuer_peer, 'policy': ISSUER_POLICY,
+        issuer = {'peer_id': self.issuer_peer, 'policy': self.issuer_policy,
             **{name: self.approved[name] for name in ('identity_policy_sha256', 'issuance_policy_sha256', 'issuer_public_key_sha256')}}
         self.service_v4 = AsyncCouponServiceV4(self.store, provider, collector._signer,
             sponsor_subject=config['sponsor_subject'], observer_subject=config['observer_subject'],
@@ -167,10 +195,7 @@ class LiveWorker(Worker):
             max_active_jobs=config['max_active_jobs'], job_deadline_seconds=config['job_deadline_seconds'])
         self.service = self.service_v4  # protected pending authority only
         self.service_v2 = self.service_v3 = None
-        self.issuer_service = IssuerEvidenceService(issuer_peer=self.issuer_peer, signing_key=collector._signer,
-            identity_policy_sha256=self.approved['identity_policy_sha256'],
-            issuance_policy_sha256=self.approved['issuance_policy_sha256'], collector=collector,
-            app_compose=info.tcb_info.app_compose)
+        self.issuer_service = self._evidence_service(collector, app_compose)
 
     def request(self, request):
         if (type(request) is not dict or request.get('kind') not in
@@ -186,7 +211,7 @@ class LiveWorker(Worker):
             raise RedemptionError('signed sponsor mapping required')
         return {'ready': True, 'environment': 'debug-staging', 'noise_seed_hex': self.noise_seed.hex(),
                 'issuer_peer_id': self.issuer_peer, 'sponsor_peer': sponsor,
-                'approval_sha256': payload_hash(APPROVAL_DOMAIN, self.approved)}
+                'approval_sha256': payload_hash(self.approval_domain, self.approved)}
 
     def close(self):
         if getattr(self, 'service_v4', None) is not None:

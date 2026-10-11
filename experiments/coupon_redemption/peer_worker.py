@@ -334,6 +334,9 @@ def main(argv=None):
         if _json(_private_file(args.config)).get('domain') == 'dsmack-coupon-staging-config-v1':
             from .live_worker import LiveWorker
             worker = LiveWorker(args.config)
+        elif _json(_private_file(args.config)).get('domain') == 'dsmack-coupon-mac-config-v1':
+            from .mac_live_worker import MacLiveWorker
+            worker = MacLiveWorker(args.config)
         else:
             worker = Worker(args.config)
     except Exception:

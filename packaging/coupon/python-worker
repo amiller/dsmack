@@ -7,7 +7,8 @@ import sys
 root = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(root / 'python-deps'), str(root)]
 if len(sys.argv) < 3 or sys.argv[1] != '-m' or sys.argv[2] not in (
-        'experiments.coupon_redemption.peer_worker', 'experiments.coupon_redemption.dstack_bootstrap'):
+        'experiments.coupon_redemption.peer_worker', 'experiments.coupon_redemption.dstack_bootstrap',
+        'experiments.coupon_redemption.mac_bootstrap'):
     raise SystemExit('unsupported worker invocation')
 module = sys.argv[2]
 sys.argv = [module, *sys.argv[3:]]

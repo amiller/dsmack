@@ -20,9 +20,14 @@ const { peerIdFromPrivateKey } = await import(pathToFileURL(requirePeer.resolve(
 export const STAGING_ADMISSION = Object.freeze([
   { file: 'approval.json', domain: 'dsmack-coupon-staging-approval-v1' },
   { file: 'config.json', domain: 'dsmack-coupon-staging-config-v1' }]);
+export const MAC_ADMISSION = Object.freeze([
+  { file: 'approval.json', domain: 'dsmack-coupon-mac-approval-v1' },
+  { file: 'config.json', domain: 'dsmack-coupon-mac-config-v1' }]);
 
-export async function probeLiveIdentity({ pythonWorker = path.join(root, 'packaging/coupon/python-worker') } = {}) {
-  const proc = spawn(pythonWorker, ['-m', 'experiments.coupon_redemption.dstack_bootstrap'],
+export async function probeLiveIdentity({ pythonWorker = path.join(root, 'packaging/coupon/python-worker'), profile = 'tdx', controlChallenge } = {}) {
+  if (!['tdx', 'mac'].includes(profile)) throw new Error('unsupported issuer profile');
+  if (controlChallenge !== undefined && (profile !== 'mac' || !/^[0-9a-f]{64}$/.test(controlChallenge))) throw new Error('invalid control challenge');
+  const proc = spawn(pythonWorker, ['-m', profile === 'mac' ? 'experiments.coupon_redemption.mac_bootstrap' : 'experiments.coupon_redemption.dstack_bootstrap', ...(controlChallenge ? ['--control-challenge', controlChallenge] : [])],
     { cwd: root, detached: true, stdio: ['ignore', 'pipe', 'pipe'], env: { PATH: '/usr/bin:/bin', LANG: 'C.UTF-8' } });
   const chunks = []; let size = 0, failed = false;
   const kill = () => { try { process.kill(-proc.pid, 'SIGKILL'); } catch {} };
@@ -30,7 +35,7 @@ export async function probeLiveIdentity({ pythonWorker = path.join(root, 'packag
   proc.stderr.on('data', () => {});
   proc.stdout.on('data', chunk => { size += chunk.length; if (size > 200000) { failed = true; kill(); } else chunks.push(chunk); });
   try {
-    await new Promise((resolve, reject) => { proc.once('error', reject); proc.once('exit', code => code === 0 && !failed ? resolve() : reject(new Error('SDK probe failed'))); });
+    await new Promise((resolve, reject) => { proc.once('error', reject); proc.once('close', code => code === 0 && !failed ? resolve() : reject(new Error('SDK probe failed'))); });
     const value = JSON.parse(Buffer.concat(chunks).toString());
     if (!/^[0-9a-f]{64}$/.test(value.noise_seed_hex)) throw new Error('SDK probe failed');
     const seed = Buffer.from(value.noise_seed_hex, 'hex');
@@ -48,9 +53,10 @@ export async function prepareStagingDirectory(dir) {
   await directory(dir);
 }
 
-export async function admitStagingFiles(dir, lines) {
+export async function admitStagingFiles(dir, lines, admission = STAGING_ADMISSION) {
+  if (admission !== STAGING_ADMISSION && admission !== MAC_ADMISSION) throw new Error('unsupported issuer admission');
   if (!path.isAbsolute(dir)) throw new Error('absolute operator directory required');
-  for (const expected of STAGING_ADMISSION) {
+  for (const expected of admission) {
     const { value, done } = await lines.next();
     if (done || !Buffer.isBuffer(value)) throw new Error('staging admission input required');
     let envelope;
@@ -75,7 +81,15 @@ export async function admitStagingFiles(dir, lines) {
 }
 
 export async function startLiveCouponNode({ dir, listen = ['/ip4/127.0.0.1/tcp/0'],
-  python = path.join(root, 'packaging/coupon/python-worker') } = {}) {
+  python = path.join(root, 'packaging/coupon/python-worker'), macRelay } = {}) {
+  let relays = [];
+  if (macRelay !== undefined) {
+    const m = /^\/ip4\/127\.0\.0\.1\/tcp\/4002\/p2p\/([A-Za-z0-9]{16,128})$/.exec(macRelay);
+    if (!m) throw new Error('Mac relay refused');
+    const { loopbackTo } = await import('../vendor/abalone/lib/macrunner.mjs');
+    const port = await loopbackTo('127.0.0.1', 4002);
+    relays = [`/ip4/127.0.0.1/tcp/${port}/p2p/${m[1]}`];
+  }
   if (!path.isAbsolute(dir)) throw new Error('protected operator directory required');
   await directory(dir);
   await privateFile(path.join(dir, 'config.json')); // File metadata, no config authority inferred here.
@@ -96,7 +110,7 @@ export async function startLiveCouponNode({ dir, listen = ['/ip4/127.0.0.1/tcp/0
     } });
   let peer;
   try {
-    peer = await servePeer({ listen, privateKey, evidence: () => () => ({ type: 'dev' }),
+    peer = await servePeer({ listen, relays, privateKey, evidence: () => () => ({ type: 'dev' }),
       handle: async (_request, response) => { response.writeHead(404); response.end(); },
       services: { [COUPON_PROTOCOL_V4]: bridge.serviceV4, [ISSUER_PROTOCOL]: bridge.issuerService } });
     for (const protocol of ['/abalone/redeem/1', '/abalone/infer/1', '/abalone/status/1']) await peer.unhandle(protocol);

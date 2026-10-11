@@ -6,16 +6,21 @@ development, private staging, public testnet, and public production **not yet
 deployed**. Public testnet means an explicitly advertised, stable service for
 external recipients; it never makes operator configuration or debug access public.
 
-The existing trial demonstrated a public WSS/Noise connection, genuine issuer
-admission, direct provider delivery and a bounded inference. Its runtime admission
-still says `private-debug-staging`, with operator-readable credentials and no
+Earlier TDX/cloud staging demonstrated a public WSS/Noise connection, genuine
+issuer admission, direct provider delivery and bounded inference. That stopped
+platform detour does not qualify the selected Mac deployment. The selected
+[Mac ARM Base-only profile](mac-base.md) uses the existing native Apple runner
+and ordinary local Apple Containerization guest; no project cloud CVM is needed.
+Fresh Mac workload evidence, endpoint and signed public pins remain pending.
+The selected runtime admission uses a signed debug trust profile, with
+operator-readable credentials and no
 rollback/private-issuance qualification. An open gateway URL or renamed dashboard
 is insufficient to promote it. This profile requires the operational gates below.
 It does not close the broader [gift milestone](https://github.com/amiller/dsmack/milestone/1).
 
 ## Supported first testnet slice
 
-One persistent dstack-backed issuer and one qualified direct NEAR adapter suffice;
+One persistent Mac-mini issuer and one qualified direct NEAR adapter suffice;
 a fleet, router, pool treasury and deposit settlement are separate. External users
 need the reviewed Abalone client, a coupon and the signed public bundle. They need
 no issuer SSH credential, provider account, funded wallet or VPN. A client peer is
@@ -46,8 +51,11 @@ immutable, checksum-addressed client/bundle links. Record its operator, update
 procedure and rollback/fencing rule in the reviewed rollout packet. For v1, one
 operator-hosted index is acceptable; coverage, availability and censorship
 resistance remain limited. Clients independently verify the bundle's trusted
-approval root, signatures, exact issuer identity/compose/key/policy and fresh
-attestation over the actual Noise connection. The index and dashboard grant no
+approval root, signatures, exact Mac code identity/compose/key/policy and fresh
+App Attest evidence bound to both peers and a nonce over the actual Noise
+connection. This establishes issuer identity, not secrecy from the host/operator
+or rollback protection; NEAR inference admission is a separate verified boundary.
+The index and dashboard grant no
 membership, execution, credential or spending authority.
 
 The selected endpoint is a public `/dns4/.../tcp/443/wss/p2p/...` route through
@@ -119,12 +127,14 @@ See [dashboard #28](https://github.com/amiller/dsmack/issues/28).
    the existing worker lock before restart/migration. Never reset winners, grants,
    pending/quarantined effects, delivered envelopes or aggregate reservations.
    Historical failed grants remain evidence, not retries. Keep backups private.
-3. Admit exact reviewed controls against fresh genuine quote/key/compose evidence.
+3. Admit exact reviewed controls against fresh genuine Mac App Attest/key/compose evidence.
    Public transport must expose only recipient issuer-info/evidence and coupon
-   protocols. Operator frames stay on a private owner-only channel; keep container
-   logging disabled, no secret argv/env, and verify no public log retrieval.
-4. Run a detached supervised controller with restart ownership and independent
-   liveness checks; stdin closing stops the current launcher. Record host reboot,
+   protocols. Operator frames stay on a private owner-only channel; keep workload
+   logging free of secrets, no secret argv/env, and verify no public log retrieval.
+4. Qualify a Mac-specific private admission and renewal controller with restart
+   ownership and independent liveness checks. Do not assume the historical cloud
+   SSH/stdin supervisor works on the Mac guest. Its actual control channel and
+   lifecycle require separate qualification. Record host reboot,
    controller death, renewal, operator absence and shutdown behavior. Detached
    operation during one turn is not a proven reboot recovery or uptime SLA.
 5. Renew NEAR owner authorization privately using the documented fixed-host flow,

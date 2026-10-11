@@ -44,12 +44,13 @@ def _unique_object(pairs):
     return result
 
 
-def _perform_http(method, target, bearer, body, socket_timeout, max_response):
+def _perform_http(method, target, bearer, body, socket_timeout, max_response, connection_factory=None):
     # create_default_context() honors SSLKEYLOGFILE. Constructing the context
     # explicitly avoids ever opening that file or exporting traffic secrets.
     context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
     context.load_default_certs(ssl.Purpose.SERVER_AUTH)
-    connection = http.client.HTTPSConnection(HOST, 443, timeout=socket_timeout, context=context)
+    factory = connection_factory or http.client.HTTPSConnection
+    connection = factory(HOST, 443, timeout=socket_timeout, context=context)
     try:
         headers = {'Accept': 'application/json', 'Accept-Encoding': 'identity',
                    'User-Agent': 'dsmack-coupon-spike/1'}
@@ -95,6 +96,7 @@ def _worker(pipe, method, target, bearer, body, socket_timeout, max_response):
 
 
 class NearHTTPS:
+    _worker_target = None
     def __init__(self, deadline=30.0, socket_timeout=10.0, max_response=MAX_RESPONSE_BYTES):
         if (not isinstance(deadline, (int, float)) or not math.isfinite(deadline) or not 0 < deadline <= 120
                 or not isinstance(socket_timeout, (int, float)) or not math.isfinite(socket_timeout)
@@ -127,7 +129,7 @@ class NearHTTPS:
             raise TransportError('invalid NEAR request configuration') from None
         context = multiprocessing.get_context('spawn')
         receiver, sender = context.Pipe(duplex=False)
-        process = context.Process(target=_worker, args=(sender, method, target, bearer, body,
+        process = context.Process(target=self._worker_target or _worker, args=(sender, method, target, bearer, body,
                                                        self.socket_timeout, self.max_response))
         try:
             process.start()

@@ -57,4 +57,10 @@ must admit that build under its code/entitlement policy. A notarization ticket,
 a matching executable or a successful CI build does not by itself establish
 fresh App Attest admission or a clean-Mac first-open journey.
 
+Source changes also require a newly qualified build, including changes to embedded
+GUI links such as the independent-builder guide URL. This repository cleanup does
+not replace or requalify an existing signed release. Rebuild, sign and qualify the
+new executable against the selected network's admission policy before recommending
+it to participants.
+
 See [independent-builder handoff](native-builder.md) and [release acceptance](release.md).

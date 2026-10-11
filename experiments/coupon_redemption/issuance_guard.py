@@ -144,8 +144,14 @@ class GuardRPC:
         self.url = url
         self.opener = urllib.request.build_opener(NoRedirect)
         self.observer = None
+        self.diagnostic_observer = None
+        self._attempts = {}
+        self._decode_failures = {}
 
     def call(self, method, params, *, timeout=15):
+        started = time.monotonic()
+        self._attempts[method] = self._attempts.get(method, 0) + 1
+        status = code = count = None
         if self.observer is not None:
             self.observer(method, None)
         request = urllib.request.Request(self.url,
@@ -153,14 +159,21 @@ class GuardRPC:
             {'Content-Type': 'application/json', 'User-Agent': 'dsmack-coupon-guard/1'}, method='POST')
         try:
             with self.opener.open(request, timeout=timeout) as response:
+                status = getattr(response, 'status', None)
                 data = response.read(65537)
+                count = len(data)
             if len(data) > 65536:
-                raise ValueError()
-            result = json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+                category = 'response_oversized'
+                raise GuardResponseRefused(category)
+            try:
+                result = json.loads(data, object_pairs_hook=_unique_object, parse_constant=_reject_constant)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                raise GuardResponseRefused('response_decode') from None
             if (type(result) is not dict or result.get('jsonrpc') != '2.0'
                     or type(result.get('id')) is not int or result['id'] != 1):
                 raise ValueError()
             if set(result) == {'jsonrpc', 'id', 'result'}:
+                self._decode_failures[method] = 0
                 return result['result']
             error = result.get('error')
             if (set(result) != {'jsonrpc', 'id', 'error'} or type(error) is not dict
@@ -174,7 +187,11 @@ class GuardRPC:
                         and error['code'] == -32000
                         and error['message'] == 'transaction indexing is in progress'
                         else 'rpc_error')
+            code = error['code']
+        except GuardResponseRefused as error:
+            category = error.category
         except urllib.error.HTTPError as error:
+            status = error.code
             category = 'http_retryable' if error.code in (429, 502, 503, 504) else 'http_terminal'
             error.close()
         except (urllib.error.URLError, TimeoutError, OSError):
@@ -183,9 +200,21 @@ class GuardRPC:
             category = 'redirect_refused'
         except Exception:
             category = 'invalid_response'
+        if category == 'response_decode':
+            self._decode_failures[method] = self._decode_failures.get(method, 0) + 1
+        else:
+            self._decode_failures[method] = 0
+        if self.diagnostic_observer is not None:
+            self.diagnostic_observer({'method': method, 'category': 'response_envelope' if category == 'invalid_response' else category,
+                'http_status': status if type(status) is int and 100 <= status <= 599 else None,
+                'rpc_code': code if type(code) is int and -2147483648 <= code <= 2147483647 else None,
+                'response_bytes': count,
+                'attempt': self._attempts[method],
+                'elapsed_ms': max(0, int((time.monotonic() - started) * 1000))})
         if self.observer is not None:
             self.observer(method, category)
-        if method in SAFE_READ_METHODS and category in ('http_retryable', 'network_unavailable', 'receipt_indexing'):
+        if method in SAFE_READ_METHODS and (category in ('http_retryable', 'network_unavailable', 'receipt_indexing')
+                or category == 'response_decode' and self._decode_failures[method] <= 2):
             raise GuardReadUnavailable(category) from None
         refusal = RedemptionError('guard transaction outcome unavailable')
         refusal.category = category  # Static private diagnostic, never raw RPC text.
@@ -194,6 +223,11 @@ class GuardRPC:
 
 SAFE_READ_METHODS = frozenset(('eth_chainId', 'eth_getTransactionReceipt',
     'eth_getTransactionByHash', 'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt'))
+
+
+class GuardResponseRefused(Exception):
+    def __init__(self, category):
+        self.category = category
 
 
 class GuardReadUnavailable(RedemptionError):
@@ -379,6 +413,7 @@ class BaseSafeIssuanceGuard(FinalizedIssuanceGuard):
             raise RedemptionError('unsupported Base guard profile')
         super().__init__(**kwargs)
         self.progress = None
+        self.rpc_diagnostics = None
 
     def _progress(self, stage, method=None, error=None):
         self._current_stage = stage
@@ -494,6 +529,8 @@ class BaseSafeIssuanceGuard(FinalizedIssuanceGuard):
         self._progress('guard_entered')
         if isinstance(self.rpc, GuardRPC):
             self.rpc.observer = lambda method, error: self._progress(self._current_stage, method, error)
+            self.rpc.diagnostic_observer = (None if self.rpc_diagnostics is None else
+                lambda detail: self.rpc_diagnostics(self._current_stage, detail))
         if issuer['issuance_policy_sha256'] != self.profile['issuance_policy_hash'].removeprefix('0x'):
             raise RedemptionError('guard policy mismatch')
         from .peer_worker import _private_file

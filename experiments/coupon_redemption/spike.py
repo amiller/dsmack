@@ -86,6 +86,9 @@ class Store:
             CREATE TABLE IF NOT EXISTS issuance_progress (
                 digest TEXT PRIMARY KEY REFERENCES coupons(digest),
                 stage TEXT NOT NULL, rpc_method TEXT, error_category TEXT);
+            CREATE TABLE IF NOT EXISTS issuance_rpc_diagnostics (
+                digest TEXT PRIMARY KEY REFERENCES coupons(digest),
+                stage TEXT NOT NULL, metadata TEXT NOT NULL);
         """)
         self.effect_observer = None
         if "accounting_blocked" not in {r[1] for r in self.db.execute("PRAGMA table_info(coupons)")}:
@@ -103,7 +106,7 @@ class Store:
                    'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt',
                    'eth_getTransactionCount', 'eth_sendRawTransaction'}
         errors = {'http_retryable', 'network_unavailable', 'http_terminal',
-                  'invalid_response', 'redirect_refused', 'validation_failed',
+                  'invalid_response', 'response_decode', 'response_oversized', 'redirect_refused', 'validation_failed',
                   'receipt_indexing', 'rpc_error', 'receipt_invalid', 'receipt_hash_mismatch',
                   'receipt_authority_mismatch', 'receipt_reverted', 'receipt_status_invalid',
                   'receipt_block_invalid', 'receipt_quantity_invalid', 'receipt_hash_invalid',
@@ -116,6 +119,29 @@ class Store:
                         'ON CONFLICT(digest) DO UPDATE SET stage=excluded.stage, '
                         'rpc_method=excluded.rpc_method,error_category=excluded.error_category',
                         (digest, stage, rpc_method, error_category))
+
+    def note_guard_rpc(self, digest, stage, detail):
+        """One bounded failure row; no response bodies, URLs, hashes or authority."""
+        fields = {'method', 'category', 'http_status', 'rpc_code', 'response_bytes', 'attempt', 'elapsed_ms'}
+        methods = {'eth_chainId', 'eth_getTransactionReceipt', 'eth_getTransactionByHash',
+                   'eth_getBlockByNumber', 'eth_getCode', 'eth_call', 'eth_getStorageAt',
+                   'eth_getTransactionCount', 'eth_sendRawTransaction'}
+        categories = {'http_retryable', 'http_terminal', 'network_unavailable', 'receipt_indexing',
+                      'rpc_error', 'response_oversized', 'response_decode', 'response_envelope', 'redirect_refused'}
+        if (stage not in {'guard_entered', 'guard_submit_started', 'guard_submitted', 'guard_read'}
+                or type(detail) is not dict or set(detail) != fields
+                or detail['method'] not in methods or detail['category'] not in categories
+                or self.db.execute('SELECT 1 FROM coupons WHERE digest=?', (digest,)).fetchone() is None):
+            raise RedemptionError('invalid private RPC diagnostic')
+        for field, low, high, nullable in [('http_status', 100, 599, True),
+                ('rpc_code', -2147483648, 2147483647, True), ('response_bytes', 0, 65537, True),
+                ('attempt', 1, 1000000, False), ('elapsed_ms', 0, 86400000, False)]:
+            value = detail[field]
+            if not (nullable and value is None) and (type(value) is not int or not low <= value <= high):
+                raise RedemptionError('invalid private RPC diagnostic')
+        self.db.execute('INSERT INTO issuance_rpc_diagnostics VALUES (?,?,?) '
+            'ON CONFLICT(digest) DO UPDATE SET stage=excluded.stage, metadata=excluded.metadata',
+            (digest, stage, json.dumps(detail, sort_keys=True, separators=(',', ':'))))
 
     @staticmethod
     def digest(coupon):

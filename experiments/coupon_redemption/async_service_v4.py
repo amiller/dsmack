@@ -95,6 +95,9 @@ class AsyncCouponServiceV4(DsmackCouponServiceV4):
                 raise RedemptionError('issuance authorization unavailable')
             if hasattr(original_authorizer, 'progress'):
                 original_authorizer.progress = progress
+            if hasattr(original_authorizer, 'rpc_diagnostics'):
+                original_authorizer.rpc_diagnostics = lambda stage, detail: store.note_guard_rpc(
+                    store.digest(coupon), stage, detail)
             original_authorizer(*arguments)
         try:
             service = DsmackCouponServiceV4(store, self.provider, self.signing_key,

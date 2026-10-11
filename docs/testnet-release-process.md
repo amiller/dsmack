@@ -82,7 +82,9 @@ curl --fail --silent --show-error https://pod.dstack.soc1024.com/apple-attest-p2
 `/info` reports configured chain/registry/protocol and sponsor identity. `/status`
 reports sponsor write pause and journal pending/completed transactions. These do
 not establish current seed health, a successful App Attest handshake, online
-membership, or coupon readiness. Record observation time and failure response;
+membership, or coupon readiness. The [read-only release checker](../packaging/participation/README.md) bundles
+these observations with exact-package checksum and chain configuration checks.
+Record observation time and failure response;
 do not convert a successful HTTP response into a peer count. Check the exact app
 journey for fresh native admission and key acquisition.
 

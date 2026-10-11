@@ -57,3 +57,18 @@ record the exact artifact, real device/operator independence, policy/epoch/publi
 key agreement, quit/rejoin and outage/recovery observations. Do not expose the
 shared key. The [protocol profile](protocol-profile-v1.md) explains the native
 and coupon transports, which state is shared, and remaining operator powers.
+
+## Check published inputs before opening the app
+
+From the reviewed Dsmack checkout, run the read-only release checker:
+
+```sh
+python3 tools/check_participation_release.py --output /tmp/participation-check.json
+```
+
+It checks the published ZIP checksum and observes relay/chain configuration.
+A pass does **not** launch the app, perform admission or prove independent syncing.
+See the [checker instructions](../packaging/participation/README.md) and
+[dated public observation](../packaging/participation/qualification-20261011.json).
+The [Mac package verification](../packaging/participation/mac-package-verification-20261011.json)
+records signature and stapled-ticket checks, not independent first-open acceptance.

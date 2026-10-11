@@ -28,6 +28,11 @@ final class UpdateDownload: NSObject, URLSessionDataDelegate {
     }
     func urlSession(_ session:URLSession,task:URLSessionTask,didCompleteWithError error:Error?) {if failure==nil {failure=error};try? file?.close();done.signal()}
     static func fetch(_ url:URL,to destination:URL,limit:Int,seconds:Double) throws {
+        #if UPDATE_REHEARSAL
+        // Compile-only artifact selection; never included in a public release.
+        try NativeUpdateRehearsal.select(url,to:destination,limit:limit)
+        return
+        #else
         guard allowed(url) else {throw NativeUpdateError("Untrusted update URL.")}
         let worker=UpdateDownload(destination,limit:limit)
         guard FileManager.default.createFile(atPath:destination.path,contents:nil,attributes:[.posixPermissions:0o600]) else {throw NativeUpdateError("Cannot create the update download.")}
@@ -42,6 +47,7 @@ final class UpdateDownload: NSObject, URLSessionDataDelegate {
         if worker.done.wait(timeout:.now()+seconds+2) == .timedOut {task.cancel();session.invalidateAndCancel();throw NativeUpdateError("Update download timed out. Your installed app is unchanged.")}
         session.finishTasksAndInvalidate()
         if let failure=worker.failure {throw failure}
+        #endif
     }
 }
 
@@ -69,8 +75,20 @@ final class NativeUpdater {
     private var recommendation:NativeUpdateRecommendation?
     private var recommendationData:Data?
     private var current:URL {Bundle.main.bundleURL.resolvingSymlinksInPath()}
-    private var root:URL {fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Dsmack Releases",isDirectory:true)}
-    private var defaults:UserDefaults {UserDefaults.standard}
+    private var root:URL {
+        #if UPDATE_REHEARSAL
+        return NativeUpdateRehearsal.root.appendingPathComponent("releases",isDirectory:true)
+        #else
+        return fm.homeDirectoryForCurrentUser.appendingPathComponent("Applications/Dsmack Releases",isDirectory:true)
+        #endif
+    }
+    private var defaults:UserDefaults {
+        #if UPDATE_REHEARSAL
+        return NativeUpdateRehearsal.defaults
+        #else
+        return UserDefaults.standard
+        #endif
+    }
     static func sha256(_ url:URL)throws->String {
         let handle=try FileHandle(forReadingFrom:url);defer{try? handle.close()};var digest=SHA256()
         while let data=try handle.read(upToCount:1024*1024),!data.isEmpty {digest.update(data:data)}

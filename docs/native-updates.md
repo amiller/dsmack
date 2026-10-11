@@ -97,3 +97,9 @@ identity/account continuity and a controlled failure/recovery journey remain
 separate release gates. Developer/ad-hoc fixtures must not be accepted merely to
 make that recording green. RC3 has no updater: the initial upgrade to a build
 with this feature still uses the documented signed download-and-replace path.
+
+The code registry normalizes away Info.plist and resource hashes. A displayed
+version is signed, self-reported release metadata, not an on-chain attested
+version. The updater compares its signed network metadata with network pins
+compiled into the executable. Changed executable code still requires an explicit
+admission-policy transition; installing it does not authorize that transition.

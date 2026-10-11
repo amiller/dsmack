@@ -140,6 +140,17 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         #if ASSEMBLY_CAPTURE
         startAssemblyCapture(self)
         #endif
+        #if UPDATE_REHEARSAL
+        window.title="Dsmack Update Rehearsal — isolated artifact selection"
+        if !NativeUpdateRehearsal.participationEnabled {
+            titleLabel.stringValue="Update rehearsal"
+            stateLabel.stringValue="NO NETWORK PARTICIPATION"
+            detailLabel.stringValue="Local artifact selection exercises the real update verifier and installer. No peer, identity, account or NFT acceptance is claimed."
+            badgeLabel.stringValue="Build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
+            participationCaption.stringValue="PRIVATE COMPONENT REHEARSAL / NOT A PUBLIC RELEASE"
+            return
+        }
+        #endif
         DispatchQueue.global(qos:.utility).async {self.runParticipant()}
     }
     #if ASSEMBLY_PREVIEW || ASSEMBLY_CAPTURE
@@ -383,7 +394,11 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 emit("configuration unavailable",["message":"This development build has no validated release network yet."]);return
             }
             if config["name"] == nil {
+                #if UPDATE_REHEARSAL
+                let defaults=NativeUpdateRehearsal.defaults
+                #else
                 let defaults=UserDefaults.standard
+                #endif
                 let identity=defaults.string(forKey:"participantName") ?? UUID().uuidString.lowercased()
                 defaults.set(identity,forKey:"participantName");config["name"]=identity
             }
@@ -462,7 +477,11 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func writeStatus() {
         // Agent-readable evidence follows exactly the same events as the window.
         guard let root=try? FileManager.default.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true) else {return}
+        #if UPDATE_REHEARSAL
+        let dir=NativeUpdateRehearsal.root.appendingPathComponent("status",isDirectory:true)
+        #else
         let dir=root.appendingPathComponent("AttestNode",isDirectory:true)
+        #endif
         do {
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
             let file=dir.appendingPathComponent("status.json")

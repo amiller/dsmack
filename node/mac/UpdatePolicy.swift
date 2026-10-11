@@ -42,13 +42,13 @@ struct NativeUpdateRecommendation {
               n.doubleValue>=0, n.doubleValue<=2147483647 else {return nil}
         return n.intValue
     }
-    init(data:Data,currentBuild:Int,highestBuild:Int,network expected:[String:String],now:Date=Date()) throws {
+    init(data:Data,currentBuild:Int,highestBuild:Int,network expected:[String:String],now:Date=Date(),allowCurrent:Bool=false) throws {
         guard data.count<=65536, let d=try JSONSerialization.jsonObject(with:data) as? [String:Any] else {throw NativeUpdateError("Release recommendation is too large or malformed.")}
         try Self.exactKeys(d,["format","tag","version","build","archive","sha256","bytes","expires","network","previousBuilds","rollbackBuilds","qualification","evidence"])
         guard Self.integer(d["format"])==1,
               let tag=d["tag"] as? String, tag.range(of:"^native-v[0-9][A-Za-z0-9._-]{0,63}$",options:.regularExpression) != nil,
               let version=d["version"] as? String, version.range(of:"^[0-9][A-Za-z0-9._-]{0,63}$",options:.regularExpression) != nil,
-              let build=Self.integer(d["build"]),build>currentBuild,build>=highestBuild,
+              let build=Self.integer(d["build"]),(build>currentBuild || (allowCurrent && build==currentBuild)),build>=highestBuild,
               let bytes=Self.integer(d["bytes"]),bytes>0,bytes<=250_000_000,
               let digest=d["sha256"] as? String,digest.range(of:"^[0-9a-f]{64}$",options:.regularExpression) != nil,
               let archiveString=d["archive"] as? String,let archive=URL(string:archiveString),
@@ -63,7 +63,7 @@ struct NativeUpdateRecommendation {
               let evidenceString=d["evidence"] as? String,let evidence=URL(string:evidenceString),evidence.scheme=="https",evidence.host=="github.com",evidence.user==nil,evidence.password==nil,evidence.query==nil,evidence.fragment==nil,
               evidence.path.hasPrefix("/\(Self.repository)/") else {throw NativeUpdateError("The recommendation is expired, incompatible, a downgrade, or not qualified by the release owner.")}
         let previousBuilds=previous.compactMap(Self.integer),rollbackBuilds=rollback.compactMap(Self.integer)
-        guard Set(previousBuilds).count==previousBuilds.count,Set(rollbackBuilds).count==rollbackBuilds.count,previousBuilds.contains(currentBuild) else {throw NativeUpdateError("This release does not support updating your current build.")}
+        guard Set(previousBuilds).count==previousBuilds.count,Set(rollbackBuilds).count==rollbackBuilds.count,(previousBuilds.contains(currentBuild) || (allowCurrent && build==currentBuild)) else {throw NativeUpdateError("This release does not support updating your current build.")}
         self.tag=tag;self.version=version;self.build=build;self.archive=archive;self.sha256=digest;self.bytes=bytes;self.expires=expires;self.network=network;self.previousBuilds=previousBuilds;self.rollbackBuilds=rollbackBuilds;self.evidence=evidence
     }
 }

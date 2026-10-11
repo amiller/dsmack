@@ -20,4 +20,9 @@ valid=(root/'valid.zip').read_bytes()
 local_mismatch=bytearray(valid);local_mismatch[30]=ord('X');(root/'mismatched-name.zip').write_bytes(local_mismatch)
 # Corrupt central flags without changing the local record.
 c=valid.index(b'PK\x01\x02');flags=bytearray(valid);struct.pack_into('<H',flags,c+8,1);(root/'encrypted.zip').write_bytes(flags)
-print('Created',len(list(root.glob('*.zip'))),'small ZIP fixtures')
+crc=bytearray(valid);crc[14]^=1;(root/'mismatched-crc.zip').write_bytes(crc)
+sizes=bytearray(valid);sizes[18]^=1;(root/'mismatched-size.zip').write_bytes(sizes)
+with zipfile.ZipFile(root/'unicode-extra.zip','w') as z:
+ for path,data in base.items():
+  entry=zipfile.ZipInfo(path);entry.extra=struct.pack('<HH',0x7075,1)+b'X';z.writestr(entry,data)
+print('Created' ,len(list(root.glob('*.zip'))),'small ZIP fixtures')

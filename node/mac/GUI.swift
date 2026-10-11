@@ -86,7 +86,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         window=NSWindow(contentRect:NSRect(x:0,y:0,width:1100,height:700),styleMask:[.titled,.closable,.miniaturizable,.resizable],backing:.buffered,defer:false)
         window.minSize=NSSize(width:1000,height:680)
         window.contentView=StatusContentView(frame:window.contentView!.frame)
-        window.title="AttestNode / Assembly";window.delegate=self;window.isReleasedWhenClosed=false
+        window.title="Dsmack Testnet";window.delegate=self;window.isReleasedWhenClosed=false
         window.appearance=NSAppearance(named:.aqua)
         titleLabel.font = .systemFont(ofSize:48,weight:.heavy);titleLabel.maximumNumberOfLines=3
         titleLabel.lineBreakMode = .byWordWrapping;titleLabel.textColor=AssemblyPalette.ink
@@ -221,7 +221,10 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             switch result {
             case .failure(let error):
                 let alert=NSAlert();alert.messageText="Dsmack updates";alert.informativeText=error.localizedDescription;alert.runModal()
-            case .success(let release):
+            case .success(let offered):
+                guard let release=offered else {
+                    let current=NSAlert();current.messageText="Dsmack is up to date";current.informativeText="You are running the release owner's currently recommended build.";current.runModal();return
+                }
                 let alert=NSAlert();alert.messageText="Dsmack \(release.version) is recommended"
                 alert.informativeText="The release owner recommends build \(release.build) for this network. This is an owner qualification, not an independent chain admission check. Download and verify its signature, identity permissions and network before installing. Your existing app and identity data will be retained."
                 alert.addButton(withTitle:"Download and verify");alert.addButton(withTitle:"Cancel")

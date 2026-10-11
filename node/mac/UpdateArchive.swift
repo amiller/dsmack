@@ -20,6 +20,9 @@ enum NativeUpdateArchive {
             guard try u32(cursor)==0x02014b50 else {throw NativeUpdateError("Invalid update archive entry.")}
             let flags=try u16(cursor+8),method=try u16(cursor+10),compressed=try u32(cursor+20),expanded=try u32(cursor+24),n=try u16(cursor+28),extra=try u16(cursor+30),comment=try u16(cursor+32),offset=try u32(cursor+42),attributes=try u32(cursor+38)
             guard n>0,n<=512,cursor+46+n+extra+comment<=e,flags & ~0x808 == 0,[0,8].contains(method),try u16(cursor+34)==0 else {throw NativeUpdateError("Unsupported update archive entry.")}
+            // Reject extra records rather than permit ZIP64/Unicode path overrides
+            // or platform-specific extraction behavior not represented by our checks.
+            guard extra==0 else {throw NativeUpdateError("Update ZIP extra fields are not supported.")}
             let raw=data.subdata(in:cursor+46..<cursor+46+n)
             guard let name=String(data:raw,encoding:.utf8),!name.contains("\\"),!name.contains("\0"),name=="Node.app/" || name.hasPrefix("Node.app/"),
                   !name.split(separator:"/",omittingEmptySubsequences:false).dropLast().contains(where:{$0.isEmpty || $0=="." || $0==".."}),
@@ -29,8 +32,16 @@ enum NativeUpdateArchive {
             total+=expanded;guard total<=600_000_000 else {throw NativeUpdateError("Expanded update exceeds the size limit.")}
             guard offset>=0,offset+30<=start,try u32(offset)==0x04034b50,try u16(offset+6)==flags,try u16(offset+8)==method,try u16(offset+26)==n else {throw NativeUpdateError("Update ZIP records disagree.")}
             let localExtra=try u16(offset+28),localEnd=offset+30+n+localExtra+compressed
+            guard localExtra==0 else {throw NativeUpdateError("Update ZIP extra fields are not supported.")}
+            if flags & 8 == 0 {
+                guard try u32(offset+14)==u32(cursor+16),try u32(offset+18)==compressed,try u32(offset+22)==expanded else {throw NativeUpdateError("Update ZIP CRC or sizes disagree.")}
+            } else {
+                // Require a signed 16-byte descriptor and compare all its fields.
+                guard localEnd+16<=start,try u32(localEnd)==0x08074b50,
+                      try u32(localEnd+4)==u32(cursor+16),try u32(localEnd+8)==compressed,try u32(localEnd+12)==expanded else {throw NativeUpdateError("Update ZIP data descriptor disagrees.")}
+            }
             guard localEnd<=start,data.subdata(in:offset+30..<offset+30+n)==raw else {throw NativeUpdateError("Update ZIP records disagree.")}
-            let range=offset..<localEnd
+            let range=offset..<(localEnd+(flags & 8 == 0 ? 0:16))
             guard !ranges.contains(where:{$0.overlaps(range)}) else {throw NativeUpdateError("Overlapping update ZIP entries.")}
             ranges.append(range);cursor+=46+n+extra+comment
         }

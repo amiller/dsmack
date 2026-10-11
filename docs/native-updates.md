@@ -58,7 +58,10 @@ refuses it. Signing, notarization and admission remain release-owner operations.
 ## Release-owner preparation
 
 Build the GUI with `scripts/release/build_mac.py`, sign and notarize using the
-reviewed existing release process, then package the complete app as a ZIP. Review
+reviewed existing release process, then package the complete app with
+`tools/native_update_archive.py --app /path/to/Node.app --output Node.zip`.
+The updater refuses ZIP extra fields, symlinks and resource-fork sidecars; use
+this packager instead of a general Finder/ditto ZIP. Review
 its exact bytes and qualify fresh admission, actual exchange, identity/account
 continuity, restart and failure recovery before recommending it. Keep a live
 admitted key holder throughout any planned admission change. The updater does

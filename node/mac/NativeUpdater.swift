@@ -93,6 +93,14 @@ final class NativeUpdater {
         guard SecCodeCopySigningInformation(code,SecCSFlags(rawValue:kSecCSSigningInformation),&info)==errSecSuccess,let result=info as? [String:Any] else {throw NativeUpdateError("Cannot inspect signing identity.")}
         return result
     }
+    static func acceptsAssessment(_ assessment:Data)->Bool {
+        guard assessment.count<=65536,
+              let verdict=(try? PropertyListSerialization.propertyList(from:assessment,format:nil)) as? [String:Any],
+              verdict["assessment:verdict"] as? Bool==true,
+              let authority=verdict["assessment:authority"] as? [String:Any],authority["assessment:authority:override"]==nil,
+              authority["assessment:authority:source"] as? String=="Notarized Developer ID" else {return false}
+        return true
+    }
     static func verify(_ app:URL,relativeTo old:URL,recommendation r:NativeUpdateRecommendation)throws {
         let candidate=try code(app),original=try code(old)
         let flags=SecCSFlags(rawValue:kSecCSStrictValidate|kSecCSCheckAllArchitectures|kSecCSCheckNestedCode)
@@ -109,17 +117,13 @@ final class NativeUpdater {
         // not count as notarization evidence: require the specific notarized authority.
         let process=Process(),pipe=Pipe()
         process.executableURL=URL(fileURLWithPath:"/usr/sbin/spctl")
-        process.arguments=["--assess","--type","execute","--raw",app.path]
+        process.arguments=["--assess","--type","execute","--raw","--enforce-assessment",app.path]
         process.standardOutput=pipe;process.standardError=FileHandle.nullDevice
         let done=DispatchSemaphore(value:0);process.terminationHandler={_ in done.signal()}
         try process.run()
         guard done.wait(timeout:.now()+30) == .success else {process.terminate();throw NativeUpdateError("Notarization assessment timed out.")}
         let assessment=pipe.fileHandleForReading.readDataToEndOfFile()
-        guard process.terminationStatus==0,assessment.count<=65536,
-              let verdict=try PropertyListSerialization.propertyList(from:assessment,format:nil) as? [String:Any],
-              verdict["assessment:verdict"] as? Bool==true,
-              let authority=verdict["assessment:authority"] as? [String:Any],
-              authority["assessment:authority:source"] as? String=="Notarized Developer ID" else {throw NativeUpdateError("The update does not have a successful notarized Developer ID assessment.")}
+        guard process.terminationStatus==0,acceptsAssessment(assessment) else {throw NativeUpdateError("The update does not have an enforced notarized Developer ID assessment without overrides.")}
         let release=try NativeInstalledRelease.read(app)
         guard release.build==r.build,release.version==r.version,release.network==r.network else {throw NativeUpdateError("Signed app version, build or network differs from the recommendation.")}
     }
@@ -127,10 +131,10 @@ final class NativeUpdater {
         try fm.createDirectory(at:root,withIntermediateDirectories:true,attributes:[.posixPermissions:0o700])
         guard root.standardizedFileURL==root.resolvingSymlinksInPath() else {throw NativeUpdateError("The update directory must not be a symbolic link.")}
     }
-    func check(completion:@escaping(Result<NativeUpdateRecommendation,Error>)->Void) {
+    func check(completion:@escaping(Result<NativeUpdateRecommendation?,Error>)->Void) {
         guard !busy else {completion(.failure(NativeUpdateError("An update is already in progress.")));return};busy=true
         DispatchQueue.global(qos:.utility).async {
-            let result=Result<NativeUpdateRecommendation,Error> {
+            let result=Result<NativeUpdateRecommendation?,Error> {
                 let installed=try NativeInstalledRelease.read(self.current)
                 guard let settings=ReleaseNetwork.settings,try NativeUpdateRecommendation.network(settings)==installed.network else {throw NativeUpdateError("This build's signed network metadata is inconsistent.")}
                 try self.protectedRoot()
@@ -144,7 +148,11 @@ final class NativeUpdater {
                 let path=work.appendingPathComponent("recommendation.json")
                 try UpdateDownload.fetch(url,to:path,limit:65536,seconds:20)
                 let bytes=try Data(contentsOf:path)
-                let r=try NativeUpdateRecommendation(data:bytes,currentBuild:installed.build,highestBuild:self.defaults.integer(forKey:"DsmackHighestOfferedBuild"),network:installed.network)
+                let r=try NativeUpdateRecommendation(data:bytes,currentBuild:installed.build,highestBuild:self.defaults.integer(forKey:"DsmackHighestOfferedBuild"),network:installed.network,allowCurrent:true)
+                if r.build==installed.build {
+                    guard r.version==installed.version else {throw NativeUpdateError("The current build has conflicting version metadata.")}
+                    self.recommendation=nil;self.recommendationData=nil;return nil
+                }
                 self.recommendationData=bytes;self.recommendation=r
                 return r
             }
@@ -190,7 +198,9 @@ final class NativeUpdater {
     }
     func installAndRestart()throws {
         guard !busy,let app=prepared,let r=recommendation else {throw NativeUpdateError("No verified update is staged.")}
+        guard r.expires.timeIntervalSinceNow>180 else {throw NativeUpdateError("The recommendation is expiring. Check for updates again before restarting.")}
         try Self.verify(app,relativeTo:current,recommendation:r)
+        guard r.expires.timeIntervalSinceNow>150 else {throw NativeUpdateError("The recommendation expired during verification. Your peer remains running.")}
         let journal=app.deletingLastPathComponent().deletingLastPathComponent().appendingPathComponent("handoff.json")
         let d:[String:Any]=["format":1,"oldApp":current.path,"newApp":app.path,"oldPID":Int(getpid()),"created":Date().timeIntervalSince1970,"oldExecutableSHA256":try Self.sha256(current.appendingPathComponent("Contents/MacOS/node")),"newExecutableSHA256":try Self.sha256(app.appendingPathComponent("Contents/MacOS/node"))]
         try JSONSerialization.data(withJSONObject:d,options:[.sortedKeys]).write(to:journal,options:.atomic)

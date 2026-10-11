@@ -79,10 +79,10 @@ does not establish live provider retrieval, privacy, attestation or settlement.
 The credential-free manual validation workflow requires an explicit HTTPS URL for the reviewed
 allowlisted paired source archive. It checks the recorded source hashes without
 using an operator credential or assuming that GITHUB_TOKEN can read another private
-repository. Until the selected source/archive has separate distribution approval,
-the hosted job cannot run from a private adjacent checkout. Automatic PR CI/CD is
+repository. Supply the exact allowlisted paired source archive; a nearby developer checkout
+is not input to the hosted job. Automatic PR CI/CD is
 not installed or qualified by this manual workflow. Local package checks
-remain usable now. The source candidate and its artifacts are not cleared for upload.
+remain usable now. Source publication is separate from live package qualification.
 
 The [public testnet profile and rollout](public-testnet.md) defines a separate
 public discovery/status and operational acceptance contract. It preserves the

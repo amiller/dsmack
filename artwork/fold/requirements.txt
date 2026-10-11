@@ -1,3 +1,0 @@
-mitsuba==3.7.1
-drjit==1.2.0
-numpy==1.26.2

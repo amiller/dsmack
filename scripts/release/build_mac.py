@@ -33,7 +33,7 @@ def main():
     parser.add_argument('--version', default='0.1.0')
     parser.add_argument('--build-number', default='3')
     args = parser.parse_args()
-    lock = json.loads((ROOT / 'release/toolchain.json').read_text())
+    lock = json.loads((ROOT / 'node/mac/toolchain.json').read_text())
     actual = {'xcode': output('xcodebuild', '-version'),
               'sdk_version': output('xcrun', '--sdk', 'macosx', '--show-sdk-version'),
               'sdk_build': output('xcrun', '--sdk', 'macosx', '--show-sdk-build-version'),
@@ -50,7 +50,7 @@ def main():
     info.update(CFBundleIdentifier=args.bundle_id, CFBundleShortVersionString=args.version,
                 CFBundleVersion=args.build_number)
     (app / 'Contents/Info.plist').write_bytes(plistlib.dumps(info, sort_keys=True))
-    artwork_inputs = ['artwork/fold/token-1.png', 'artwork/fold/gabe-token-2.png'] if args.gui else []
+    artwork_inputs = ['node/mac/assets/fold-token-1.png', 'node/mac/assets/fold-token-2.png'] if args.gui else []
     if args.gui:
         resources = app / 'Contents/Resources'
         resources.mkdir()
@@ -83,7 +83,7 @@ def main():
                         *flags, *SOURCES, '-o', str(executable)], cwd=ROOT, check=True,
                        env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC'})
     tracked_inputs = SOURCES + ['node/mac/Info.plist', 'scripts/release/build_mac.py',
-                               'release/toolchain.json'] + artwork_inputs
+                               'node/mac/toolchain.json'] + artwork_inputs
     record = {'schema': 1, 'kind': 'unsigned-build', 'flavor': 'gui' if args.gui else 'cli', 'toolchain': actual,
               'source_commit': output('git', 'rev-parse', 'HEAD'),
               'dirty_build_inputs': bool(output('git', 'status', '--porcelain', '--untracked-files=normal', '--', *tracked_inputs)),

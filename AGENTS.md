@@ -1,12 +1,15 @@
 # Code contribution instructions
 
-Read README.md and CONTRIBUTING.md. This repository must be usable without the
-maintainer's private planning workspace. Keep private notes, credentials and raw
-operator state out of commits. Make bounded changes on topic branches/worktrees;
-use independent review before integration. Runtime/protocol changes need relevant
-positive and negative checks. Documentation-only work needs link and whitespace
-checks. Do not change live services or publish artifacts as a side effect of editing.
+Read README.md and CONTRIBUTING.md. This public repository must be usable
+without the maintainer's private planning workspace. Keep changes bounded on a
+topic branch or isolated worktree; independent review is required before integration.
 
-This is a local candidate for publication. Root licensing, fixture review and
-release qualification remain unresolved; a public/ directory name is not approval
-to upload. Existing historical component documents retain their original scope.
+Keep maintained code, protocols, build inputs and necessary regression fixtures
+here. Put planning, raw captures, operator state and generated reports in ignored
+local-data/ or the private research workspace. Never commit credentials or private
+user traces. Document retained recorded fixtures, their provenance and replay scope.
+
+Runtime/protocol changes need relevant positive and negative checks. Documentation
+changes need local link/fragment and whitespace checks. Do not change live services
+or publish release artifacts as a side effect of editing. Build and hardware
+qualification are separate from source publication.

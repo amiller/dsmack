@@ -27,7 +27,7 @@ pass solely because a dashboard renders or two processes run on the same Mac.
 | Coupon obligations | One issuer owns durable claim/accounting state. | No cross-issuer replication is claimed. Preserve issuer affinity and ambiguous effects; never clone the ledger to create a second issuer. |
 | Zcash wallet/chain state | Separate integration work. | Matching chain height or restoring a wallet does not establish any of the preceding properties or complete payment-to-coupon acceptance. |
 
-## Current evidence and release gates
+## Evidence and release gates
 
 The [RC3 record](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/release/v0.1.0-rc.3.json) reports successful exact-package
 restart and exchange between two processes on one operator Mac. Independent
@@ -35,7 +35,12 @@ first-open and second-team builder acceptance remain unrecorded. The
 [Abalone preview.2 release](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.2)
 explicitly pauses coupon redemption pending usable provider authorization/path.
 Consequently none of these three milestones is established by those records.
-A new qualification report must replace this baseline with dated observations.
+This is a historical baseline. The [joining guide](join-testnet.md) tracks the
+current package and public availability. The [11 October current-source V2
+rehearsal](../packaging/participation/same-mac-v2-qualification-20261011.json) adds
+a reviewed same-Mac native exchange/restart pass on an isolated development chain;
+it does not qualify the public RC3 service or independent-device acceptance.
+Use dated observations with their exact scope when updating milestone verdicts.
 
 For each run, retain source/artifact hashes, device and operator independence,
 public configuration, observation times, steps/results, recovery behavior and

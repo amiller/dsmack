@@ -78,8 +78,8 @@ For a new candidate:
    and spending must remain within separately established authorization.
 5. Record a timestamped coupon-free/read-only service observation and exact-app
    exchange/restart evidence where available. Preserve enrollment and Keychain
-   identity; do not delete them, clone identities or replace the committed key to
-   recover. Distinguish a completed run from an expected procedure.
+   identity; do not delete them or clone identities. Replacing the committed key
+   requires separately reviewed, owner-authorized epoch recovery. Distinguish a completed run from an expected procedure.
 6. Publish the reviewed release and update the stable join page to the exact
    immutable tag/checksum. State known blockers, sponsor/seed dependencies and
    the scope of observed acceptance. Independent-Mac acceptance can remain open.
@@ -113,7 +113,9 @@ it is not functionality supplied by RC3 or by this documentation change.
 
 Before asking a friend to debug joining, rehearse actual native exchange and
 restart with two processes on one supported physical Mac, using two reviewed,
-existing enrollment identities. This tests the real protocol and same-host
+distinct valid enrolled members. Reuse valid existing enrollments where available;
+an expired enrollment needs renewal within the operator’s authorized scope. Record
+the new member after renewal instead of claiming the old enrollment was preserved. This tests the real protocol and same-host
 reliability; it does not establish independent devices, operators or compromise
 domains. Independent friend acceptance remains pending until its later run, after
 the public join link is available.
@@ -133,14 +135,16 @@ same installation twice is not a second-member experiment. The compiled release
 continues to reject overrides of pinned network/admission settings. These are
 operator rehearsal details, not steps for a friend to join.
 
-The operator records the exact signed executable, two distinct existing member
+The operator records the exact signed executable, two distinct valid member
 identities/mailboxes, configuration provenance, chain/category/protocol and
 current key epoch. Route the second peer to the first's reviewed mailbox. Require
 actual fresh check-in, encrypted parcel exchange, matching public commitment/epoch,
 and a key-possession result; two running processes or a relay HTTP 200 do not pass.
 Quit and restart each process in turn under the supported bootstrap conditions,
 then verify fresh exchange/rejoin and preservation of each personal account and
-receipt. Keep at least one verified current-epoch key holder running throughout
+receipt. Check for unexpected new `BadgeClaimed` events and token-counter growth:
+an unchanged `participantOf` mapping alone does not rule out a duplicate NFT.
+Keep at least one verified current-epoch key holder running throughout
 the rehearsal. Before restarting the seed, require a separately reviewed recovery
 peer configuration pointing to the other verified holder: an empty seed `peer`
 does not rediscover it. If both processes exit, their RAM-held keys are lost;

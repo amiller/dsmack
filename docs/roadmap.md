@@ -33,7 +33,7 @@ requirements.
    issuance must separately establish who can obtain the secret; a routed balance
    does not demonstrate that property. Credit, retained state and recovery are
    understandable, and claims survive supported restarts and upgrades. Track the
-   coordinated [dsmack](https://github.com/amiller/dsmack/milestone/1) and
+   coordinated [dsmack](https://github.com/amiller/dsmack/milestone/2) and
    [Abalone](https://github.com/amiller/abalone/milestones) milestones and their
    [shared success conditions](https://github.com/amiller/abalone/blob/main/docs/gift-public-preview.md).
    A bounded trial closes only its declared outcome; it does not qualify all
@@ -87,7 +87,7 @@ or instant inference-credit funding.
 
 ## Inference routing and admission
 
-[The routing project](https://github.com/amiller/dsmack/issues/5) implements the
+[The routing project](https://github.com/amiller/dsmack/issues/8) implements the
 routed delivery path: useful responses, explicit data visibility, admission,
 reservation/accounting and recovery. A routed answer does not demonstrate private
 credential issuance, or vice versa. A direct adapter can satisfy the first usable
@@ -109,14 +109,16 @@ issuer/API-key custody are distinct claims.
 
 ## Current trial evidence
 
-As of 11 October 2026, the NEAR debug-staging issuer is ready and its public
-encrypted peer connection passed genuine issuer admission. One $0.10 coupon was
-provisioned but remains unclaimed under the current design hold. No first live
-inference has run and no fresh $1 user coupon has been issued. This is explicitly
-operator-readable staging, with no private-issuance, rollback or deposit-release
-qualification. Existing infrastructure and tests do not close the usable-route
-milestone. Incognito session lifecycle needs neither VPN access nor IP blocking;
-the portable-agent/VPN work remains a separate milestone.
+As of 11 October 2026, the earlier operator-readable staging trial produced a
+verified synthetic selected-text response through the direct encrypted NEAR path.
+That cloud/TDX staging record is historical; it does not qualify the selected Mac
+issuer. The public Abalone source/client preview is available at
+[v0.1.0-preview.1](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.1),
+with reviewed source and independently checked public asset downloads. New Mac
+issuer readiness, the final public bundle and independent friend acceptance remain
+pending. Identity-only Mac admission does not prove operator-resistant custody,
+rollback protection, anonymity or deposit release. Incognito needs no VPN;
+portable-agent/VPN and stronger isolation remain separate milestones.
 
 ## Platform research
 

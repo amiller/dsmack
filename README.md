@@ -52,7 +52,7 @@ funds: network release stage and blockchain network are separate settings.
 
 The current coupon evidence establishes one staging issuer and connected clients,
 not a count of independent node operators. The
-[network status work](https://github.com/amiller/dsmack/issues/28) must publish
+[network status work](https://github.com/amiller/dsmack/issues/6) must publish
 observation times and distinguish healthy, stale, unknown and not deployed.
 Historical relay activity is not a peer census.
 
@@ -79,7 +79,5 @@ recipe.
 Native Mac participation has its own [builder guide](release/builder-guide.md)
 and [historical acceptance record](release/assembly-acceptance.md).
 
-Track the [friend-release feedback batch](https://github.com/amiller/dsmack/issues/47)
-and [release preparation](docs/public-testnet-release.md). Public source selection,
-first-party licensing, fixture review and portable build qualification remain
-open. Historical deployment guides retain their original scope and dates.
+Track the [friend-release feedback batch](https://github.com/amiller/dsmack/issues/1)
+and [release preparation](docs/public-testnet-release.md). The selected source/fixtures and first-party MIT license have been reviewed and approved for public development. Build and hardware evidence retains its stated component scope; actual Mac service and friend acceptance remain pending. See [issue mapping](docs/issue-mapping.md) for the preserved private archive and current public backlog. Historical deployment guides retain their original scope and dates.

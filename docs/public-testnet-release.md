@@ -1,7 +1,8 @@
 # Public testnet release preparation
 
-Status: candidate preparation, 11 October 2026. No upload, visibility change or
-service rollout is authorized by this document. The release objective is an
+Status: source/client preview, 11 October 2026. The selected source publication
+and first-party MIT license have explicit owner approval. This document does not
+authorize service rollout or paid effects. The release objective is an
 owner-approved URL through which a friend can install Abalone, redeem a coupon
 and complete useful private inference without hidden maintainer repairs.
 
@@ -9,14 +10,14 @@ and complete useful private inference without hidden maintainer repairs.
 
 | Gate | Required evidence | Current state |
 | --- | --- | --- |
-| Client | Reviewed fixes for admission lifetime, truthful remote-provider labels, responsive claiming and deliberate trace retention; installed-flow verification | In progress; earlier local fixes are not the release |
-| Acquisition | Exact source/artifact hashes, license/notices, clean Linux install and short README | Candidate preparation |
+| Client | Reviewed fixes for admission lifetime, truthful remote-provider labels, responsive claiming and deliberate trace retention; installed-flow verification | Public client preview; 49 offline suites and installed Mac/legacy + synthetic selected-text checks passed; actual Mac pairing pending |
+| Acquisition | Exact source/artifact hashes, license/notices, clean Linux install and short README | Client preview public asset downloads verified; final Mac bundle and installed public friend journey pending |
 | Public testnet | Named profile, persistent service, public discovery, explicit admission/debug policy and chain settings | Staging evidence is input; public profile not yet qualified |
 | Operations | Management-credential renewal, bounded sponsor funding, recovery that preserves claims, sanitized fresh status | Qualification required |
-| Source publication | Selected source and fixtures reviewed, reproducible source inventory, no operator material or private history | Required for both repositories |
+| Source publication | Selected source and fixtures reviewed, reproducible source inventory, no operator material or private history | Approved selected source; private history preserved separately; see issue mapping |
 | Acceptance | Clean-machine friend walkthrough, useful inference, lifecycle/failure behavior and owner acceptance | Not complete |
 
-Runtime and source development will be public once released. Operator secrets,
+Source development uses the public repository; actual deployment qualification remains separate. Operator secrets,
 private development/staging controls and private user traces do not belong in
 that publication. Do not describe publishing source as opening management access.
 
@@ -33,7 +34,7 @@ Before any hosted action, record:
 - The exact source revision and selected files for Dsmack and Abalone, including
   any omitted historical material and the reason for each omission category.
 - The proposed first-party license and existing third-party obligations. Abalone's
-  MIT approval does not itself settle Dsmack's first-party licensing.
+  MIT approval did not itself settle Dsmack's licensing; Dsmack MIT adoption now has its own explicit owner approval.
 - Checks for embedded credentials, device/user identifiers, captured bearer
   traffic, private paths and generated binaries; review findings without putting
   their values in issue comments or ordinary logs.
@@ -67,8 +68,8 @@ operator credentials, an already-funded recipient wallet or a VPN. Separate
 provisional authorization, usable inference and settlement in measurements.
 
 The [client release gate](https://github.com/amiller/abalone/issues/4),
-[feedback tracker](https://github.com/amiller/dsmack/issues/47) and
-[operator release packet](https://github.com/amiller/dsmack/issues/15) retain
+[feedback tracker](https://github.com/amiller/dsmack/issues/1) and
+[operator release packet](https://github.com/amiller/dsmack/issues/2) retain
 their evidence. Optimistic redemption, another provider, a full peer directory
 do not block this Mac-issuer/Linux-recipient preview. The selected Mac issuer
 integration is a release gate; the historical cloud issuer is not a substitute.

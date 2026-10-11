@@ -16,7 +16,7 @@ The selected runtime admission uses a signed debug trust profile, with
 operator-readable credentials and no
 rollback/private-issuance qualification. An open gateway URL or renamed dashboard
 is insufficient to promote it. This profile requires the operational gates below.
-It does not close the broader [gift milestone](https://github.com/amiller/dsmack/milestone/1).
+It does not close the broader [gift milestone](https://github.com/amiller/dsmack/milestone/2).
 
 ## Supported first testnet slice
 
@@ -65,7 +65,7 @@ public approval/pin and artifact checksums. No operator config, provider/account
 identifiers, credential inventory, coupon hashes, recipient identities, raw quotes
 with unnecessary joins, prompts, traces, bearer responses or private attach output
 belongs in discovery/status. Contributions and independent listings are separate
-[discovery work](https://github.com/amiller/dsmack/issues/34); do not invent a
+[discovery work](https://github.com/amiller/dsmack/issues/9); do not invent a
 participant count from relay transactions or repeated probe clients.
 
 ## Sanitized operational status
@@ -112,7 +112,7 @@ Publish a status endpoint or static JSON with freshness/provenance and client-si
 age checks, separately from private alarms. Authentication, capacity, one-claim gas
 reserve, expiry and coupon readiness are checked at the actual OFFER/CLAIM boundary.
 A read-only status outage cannot bypass that boundary or block peer operation.
-See [dashboard #28](https://github.com/amiller/dsmack/issues/28).
+See [dashboard #6](https://github.com/amiller/dsmack/issues/6).
 
 ## Reviewable promotion packet and execution order
 
@@ -191,4 +191,4 @@ inference. Fault drills use fixtures or isolated state first; they must not revo
 reissue or interrupt a live user's delivered credential. Record provider failures
 separately from issuer delivery and chain wait. Redemption latency, time to first
 token and throughput are separate measurements; see
-[optimistic redemption #46](https://github.com/amiller/dsmack/issues/46).
+[optimistic redemption #4](https://github.com/amiller/dsmack/issues/4).

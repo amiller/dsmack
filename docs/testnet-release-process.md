@@ -33,6 +33,14 @@ It retains its original release location/name. The
 [protocol profile](protocol-profile-v1.md) describe that baseline. Source
 publication in this repository does not retag or replace that signed artifact.
 
+RC3's original source/tag is public in
+[`amiller/apple-attest-p2p`](https://github.com/amiller/apple-attest-p2p/tree/v0.1.0-rc.3),
+at `6a3cca34f53a3cf8fe241aca4a8d8b3e0c76ef81`. Historical instructions to fork
+and check out RC3 refer to that repository, not the fresh Dsmack history. Use
+that exact source to reproduce RC3. A new Dsmack candidate uses its own reviewed
+source and toolchain/build instructions and needs fresh admission qualification;
+changing even a compiled documentation URL changes the measured executable.
+
 For a new candidate:
 
 1. Review source, fixture/package inventory, version compatibility and release

@@ -245,7 +245,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             }
         case 1001:importUpgradeFile()
         case 1002:
-            NSWorkspace.shared.open(URL(string:"https://github.com/amiller/apple-attest-p2p/blob/main/release/builder-guide.md")!)
+            NSWorkspace.shared.open(URL(string:"https://github.com/amiller/dsmack/blob/main/docs/native-builder.md")!)
         default:break
         }
     }

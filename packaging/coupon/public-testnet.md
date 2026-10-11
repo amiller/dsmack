@@ -36,7 +36,7 @@ explicitly retains `operator-secret-access`, `application-exec`, `debugger` and
 reviewed controls and client support; editing discovery cannot grant it.
 
 The current coupon guard uses Base mainnet, chain 8453, under
-[`base-mainnet-rpc-safe-debug-v1`](../../experiments/coupon_redemption/BASE_TRIAL.md).
+[`base-mainnet-rpc-safe-debug-v1`](../../docs/protocols/base-guard.md).
 “Testnet” describes this dsmack deployment, **not** the guard's funding domain.
 The configured RPC supplies `safe`; independently authenticated L1 finality is
 not verified. Real gas and provider credit remain bounded separately. No purchase,

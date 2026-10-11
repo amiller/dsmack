@@ -28,7 +28,7 @@ Keep routing modest. General compute markets, arbitrary user-defined services an
 
 ## Contribution and acceptance priorities
 
-Contributions should advance the first coupon/routing journey, remove privileged control inconsistent with the charter, improve verifiable guarantees, or make independent participation practical. Broader services belong in [platform research](roadmap.md#platform-research) until a concrete client journey requires them.
+Contributions should advance the first coupon/routing journey, remove privileged control inconsistent with the charter, improve verifiable guarantees, or make independent participation practical. Broader services belong in [platform research](roadmap.md#funding-routing-and-custody) until a concrete client journey requires them.
 
 A qualifying demonstration must include independently operated peers and an Abalone client, not only several processes owned by the maintainer. Exercise coupon redemption, an eligible routed request, meaningful rejection, restart/return and the stated accounting behavior. Inventory remaining authorities and dependencies, then test what happens when the maintainer's infrastructure or permission is unavailable. Separate service availability, custody, confidentiality and upgrade powers in the result.
 

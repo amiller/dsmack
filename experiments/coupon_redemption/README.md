@@ -2,7 +2,7 @@
 
 A local service reference and synthetic demonstration of a NEAR-backed coupon claim,
 recipient-encrypted credential delivery, and a dsmack observer that queries
-provider accounting independently of the inference path. The [peer mount](SERVICE.md)
+provider accounting independently of the inference path. The [peer mount](../../docs/protocols/coupon-service.md)
 adds a protected Node/Python bridge exercised on actual local Noise peers.
 Demonstrations use synthetic data; this milestone makes no live provider request,
 deploys no service and implements no contract.

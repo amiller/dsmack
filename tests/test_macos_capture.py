@@ -12,7 +12,7 @@ from check_evidence import code_directory_hash, policy, root
 from verifier.core import CBOR, Reject, verify_attestation
 from test_verifier import Rig
 
-DATA = Path(__file__).resolve().parents[1] / 'app/macos/evidence-20260916/original'
+DATA = Path(__file__).resolve().parents[1] / 'tests/fixtures/macos-attestation/original'
 AT_TIME = int(datetime(2026, 9, 16, 14, 0, tzinfo=timezone.utc).timestamp())
 DIGEST = bytes.fromhex('e7009ad9e7bea17cbaf40d94d0779d14217f56617160711c7fef37abc23382ed')
 

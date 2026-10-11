@@ -12,7 +12,7 @@ from web3 import Web3
 ROOT=Path(__file__).resolve().parents[2]
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('--rpc',default='https://sepolia.base.org')
-p.add_argument('--deployment',type=Path,default=ROOT/'contracts/network/deploy-nft-base-sepolia.json')
+p.add_argument('--deployment',type=Path,required=True,help='Explicit reviewed deployment JSON (kept outside source)')
 p.add_argument('--account',required=True)
 p.add_argument('--token',type=int,required=True)
 p.add_argument('--mint-tx',required=True)

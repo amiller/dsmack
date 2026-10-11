@@ -14,3 +14,11 @@ The assertion fixture verifies ECDSA hash layering and Apple's legacy AT flag be
 Generated fixtures in `test_verifier.py` use a clearly named synthetic root and are
 kept separate from these Apple-rooted fixtures. Neither establishes the second-
 credential attack or fixed-code membership.
+
+## Native regression inputs
+
+The selected [macOS attestation inputs](macos-attestation/README.md) and
+[custody inputs](macos-custody/README.md) retain the cryptographic and executable
+bytes required by existing replay/adversarial tests. Each selection has a hash
+manifest and explicit provenance. Complete device captures and run reports are
+excluded. Recorded executable inputs are parsed as data, never executed.

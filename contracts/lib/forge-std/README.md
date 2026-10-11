@@ -295,7 +295,7 @@ console.log(someValue);
 
 ## Contributing
 
-See our [contributing guidelines](./CONTRIBUTING.md).
+See our [contributing guidelines](CONTRIBUTING.md).
 
 ## Getting Help
 

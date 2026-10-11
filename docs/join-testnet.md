@@ -1,15 +1,20 @@
 # Join the Dsmack testnet
 
+**Native joining is temporarily unavailable as of 21:56 UTC, 11 October 2026.**
+The configured seed needs recovery. Wait for the release coordinator to confirm
+joining works before opening the app. See the
+[current incident](testnet-release-process.md#current-native-joining-incident).
+
 There are two different packages. Status below was checked against their release
 notes on 11 October 2026; it is not a live endpoint-health claim.
 
 | I want to… | Package and current scope |
 | --- | --- |
-| Join the native peer research network | [AttestNode v0.1.0-rc.3](https://github.com/amiller/apple-attest-p2p/releases/tag/v0.1.0-rc.3): signed/notarized Mac app, scoped shared-key exchange and a participation receipt. |
-| Redeem a coupon for inference | [Abalone v0.1.0-preview.2](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.2): client maintenance preview; **redemption paused** pending a usable provider authorization/path. Do not redeem a NEAR coupon while this gate remains closed. |
+| Join the native peer research network | [AttestNode v0.1.0-rc.3](https://github.com/amiller/apple-attest-p2p/releases/tag/v0.1.0-rc.3): signed/notarized Mac app; current joining blocked at seed recovery. Scoped shared-key exchange and participation receipt are the release’s intended journey. |
+| Redeem a coupon for inference | [Abalone v0.1.0-preview.3](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.3): the preview.2 Linux archive with a new wallet-authorized issuer bundle; **redemption paused** pending the new epoch’s useful-document canary and independent readiness review. Do not redeem a NEAR coupon while this gate remains closed. |
 | Operate a coupon issuer | [Mac issuer deployment profile](../packaging/coupon/public-testnet.md): operator setup and qualification, not an automatic capability granted by native joining. |
 
-## Install the tagged native release
+## Install after the coordinator confirms recovery
 
 You need Apple silicon, macOS 27, Full Security and SIP enabled. Joining the
 publisher-signed app does not need Xcode, your own Apple Developer membership,
@@ -52,6 +57,21 @@ time. Reviewed non-sensitive bug reports can go to the
 [public issue tracker](https://github.com/amiller/dsmack/issues).
 A relay or seed outage can prevent joining; this
 release does not promise autonomous alternative-peer discovery.
+
+## Updates today: download and replace
+
+RC3 has no implemented in-app update check, update notification or automatic
+updater. The release coordinator sends you the next admitted release link.
+Download that exact signed/notarized ZIP, check its published checksum, choose
+**Quit peer**, replace `Node.app`, and reopen it. Keep Application Support and
+Keychain state so the same personal identity and receipt return. A source commit
+or a new ZIP alone does not mean the network admits that build.
+
+If the replacement cannot join, save the diagnostic report and contact the
+coordinator. Keep your identity and both release files. An earlier app is a
+recovery option only when the coordinator confirms it remains admitted and
+compatible with the current network; do not reset your account or silently
+switch to an older policy.
 
 ## What this currently proves
 

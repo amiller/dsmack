@@ -41,6 +41,21 @@ that exact source to reproduce RC3. A new Dsmack candidate uses its own reviewed
 source and toolchain/build instructions and needs fresh admission qualification;
 changing even a compiled documentation URL changes the measured executable.
 
+## Current native joining incident
+
+Observed 11 October 2026 at 21:56 UTC: the RC3 NFT-network seed was
+retrying because it could not recover the committed shared key. The other
+inspected seed belongs to a different registry/network, while two additional
+development processes use a local Anvil chain. These observations do not establish
+a same-network public pair or prove that no other key holder exists. No current exchange was observed. This blocks
+advertising the native joining path as available despite successful package,
+relay and chain checks. The operator must complete separately reviewed seed
+recovery and demonstrate actual exchange before changing that public status.
+No epoch reset, identity replacement or other live mutation is authorized by
+this document; historical exchange evidence does not close this incident.
+
+## New candidate checklist
+
 For a new candidate:
 
 1. Review source, fixture/package inventory, version compatibility and release
@@ -77,6 +92,68 @@ binary is a rollback option. A rollback must itself remain admitted and compatib
 with the current epoch/state. If it does not, stop advertising availability and
 prepare a reviewed corrective release. Do not reset the registry, epoch or
 personal accounts as an undocumented recovery shortcut.
+
+## Next-release experience to qualify
+
+The intended friend path is one stable join link → a signed download → open →
+automatic join → a clear connection and scoped-key synchronization result.
+Receipt/artwork progress and coupon service readiness must be shown separately.
+Failure should name the failing step and offer one useful diagnostic report.
+No source checkout, developer config, terminal or signing account should be
+required for the ordinary friend path; command-line checks remain optional.
+
+A future in-app updater should show an available admitted release, verify the
+release/package before replacement, restart and preserve identity and receipts.
+The release owner must qualify admission and compatibility **before** offering
+that update. Failed download, verification or restart must leave a recoverable
+installation and understandable state. This is a product acceptance requirement;
+it is not functionality supplied by RC3 or by this documentation change.
+
+## Two real processes on one Mac: local qualification gate
+
+Before asking a friend to debug joining, rehearse actual native exchange and
+restart with two processes on one supported physical Mac, using two reviewed,
+existing enrollment identities. This tests the real protocol and same-host
+reliability; it does not establish independent devices, operators or compromise
+domains. Independent friend acceptance remains pending until its later run, after
+the public join link is available.
+
+The [native state implementation](../node/shared/Node.swift) scopes persistent
+enrollment by chain, registry, category and configured `name`. It takes a
+nonblocking exclusive lock on that identity's state; starting the same identity
+twice must refuse with `identity already running`. Distinct names select distinct
+state domains, but do not alone prove distinct enrolled keys. Preserve both
+existing state files and Keychain identities; do not copy enrollment state or
+reset a name as a recovery shortcut.
+
+The [GUI developer path](../node/mac/GUI.swift) accepts `--config` with one
+reviewed configuration file, uses its explicit name, and forces persistent
+identity. Normal GUI launch reuses its saved participant name, so opening the
+same installation twice is not a second-member experiment. The compiled release
+continues to reject overrides of pinned network/admission settings. These are
+operator rehearsal details, not steps for a friend to join.
+
+The operator records the exact signed executable, two distinct existing member
+identities/mailboxes, configuration provenance, chain/category/protocol and
+current key epoch. Route the second peer to the first's reviewed mailbox. Require
+actual fresh check-in, encrypted parcel exchange, matching public commitment/epoch,
+and a key-possession result; two running processes or a relay HTTP 200 do not pass.
+Quit and restart each process in turn under the supported bootstrap conditions,
+then verify fresh exchange/rejoin and preservation of each personal account and
+receipt. Keep at least one verified current-epoch key holder running throughout
+the rehearsal. Before restarting the seed, require a separately reviewed recovery
+peer configuration pointing to the other verified holder: an empty seed `peer`
+does not rediscover it. If both processes exit, their RAM-held keys are lost;
+without another live holder, recovery requires an explicit owner-approved plan,
+not an automatic epoch reset. Record refusals and bootstrap/relay dependencies. Do not log the shared
+secret or treat same-host success as replicated coupon accounting.
+
+Retain a dated pass/fail record with the exact steps and observations. This
+rehearsal does not authorize new enrollment, network administration, receipt
+creation or spending beyond the operator's existing scope. A future updater must
+also pass a verified update/restart and failed-update recovery on this local
+setup before its simpler friend journey is advertised. Current RC3 updates remain
+manual as described in the [joining guide](join-testnet.md).
 
 ## Service observation and outages
 
@@ -161,8 +238,10 @@ workload/source/compose pins, fresh issuer admission, private control channel,
 credential renewal, funding and durable obligation recovery. Native RC3 joining
 does not install this service or opt a participant into it.
 
-Abalone [preview.2](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.2)
-currently states redemption is paused pending usable provider authorization/path.
+Abalone [preview.3](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.3)
+reuses the exact preview.2 Linux archive with a new wallet-authorized NEAR issuer
+bundle. Redemption remains paused pending the new epoch’s useful-document canary
+and independent readiness review.
 Publish that state even if the public transport and issuer admission succeed.
 Before reopening, exercise the authorized bounded coupon-to-inference journey
 and preserve its accounting/recovery evidence. Neither a relay health check nor

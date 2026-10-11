@@ -127,6 +127,10 @@ service readiness. See the [observer contract](../packaging/participation/README
 
 For the selected Mac issuer, the coordinator first runs the normal coupon-free
 admission probe against the exact intended epoch and reviews its public pins.
+Use the [public coupon-free admission probe](../packaging/coupon/mac-admission-probe.md)
+with an explicit reviewed public Abalone revision, policy files, approval root and
+peer. The release packet records these inputs and the exact invocation; a public
+wrapper does not substitute for a fresh run against the selected epoch.
 Normalize that report separately:
 
 ```sh

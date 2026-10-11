@@ -10,6 +10,7 @@ import json
 import os
 import shutil
 import time
+import urllib.request
 from pathlib import Path
 
 import coupon_owner_session as owner
@@ -26,7 +27,18 @@ def directory_sync(path):
         os.close(fd)
 
 
-def renew(directory, *, call=owner.request, clock=time.time,
+def raw_post(token, ua):
+    req = urllib.request.Request('https://cloud-api.near.ai/v1/users/me/access-tokens',
+        data=b'', method='POST', headers={'Authorization': 'Bearer ' + token,
+        'User-Agent': ua, 'Accept': 'application/json'})
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), owner.NoRedirect())
+    with opener.open(req, timeout=25) as response:
+        # Return bytes, including the sentinel byte for oversized responses.
+        # Parsing/size refusal happens only after durable private retention.
+        return response.read(owner.LIMIT + 1)
+
+
+def renew(directory, *, call=None, clock=time.time,
           free_bytes=lambda p: shutil.disk_usage(p).free,
           allocate=os.posix_fallocate):
     directory = owner.private_dir(directory)
@@ -59,11 +71,15 @@ def renew(directory, *, call=owner.request, clock=time.time,
             f.flush()
             os.fsync(f.fileno())
         directory_sync(directory)
-        result = call('/v1/users/me/access-tokens', token=refresh['refresh_token'],
-                      user_agent=ua, post=True)
-        raw = json.dumps(result, separators=(',', ':'), ensure_ascii=True).encode('ascii')
-        if len(raw) > owner.LIMIT:
-            raise owner.Refused('response_size')
+        returned = (raw_post(refresh['refresh_token'], ua) if call is None else
+                    call('/v1/users/me/access-tokens', token=refresh['refresh_token'],
+                         user_agent=ua, post=True))
+        # Injected dict calls are fixture-only. Production receives bounded raw
+        # bytes and saves them before JSON parsing or token validation.
+        raw = (returned if isinstance(returned, bytes) else
+               json.dumps(returned, separators=(',', ':'), ensure_ascii=True).encode('ascii'))
+        if len(raw) >= RESERVATION:
+            raise owner.Refused('fixture_response_size')
         # Do not truncate the allocated slot: writes use already reserved blocks.
         payload = raw + b'\n' + b' ' * (RESERVATION - len(raw) - 1)
         offset = 0
@@ -74,6 +90,9 @@ def renew(directory, *, call=owner.request, clock=time.time,
             offset += n
         os.fsync(fd)
         directory_sync(directory)
+        if len(raw) > owner.LIMIT:
+            raise owner.Refused('response_size')
+        result = json.loads(raw)
         access, rotated = result['access_token'], result['refresh_token']
         if (not isinstance(rotated, str) or not rotated.startswith('rt_')
                 or len(rotated) > 16384):
@@ -84,7 +103,7 @@ def renew(directory, *, call=owner.request, clock=time.time,
             'refresh_user_agent': ua})
         if owner.jwt_exp(access) - clock() < 3500:
             raise owner.Refused('rotation_result')
-        me = call('/v1/users/me', token=access, user_agent=ua)
+        me = (owner.request if call is None else call)('/v1/users/me', token=access, user_agent=ua)
         org = old['discovered_account']['organization_id']
         if (me['id'] != old['owner_profile']['id'] or me['is_active'] is not True
                 or not any(item['id'] == org and item['is_active'] is True

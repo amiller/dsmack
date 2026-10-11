@@ -88,6 +88,21 @@ class Retention(unittest.TestCase):
             self.run_renew()
         self.assertEqual(len(self.calls), 1)
 
+    def test_raw_malformed_saved_before_parsing(self):
+        with patch.object(r, 'raw_post', return_value=b'{invalid'):
+            with self.assertRaises(json.JSONDecodeError):
+                r.renew(self.p)
+        self.assertTrue((self.p / 'rotation-response.json').read_bytes().startswith(b'{invalid\n'))
+
+    def test_raw_oversize_saved_before_refusal(self):
+        raw = json.dumps({'refresh_token': 'rt_rotated', 'metadata': 'a' * r.owner.LIMIT}).encode()
+        # Real transport stops at LIMIT+1; even oversized prefix is retained.
+        raw = raw[:r.owner.LIMIT + 1]
+        with patch.object(r, 'raw_post', return_value=raw):
+            with self.assertRaises(r.owner.Refused):
+                r.renew(self.p)
+        self.assertEqual((self.p / 'rotation-response.json').read_bytes()[:len(raw)], raw)
+
 
 if __name__ == '__main__':
     unittest.main()

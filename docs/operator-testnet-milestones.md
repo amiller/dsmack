@@ -46,7 +46,7 @@ with the precise reason. A simulated result may support development only.
 
 The [joining guide](join-testnet.md) distinguishes available products; the
 [protocol profile](protocol-profile-v1.md) specifies their authority boundaries.
-The [release gates](public-testnet-release.md) and
+The [managed release gates](testnet-release-process.md) and
 [coupon operations](../packaging/coupon/public-testnet-operations.md) remain
 applicable. There is no committed production/mainnet date here. Native participation
 uses Base Sepolia; the coupon preview guard uses Base mainnet with bounded real

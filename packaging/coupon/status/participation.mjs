@@ -24,6 +24,7 @@ export function participationView(value, now = Math.floor(Date.now() / 1000)) {
   if (value.chain_id !== 84532 || value.protocol_version !== 2 || !hex(value.registry, 40)
       || typeof value.network_paused !== "boolean"
       || !exact(block, ["number", "hash", "timestamp"]) || !integer(block.number) || !hex(block.hash, 64) || !time(block.timestamp)
+      || observed - block.timestamp < -15 || observed - block.timestamp > 120
       || !exact(coverage, ["from_block", "to_block", "opt_in_identities", "complete_census", "selection"])
       || ![coverage.from_block, coverage.to_block, coverage.opt_in_identities].every(integer)
       || coverage.from_block !== coverage.to_block || coverage.to_block !== block.number
@@ -31,7 +32,9 @@ export function participationView(value, now = Math.floor(Date.now() / 1000)) {
       || coverage.selection !== "operator-supplied-public-opt-in-roster"
       || !exact(relay, ["state", "sponsor_writes_paused"]) || relay.state !== "observed" || typeof relay.sponsor_writes_paused !== "boolean"
       || !exact(key, ["scope", "epoch", "committed", "public_key_sha256"]) || !hex(key.scope, 64)
-      || typeof key.epoch !== "string" || !/^(0|[1-9][0-9]{0,77})$/.test(key.epoch)
+      || key.scope !== "0x" + "0".repeat(64)
+      || typeof key.epoch !== "string" || !/^(0|[1-9][0-9]{0,19})$/.test(key.epoch)
+      || BigInt(key.epoch) > 18446744073709551615n
       || typeof key.committed !== "boolean"
       || !(key.public_key_sha256 === null || (typeof key.public_key_sha256 === "string" && /^[0-9a-f]{64}$/.test(key.public_key_sha256)))
       || key.committed !== (key.public_key_sha256 !== null)) return unknown;
@@ -41,6 +44,8 @@ export function participationView(value, now = Math.floor(Date.now() / 1000)) {
         || !hex(member.member_id, 64) || !hex(member.category, 64)
         || typeof member.registered !== "boolean" || typeof member.revoked !== "boolean"
         || !(member.last_checked === null || time(member.last_checked)) || member.liveness !== "unknown"
+        || (member.registered ? member.last_checked === null || member.last_checked > block.timestamp
+          : member.last_checked !== null || member.revoked || member.category !== "0x" + "0".repeat(64))
         || member.source !== "operator-opt-in"
         || ids.has(member.member_id.toLowerCase())) return unknown;
     ids.add(member.member_id.toLowerCase());
@@ -64,6 +69,7 @@ export function drawParticipation(value, doc = document) {
   text("coverage", `Block ${details.coverage.to_block}; ${details.coverage.opt_in_identities} identities from an operator-supplied public opt-in roster. This is not a complete census or an authenticated self-published directory.`);
   text("native-pause", `Registry paused: ${details.network_paused ? "yes" : "no"}; sponsor writes paused: ${details.relay.sponsor_writes_paused ? "yes" : "no"}. These flags do not prove fresh admission.`);
   text("shared-key", `Epoch ${details.shared_key.epoch} · commitment ${details.shared_key.committed ? "present" : "absent"}. A commitment does not establish that nodes hold or synchronized a key.`);
+  text("shared-key-hash", details.shared_key.public_key_sha256 ?? "No committed public key");
   for (const member of details.members) {
     const row = doc.createElement("tr");
     for (const value of [member.member_id, `${member.registered ? "registered" : "not registered"}${member.revoked ? " / revoked" : ""}`,

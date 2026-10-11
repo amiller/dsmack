@@ -21,7 +21,7 @@ test("scoped registration records expire locally without asserting live peers",(
   assert.equal(participationView(report,now-31).status,"unknown");
   assert.equal(participationView(report,now-30).status,"observed");
   const absent=structuredClone(report);absent.shared_key={...absent.shared_key,committed:false,public_key_sha256:null};
-  absent.members[0]={...absent.members[0],registered:false,last_checked:null,source:"operator-opt-in"};
+  absent.members[0]={...absent.members[0],registered:false,last_checked:null,category:"0x"+"0".repeat(64),source:"operator-opt-in"};
   assert.equal(participationView(absent,now).status,"observed");
   absent.members=[]; absent.coverage.opt_in_identities=0;
   assert.equal(participationView(absent,now).details.members.length,0);
@@ -39,6 +39,9 @@ test("refuse invented census, liveness, extra fields, inconsistent coverage, and
     v=>{v.private="canary";},v=>{v.version=2;},v=>{v.independent_operator_count=1;},v=>{v.liveness="online";},
     v=>{v.chain_id=8453;},v=>{v.observed_at="2030-02-31T00:00:00Z";},v=>{v.observed_at="invalid";},v=>{v.max_age=3600;},
     v=>{v.coverage.complete_census=true;},v=>{v.coverage.to_block=101;},v=>{v.coverage.from_block=102;},
+    v=>{v.block.timestamp=now-121;},v=>{v.block.timestamp=now+16;},
+    v=>{v.shared_key.scope="0x"+"1".repeat(64);},v=>{v.shared_key.epoch="18446744073709551616";},
+    v=>{v.members[0].last_checked=now+1;},v=>{v.members[0].registered=false;},v=>{v.members[0].last_checked=null;},
     v=>{v.block.hash="invalid";},v=>{v.shared_key.epoch="-1";},v=>{v.shared_key.committed=false;},
     v=>{v.relay.sponsor_writes_paused="false";},v=>{v.members[0].liveness="online";},
     v=>{v.members[0].last_checked=Infinity;},v=>{v.members[0].owner="private";},

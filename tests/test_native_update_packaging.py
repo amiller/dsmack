@@ -35,6 +35,9 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(len(z.infolist()),3)
             self.assertTrue(all(not i.extra and i.filename.startswith('Node.app/') for i in z.infolist()))
         with self.assertRaises(FileExistsError):archive.package(self.app,self.zip)
+    def test_fractional_expiry_emits_parser_compatible_seconds(self):
+        archive.package(self.app,self.zip)
+        self.assertEqual(self.make(expiry='2026-10-12T00:00:00.123456Z')['expires'],'2026-10-12T00:00:00Z')
     def test_symlink_rejected_before_archive(self):
         (self.app/'Contents/escape').symlink_to('/tmp')
         with self.assertRaises(ValueError):archive.package(self.app,self.zip)

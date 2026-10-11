@@ -81,6 +81,13 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var node: Node?
     private var updateProgress: NSPanel?
     private let directoryLabel=NSTextField(wrappingLabelWithString:"Public directory sharing is off.")
+    private var directoryDefaults:UserDefaults {
+        #if UPDATE_REHEARSAL
+        return NativeUpdateRehearsal.defaults
+        #else
+        return UserDefaults.standard
+        #endif
+    }
     private var directoryRequested=false
     private var directoryPreferenceKey:String?
     private var terminationPending=false
@@ -396,7 +403,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             guard alert.runModal() == .alertFirstButtonReturn else {return}
         }
         directoryRequested.toggle()
-        if let key=directoryPreferenceKey {UserDefaults.standard.set(directoryRequested,forKey:key)}
+        if let key=directoryPreferenceKey {directoryDefaults.set(directoryRequested,forKey:key)}
         directoryLabel.stringValue=directoryRequested ? "Public sharing requested; waiting for a verified check-in." : "Public sharing off; removing the previous entry when reachable."
         refreshDirectoryMenu()
         let enabled=directoryRequested
@@ -459,7 +466,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let preference="dsmack.public-directory.v1."+hex(keccak(word(cfg.chainId)+(try addressWord(cfg.registry))))
             DispatchQueue.main.async {
                 self.node=participant;self.directoryPreferenceKey=preference
-                self.directoryRequested=UserDefaults.standard.bool(forKey:preference)
+                self.directoryRequested=self.directoryDefaults.bool(forKey:preference)
                 if self.directoryRequested {self.directoryLabel.stringValue="Public sharing requested; waiting for a verified check-in."}
                 self.refreshDirectoryMenu()
                 let enabled=self.directoryRequested

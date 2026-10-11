@@ -53,7 +53,7 @@ def recommendation(archive, tag, expiry, previous, rollback, evidence, now=None)
     digest = h.hexdigest()
     return {'format': 1, 'tag': tag, 'version': version, 'build': build,
             'archive': f'https://github.com/amiller/dsmack/releases/download/{tag}/{archive.name}',
-            'sha256': digest, 'bytes': size, 'expires': expires.isoformat().replace('+00:00', 'Z'),
+            'sha256': digest, 'bytes': size, 'expires': expires.isoformat(timespec='seconds').replace('+00:00', 'Z'),
             'network': metadata['network'], 'previousBuilds': previous, 'rollbackBuilds': rollback,
             'qualification': 'release-owner-qualified', 'evidence': evidence}
 

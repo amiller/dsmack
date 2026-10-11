@@ -79,29 +79,43 @@ export async function readDirectory(fetcher = fetch) {
   return JSON.parse(new TextDecoder("utf-8", {fatal: true}).decode(data));
 }
 
+const rendered = new WeakMap();
 export function drawDirectory(value, doc = document) {
   const view = directoryView(value), text = (id, value) => {doc.getElementById(id).textContent = value;};
   text("directory-state", view.status); text("directory-message", view.message);
   const query = doc.getElementById("find-node").value.trim().toLowerCase();
   const nodes = view.nodes.filter(n => !query || [n.id, n.member, n.account.address].some(id => id && id.toLowerCase().includes(query)));
   text("directory-match", query ? `${nodes.length} matching public records. Search stays in this browser.` : "Copy your public node or account ID from the app to find your entry.");
-  const list = doc.getElementById("directory-nodes"); list.replaceChildren();
+  const list = doc.getElementById("directory-nodes"), renderKey = JSON.stringify(nodes);
+  if (rendered.get(list) === renderKey) return;
+  const expanded = new Set([...list.querySelectorAll(".node-card")].filter(card => card.querySelector("details")?.open).map(card => card.dataset.nodeId));
+  list.replaceChildren();
   for (const node of nodes) {
-    const card = doc.createElement("article"); card.className = "node-card";
-    const heading = doc.createElement("h3"); heading.textContent = node.account.status === "verified" ? `Account ${node.account.address}` : `Member ${node.member}`; card.append(heading);
+    const card = doc.createElement("article"); card.className = "node-card"; card.dataset.nodeId = node.id;
+    const identity = node.account.status === "verified" ? node.account.address : node.member;
+    const heading = doc.createElement("h3"); heading.textContent = `${node.account.status === "verified" ? "Account" : "Member"} ${identity.slice(0, 10)}…${identity.slice(-8)}`; card.append(heading);
     const fields = [
       ["Participant receipt", node.account.participantToken === null ? "Not available" : `#${node.account.participantToken}`],
       ["Check-in", `${node.fresh ? "Fresh verified check-in" : "Stale check-in"} · ${node.checkIn.lastVerifiedAt}`],
       ["App version (signed self-report)", `${node.version.selfReported} · build ${node.version.buildNumber}`],
-      ["Admitted build (relay-verified)", node.version.admittedCodeHash],
       ["Key exchange", `${node.syncLabel} · epoch ${node.sync.keyEpoch}`],
+    ];
+    const evidence = [
+      ["Account address", node.account.address ?? "No verified account binding"],
+      ["Admitted build (relay-verified)", node.version.admittedCodeHash],
       ["Receipt block time", node.sync.receiptBlockTime ?? "Unknown"],
       ["Public-key fingerprint", node.sync.groupPublicFingerprint ?? "Unknown"],
       ["Receipt transaction", node.sync.receiptTransaction ?? "Unknown"],
       ["Public node ID", node.id], ["Membership ID", node.member],
     ];
-    const details = doc.createElement("dl");
-    for (const [label, value] of fields) {const dt = doc.createElement("dt"), dd = doc.createElement("dd"); dt.textContent = label; dd.textContent = value; details.append(dt, dd);}
-    card.append(details); list.append(card);
+    const description = fields => {
+      const dl = doc.createElement("dl");
+      for (const [label, value] of fields) {const dt = doc.createElement("dt"), dd = doc.createElement("dd"); dt.textContent = label; dd.textContent = value; dl.append(dt, dd);}
+      return dl;
+    };
+    card.append(description(fields));
+    const details = doc.createElement("details"), summary = doc.createElement("summary"); summary.textContent = "View public IDs and exchange evidence";
+    details.open = expanded.has(node.id); details.append(summary, description(evidence)); card.append(details); list.append(card);
   }
+  rendered.set(list, renderKey);
 }

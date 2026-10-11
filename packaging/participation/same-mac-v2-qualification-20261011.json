@@ -1,0 +1,155 @@
+{
+  "schema": 1,
+  "title": "Dsmack current V2 persistent peer rehearsal",
+  "status": "passed",
+  "observed_at": "2026-10-11T22:32:12.063472+00:00",
+  "scope": "Native CLI core, real Apple App Attest, two processes on one physical Mac, isolated development chain. Public RC3 recovery, friend installation, UI/NFT continuity and milestone 2 acceptance remain pending.",
+  "source": {
+    "canonical_commit": "15963769fa3ed5da74c79c24f840863843e07784",
+    "isolated_source_fixture_commit": "6f269d26bd6e68e4049c27dc80242cf23b53ca90",
+    "exact_compiler_inputs_match_canonical_source": true,
+    "source_manifest_sha256": "0c44c7c1e6769f472d95c0bb02e706dc9e37eff098a61c5b7455d80eb65c75f4"
+  },
+  "binary": {
+    "signed_executable_sha256": "205cb84e051de9090463eccfb9be6cd40c29cda92c6c2f3437755c37cb601906",
+    "strict_signature_verification": true,
+    "unsigned_payload_matches_signed": true,
+    "signed_code_directory_sha256": "0xbbeca2bb4f1e52461010069a0cb733f7187cb7ae7fb525ceeee957c793baf03a",
+    "profile": "Apple Development, App Attest CDhash opt-in, development validation category 3",
+    "profile_expiry_utc": "2027-09-08T14:34:01Z",
+    "bundle_identifier": "dev.dsmack.provider",
+    "publisher_team": "DC9JH5DRMY",
+    "build_flavor": "cli"
+  },
+  "environment": {
+    "physical_macs": 1,
+    "concurrent_native_processes": 2,
+    "independent_hosts": false,
+    "chain_id": 31337,
+    "development_registry": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
+    "protocol_version": 2,
+    "persistent_identity": true,
+    "validation_category": 3,
+    "gas_sponsor": "Documented disposable Anvil account; fixture funds only",
+    "chain_engine": "Existing Anvil, Osaka hardfork with native P-256 precompile",
+    "apple_attestation_mocked": false,
+    "badge_or_personal_account_paths_enabled": false,
+    "public_network_mutations": false,
+    "real_spending": false,
+    "admission_verifier_mocked": false,
+    "contract_execution": "Actual EVM contract execution on disposable local Anvil; no public chain qualification."
+  },
+  "identities": {
+    "seed_member": "0x8b980088216e4c24385ee7376ea24f85c3218a1313acca38b24d262d83a941ae",
+    "participant_member": "0xc12bdb078320e283b4a79553ea5e04ce452888623a801ea55903f6816eee3582",
+    "members_distinct": true,
+    "seed_enrollment_transaction": "0x9808126b596efc590e89fd6531c10e7ed6714b1a21fe6f874fa9ef58b7d7768e",
+    "participant_enrollment_transaction": "0x56074272ce29eabe81297175bc175da7da9db0ba4f80dc67fe57dfad68b4d937",
+    "participant_member_preserved_on_reopen": true,
+    "new_enrollment_on_reopen": false,
+    "fresh_session_binding_on_reopen": true
+  },
+  "exchanges": [
+    {
+      "phase": "first-connect",
+      "verified_at": "2026-10-11T22:31:37.806467+00:00",
+      "member": "0xc12bdb078320e283b4a79553ea5e04ce452888623a801ea55903f6816eee3582",
+      "key_epoch": 0,
+      "group_public_fingerprint": "sha256:1223fffe45404921541a23773eaeffd8bc6ca46cbec86e54429cad9fe4eb8885",
+      "join_transaction": "0x32f9fd424b235f70038f443c736ef263afdf1f2f82bae05ddb98a2e8bd8a6d50",
+      "session_key_hash": "0x30f63db862c204f736c28715991e08a4b5d8767b2b29e1a523d15c2e9e22841a",
+      "sender_receipt": "0x694a3ac0e304a71756a6d6e3f800ca23ac2b3b1e4d75b544f6234c0aaf7294f8",
+      "recipient_receipt": "0x9b8fd0bf0347bb3cb7f20600441019fc29342c3c75bce6bbe2865dec3bd4e19c",
+      "sender_member": "0x8b980088216e4c24385ee7376ea24f85c3218a1313acca38b24d262d83a941ae",
+      "recipient_member": "0xc12bdb078320e283b4a79553ea5e04ce452888623a801ea55903f6816eee3582",
+      "envelope_digest": "0x0210a0fa553f48e63b9993f083acbe53616e9c6d8e35a7eb497de002f0f1f6ad",
+      "sender_context": "0xd215daa0854f6ffd763f578c9e9a4489b572453f0ae872c7230417ea4e39f650",
+      "recipient_context": "0x55ca07f07c4a5841a375974cb82efb41c5252b3d162859316cfe6ed8bc89c8db",
+      "sender_block": 13,
+      "recipient_block": 14,
+      "transaction_statuses": [
+        1,
+        1
+      ],
+      "canonical_receipts_checked_while_fixture_live": true
+    },
+    {
+      "phase": "participant-reopen",
+      "verified_at": "2026-10-11T22:32:09.241594+00:00",
+      "member": "0xc12bdb078320e283b4a79553ea5e04ce452888623a801ea55903f6816eee3582",
+      "key_epoch": 0,
+      "group_public_fingerprint": "sha256:1223fffe45404921541a23773eaeffd8bc6ca46cbec86e54429cad9fe4eb8885",
+      "join_transaction": "0x72f3f635310b4f9923e8ead085ee5a94a78a58d9d99e4845c55bbfd1539bffe4",
+      "session_key_hash": "0x61f0c43cbf6d636753530a42a6dfc6859e739d8930ea2b91c3519ba1353197ba",
+      "sender_receipt": "0x57ca9c4770425f3d62ccc1e704289bf95b936e53b79440b4d3962f984ab25798",
+      "recipient_receipt": "0xb3a18bc3f48f2809c89a06adf38dc8d6b26a581560eea52b9e56453183d62381",
+      "sender_member": "0x8b980088216e4c24385ee7376ea24f85c3218a1313acca38b24d262d83a941ae",
+      "recipient_member": "0xc12bdb078320e283b4a79553ea5e04ce452888623a801ea55903f6816eee3582",
+      "envelope_digest": "0x87b8d5d2fdbc26cb35c38a2474b1aa3cf63f980cb4403cdbfcd87ad5fd864266",
+      "sender_context": "0xe646479787dd1997196f08e8f80df5e009e396843e1331bcd23fc805876188c9",
+      "recipient_context": "0x3452ffc3388224017ad1f86b94cc86095d7f0c9678d768ba929612dca6d40b60",
+      "sender_block": 16,
+      "recipient_block": 17,
+      "transaction_statuses": [
+        1,
+        1
+      ],
+      "canonical_receipts_checked_while_fixture_live": true
+    }
+  ],
+  "validation": {
+    "seed_possession_proofs": 2,
+    "linked_key_receipts": 4,
+    "shared_key_fingerprint_preserved": true,
+    "key_epoch_before_and_after": 0,
+    "bootstrap_member_is_seed": true,
+    "committed_public_key_matches_both_runtime_reports": true,
+    "seed_remained_alive_during_participant_reopen": true
+  },
+  "cleanup": {
+    "owned_native_processes_stopped": true,
+    "owned_anvil_and_relay_stopped": true,
+    "owned_reverse_forwards_removed": true,
+    "build_output_cleanup": "Owned remote unsigned/signed app and ZIP outputs removed; logs/manifests/payload verification retained",
+    "cleanup_verified_afterward": true,
+    "test_ports_closed_on_mac_and_local_host": true,
+    "preexisting_native_processes_still_running": true,
+    "preexisting_native_enrollment_or_configuration_modified": false
+  },
+  "observed_failure_history": [
+    {
+      "stage": "normal-signing",
+      "result": "errSecInternalComponent; no signed candidate qualified"
+    },
+    {
+      "stage": "explicit-existing-keychain-signing",
+      "result": "errSecInternalComponent"
+    },
+    {
+      "stage": "configured-signing-auth-parser",
+      "result": "Parser-only stops; no authentication invoked; secret values were not exposed/copied"
+    },
+    {
+      "stage": "configured-signing-auth",
+      "result": "One existing configured authentication operation succeeded, then isolated exact-source candidate signing passed"
+    },
+    {
+      "stage": "isolated-preflight",
+      "result": "Missing CD parser dependency; stopped before any service or native launch; exact source dependency supplied"
+    },
+    {
+      "stage": "development-profile-category6-fixture",
+      "result": "Real Apple generateKey/attestKey succeeded; verifier correctly rejected mismatched validation category; owned fixture cleaned before fresh category3 run"
+    }
+  ],
+  "archive_limit": "Canonical receipt status and block-hash equality were checked while the disposable chain was live. Raw receipts and block headers were not retained; decoded public records and native log linkage are preserved. The retired fixture has no public explorer.",
+  "selected_payload_contains_no_private_keys_credentials_parcels_or_personal_state": true,
+  "independent_review": {
+    "status": "passed",
+    "reviewed_at": "2026-10-11T22:36:52.925357+00:00",
+    "reviewer_role": "Separate source and evidence reviewer agent",
+    "scope": "Current-source nonGUI V2 native core, Apple Development/category3, same-Mac development chain, persistent member reopen",
+    "checks": "Canonical source input hashes, signed payload metadata, native event and decoded receipt linkage, negative category6 rejection, and owned-process/build cleanup evidence reviewed",
+    "archive_limit_acknowledged": true
+  }
+}

@@ -159,6 +159,18 @@ also pass a verified update/restart and failed-update recovery on this local
 setup before its simpler friend journey is advertised. Current RC3 updates remain
 manual as described in the [joining guide](join-testnet.md).
 
+## Current-source local protocol qualification
+
+The [11 October V2 rehearsal](../packaging/participation/same-mac-v2-qualification-20261011.json)
+passed real Apple Development attestation, two same-Mac peer exchanges, and a
+participant restart preserving its enrolled member. It used the current native
+CLI core on an isolated Anvil chain with fixture funds. Independent review checked
+source/signature evidence, decoded receipt linkage, key-possession results and
+cleanup. Raw receipts and block headers were not retained after the fixture retired.
+This qualifies that local protocol component only: public RC3 seed recovery, GUI
+first-open, personal-account/NFT continuity and independent-friend acceptance remain
+open. It does not close the current public joining incident or milestone 2.
+
 ## Service observation and outages
 
 Native relay observation is read-only:

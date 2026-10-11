@@ -11,6 +11,9 @@ fresh Mac issuer admission and the installed friend journey remain pending.
 
 ## Use and contribute
 
+- **Join as a peer:** start at [Join the testnet](docs/join-testnet.md) for the
+  recommended app and current availability. Peer participation is separate from
+  coupon use or issuer operation. [Mainnet is planned](docs/mainnet.md).
 - **Try a gift:** follow [Abalone's getting-started guide](https://github.com/amiller/abalone/blob/main/docs/getting-started.md).
   Dsmack's paired Mac-issuer release still requires [acceptance](docs/release.md).
 - **Understand the source:** [architecture](docs/architecture.md) and [protocols](docs/protocols/README.md).

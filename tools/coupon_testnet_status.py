@@ -132,16 +132,41 @@ def status(manifest, probe, *, observed_at, now=None):
             'independent_participant_count': None}
 
 
+def dashboard(result):
+    """Project validated status to the small public dashboard schema.
+
+    Call only with status() output. No probe messages or private operator state
+    are carried into this independently published observation.
+    """
+    return {
+        'schema': 'dsmack-issuer-observation-v1',
+        'network': result['network'],
+        'identity_profile': result.get('identity_profile', 'legacy-intel-tdx-identity'),
+        'observed_at_unix': int(timestamp(result['observed_at']).timestamp()),
+        'issuer_status': result['issuer_status'],
+        'peer': result['peer'],
+        'source_revision': result['source_revision'],
+        'trust_profile': result['trust_profile'],
+        'bundle_url': result['bundle_url'],
+        'bundle_sha256': result['bundle_sha256'],
+        'approval_expires_at_unix': int(timestamp(result['approval_expires_at']).timestamp()),
+        'claim_window_ends_at_unix': int(timestamp(result['claiming_available_until']).timestamp()),
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--manifest', required=True)
     parser.add_argument('--probe', required=True)
     parser.add_argument('--observed-at', required=True, help='UTC Z time recorded when the normal probe completed')
+    parser.add_argument('--dashboard', action='store_true', help='emit the small issuer.json dashboard feed')
     args = parser.parse_args()
     try:
         result = status(read_json(args.manifest), read_json(args.probe), observed_at=args.observed_at)
     except Exception:
         parser.exit(2, 'Public status input refused; no input content printed.\n')
+    if args.dashboard:
+        result = dashboard(result)
     print(json.dumps(result, sort_keys=True, separators=(',', ':')))
 
 

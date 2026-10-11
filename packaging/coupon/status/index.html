@@ -2,22 +2,75 @@
 <html lang="en">
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>DSMACK testnet status</title>
+<meta name="referrer" content="no-referrer">
+<title>Dsmack testnet status</title>
 <style>
-  body { max-width: 36rem; margin: 3rem auto; padding: 0 1rem; font: 1rem/1.5 system-ui, sans-serif; color: #18232e; background: #f7f9fb; }
-  h1 { font-size: 1.5rem; } #claiming { font-size: 1.3rem; font-weight: 650; }
-  dt { font-weight: 600; } dd { margin: 0 0 1rem; } small { color: #455568; }
+  :root { color-scheme: light; font: 1rem/1.5 system-ui, sans-serif; color: #18232e; background: #f3f6fa; }
+  body { max-width: 64rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 2rem; margin-bottom: .25rem; } h2 { font-size: 1.15rem; }
+  .intro, small { color: #455568; } .cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr)); gap: 1rem; }
+  section { background: white; border: 1px solid #ccd6e2; border-radius: .65rem; padding: 1.25rem; margin-bottom: 1rem; }
+  .value { font-size: 1.5rem; font-weight: 650; margin: .5rem 0; } .badge { font-size: .8rem; border: 1px solid #ccd6e2; border-radius: 1rem; padding: .15rem .6rem; }
+  dt { font-weight: 600; } dd { margin: 0 0 .8rem; overflow-wrap: anywhere; } code { font-size: .85rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; } th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ccd6e2; overflow-wrap: anywhere; } th:first-child, td:first-child { max-width: 10rem; } .table-scroll { overflow-x: auto; }
+  a { color: #165aa0; overflow-wrap: anywhere; } .note { border-left: 3px solid #59748c; padding-left: 1rem; }
+  [hidden] { display: none; }
 </style>
 <main>
-  <h1>DSMACK public testnet</h1>
-  <p id="claiming" role="status">Claim readiness: unknown</p>
-  <p id="observation">No fresh operator observation.</p>
-  <dl>
-    <dt>Issuer reachability</dt><dd>Not checked by this page.</dd>
-    <dt>Provider admission</dt><dd>Checked by your client before inference.</dd>
-    <dt>Participants</dt><dd>Unknown.</dd>
-  </dl>
-  <small>This is an operator observation, not an attestation. Your client still verifies the signed trial and issuer identity. A ready observation does not guarantee a successful claim or inference.</small>
+  <h1>Dsmack public testnet</h1>
+  <p class="intro">Operator observations · refresh every 30 seconds · no account required</p>
+  <p><a href="https://github.com/amiller/dsmack/blob/main/docs/join-testnet.md">Join the participation testnet</a> · Joining a peer network is separate from coupon issuer access.</p>
+  <div class="cards">
+    <section aria-labelledby="claims-title">
+      <h2 id="claims-title">Coupon claim readiness <span class="badge" id="claim-freshness">unknown</span></h2>
+      <p class="value" id="claiming" role="status">unknown</p>
+      <p id="observation">No valid operator observation.</p>
+      <small>Controller observation, valid for 90 seconds. Availability does not guarantee redemption or inference.</small>
+    </section>
+    <section aria-labelledby="issuer-title">
+      <h2 id="issuer-title">Issuer reachability <span class="badge" id="issuer-freshness">unknown</span></h2>
+      <p class="value" id="issuer" role="status">unknown</p>
+      <p id="issuer-observation">No valid issuer observation.</p>
+      <small>A normal client probe reports route and identity admission. This page does not verify attestation.</small>
+    </section>
+  </div>
+  <section aria-labelledby="peers-title">
+    <h2 id="peers-title">Observed issuer</h2>
+    <p>This is one configured issuer observation, not peer discovery or a network census. Advertised details remain historical when the observation expires.</p>
+    <p id="no-issuer">No valid issuer record published. This does not establish that no nodes are running.</p>
+    <dl id="issuer-details" hidden>
+      <dt>Network</dt><dd id="network"></dd>
+      <dt>Public peer route</dt><dd><code id="peer"></code></dd>
+      <dt>Advertised source revision</dt><dd><code id="revision"></code></dd>
+      <dt>Issuer identity profile</dt><dd id="identity-profile"></dd>
+      <dt>Custody profile</dt><dd id="profile"></dd>
+      <dt>Approval deadline (UTC)</dt><dd id="approval-deadline"></dd>
+      <dt>Advertised claiming deadline (UTC)</dt><dd id="claim-deadline"></dd>
+      <dt>Immutable epoch bundle · client verification required</dt><dd><a id="bundle" rel="noreferrer"></a></dd>
+      <dt>Bundle SHA-256</dt><dd><code id="bundle-hash"></code></dd>
+    </dl>
+  </section>
+  <section aria-labelledby="network-title">
+    <h2 id="network-title">Native participation testnet <span class="badge" id="participation-state">unknown</span></h2>
+    <p id="participation-observation">No valid participation observation.</p>
+    <div id="participation-details" hidden>
+      <dl><dt>Observed network</dt><dd id="participation-chain"></dd>
+        <dt>Observed block (UTC)</dt><dd id="participation-block"></dd>
+        <dt>Registry contract</dt><dd><code id="registry"></code></dd>
+        <dt>Observation coverage</dt><dd id="coverage"></dd>
+        <dt>Observed controls</dt><dd id="native-pause"></dd>
+        <dt>Shared-key commitment</dt><dd id="shared-key"></dd></dl>
+      <h3>Observed registration records</h3>
+      <div class="table-scroll"><table><thead><tr><th>Public member ID</th><th>Registry status</th><th>Last on-chain check-in (UTC)</th><th>Observation source</th><th>Online</th></tr></thead><tbody id="member-rows"></tbody></table></div>
+    </div>
+    <dl>
+      <dt>Independent operators / devices / online peers</dt><dd>Unknown — registration and check-in records do not establish independent operators or current liveness.</dd>
+      <dt>Service opt-ins and synchronization lag</dt><dd>Unknown — no qualified signed offer or replicated-state observation feed.</dd>
+      <dt>Provider admission</dt><dd>Requires a fresh check by your client before inference.</dd>
+    </dl>
+  </section>
+  <p class="note">These are attributed operator reports, not attestations. Your client still verifies the signed trial and issuer identity. The operator-readable preview does not qualify private custody, rollback protection or production readiness.</p>
+  <noscript><p>Status refresh requires JavaScript. The observations above remain unknown.</p></noscript>
 </main>
 <script type="module" src="status.mjs"></script>
 </html>

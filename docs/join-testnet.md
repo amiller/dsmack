@@ -1,5 +1,10 @@
 # Join the Dsmack testnet
 
+This is the entry point for joining as a peer. The public testnet is the planned
+friend-facing network; [mainnet is not launched](mainnet.md). Read
+[joining, updating and leaving](node-lifecycle.md) for account continuity and
+release lifecycle expectations.
+
 **Native joining is temporarily unavailable as of 21:56 UTC, 11 October 2026.**
 The configured seed needs recovery. Wait for the release coordinator to confirm
 joining works before opening the app. See the

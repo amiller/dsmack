@@ -23,7 +23,8 @@ ordinary build tests.
 
 1. Open the RC3 release page above and download
    `AttestNode-macOS27-arm64-v0.1.0-rc.3.zip` and `SHA256SUMS`. Compare the ZIP with
-   its checksum using `shasum -a 256 AttestNode-macOS27-arm64-v0.1.0-rc.3.zip`.
+   its checksum: in Terminal, type `shasum -a 256` followed by a space, drag the
+   downloaded ZIP into the window, and press Return.
    The expected SHA-256 is
    `d546375abf7a92b04ede2127bbc159cd504a60078af3ef4cf4c2f20e5c0152db`.
 2. Quit the previous peer through its Testnet menu, if installed. Extract the ZIP
@@ -64,7 +65,9 @@ RC3 has no implemented in-app update check, update notification or automatic
 updater. The release coordinator sends you the next admitted release link.
 Download that exact signed/notarized ZIP, check its published checksum, choose
 **Quit peer**, replace `Node.app`, and reopen it. Keep Application Support and
-Keychain state so the same personal identity and receipt return. A source commit
+Keychain data. App Attest enrollment may expire and renew as a new member.
+Personal-account and receipt continuity depends on retaining the original personal
+signing identity and linked-account metadata; verify it after reopening. A source commit
 or a new ZIP alone does not mean the network admits that build.
 
 If the replacement cannot join, save the diagnostic report and contact the

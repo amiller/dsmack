@@ -34,7 +34,7 @@ cat > "$out/entitlements.plist" <<'PLIST'
 <array><string>CDhash</string></array>
 </dict></plist>
 PLIST
-codesign --force --options runtime --sign - --entitlements "$out/entitlements.plist" "$app"
+codesign --force --options runtime --sign - "$app"
 codesign --verify --strict "$app"
 printf '%s\n' '{"context":"ad_hoc_bundle","genuineProvisioning":false}'
 "$app/Contents/MacOS/Probe" --attest "$out/ad-hoc-evidence"

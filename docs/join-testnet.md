@@ -37,11 +37,20 @@ The [friend guide](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72cc
 and the optional [independent builder flow](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/release/builder-guide.md).
 Independent signing needs a different paid Apple Developer team and its own
 acceptance run; it is not required for ordinary native joining.
+To reproduce RC3, use the original public
+[`amiller/apple-attest-p2p` RC3 source](https://github.com/amiller/apple-attest-p2p/tree/v0.1.0-rc.3)
+at commit `6a3cca34f53a3cf8fe241aca4a8d8b3e0c76ef81`. The historical builder
+guide's “fork this repository” instruction refers to that original repository;
+the fresh `amiller/dsmack` repository does not contain the RC3 tag.
 
 If stuck, save and review **Save diagnostic report…** before sharing it. It can
 contain public account identifiers. Preserve identity/state; deleting them is
 not a retry procedure. Report the release, OS, failing step and observation time,
-without posting credentials. A relay or seed outage can prevent joining; this
+without posting credentials. Contact the person who invited you for the current
+support window; the historical release does not commit to an uptime or response
+time. Reviewed non-sensitive bug reports can go to the
+[public issue tracker](https://github.com/amiller/dsmack/issues).
+A relay or seed outage can prevent joining; this
 release does not promise autonomous alternative-peer discovery.
 
 ## What this currently proves
@@ -60,7 +69,9 @@ and coupon transports, which state is shared, and remaining operator powers.
 
 ## Check published inputs before opening the app
 
-From the reviewed Dsmack checkout, run the read-only release checker:
+This optional diagnostic is for someone with the reviewed Dsmack source checkout
+and Python 3. Ordinary joining uses the signed download above and requires neither
+a clone nor Python. From the repository root, run the read-only release checker:
 
 ```sh
 python3 tools/check_participation_release.py --output /tmp/participation-check.json

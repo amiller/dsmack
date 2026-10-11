@@ -15,6 +15,7 @@ func runCLI() {
     } catch {emit("error",["error":"\(error)"]);exit(1)}
 }
 #if GUI
+if CommandLine.arguments.count==3 && CommandLine.arguments[1]=="--dsmack-finish-update" {NativeUpdater.finishHandoff(CommandLine.arguments[2])}
 if CommandLine.arguments.count==3 && ["listen","connect","participate","seed"].contains(CommandLine.arguments[2]) {runCLI()} else {runParticipantApp()}
 #else
 runCLI()

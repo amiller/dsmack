@@ -79,6 +79,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var eventLines=[String]()
     private var peerNames=Set<String>()
     private var node: Node?
+    private var updateProgress: NSPanel?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
@@ -125,6 +126,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         let menu=NSMenu()
         menu.addItem(withTitle:"Show testnet status",action:#selector(showWindow),keyEquivalent:"").target=self
         menu.addItem(withTitle:"Save status image…",action:#selector(saveStatusImage),keyEquivalent:"").target=self
+        menu.addItem(withTitle:"Check for updates…",action:#selector(checkForUpdates),keyEquivalent:"").target=self
+        menu.addItem(withTitle:"Recover a previous version…",action:#selector(recoverVersion),keyEquivalent:"").target=self
         menu.addItem(.separator())
         menu.addItem(withTitle:"Quit peer",action:#selector(quit),keyEquivalent:"q").target=self
         menuItem=NSStatusBar.system.statusItem(withLength:NSStatusItem.variableLength)
@@ -201,6 +204,47 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             return String(decoding:encoded,as:UTF8.self)
         }.joined(separator:"\n")+"\n"
     }
+    private func showUpdateProgress(_ message:String) {
+        updateProgress?.close()
+        let panel=NSPanel(contentRect:NSRect(x:0,y:0,width:480,height:110),styleMask:[.titled],backing:.buffered,defer:false)
+        panel.title="Dsmack update";panel.isReleasedWhenClosed=false
+        let label=NSTextField(wrappingLabelWithString:message)
+        label.frame=NSRect(x:24,y:30,width:432,height:58);panel.contentView?.addSubview(label)
+        panel.center();panel.orderFront(nil);updateProgress=panel
+    }
+    private func endUpdateProgress() {updateProgress?.close();updateProgress=nil}
+    @objc private func checkForUpdates() {
+        guard !NativeUpdater.shared.busy else {return}
+        showUpdateProgress("Checking the release owner’s current recommendation… Your peer keeps running.")
+        NativeUpdater.shared.check { result in
+            self.endUpdateProgress()
+            switch result {
+            case .failure(let error):
+                let alert=NSAlert();alert.messageText="Dsmack updates";alert.informativeText=error.localizedDescription;alert.runModal()
+            case .success(let release):
+                let alert=NSAlert();alert.messageText="Dsmack \(release.version) is recommended"
+                alert.informativeText="The release owner recommends build \(release.build) for this network. This is an owner qualification, not an independent chain admission check. Download and verify its signature, identity permissions and network before installing. Your existing app and identity data will be retained."
+                alert.addButton(withTitle:"Download and verify");alert.addButton(withTitle:"Cancel")
+                guard alert.runModal() == .alertFirstButtonReturn else {return}
+                self.showUpdateProgress("Downloading and verifying the signed update… Your current app keeps running and remains unchanged.")
+                NativeUpdater.shared.stage { staged in
+                    self.endUpdateProgress()
+                    switch staged {
+                    case .failure(let error):
+                        let failure=NSAlert();failure.messageText="Update not installed";failure.informativeText=error.localizedDescription+" Your current app remains unchanged.";failure.runModal()
+                    case .success:
+                        let ready=NSAlert();ready.messageText="Verified update ready"
+                        ready.informativeText="Install and restart this peer? The new signed app is installed separately. Application Support and Keychain are preserved. An expired App Attest enrollment may renew as a new member; confirm your personal account and receipt after reconnecting. Keep another admitted key holder running if this Mac is a network seed."
+                        ready.addButton(withTitle:"Install and restart");ready.addButton(withTitle:"Later")
+                        if ready.runModal() == .alertFirstButtonReturn {
+                            do {try NativeUpdater.shared.installAndRestart()}catch{NSAlert(error:error).runModal()}
+                        }
+                    }
+                }
+            }
+        }
+    }
+    @objc private func recoverVersion() {NativeUpdater.shared.showRecovery()}
     @objc private func saveDiagnosticReport() {
         let panel=NSSavePanel();panel.nameFieldStringValue="AttestNode-diagnostics.jsonl"
         panel.message="Review this report before sharing. It includes public account identifiers and recent events; no private keys."

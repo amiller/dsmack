@@ -1,37 +1,15 @@
-name: Mac unsigned build and reproducibility
+name: Mac App Attest capability probe
 on:
-  pull_request:
-    paths: ['node/**', 'scripts/release/**', 'release/**', '.github/workflows/mac-build.yml']
-  push:
-    branches: [main, 'release/**']
-    paths: ['node/**', 'scripts/release/**', 'release/**', '.github/workflows/mac-build.yml']
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
-  build:
-    strategy:
-      matrix:
-        flavor: [cli, gui]
+  probe:
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 5
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: Compare two unsigned builds
-        run: python3 scripts/release/check_repro.py --out build/repro ${{ matrix.flavor == 'gui' && '--gui' || '' }}
-      - name: Verify request ABI vectors
-        run: |
-          xcrun swiftc node/shared/Protocol.swift node/tests/RequestVectors.swift -o build/request-vectors
-          build/request-vectors
-      - name: Verify personal-account ABI and crypto vectors
-        run: |
-          xcrun swiftc node/shared/Protocol.swift node/shared/PersonalAccount.swift node/tests/PersonalAccountVectors.swift -o build/personal-vectors
-          build/personal-vectors
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
-        with:
-          name: mac-${{ matrix.flavor }}-unsigned-reproducibility
-          path: build/repro/
-          retention-days: 14
-          if-no-files-found: error
+      - name: OS and App Attest capability (unsigned, no keys or secrets)
+        run: bash scripts/release/probe_mac_app_attest.sh

@@ -95,6 +95,52 @@ describes sponsor-write pausing and nonce coordination. Recovery must reconcile
 pending transactions before new writes. A dashboard outage must not grant or
 revoke peer authority, and cached green status must expire.
 
+## Produce reviewed status candidates
+
+The Abalone release coordinator owns the live issuer deployment and promotion.
+This handoff prepares reviewed source, release candidates and public observations;
+it does not transfer deployment ownership or authorize a second physical Mac
+run before the join link is available.
+
+From the reviewed checkout, create a native observation outside the web root:
+
+```sh
+python3 tools/participation_status.py --output /tmp/participation.json
+```
+
+The default roster is empty. To list a member, retain that operator's explicit
+public-directory opt-in, review it and pass `--roster /path/to/public-opt-in.json`
+containing a JSON array of at most 64 unique member IDs. Public chain records or
+old evidence are not directory consent. The observer does not scan events or
+report counts of unlisted identities. Its output contains one-block registry,
+key-epoch/commitment and relay observations; registration and an old check-in do
+not establish online state, current admission, synchronized key possession or
+service readiness. See the [observer contract](../packaging/participation/README.md).
+
+For the selected Mac issuer, the coordinator first runs the normal coupon-free
+admission probe against the exact intended epoch and reviews its public pins.
+Normalize that report separately:
+
+```sh
+python3 tools/mac_coupon_status.py \
+  --manifest /reviewed-public/mac-deployment.json \
+  --probe /private-probe/coupon-free-mac-admission.json > /tmp/issuer.json
+```
+
+This checks report/pin consistency and keeps the probe's original timestamp; it
+does not independently verify attestation or imply provider readiness. The
+[dashboard runbook](../packaging/coupon/status/README.md) specifies exact inputs,
+separate controller `health.json`, static files and publishing behavior. Do not
+substitute the Mac inventory reader for either feed.
+
+The coordinator reviews the staged files before atomically publishing them to
+the approved status location. Missing/failed observations must show unknown;
+retained native and controller observations expire after 90 seconds, and issuer
+observations after 300 seconds. Exercise missing, malformed, stale and expired
+feeds in the actual browser candidate. A successful renderer or observer does
+not complete independent-device acceptance. Once the reviewed join page is
+public, it can be handed to friends with those acceptance gates clearly open.
+
 ## Coupon issuer releases are separate
 
 The [Mac coupon profile](../packaging/coupon/public-testnet.md) and

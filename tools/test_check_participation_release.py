@@ -1,9 +1,9 @@
-import copy
 import hashlib
 import importlib.util
 import json
 from pathlib import Path
 import unittest
+import time
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('checker', Path(__file__).with_name('check_participation_release.py'))
@@ -20,6 +20,10 @@ class FakeReader:
         self.sponsor_paused = False
         self.pending = []
         self.rpc_error = False
+        self.block_age = 0
+        self.block_hash = '0x' + 'a' * 64
+        self.block_number = '0x123'
+
     def read(self, url, payload=None):
         self.calls.append((url, payload))
         return b'package'
@@ -29,7 +33,8 @@ class FakeReader:
             if self.rpc_error:
                 return {'jsonrpc': '2.0', 'id': 1, 'error': {'message': 'private upstream detail'}}
             value = {'eth_chainId': self.chain_id, 'eth_blockNumber': '0x123',
-                     'eth_getCode': self.code, 'eth_call': self.paused}[payload['method']]
+                     'eth_getCode': self.code, 'eth_call': self.paused,
+                     'eth_getBlockByNumber': {'number': self.block_number, 'hash': self.block_hash, 'timestamp': hex(int(time.time()) - self.block_age)}}[payload['method']]
             return {'jsonrpc': '2.0', 'id': 1, 'result': value}
         if url.endswith('/info'):
             return {'chainId': self.relay_chain, 'registry': '0x123', 'protocolVersion': 2}
@@ -51,7 +56,7 @@ class Checks(unittest.TestCase):
         for key in ('nodeStarted','enrollmentSent','transactionsSent','freshPeerAdmission','independentDeviceAcceptance'):
             self.assertIs(result[key], False)
         methods = {payload['method'] for _, payload in self.reader.calls if payload}
-        self.assertEqual(methods, {'eth_chainId','eth_blockNumber','eth_getCode','eth_call'})
+        self.assertEqual(methods, {'eth_chainId','eth_blockNumber','eth_getCode','eth_call','eth_getBlockByNumber'})
         for _, payload in self.reader.calls:
             if payload and payload['method'] in ('eth_getCode', 'eth_call'):
                 self.assertEqual(payload['params'][-1], '0x123')
@@ -64,7 +69,7 @@ class Checks(unittest.TestCase):
                 self.manifest['asset'][field] = old
     def test_wrong_network_missing_code_pause_and_malformed_are_refused(self):
         for field, value in [('chain_id','0x1'),('code','0x'),('code','0xzz'),('paused','0x01'),
-                             ('relay_chain',1),('sponsor_paused',True),('pending',None),('rpc_error',True)]:
+                             ('relay_chain',1),('sponsor_paused',True),('pending',None),('rpc_error',True),('block_age',121),('block_age',-16),('block_hash','0x123'),('block_number','0x124')]:
             with self.subTest(field=field):
                 self.reader = FakeReader()
                 setattr(self.reader, field, value)
@@ -72,7 +77,7 @@ class Checks(unittest.TestCase):
                 self.assertFalse(result['passed'])
                 self.assertNotIn('private upstream detail', json.dumps(result))
     def test_http_error_does_not_echo_url(self):
-        with patch.object(checker.urllib.request, 'urlopen', side_effect=OSError('secret URL')):
+        with patch.object(checker.urllib.request.OpenerDirector, 'open', side_effect=OSError('secret URL')):
             with self.assertRaisesRegex(checker.CheckFailure, '^HTTP request failed$'):
                 checker.Reader().read('https://example.test/')
     def test_response_size_bound(self):
@@ -80,9 +85,17 @@ class Checks(unittest.TestCase):
             def __enter__(self): return self
             def __exit__(self, *args): pass
             def read(self, limit): return b'x' * limit
-        with patch.object(checker.urllib.request, 'urlopen', return_value=Response()):
+        with patch.object(checker.urllib.request.OpenerDirector, 'open', return_value=Response()):
             with self.assertRaisesRegex(checker.CheckFailure, 'byte limit'):
                 checker.Reader().read('https://example.test/')
+    def test_insecure_redirect_is_refused_before_following(self):
+        handler = checker.HTTPSRedirect()
+        with self.assertRaisesRegex(checker.CheckFailure, 'insecure redirect'):
+            handler.redirect_request(None, None, 302, 'redirect', {}, 'http://example.test/')
+    def test_invalid_json_is_sanitized(self):
+        with patch.object(checker.Reader, 'read', return_value=b'not JSON: private'):
+            with self.assertRaisesRegex(checker.CheckFailure, '^invalid JSON$'):
+                checker.Reader().json('https://example.test/')
     def test_deadline_and_https_required(self):
         with self.assertRaisesRegex(checker.CheckFailure, 'deadline'):
             checker.Reader(duration=-1).read('https://example.test/')

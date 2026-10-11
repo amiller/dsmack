@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
   "release": "v0.1.0-rc.3",
-  "observedAtUnix": 1791754021,
+  "observedAtUnix": 1791754133,
   "passed": true,
   "checks": [
     {
@@ -11,14 +11,18 @@
       "bytes": 2198437
     },
     {
-      "check": "chain-readiness",
+      "check": "chain-configuration-observation",
       "passed": true,
       "chainId": 84532,
-      "block": "0x2dc5022",
+      "block": "0x2dc505a",
+      "blockHash": "0x0aad093af6c46ea505f443875060f06094626e524f02a8c32663cc9aa09978cd",
+      "blockTimestamp": 1791754132,
+      "blockAgeSeconds": 0,
       "contractCodeBytes": {
         "registry": 6439,
         "receipts": 9923
       },
+      "contractCodeVerified": false,
       "paused": false
     },
     {

@@ -5,6 +5,7 @@ import hashlib
 import json
 from pathlib import Path
 import time
+import re
 import urllib.error
 import urllib.request
 
@@ -13,6 +14,12 @@ MAX_BYTES = 8 * 1024 * 1024
 
 class CheckFailure(Exception):
     pass
+
+class HTTPSRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        if not newurl.startswith("https://"):
+            raise CheckFailure("insecure redirect refused")
+        return super().redirect_request(req, fp, code, msg, headers, newurl)
 
 class Reader:
     def __init__(self, timeout=15, duration=90):
@@ -28,7 +35,7 @@ class Reader:
         req = urllib.request.Request(url, data=None if payload is None else json.dumps(payload).encode(),
             headers={"User-Agent": "Dsmack-release-check/1", "Content-Type": "application/json"})
         try:
-            with urllib.request.urlopen(req, timeout=min(self.timeout, remaining)) as response:
+            with urllib.request.build_opener(HTTPSRedirect()).open(req, timeout=min(self.timeout, remaining)) as response:
                 data = response.read(MAX_BYTES + 1)
         except (OSError, urllib.error.URLError):
             raise CheckFailure("HTTP request failed") from None
@@ -75,7 +82,18 @@ def check(manifest, reader):
     def chain_check():
         need(int(rpc("eth_chainId", []), 16) == chain["id"], "chain ID mismatch")
         block = rpc("eth_blockNumber", [])
-        int(block, 16)
+        need(isinstance(block, str) and re.fullmatch(r"0x(?:0|[1-9a-f][0-9a-f]*)", block) is not None,
+             "malformed block number")
+        header = rpc("eth_getBlockByNumber", [block, False])
+        need(isinstance(header, dict) and header.get("number") == block
+             and isinstance(header.get("hash"), str)
+             and re.fullmatch(r"0x[0-9a-fA-F]{64}", header["hash"]) is not None
+             and isinstance(header.get("timestamp"), str)
+             and re.fullmatch(r"0x(?:0|[1-9a-f][0-9a-f]*)", header["timestamp"]) is not None,
+             "malformed block header")
+        timestamp = int(header["timestamp"], 16)
+        age = int(time.time()) - timestamp
+        need(-15 <= age <= 120, "stale or future chain block")
         code_sizes = {}
         for name in ("registry", "receipts"):
             code = rpc("eth_getCode", [chain[name], block])
@@ -85,8 +103,8 @@ def check(manifest, reader):
             code_sizes[name] = len(raw)
         paused = rpc("eth_call", [{"to": chain["registry"], "data": "0x5c975abb"}, block])
         need(paused == "0x" + "0" * 64, "network paused or malformed pause state")
-        return {"chainId": chain["id"], "block": block, "contractCodeBytes": code_sizes, "paused": False}
-    record("chain-readiness", chain_check)
+        return {"chainId": chain["id"], "block": block, "blockHash": header["hash"], "blockTimestamp": timestamp, "blockAgeSeconds": age, "contractCodeBytes": code_sizes, "contractCodeVerified": False, "paused": False}
+    record("chain-configuration-observation", chain_check)
     def relay_check():
         info = reader.json(manifest["relay"] + "/info")
         need(isinstance(info, dict) and info.get("chainId") == chain["id"] and info.get("protocolVersion") == manifest["protocolVersion"]

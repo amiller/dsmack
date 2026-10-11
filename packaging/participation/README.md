@@ -15,9 +15,11 @@ python3 -m unittest discover -s tools -p test_check_participation_release.py
 
 The checked-in [release manifest](release-v0.1.0-rc.3.json) pins the exact public
 ZIP by byte count and SHA-256, plus its measured network's relay, chain and
-contract addresses. The command downloads into memory without retaining an
+contract addresses. Insecure HTTPS-to-HTTP redirects are refused. The command downloads into memory without retaining an
 installed copy, reads the contracts at one observed block, and checks the relay's
-advertised network and sponsor pause state. It performs no enrollment, mailbox
+advertised network and sponsor pause state. The observed block must be at most
+120 seconds old and no more than 15 seconds in the future according to the local
+clock, with a correctly shaped hash and matching block number. It performs no enrollment, mailbox
 receive, transaction submission, app launch or coupon call. Each HTTP response is
 limited to 8 MiB, requests time out after 15 seconds of socket inactivity, and a
 90-second elapsed deadline is checked before and after each request. This is not

@@ -36,6 +36,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO), str(REPO / 'app/macos')]
 from verifier.core import Policy, Reject, require, unb64, unique_json, verify_attestation
+from runner.kms.app_binding import app_binding_allowed, key_parcel
 from check_evidence import APP_ID, MACOS_VALIDATION_CATEGORY, root
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -46,6 +47,7 @@ from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 p = argparse.ArgumentParser()
 p.add_argument('--port', type=int, default=8790)
 p.add_argument('--allow', action='append', default=[], help='[APP:]CDHASH:COMPOSE_HASH')
+p.add_argument('--legacy-genesis', action='store_true', help='signed app-less Runner only; exact CDHash|compose key namespace, no attested app metadata')
 p.add_argument('--dev-unattested', action='store_true', help='DEV-ONLY: release without attestation')
 p.add_argument('--allow-compose', action='append', default=[], help='COMPOSE_HASH (dev mode, app "dev|COMPOSE_HASH")')
 p.add_argument('--record', type=Path, help='write each /release response body to this directory')
@@ -64,6 +66,8 @@ def build(x):
 ALLOW = {}
 for app, cdhash, compose in [build(x) for x in args.allow] + [build(f'dev:{h}') for h in args.allow_compose]:
     assert ALLOW.setdefault((cdhash, compose), app) == app, f'build {cdhash}:{compose} is in two apps: {ALLOW[cdhash, compose]!r}, {app!r}'
+assert not args.legacy_genesis or not args.dev_unattested, 'legacy genesis requires genuine attestation'
+assert not args.legacy_genesis or all(app == cdhash + '|' + compose for (cdhash, compose), app in ALLOW.items()), 'legacy genesis requires exact measured-build namespace'
 assert ALLOW and all((c == 'dev') == args.dev_unattested for c, _ in ALLOW), \
     'configure exactly one mode: --allow [APP:]CDHASH:COMPOSE, or --dev-unattested with dev builds (--allow APP:dev:COMPOSE, --allow-compose COMPOSE)'
 assert bool(args.keys_file) == bool(args.provider) and bool(args.keys_file) != ('KMS_API_KEY' in os.environ), \
@@ -110,7 +114,7 @@ def release(req):
         cdhash = info['signals']['cdhash']
         require((cdhash, client['compose_hash']) in ALLOW, 'cdhash_compose_pair_not_allowed')
     app = ALLOW[cdhash, client['compose_hash']]
-    require(client['app'] == app, 'build_not_in_requested_app')
+    require(app_binding_allowed(client, app, cdhash, legacy_genesis=args.legacy_genesis), 'build_not_in_requested_app')
     require(client['domain'] == 'mac-compose-boot/1', 'wrong_client_data_domain')
     issued = NONCES.pop(client['nonce'], None)
     require(issued is not None and time.time() - issued < 60, 'unknown_or_stale_nonce')
@@ -122,7 +126,7 @@ def release(req):
     nonce = os.urandom(12)
     b64 = lambda b: base64.b64encode(b).decode()
     parcel = {'api_key': API_KEY.decode()} if args.dev_omit_app_key else \
-        {'api_key': API_KEY.decode(), 'app': app, 'app_key': app_key(app).hex()}
+        key_parcel(API_KEY.decode(), app, app_key(app).hex(), legacy_genesis=args.legacy_genesis)
     return {'epk': b64(kms_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)),
             'sealed': b64(nonce + AESGCM(aead).encrypt(nonce, json.dumps(parcel, sort_keys=True, separators=(',', ':')).encode(), hashlib.sha256(client_data).digest()))}
 

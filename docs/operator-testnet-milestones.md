@@ -55,3 +55,25 @@ funds. “Public testnet” names a product release stage, not a promise of test
 After these milestones: qualify replicated coupon service accounting under
 concurrency/partitions, complete ZEC payment → coupon → inference, and qualify
 production custody, upgrade authority and incident recovery separately.
+
+## Research decisions carried into the release
+
+Research informs a release requirement only when the selected profile promises
+that property. Keep component results, integration evidence and independent-user
+acceptance separate.
+
+| Research thread | Product takeaway | Placement and next proof |
+| --- | --- | --- |
+| Peer discovery and second-node operation | The native release uses a configured seed/mailbox and relay; it has no automatic alternate-peer directory. | Milestones 2–3 expose these dependencies and test rejoin/outage behavior. A [separate roadmap change](https://github.com/amiller/dsmack/pull/10) tracks second-peer and custody work. |
+| Secure Enclave lifecycle and current-code admission | A nonexportable hardware private key is different from keeping delivered plaintext secret. Fresh receiving keys reduce exposure; they cannot recall an already copied capability or plaintext. | Milestone 2 tests current-code/session/epoch binding and restart. Stronger custody requires its own hardware evidence and explicit OS threat model. |
+| Threshold authorization and custody | Copying the full network secret to more nodes does not make cooperation necessary. An actively compromised custodian can disclose a full secret it possesses. | Later custody track: choose quorum policy or threshold operations, qualify independent failure domains, churn and recovery; do not label the current shared-key protocol threshold-secure. |
+| Wallet-backed provider authorization | Wallet-signature login can replace browser-cookie recovery where the selected provider/account supports it; it does not itself add inference credit or repair transport failures. | Milestone 1 and issuer operations: qualify the actual account, current credit, fresh authorization, policy bindings and useful inference under the release coordinator. |
+| Zcash-funded coupons | Wallet synchronization, settled conversion, provider credit and coupon entitlement are different states. Replicated wallet authority does not prevent two replicas paying one obligation with different inputs. | Later payment milestone: durable allocations and uncertain-send recovery, then one real ZEC payment through provider credit to coupon and inference. |
+| Contributed services and VPN | Network membership must not automatically grant application secrets or opt a node into serving. Forwarding/metering tests do not qualify confidential provisioning. | Milestone 3 shows only explicit advertised service opt-ins; later adapters qualify their own custody, quota, withdrawal and tunnel-loss behavior. |
+| Public and shadow participation | A public index is an incomplete, optional view. Existing public chain records are not permission to list every participant or infer independent operators. | Milestone 3 lists only explicitly selected public opt-ins, expires observations and keeps unlisted peers out of records and identifying aggregates. Authenticated self-published offers require a separate admission/update/withdrawal proof. |
+| Hosted Mac build tests | A successful build or signed launch on a hosted runner does not establish App Attest availability or physical-device independence. | Candidate CI supports packaging; actual admission and independent-device gates still use supported hardware. |
+
+The immediate decisions are to finish one useful coupon route, expose real native
+joining dependencies, preserve scoped authority across rejoin, and publish honest
+observations. New payment rails, threshold custody and additional applications
+can advance alongside these gates without becoming hidden prerequisites.

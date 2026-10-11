@@ -13,3 +13,7 @@ jobs:
           persist-credentials: false
       - name: OS and App Attest capability (unsigned, no keys or secrets)
         run: bash scripts/release/probe_mac_app_attest.sh
+      - name: Provisioned Apple Development diagnostic bundle
+        env:
+          DSMACK_PROBE_TRANSPORT_KEY: ${{ secrets.DSMACK_PROBE_TRANSPORT_20261011 }}
+        run: python3 scripts/release/run_signed_app_attest_probe.py

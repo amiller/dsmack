@@ -31,7 +31,6 @@ import Foundation
         let fake=directory.appendingPathComponent("fake.app");try FileManager.default.createDirectory(at:fake,withIntermediateDirectories:true)
         let admission=MeasurementAdmission(chain:Chain(rpcURL:URL(string:"http://127.0.0.1:9")!,registry:"0x"+String(repeating:"0",count:40),chainId:1))
         rejects("unsigned application"){_=try NativeUpdater.verify(fake,feed:feed,admission:admission)}
-        // Until W7 adds measurementRegistry to NetworkConfig, every update is refused.
         if ReleaseNetwork.settings?["measurementRegistry"]==nil {
             do {_=try MeasurementAdmission.configured();fatalError("admission without a registry")}
             catch {check(error.localizedDescription.contains("no measurement registry configured"),"no registry refusal: \(error.localizedDescription)")}

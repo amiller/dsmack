@@ -70,7 +70,7 @@ def main():
             raise SystemExit('Release network metadata is missing')
         network_settings = json.loads(network_match.group(1))
         network_keys = ('chainId', 'registry', 'category', 'protocolVersion', 'relay',
-                        'rpc', 'peer', 'badges', 'accountFactory')
+                        'rpc', 'peer', 'badges', 'accountFactory', 'measurementRegistry')
         # Resource sealing authenticates these pins alongside the executable.
         release_metadata = {'format': 1, 'profile': 'native-v2', 'build': int(args.build_number),
                             'version': args.version, 'sourceCommit': output('git', 'rev-parse', 'HEAD'),

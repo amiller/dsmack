@@ -22,14 +22,14 @@
   <section aria-labelledby="members-title">
     <h2 id="members-title">Members <span class="badge" id="chain-state">unknown</span></h2>
     <p id="summary">Loading the registry.</p>
-    <div class="table-scroll"><table><thead><tr><th>Member</th><th>Registry</th><th>Version</th><th>Last seen</th><th>Attestation</th><th>Key epoch</th><th>Latest tx</th></tr></thead><tbody id="member-rows"></tbody></table></div>
+    <div class="table-scroll"><table><thead><tr><th>Member</th><th>Registry</th><th>Version</th><th>Admitted</th><th>Last seen</th><th>Attestation</th><th>Key epoch</th><th>Latest tx</th></tr></thead><tbody id="member-rows"></tbody></table></div>
   </section>
   <section aria-labelledby="directory-title">
     <h2 id="directory-title">Relay directory <span class="badge" id="directory-state">unknown</span></h2>
     <p id="directory-message">Loading the relay directory.</p>
     <small>Check-ins are opt-in. The relay verifies each App Attest assertion and receipt; this page displays its report. Members without a check-in show their last registry event instead.</small>
   </section>
-  <p class="note">"Active" is the registry's <code>isActive</code>, the check peers run before talking to each other; it holds for 60 seconds after a member's last on-chain check. "App Attest at join" means the registry accepted an attestation for that member; any Apple team may join, so it does not identify who runs the node.</p>
+  <p class="note">"Active" is the registry's <code>isActive</code>, the check peers run before talking to each other; it holds for 60 seconds after a member's last on-chain check. "App Attest at join" means the registry accepted an attestation for that member; any Apple team may join, so it does not identify who runs the node. "Admitted" reads the CDHash of the member's last App Attest assertion from its category's adapter; for the measured category it is admitted while the <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a> has an open window for that build's M at the current block.</p>
   <noscript><p>This page needs JavaScript to read the registry.</p></noscript>
 </main>
 <script type="module">

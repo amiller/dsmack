@@ -29,13 +29,15 @@ export function directoryView(value, now = Date.now() / 1000) {
   if (value.error !== null) return unknown();
   const ids = new Set(), members = new Set(), rows = [];
   for (const n of value.nodes) {
-    if (!exact(n, ["id", "member", "account", "version", "checkIn", "sync"]) || !hex(n.id, 64) || !hex(n.member, 64)
+    const keys = ["id", "member", "account", "version", "checkIn", "sync"], versionKeys = ["selfReported", "buildNumber", "admittedCodeHash"];
+    if (!(exact(n, keys) || exact(n, [...keys, "label"])) || !hex(n.id, 64) || !hex(n.member, 64)
+        || !(n.label == null || (typeof n.label === "string" && /^[A-Za-z0-9 ._-]{0,32}$/.test(n.label)))
         || ids.has(n.id) || members.has(n.member)
         || !exact(n.account, ["status", "address", "participantToken"])
         || !["verified", "unavailable"].includes(n.account.status)
         || (n.account.status === "verified" ? !hex(n.account.address, 40) : n.account.address !== null || n.account.participantToken !== null)
         || !(n.account.participantToken === null || (uint(n.account.participantToken, (1n << 256n) - 1n) && BigInt(n.account.participantToken) > 0n))
-        || !exact(n.version, ["selfReported", "buildNumber", "admittedCodeHash"])
+        || !(exact(n.version, versionKeys) || exact(n.version, [...versionKeys, "measurement"])) || !(n.version.measurement == null || hex(n.version.measurement, 64))
         || typeof n.version.selfReported !== "string" || !/^[0-9][A-Za-z0-9._-]{0,63}$/.test(n.version.selfReported)
         || !uint(n.version.buildNumber, 2147483647n) || !hex(n.version.admittedCodeHash, 64)
         || !exact(n.checkIn, ["lastVerifiedAt", "expiresAt", "status"]) || !["fresh", "stale"].includes(n.checkIn.status)
@@ -98,12 +100,14 @@ export function drawDirectory(value, doc = document) {
     const fields = [
       ["Participant receipt", node.account.participantToken === null ? "Not available" : `#${node.account.participantToken}`],
       ["Check-in", `${node.fresh ? "Fresh verified check-in" : "Stale check-in"} · ${node.checkIn.lastVerifiedAt}`],
+      ["Label", node.label || "None"],
       ["App version (signed self-report)", `${node.version.selfReported} · build ${node.version.buildNumber}`],
       ["Key exchange", `${node.syncLabel} · epoch ${node.sync.keyEpoch}`],
     ];
     const evidence = [
       ["Account address", node.account.address ?? "No verified account binding"],
       ["Admitted build (relay-verified)", node.version.admittedCodeHash],
+      ["Code measurement M", node.version.measurement ?? "Not reported"],
       ["Receipt block time", node.sync.receiptBlockTime ?? "Unknown"],
       ["Public-key fingerprint", node.sync.groupPublicFingerprint ?? "Unknown"],
       ["Receipt transaction", node.sync.receiptTransaction ?? "Unknown"],

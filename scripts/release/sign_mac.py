@@ -8,6 +8,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 from verify_signed_payload import verify
+from build_mac import entitlements
 
 
 def run(*args):
@@ -66,6 +67,9 @@ def main():
         raise SystemExit('Unsigned input does not match build manifest')
     profile = plistlib.loads(subprocess.check_output(['security', 'cms', '-D', '-i', str(args.profile)]))
     ent = validate_profile(profile, manifest['bundle_id'], args.team, args.channel)
+    # The measurement pins every non-identity entitlement, so every signer uses the template.
+    if ent != plistlib.loads(entitlements(args.team, manifest['bundle_id']).encode()):
+        raise SystemExit('Profile entitlements differ from node/mac/Entitlements.template.plist')
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
     app = out / 'Node.app'

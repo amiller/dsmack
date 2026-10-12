@@ -8,6 +8,7 @@
 | [Protocols](protocols/README.md) | Wire formats, identity checks and issuance policy |
 | [Contributing](../CONTRIBUTING.md) | Isolated development and checks |
 | [Mac builds](native-build.md) | Toolchain, reproducibility and signing |
+| [Build under your own team](build.md) | Rebuild from source and compare the measurement |
 | [Independent builders](native-builder.md) | Account-specific signing and handoff |
 | [Release](release.md) | Current profile and acceptance gates |
 | [Roadmap](roadmap.md) | Public work and unresolved requirements |

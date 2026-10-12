@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import plistlib
+import re
 import shutil
 import subprocess
 import tempfile
@@ -25,11 +26,20 @@ def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
 
 
+def entitlements(team, bundle_id):
+    if not re.fullmatch(r'[A-Z0-9]{10}', team) or not re.fullmatch(r'[A-Za-z0-9.-]+', bundle_id):
+        raise SystemExit('Team ID must be 10 uppercase letters or digits; bundle ID letters, digits, dots, hyphens')
+    template = (ROOT / 'node/mac/Entitlements.template.plist').read_text()
+    return template.replace('TEAM_ID', team).replace('BUNDLE_ID', bundle_id)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gui', action='store_true', help='Build the persistent menu-bar participant')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--bundle-id', default='dev.dsmack.provider')
+    parser.add_argument('--team', help='Also write entitlements.plist for this Apple Team ID beside Node.app')
+    parser.add_argument('--modified', action='store_true', help='Negative control: build the MODIFIED variant')
     parser.add_argument('--version', default='0.1.0')
     parser.add_argument('--build-number', default='3')
     args = parser.parse_args()
@@ -55,7 +65,6 @@ def main():
         resources = app / 'Contents/Resources'
         resources.mkdir()
         network_source = (ROOT / 'node/mac/NetworkConfig.swift').read_text()
-        import re
         network_match = re.search(r'#"""\s*(\{.*?\})\s*"""#', network_source, re.S)
         if not network_match:
             raise SystemExit('Release network metadata is missing')
@@ -73,7 +82,7 @@ def main():
     # Stable module name, relative source names and path remapping. No debug data,
     # provisioning profile or developer signature belongs in this comparison.
     flags = ['-O', '-whole-module-optimization', '-module-name', 'AttestNode',
-             '-target', 'arm64-apple-macos27.0', '-framework', 'DeviceCheck', '-D', 'HONEST',
+             '-target', 'arm64-apple-macos27.0', '-framework', 'DeviceCheck', '-D', 'MODIFIED' if args.modified else 'HONEST',
              '-file-prefix-map', f'{ROOT}=/src', '-debug-prefix-map', f'{ROOT}=/src',
              '-Xlinker', '-no_adhoc_codesign']
     if args.gui:
@@ -82,14 +91,16 @@ def main():
         subprocess.run(['xcrun', 'swiftc', '-sdk', sdk, '-module-cache-path', cache,
                         *flags, *SOURCES, '-o', str(executable)], cwd=ROOT, check=True,
                        env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC'})
-    tracked_inputs = SOURCES + ['node/mac/Info.plist', 'scripts/release/build_mac.py',
+    if args.team:
+        (dest / 'entitlements.plist').write_text(entitlements(args.team, args.bundle_id))
+    tracked_inputs = SOURCES + ['node/mac/Info.plist', 'node/mac/Entitlements.template.plist', 'scripts/release/build_mac.py',
                                'node/mac/toolchain.json'] + artwork_inputs
     record = {'schema': 1, 'kind': 'unsigned-build', 'flavor': 'gui' if args.gui else 'cli', 'toolchain': actual,
               'source_commit': output('git', 'rev-parse', 'HEAD'),
               'dirty_build_inputs': bool(output('git', 'status', '--porcelain', '--untracked-files=normal', '--', *tracked_inputs)),
               'inputs': {p: digest(ROOT / p) for p in tracked_inputs},
               'compiler_flags': [v.replace(str(ROOT), '/src') for v in flags],
-              'bundle_id': args.bundle_id, 'version': args.version, 'build_number': args.build_number,
+              'bundle_id': args.bundle_id, 'team': args.team, 'version': args.version, 'build_number': args.build_number,
               'files': {str(p.relative_to(app)): digest(p) for p in sorted(app.rglob('*')) if p.is_file()}}
     (dest / 'build-manifest.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
     print(json.dumps(record['files'], indent=2))

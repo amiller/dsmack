@@ -70,3 +70,13 @@ def test_der_vectors():
         with pytest.raises(ValueError) as e: run(c)
         assert str(e.value) == c['reason']
     assert X['accept']['otherTeamValues']['M'] == X['accept']['identityValueAnyType']['M'] == V['node']
+
+
+def test_two_team_vectors():
+    F = Path(__file__).parents[1] / 'contracts/fixtures/measure'
+    ms = {}
+    for n in ('honest-a', 'honest-b', 'modified'):
+        j = json.loads((F / f'{n}.json').read_text()); h = lambda k: bytes.fromhex(j[k][2:])
+        ms[n] = '0x' + measure(h('cd'), h('page0'), h('ent'), j['linkeditCmd'], j['codeSigCmd']).hex()
+        assert ms[n] == j['M'] and hashlib.sha256(h('cd')).hexdigest() == j['cdhash'][2:]
+    assert ms['honest-a'] == ms['honest-b'] != ms['modified']

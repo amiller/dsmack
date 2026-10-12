@@ -1,0 +1,35 @@
+{
+  "chainId": 84532,
+  "admin": "0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61",
+  "DemoV1": "0xd4B33C83576a6049d29c6B849ec73491e52781a0",
+  "measurementRegistry": "0x976C2F9DF2bab0616f25D07CEC77cab7C5272203",
+  "measuredAdapter": "0xBD78416237c18874BBbD55ccc9A38Fdd85945982",
+  "measuredCategory": "0xfea7ca3e37ca38760ee1b6b754c54abec93064e5513ffe5e15d955087a4014cb",
+  "family": "0x6170706c652d6d61636f73000000000000000000000000000000000000000000",
+  "policy": "0xb7931370421625aab90a7b65d7596d93c9178ede081a7ae72b9d9aa1c6aa2f93",
+  "adapterCodeHash": "0x7e72cb9682a8dc8f56343a156277129bc4f00a5a609daf95484770aeb0c7e94e",
+  "RegistryArtifact": "out/MeasurementRegistry.sol/MeasurementRegistry.json",
+  "AdapterArtifact": "out/AppleAttestMeasuredV1.sol/AppleAttestMeasuredV1.json",
+  "transactions": [
+    {
+      "label": "MeasurementRegistry",
+      "hash": "0xfda8ccfb098891c976fce2ffedcd2450aaa63bffd9ba98f35293607adc31ad00",
+      "block": 48031391
+    },
+    {
+      "label": "AppleAttestMeasuredV1",
+      "hash": "0xf0d0a741e50cddcf1737b1d26ad90d2b76dd7a6c093d8a3b303bcdcd06cb488f",
+      "block": 48031393
+    },
+    {
+      "label": "addCategory",
+      "hash": "0x4de2961a4d49f2d4e4640559939e48b07fb19414a992f2a74ffed25594ae6965",
+      "block": 48031396
+    },
+    {
+      "label": "setCategoryEnabled",
+      "hash": "0x3ec53f5a0040aa892cb786b9d8c074b3b907e2af48c1c527caceb3bacf138784",
+      "block": 48031398
+    }
+  ]
+}

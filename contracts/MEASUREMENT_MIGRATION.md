@@ -1,4 +1,8 @@
-# Measurement registry migration (not deployed)
+# Measurement registry migration
+
+Deployed on Base Sepolia 2026-10-12: `contracts/network/deploy-measured-base-sepolia.json`
+(`scripts/release/deploy_measured.py`). No measurement is admitted yet; the old category and
+`ResearchBadges` are unchanged.
 
 `MeasurementRegistry` admits code measurements (`Measurement.sol`) in block windows instead of
 one `CDRegistry` baseline. `AppleAttestMeasuredV1` is the matching adapter. It keeps

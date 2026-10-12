@@ -18,6 +18,8 @@ struct Config {
     let publicDirectory: Bool; let label: String
     /// Loopback port for the dsmack-sdk JSON-line server (SDK.swift); nil serves nothing.
     let sdkPort: UInt16?
+    /// Runner CDHashes (full SHA-256) admitted to the SDK port; required, non-empty, with sdkPort.
+    let sdkRunners: [Data]
     /// Set only for owner-flagged seeds (`sealer: true`): the sealed group key beside the config file.
     let sealPath: URL?
     init(_ d: [String:Any],path: URL?=nil) throws {
@@ -45,6 +47,8 @@ struct Config {
         #endif
         label=d["label"] as? String ?? ""
         if let p=d["sdkPort"] {guard let n=p as? Int,(1...65535).contains(n) else {throw DemoError.invalid("sdkPort must be 1-65535")};sdkPort=UInt16(n)} else {sdkPort=nil}
+        sdkRunners=try (d["sdkRunners"] as? [String] ?? []).map(bytes32)
+        try need((sdkPort==nil)==sdkRunners.isEmpty && (d["sdkRunners"]==nil || d["sdkRunners"] is [String]),"sdkPort and a non-empty sdkRunners list go together")
         try need(label.range(of:"^[A-Za-z0-9 ._-]{0,32}$",options:.regularExpression) != nil,"label: up to 32 of A-Z a-z 0-9 space . _ -")
         badges=d["badges"] as? String;accountFactory=d["accountFactory"] as? String
         try need((badges == nil)==(accountFactory == nil),"incomplete badge configuration")
@@ -57,7 +61,8 @@ struct Config {
                 && chainId==fixed["chainId"] as? Int && category.lowercased()==(fixed["category"] as? String)?.lowercased()
                 && relay==fixed["relay"] as? String && protocolVersion==fixed["protocolVersion"] as? Int
                 && badges?.lowercased()==(fixed["badges"] as? String)?.lowercased()
-                && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased(),"release network override rejected")
+                && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased()
+                && d["sdkRunners"] as? [String]==fixed["sdkRunners"] as? [String],"release network override rejected")
         }
         #endif
     }

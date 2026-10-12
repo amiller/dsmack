@@ -5,9 +5,11 @@ import Darwin
 /// dsmack-sdk v1, node side (planning dsmack-sdk-design §2-3): per-app roots derived from the group key G,
 /// served to the runner as JSON lines. The "dsmack-sdk/..." strings are frozen: changing one changes every app key.
 enum SDK {
-    /// P-256 (x9.63) key that signs interim allow records. Compiled in, so it is part of M; nil serves nothing.
-    /// TODO(AppRegistry): replace with composes(appId, composeHash) windows read on chain at the statement's block.
-    static let sponsor: Data? = nil
+    /// Ed25519 key that signs interim allow records: the lab network policy authority key that signs genesis approvals
+    /// (native-live2 policy-authority.pub). Compiled in, so it is part of M.
+    /// TODO(AppRegistry): interim; replace with composes(appId, composeHash) windows read on chain at the statement's block.
+    static let sponsor=try! Curve25519.Signing.PublicKey(rawRepresentation:unhex("a9f24171fb7f1a1ce28409d97127018d981b25417f8ba531a2af8d90b787b41e"))
+    static let runnerDomain="dsmack-sdk-runner/1",challengeSeconds:UInt64=60,maxEnrollmentAge:Int64=12*3600
     static let p256Order=[UInt8](try! unhex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"))
 
     static func appRoot(_ group: P256.Signing.PrivateKey,chainId: UInt64,registry: String,scope: Data,keyEpoch: UInt64,appId: Data) throws -> SymmetricKey {
@@ -42,7 +44,7 @@ enum SDK {
 
     /// JSON lines on 127.0.0.1 (the loopback channel the runner already uses for its KMS; no socket file).
     /// Returns the bound port; port 0 picks one.
-    static func listen(port: UInt16,_ reply: @escaping (Data)->Data) throws -> UInt16 {
+    static func listen(port: UInt16,_ reply: @escaping (Data,inout SDKSession)->Data) throws -> UInt16 {
         let fd=socket(AF_INET,SOCK_STREAM,0);try need(fd>=0,"sdk socket")
         var one:Int32=1;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,socklen_t(4))
         var a=sockaddr_in();a.sin_family=sa_family_t(AF_INET);a.sin_port=port.bigEndian;a.sin_addr.s_addr=inet_addr("127.0.0.1")
@@ -57,13 +59,14 @@ enum SDK {
         }
         return UInt16(bigEndian:a.sin_port)
     }
-    static func serve(_ c: Int32,_ reply: (Data)->Data) {
+    static func serve(_ c: Int32,_ reply: (Data,inout SDKSession)->Data) {
         defer {close(c)}
+        var session=SDKSession()
         var one:Int32=1;setsockopt(c,SOL_SOCKET,SO_NOSIGPIPE,&one,socklen_t(4))
         var buffer=Data(),chunk=[UInt8](repeating:0,count:4096)
         while true {
             if let newline=buffer.firstIndex(of:10) {
-                let out=reply(Data(buffer[..<newline]));buffer=Data(buffer[(newline+1)...])
+                let out=reply(Data(buffer[..<newline]),&session);buffer=Data(buffer[(newline+1)...])
                 guard out.withUnsafeBytes({write(c,$0.baseAddress,$0.count)})==out.count else {return}
                 continue
             }
@@ -74,33 +77,47 @@ enum SDK {
     }
 }
 
-/// get_key, evidence and info. Each request names the runner's app_id and compose_hash and carries the
+/// One connection's runner admission: the challenge it was issued and, once admitted, the runner's compose_hash.
+struct SDKSession {var challenge:(value:Data,issued:UInt64)?;var compose:Data?}
+
+/// challenge, get_key, evidence and info. Each key op names the runner's app_id and compose_hash and carries the
 /// sponsor's allow record {scope, until, signature}; get_key returns the app root sealed to eph_pub, never leaf keys.
-/// TODO(runner admission): the design's boot check (runner App Attest over dsmack-sdk-boot/1, CDHash admitted)
-/// is not here yet, so any local process that can reach the port and present an allow record gets that app's root.
+/// Runner admission (the RunnerGate pattern of the native authority): the first key op on a connection carries
+/// runner_evidence, the runner's /attest object, whose assertion covers
+/// {"compose_hash","data":"dsmack-sdk-runner/1|<challenge>|<sha256 of the request without runner_evidence, JSON
+/// sorted keys, no spaces>","domain":"mac-compose-assert/1"} for the challenge this connection was issued at most 60 s
+/// before. Enrollment and assertion must name a CDHash in `runners` and the request's compose_hash; the connection then
+/// serves only that compose. Without it every key op is refused.
 struct SDKService {
-    let chainId: UInt64,registry: String,sponsor: P256.Signing.PublicKey,measurement: Data
+    let chainId: UInt64,registry: String,sponsor: Curve25519.Signing.PublicKey,measurement: Data
+    let runners: [Data],anchor: Data
     let checkIn: () throws -> (member:Data,tx:String)
     let group: (Data,UInt64?) throws -> (epoch:UInt64,key:P256.Signing.PrivateKey)
     var block: () throws -> UInt64
     var now: () -> UInt64={UInt64(Date().timeIntervalSince1970)}
 
-    func reply(_ line: Data) -> Data {
+    func reply(_ line: Data,_ session: inout SDKSession) -> Data {
         var out:[String:Any]
-        do {out=try handle(line)} catch {out=["error":"\(error)"]}
+        do {out=try handle(line,&session)} catch {out=["error":"\(error)"]}
         out["v"]=1
         return (try! JSONSerialization.data(withJSONObject:out,options:[.sortedKeys]))+Data([10])
     }
-    func handle(_ line: Data) throws -> [String:Any] {
+    func handle(_ line: Data,_ session: inout SDKSession) throws -> [String:Any] {
         guard let q=try JSONSerialization.jsonObject(with:line) as? [String:Any] else {throw DemoError.invalid("request is not a JSON object")}
         try need(q["v"] as? Int==1,"unsupported v")
+        if q["op"] as? String=="challenge" {
+            let c=SymmetricKey(size:.bits256).withUnsafeBytes{Data($0)};session.challenge=(c,now());return ["challenge":hex(c)]
+        }
         guard let op=q["op"] as? String,let a=q["app_id"] as? String,let c=q["compose_hash"] as? String,let allow=q["allow"] as? [String:Any]
         else {throw DemoError.invalid("request needs op, app_id, compose_hash and allow")}
         let appId=try bytes32(a),composeHash=try bytes32(c)
         var epoch:UInt64?
         if let e=q["epoch"] {guard let n=e as? Int,n>=0 else {throw DemoError.invalid("epoch")};epoch=UInt64(n)}
         guard ["get_key","evidence","info"].contains(op) else {throw DemoError.invalid("unknown op")}
-        let r=try release(appId,composeHash,try allowed(appId,composeHash,allow),epoch)
+        let scope=try allowed(appId,composeHash,allow)
+        if session.compose==nil {try admit(q,composeHash,&session)}
+        try need(session.compose==composeHash,"connection admitted for another compose")
+        let r=try release(appId,composeHash,scope,epoch)
         switch op {
         case "get_key":
             guard let e=q["eph_pub"] as? String else {throw DemoError.invalid("get_key needs eph_pub")}
@@ -123,9 +140,34 @@ struct SDKService {
         guard let s=d["scope"] as? String,let u=d["until"] as? Int,u>=0,let g=d["signature"] as? String else {throw DemoError.invalid("allow needs scope, until and signature")}
         let scope=try bytes32(s)
         let message=try SDK.allowMessage(chainId:chainId,registry:registry,appId:appId,composeHash:composeHash,scope:scope,until:UInt64(u))
-        try need(sponsor.isValidSignature(try P256.Signing.ECDSASignature(rawRepresentation:unhex(g)),for:message),"compose not allowed under app_id")
+        try need(sponsor.isValidSignature(try unhex(g),for:message),"compose not allowed under app_id")
         try need(now()<UInt64(u),"allow record expired")
         return scope
+    }
+    func admit(_ q: [String:Any],_ composeHash: Data,_ session: inout SDKSession) throws {
+        guard let e=q["runner_evidence"] as? [String:Any] else {throw DemoError.invalid("runner evidence required")}
+        guard let issued=session.challenge else {throw DemoError.invalid("runner evidence needs a challenge on this connection")}
+        session.challenge=nil
+        let at=now(),compose=String(hex(composeHash).dropFirst(2))
+        try need(at<=issued.issued+SDK.challengeSeconds,"challenge expired")
+        guard Set(e.keys)==["type","keyId","attestation","bootClientData","assertion","assertClientData"],e["type"] as? String=="macrunner",
+              let keyID=e["keyId"] as? String,let attestation=e["attestation"] as? String,let boot=e["bootClientData"] as? String,
+              let assertion=e["assertion"] as? String,let asserted=e["assertClientData"] as? String else {throw DemoError.invalid("runner evidence fields")}
+        var request=q;request["runner_evidence"]=nil
+        let requestHash=Data(SHA256.hash(data:try JSONSerialization.data(withJSONObject:request,options:[.sortedKeys,.withoutEscapingSlashes])))
+        do {
+            let bootData=try unb64(boot),assertedData=try unb64(asserted)
+            let enrolled=try verifyAttestation(try unb64(attestation),keyID:keyID,challenge:bootData,cdhashes:runners,at:Date(timeIntervalSince1970:TimeInterval(at)),anchor:anchor)
+            guard let b=try JSONSerialization.jsonObject(with:bootData) as? [String:Any],["mac-compose-boot/1","mac-compose-enroll/1"].contains(b["domain"] as? String),
+                  (b["attested"] as? NSNumber).map({CFGetTypeID($0)==CFBooleanGetTypeID() && $0.boolValue})==true,
+                  b["compose_hash"] as? String==compose,let enrolledAt=b["enrolled_at"] as? Int,
+                  (-60...SDK.maxEnrollmentAge).contains(Int64(at)-Int64(enrolledAt)) else {throw DemoError.invalid("runner enrollment is not this compose or is stale")}
+            let a=try verifyAssertion(try unb64(assertion),clientData:assertedData,publicKey:enrolled.publicKey,previousCounter:0,cdhashes:runners)
+            guard a.cdhash != nil,a.cdhash==enrolled.cdhash,let body=try JSONSerialization.jsonObject(with:assertedData) as? [String:Any],
+                  Set(body.keys)==["compose_hash","data","domain"],body["domain"] as? String=="mac-compose-assert/1",body["compose_hash"] as? String==compose,
+                  body["data"] as? String==SDK.runnerDomain+"|"+hex(issued.value)+"|"+hex(requestHash) else {throw DemoError.invalid("runner assertion is not over this challenge and request")}
+        } catch let reject as AppAttestReject {throw DemoError.invalid("runner evidence: \(reject.reason)")}
+        session.compose=composeHash
     }
     func release(_ appId: Data,_ composeHash: Data,_ scope: Data,_ epoch: UInt64?) throws
         -> (root:SymmetricKey,signer:P256.Signing.PrivateKey,statement:Data,fields:[String:Any]) {
@@ -141,17 +183,16 @@ struct SDKService {
 }
 
 extension Node {
-    func sdkService(sponsor: P256.Signing.PublicKey,measurement: Data) -> SDKService {
-        SDKService(chainId:cfg.chainId,registry:cfg.registry,sponsor:sponsor,measurement:measurement,
+    func sdkService(sponsor: Curve25519.Signing.PublicKey,measurement: Data,runners: [Data],anchor: Data=AppAttestProfile.rootDER) -> SDKService {
+        SDKService(chainId:cfg.chainId,registry:cfg.registry,sponsor:sponsor,measurement:measurement,runners:runners,anchor:anchor,
                    checkIn:{[unowned self] in guard let c=lastCheckIn() else {throw DemoError.invalid("no check-in yet")};return c},
                    group:{[unowned self] in try groupKey($0,epoch:$1)},block:{[chain] in try quantity(chain.rpc("eth_blockNumber",[]))})
     }
     /// Serves the SDK once per process when the config sets sdkPort.
     func startSDK() throws {
         guard let port=cfg.sdkPort,sdkBound==nil else {return}
-        guard let key=SDK.sponsor else {throw DemoError.invalid("sdkPort is set but this build has no compiled-in SDK sponsor key")}
         guard let m=try ownMeasurement()?.value else {throw DemoError.invalid("the SDK needs this build's measurement")}
-        let service=sdkService(sponsor:try P256.Signing.PublicKey(x963Representation:key),measurement:m)
+        let service=sdkService(sponsor:SDK.sponsor,measurement:m,runners:cfg.sdkRunners)
         sdkBound=try SDK.listen(port:port,service.reply)
         log("sdk listening",["address":"127.0.0.1:\(sdkBound!)"])
     }

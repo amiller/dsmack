@@ -33,10 +33,10 @@ jobs:
         run: |
           xcrun swiftc node/shared/Protocol.swift node/shared/Measure.swift node/tests/MeasureVectors.swift -o build/measure-vectors
           build/measure-vectors
-      - name: Verify dsmack-sdk derivation, allow check, epochs and loopback server
+      - name: Verify dsmack-sdk derivation, allow check, runner admission, epochs and loopback server
         run: |
           xcrun swiftc -framework DeviceCheck node/shared/*.swift node/tests/SDKVectors.swift -o build/sdk-vectors
-          build/sdk-vectors
+          build/sdk-vectors node/tests/sdk_runner_fixture.json
       - name: Verify measured enroll payload and directory heartbeat encoding
         run: |
           xcrun swiftc -framework DeviceCheck node/shared/*.swift node/tests/MeasuredEnrollTests.swift -o build/measured-enroll-tests

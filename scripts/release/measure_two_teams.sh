@@ -47,3 +47,10 @@ sign modified TEAMAAAAAA 12000
 
 exe() { echo "$1=$OUT/signed/$1/Node.app/Contents/MacOS/node"; }
 python3 "$ROOT/scripts/release/measure_two_teams.py" --out "$OUT/vectors" "$(exe honest-a)" "$(exe honest-b)" "$(exe modified)"
+xcrun swiftc "$ROOT/node/shared/Protocol.swift" "$ROOT/node/shared/Measure.swift" "$ROOT/node/tests/MeasureVectors.swift" -o "$OUT/measure-vectors"
+for n in honest-a honest-b modified; do
+  swift=$("$OUT/measure-vectors" --file "$OUT/signed/$n/Node.app/Contents/MacOS/node" | python3 -c 'import json,sys; print(json.load(sys.stdin)["M"])')
+  python=$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["M"])' "$OUT/vectors/$n.json")
+  [ "$swift" = "$python" ] || { echo "Swift M $swift != Python M $python for $n"; exit 1; }
+done
+echo "Swift and Python M agree"

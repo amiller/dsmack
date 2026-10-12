@@ -1,7 +1,8 @@
 # Measurement vectors
 
 Output of `scripts/release/measure_two_teams.sh` on an Apple Silicon Mac
-(macOS 27.0, Xcode 27.0 27A266a) at commit `07e9356`, CLI flavor:
+(macOS 27.0, Xcode 27.0 27A266a) at pre-rebase commit `07e9356`, CLI flavor, before
+`node/shared/Measure.swift` joined the build (a current build has a different M):
 
 - `honest-a.json`: team `TEAMAAAAAA`, bundle `org.example.alpha.node`, signature size 12000.
 - `honest-b.json`: team `TEAMBBBBBB`, bundle `net.example.beta.peer`, signature size 16000,

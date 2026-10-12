@@ -16,7 +16,7 @@ ap.add_argument('--host', default='mini-mesh'); ap.add_argument('--remote', requ
 ap.add_argument('--rpc-port', type=int, default=18755); ap.add_argument('--relay-port', type=int, default=18756)
 args = ap.parse_args()
 out = args.out.resolve(); out.mkdir(parents=True, exist_ok=False); R = args.remote
-SSH = ['ssh', '-o', 'ControlPath=none', '-o', 'ExitOnForwardFailure=yes']
+SSH = ['ssh']  # shares the host's ControlMaster, so the owner approves the key once
 procs = []
 
 def note(**e):
@@ -30,7 +30,7 @@ def background(cmd, name, env=None):
 
 def recover(*a, env=None):
     r = subprocess.run(['bash', str(ROOT/'scripts/release/seed-recover.sh'), *a], text=True, capture_output=True,
-                       env={**os.environ, 'SSH_OPTS': '-o ControlPath=none', **(env or {})})
+                       env={**os.environ, **(env or {})})
     (out/'seed-recover.log').open('a').write(f'$ {a}\n{r.stdout}{r.stderr}\n')
     assert r.returncode == 0, r.stderr
     return r.stdout
@@ -61,7 +61,7 @@ def start(n, e):
 def sealed(n): return ssh(f'test -f {R}/{n}.sealed-key && echo yes || echo no').strip() == 'yes'
 
 # Chain, relay and tunnels. The relay resolves artifacts relative to the deploy file's grandparent.
-subprocess.run(['scp', '-o', 'ControlPath=none', f'{args.host}:{R}/build/cd-args.json', str(out/'cd-args.json')], check=True)
+subprocess.run(['scp', f'{args.host}:{R}/build/cd-args.json', str(out/'cd-args.json')], check=True)
 (out/'out').symlink_to(ROOT/'contracts/out'); (out/'deploy').mkdir()
 background(['anvil', '--port', str(args.rpc_port), '--hardfork', 'osaka', '--block-time', '1'], 'anvil'); time.sleep(3)
 rpc = f'http://127.0.0.1:{args.rpc_port}'
@@ -72,9 +72,10 @@ w3 = Web3(Web3.HTTPProvider(rpc))
 demo = w3.eth.contract(address=deploy['DemoV1'], abi=json.loads((ROOT/'contracts/out/DemoV2.sol/DemoV2.json').read_text())['abi'])
 background(['python3', str(ROOT/'node/relay/relay.py'), '--rpc', rpc, '--deploy', str(out/'deploy/deploy.json'), '--port', str(args.relay_port),
             '--settle', '0', '--log', str(out/'relay.jsonl')], 'relay', {**os.environ, 'PRIVATE_KEY': KEY})
-background([*SSH, '-N', '-R', f'{args.rpc_port}:127.0.0.1:{args.rpc_port}', '-R', f'{args.relay_port}:127.0.0.1:{args.relay_port}', args.host], 'tunnel')
+FORWARDS = ['-R', f'{args.rpc_port}:127.0.0.1:{args.rpc_port}', '-R', f'{args.relay_port}:127.0.0.1:{args.relay_port}', args.host]
+subprocess.run([*SSH, '-O', 'forward', *FORWARDS], check=True)
 time.sleep(4)
-assert all(p.poll() is None for p in procs), 'anvil, relay or tunnel exited'
+assert all(p.poll() is None for p in procs), 'anvil or relay exited'
 assert 'owner' in ssh(f'curl -sf http://127.0.0.1:{args.relay_port}/info'), 'relay unreachable from the Mac'
 note(deploy=deploy['DemoV1'], category=deploy['macCategory'])
 
@@ -134,4 +135,5 @@ finally:
     for n in 'ab':
         note(cleanup=n, result=subprocess.run([*SSH, args.host, f'{R}/build/SeedSealTests.app/Contents/MacOS/test delete {R}/{n}.json'], text=True, capture_output=True).stdout.strip())
     for n in 'abcp': events(n)
+    subprocess.run([*SSH, '-O', 'cancel', *FORWARDS], check=True)
     for p in procs: p.terminate()

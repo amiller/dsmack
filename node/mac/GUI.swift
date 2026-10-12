@@ -487,7 +487,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             // Listing waits for the recorded consent below, never the CLI default.
             config["publicDirectory"]=false
             let cfg=try Config(config)
-            try need(!cfg.peer.isEmpty,"missing faucet peer")
+            try need(!cfg.peers.isEmpty,"missing faucet peer")
             emit("configured",["network":ReleaseNetwork.name,"chainId":cfg.chainId,"registry":cfg.registry,"participant":cfg.name])
             let participant=Node(cfg,log:emit)
             let preference="dsmack.public-directory.v1."+hex(keccak(word(cfg.chainId)+(try addressWord(cfg.registry))))

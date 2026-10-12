@@ -3,7 +3,8 @@
 This candidate exposes authenticated, explicitly public native check-ins through
 the existing relay. It does not enumerate on-chain members, count unique people,
 grant membership, or change a personal account. It requires separate deployment
-and live qualification. Public sharing defaults off in both the app and relay. The relay enables this
+and live qualification. A node running as a public node lists itself by default (see
+[Listing by default](#listing-by-default)); the relay stays off by default. The relay enables this
 feature only with `NATIVE_DIRECTORY_ENABLED=true`; enabling it is an operator
 deployment decision, separate from a source review.
 
@@ -44,7 +45,8 @@ Each node has the following fixed fields. Addresses and hashes use lowercase
 | `id` | bytes32 deterministic network/member identifier |
 | `member` | bytes32 derived and verified enrollment member |
 | `account` | `{status: "verified" \| "unavailable", address: address \| null, participantToken: string \| null}`; verified means a fresh, separately domain-bound consent from the existing personal account control key |
-| `version` | `{selfReported: string, buildNumber: string, admittedCodeHash: bytes32}`; the first two values are signed self-reports, while the admitted hash comes from the verified App Attest assertion |
+| `label` | v2 only: string or null; a signed self-report of up to 32 characters `[A-Za-z0-9 ._-]` |
+| `version` | `{selfReported: string, buildNumber: string, admittedCodeHash: bytes32, measurement: bytes32 \| null}`; the first two values are signed self-reports, the admitted hash comes from the verified App Attest assertion, and `measurement` (v2 only) is the code measurement M when the node's category is measured and the `MeasurementRegistry` maps the admitted hash to the signed M, else null |
 | `checkIn` | `{lastVerifiedAt: timestamp, expiresAt: timestamp, status: "fresh" \| "stale"}`; verified check-in time differs from feed generation time |
 | `sync` | `{scope: bytes32, keyEpoch: decimal UInt64 string, groupPublicFingerprint: string \| null, status: "receipt-verified-current-epoch" \| "stale" \| "unverified", receiptTransaction: bytes32 \| null, receiptCheckedAt: timestamp \| null, receiptBlockTime: timestamp \| null}` |
 
@@ -62,7 +64,7 @@ server accepts at most one check-in per member every five seconds.
 Expired check-ins remain visibly stale until 300 seconds after their last verified
 check-in, then disappear. A failed feed observation cannot renew either clock.
 
-The app posts a bounded `POST /nft/directory/check-in` only after explicit consent.
+The app posts a bounded `POST /nft/directory/check-in` while listing is on.
 A fresh App Attest assertion binds the entire canonical record context and session
 public key. The relay simulates the deployed adapter's `verify` with `eth_call`
 from the registry; it never broadcasts this verification or updates the adapter's
@@ -89,7 +91,8 @@ consensus leases in this protocol.
 key ID), `sessionPublic` (65-byte P256 SEC1 point), `issuedAt`, `expiresAt`
 (integer Unix seconds), `selfReported`, `buildNumber`, `scope`, `keyEpoch`,
 `receiptTransaction`, `account`, `accountGeneration`, `accountSignature` and
-`assertion` (base64 Apple CBOR). Nullable fields use JSON null. `scope` is the
+`assertion` (base64 Apple CBOR). A v2 request adds exactly `measurement`
+(bytes32, the node's own M) and `label`. Nullable fields use JSON null. `scope` is the
 zero overall scope. Account generation is a canonical UInt64 decimal string.
 An unbound account requires generation `"0"` and null signature.
 
@@ -99,6 +102,12 @@ registry address, category, member, session-public-key Keccak256, issuedAt,
 expiresAt, version UTF-8 Keccak256, build number, scope, key epoch, receipt
 transaction (zero if null), account address (zero if null), and generation.
 Integers and hashes occupy 32 bytes; addresses have twelve zero padding bytes.
+A v2 context uses domain `Keccak256("DSMACK_NATIVE_DIRECTORY_CHECK_IN_V2")` and
+appends the measurement and the label's UTF-8 Keccak256. The category is the one
+whose `Keccak256(category ‖ keyId)` equals the member: the legacy `macCategory`, or
+`measuredCategory` when the network configures measured admission, which selects
+that category's adapter and registry for verification. Shared vectors are in
+`node/relay-hosted/directory_test.ts` and `node/tests/MeasuredEnrollTests.swift`.
 The request expires exactly 90 seconds after issuedAt and must arrive within
 30 seconds, allowing five seconds of forward clock skew. Accepted public
 check-in clocks use relay verification time and expire 90 seconds later.
@@ -127,9 +136,16 @@ after 300 seconds. A restart therefore starts with an empty directory; the
 30-second signed request window limits replay across restart. This is observation
 state, not on-chain membership or a new consensus mechanism.
 
-The app menu offers explicit consent, a validated public membership ID to copy,
-and an off switch. The consent preference is scoped to chain and registry and
-starts false. Global application termination (including the updater and system
+## Listing by default
+
+A Mac node lists itself when running as a public node. The CLI node (`listen`,
+`seed`, `participate`) checks in every 30 seconds unless its config sets
+`"publicDirectory": false`; `"label"` sets the signed public label (default empty).
+The Mac app asks once on first run, scoped to chain and registry, with listing as
+the default answer, and records the choice; the menu toggles it later. Until that
+choice is recorded the app does not check in. iPhone nodes default off.
+
+The app menu offers a validated public membership ID to copy and an off switch. Global application termination (including the updater and system
 quit) attempts a session-signed leave with a three-second network timeout and a
 five-second GUI fallback. Failed leave expires naturally and never deletes
 Application Support, App Attest enrollment, Keychain identity or NFT ownership.

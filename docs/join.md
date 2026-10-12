@@ -16,7 +16,7 @@ account, a wallet or gas.
    enrolls with App Attest, finds a peer and fetches the shared network key. It
    says **You’re in.** when it holds the current key epoch.
 
-   <img src="assets/step-open.png" width="480" alt="The Dsmack Node window showing Connecting.">
+   <img src="assets/step-open.png" width="480" alt="The Dsmack Node window showing Connected / peer active.">
 
 3. Choose **Share in public node directory…** and find your node on the
    [node dashboard](https://amiller.github.io/dsmack/nodes/).

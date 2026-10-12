@@ -259,8 +259,15 @@ final class NativeUpdater {
             // Bring its recovery instructions forward after an OS launch refusal.
             let application=NSApplication.shared
             application.setActivationPolicy(.regular)
-            application.activate(ignoringOtherApps:true)
-            let alert=NSAlert();alert.messageText="Dsmack update could not finish";alert.informativeText="Your earlier app and identity data were retained. Open the earlier app only if your release coordinator confirms it is still admitted. \(error.localizedDescription)";alert.runModal();exit(1)
+            application.finishLaunching()
+            DispatchQueue.main.async {
+                application.activate(ignoringOtherApps:true)
+                let alert=NSAlert();alert.messageText="Dsmack update could not finish";alert.informativeText="Your earlier app and identity data were retained. Open the earlier app only if your release coordinator confirms it is still admitted. \(error.localizedDescription)"
+                alert.window.makeKeyAndOrderFront(nil)
+                alert.runModal();exit(1)
+            }
+            application.run()
+            exit(1)
         }
     }
     func showRecovery() {

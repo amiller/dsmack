@@ -29,7 +29,8 @@ import Foundation
         }
         func install(_ n:String,_ f:NodeUpdateFeed)throws->UpdateVerdict {try NativeUpdater.install(zip:zip(n),feed:f,admission:admission,root:root).1}
         let honest=try feed("honest-a"),M=honest.M
-        precondition(try feed("honest-b").M==M && feed("modified").M != M,"fixture measurements")
+        let mb=try feed("honest-b").M,mm=try feed("modified").M
+        precondition(mb==M && mm != M,"fixture measurements")
 
         refuses("admitted build before its window opens","Build not admitted"){_=try install("honest-a",honest)}
         try send("admit(bytes32,uint64,uint64)",M+word(0)+word(UInt64(Int64.max)))
@@ -40,7 +41,8 @@ import Foundation
         print("installs honest-b: team \(vb.team) \(vb.identifier) M \(hex(vb.M))");checks+=1
         let app=root.appendingPathComponent("\(honest.tag)-\(honest.sha256.prefix(12))/unpacked/Node.app/Contents/MacOS/node")
         precondition(FileManager.default.fileExists(atPath:app.path),"installed under root");checks+=1
-        precondition(try install("honest-a",honest).cdhash==va.cdhash,"reinstall re-verifies the staged copy");checks+=1
+        let again=try install("honest-a",honest)
+        precondition(again.cdhash==va.cdhash,"reinstall re-verifies the staged copy");checks+=1
 
         refuses("modified build, its own M","Build not admitted"){_=try install("modified",try feed("modified"))}
         refuses("modified build under the admitted M's feed","not the"){_=try install("modified",try feed("modified"){$0["M"]=hex(M)})}

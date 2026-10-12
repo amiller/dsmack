@@ -49,7 +49,7 @@ struct MeasurementAdmission {
             block=try quantity(chain.rpc("eth_blockNumber",[]))
             now=try smallWord(chain.call("isAdmitted(bytes32,uint256)",m+word(block)))
             later=try smallWord(chain.call("isAdmitted(bytes32,uint256)",m+word(block+Self.margin)))
-        } catch {throw NativeUpdateError("Cannot read the measurement registry \(chain.registry) via \(chain.rpcURL.host ?? "RPC"): \(error). Nothing was installed.")}
+        } catch {throw NativeUpdateError("Cannot read the measurement registry \(chain.registry) via \(chain.rpcURL.host ?? "RPC"): \(error.localizedDescription) Nothing was installed.")}
         guard id==chain.chainId else {throw NativeUpdateError("The RPC serves chain \(id), not \(chain.chainId). Nothing was installed.")}
         guard now==1 else {throw NativeUpdateError("Build not admitted: measurement \(hex(m)) has no open window in the registry at block \(block).")}
         guard later==1 else {throw NativeUpdateError("Build admitted at block \(block) but its window closes within \(Self.margin) blocks; not installing.")}

@@ -4,27 +4,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
 <title>Dsmack nodes</title>
+<link rel="icon" href="../assets/abalone.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="../assets/site.css">
 <style>
-  :root { color-scheme: light; font: 1rem/1.5 system-ui, sans-serif; color: #18232e; background: #f3f6fa; }
-  body { max-width: 64rem; margin: 2rem auto; padding: 0 1rem; }
-  h1 { font-size: 2rem; margin-bottom: .25rem; } h2 { font-size: 1.15rem; }
-  .intro, small { color: #455568; }
-  section { background: white; border: 1px solid #ccd6e2; border-radius: .65rem; padding: 1.25rem; margin-bottom: 1rem; }
-  .badge { font-size: .8rem; border: 1px solid #ccd6e2; border-radius: 1rem; padding: .15rem .6rem; }
-  code { font-size: .85rem; }
-  table { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: .8rem; } th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ccd6e2; } .table-scroll { overflow-x: auto; }
-  td small { display: block; font-size: .75rem; }
-  .presence { display: inline-block; border-radius: 1rem; padding: .05rem .55rem; font-weight: 600; white-space: nowrap; }
-  .presence.online { background: #12623a; color: white; }
-  .presence.stale { background: #fbe3a6; color: #5a3b00; border: 1px dashed #8a6400; }
-  .presence.no-check-in, .presence.unknown, .presence.revoked { color: #6a7785; font-weight: 400; padding-left: 0; }
-  #toggle-all { font: inherit; font-size: .8rem; margin-top: .5rem; padding: .25rem .7rem; border: 1px solid #8fa1b5; border-radius: .4rem; background: #f3f6fa; color: #18232e; cursor: pointer; }
-  a { color: #165aa0; overflow-wrap: anywhere; } .note { border-left: 3px solid #59748c; padding-left: 1rem; }
+  .banner { display: block; width: 100%; max-width: 1280px; margin: 0 auto; height: clamp(160px, 22vw, 280px); object-fit: cover; object-position: 50% 45%; }
+  main h1 { font-size: clamp(36px, 5vw, 60px); line-height: 1.05; margin: 56px 0 12px; }
+  main h2 { font-size: 26px; margin: 0 0 12px; }
+  .intro, small { color: var(--dim); }
+  main > section { background: var(--raised); border: 1px solid var(--rule); border-radius: 6px; padding: 20px; margin-bottom: 24px; }
+  .badge { font: 12px/1.6 'IBM Plex Sans', sans-serif; letter-spacing: .08em; text-transform: uppercase; color: var(--dim); border: 1px solid var(--rule); border-radius: 999px; padding: 2px 10px; vertical-align: middle; }
+  table { width: 100%; min-width: 44rem; border-collapse: collapse; font-size: 14px; } th, td { text-align: left; padding: 12px 16px 12px 0; border-bottom: 1px solid var(--rule); vertical-align: top; } .table-scroll { overflow-x: auto; }
+  th { font-size: 12px; font-weight: 500; letter-spacing: .12em; text-transform: uppercase; color: var(--dim); }
+  td small { display: block; font-size: 12px; }
+  .presence { display: inline-block; white-space: nowrap; font-weight: 500; }
+  .presence.online { color: var(--green); } .presence.online::before { content: ""; display: inline-block; width: 7px; height: 7px; border-radius: 50%; background: var(--green); box-shadow: 0 0 8px var(--green); margin-right: 8px; vertical-align: 2px; }
+  .presence.stale { color: var(--rose); }
+  .presence.no-check-in, .presence.unknown, .presence.revoked { color: var(--dim); font-weight: 400; }
+  #toggle-all { font: inherit; font-size: 14px; font-weight: 500; margin-top: 16px; padding: 8px 18px; border: 1px solid var(--dim); border-radius: 999px; background: transparent; color: var(--al); cursor: pointer; }
+  .note { border-left: 2px solid var(--rule); padding-left: 16px; color: var(--dim); font-size: 14px; }
 </style>
-<main>
-  <h1>Dsmack nodes</h1>
-  <p class="intro">Base Sepolia registry plus relay check-ins · refresh every 30 seconds · a check-in older than 90 seconds is stale</p>
-  <p><a href="../">Home</a> · <a href="https://github.com/amiller/dsmack/blob/main/docs/join.md">Join the network</a> · <a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout</a></p>
+<div class="wrap">
+<header>
+<nav class="nav" aria-label="Main">
+<a class="mark" href="../">Dsmack</a>
+<ul class="navlinks">
+<li><a href="../#join">Join</a></li>
+<li><a href="./" aria-current="page">Nodes</a></li>
+<li><a href="../build.html">Build it yourself</a></li>
+<li><a href="../#redeem">Redeem a coupon</a></li>
+</ul>
+</nav>
+</header>
+</div>
+<img class="banner" src="../assets/nodes-banner.jpg" width="1280" height="360" alt="Mac minis seen from above on dark slate, joined by thin threads of light, with abalone shells among them">
+<main class="wrap">
+  <h1>Nodes</h1>
+  <p class="intro">Base Sepolia registry plus relay check-ins · refresh every 30 seconds · a check-in older than 90 seconds is stale · <a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout</a></p>
   <section aria-labelledby="members-title">
     <h2 id="members-title">Members <span class="badge" id="chain-state">unknown</span></h2>
     <p id="summary">Loading the registry.</p>
@@ -38,6 +54,10 @@
   </section>
   <p class="note">The table lists members with a relay check-in still in the directory or a registry event in the last 24 hours; the button shows every member ever registered. "Online" is a verified relay check-in under 90 seconds old. Joining the registry requires an App Attest attestation; any Apple team may join, so it does not identify who runs the node. "Admitted" reads the CDHash of the member's last App Attest assertion from its category's adapter; for the measured category it is admitted while the <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a> has an open window for that build's M at the current block.</p>
   <noscript><p>This page needs JavaScript to read the registry.</p></noscript>
+  <footer>
+    <div><div class="display">Dsmack</div><div class="dim">Base Sepolia testnet</div></div>
+    <nav aria-label="Footer"><ul><li><a href="https://github.com/amiller/dsmack">Source</a></li><li><a href="https://github.com/amiller/dsmack/releases">Releases</a></li><li><a href="../">Home</a></li><li><a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a></li></ul></nav>
+  </footer>
 </main>
 <script type="module">
   import {draw, loadMembers, toggleAll} from "./members.mjs";

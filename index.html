@@ -1,10 +1,121 @@
 <!doctype html>
 <html lang="en">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Dsmack</title></head>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Dsmack</title>
+<meta name="description" content="Your Mac joins a network that proves what code it runs. About five minutes, no terminal.">
+<meta property="og:title" content="Dsmack">
+<meta property="og:description" content="Your Mac joins a network that proves what code it runs. About five minutes, no terminal.">
+<meta property="og:image" content="https://amiller.github.io/dsmack/assets/hero.jpg">
+<link rel="icon" href="assets/abalone.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+</head>
 <body>
-<h1>Dsmack</h1>
-<p><a href="https://github.com/amiller/dsmack/blob/main/docs/join.md">Join the network</a></p>
-<p><a href="nodes/">Nodes</a></p>
-<p><a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout (Base Sepolia)</a></p>
+<div class="wrap">
+<header>
+<nav class="nav" aria-label="Main">
+<a class="mark" href="./">Dsmack</a>
+<ul class="navlinks">
+<li><a href="#join">Join</a></li>
+<li><a href="nodes/">Nodes</a></li>
+<li><a href="build.html">Build it yourself</a></li>
+<li><a href="#redeem">Redeem a coupon</a></li>
+</ul>
+</nav>
+</header>
+
+<main>
+<section id="join" class="hero" aria-labelledby="join-h">
+<div>
+<p class="eyebrow">A network of ordinary Macs</p>
+<h1 id="join-h">Join the network</h1>
+<p class="lede">Your Mac joins a network that proves what code it runs. About five minutes, no terminal. Each Mac shows the others Apple's attestation of the program it is running, and the ones running an admitted build share one key.</p>
+<ol class="steps">
+<li><span class="n n1" aria-hidden="true">1</span><span>Download <strong>Dsmack Node</strong> and extract the ZIP.</span></li>
+<li><span class="n n2" aria-hidden="true">2</span><span>Open it and accept the normal macOS prompt. It says <strong>You’re in.</strong> once it holds the key.</span></li>
+<li><span class="n n3" aria-hidden="true">3</span><span>Choose <strong>Share in public node directory…</strong> and find your node on the <a href="nodes/">map</a>.</span></li>
+</ol>
+<p class="count" aria-live="polite"><b id="online">—</b><span id="online-word" class="dim">nodes online now</span></p>
+<div class="cta">
+<a class="primary" href="https://github.com/amiller/dsmack/releases/download/node-v0.2.0/DsmackNode-0.2.0.zip">Download Dsmack Node 0.2.0</a>
+<span class="small">Apple silicon, macOS 27, Full Security</span>
+</div>
+<code class="sha">SHA-256 955b1655a8b2f3d7a6997aae3cc799fce47a68b053cabb2f2517f35d3d3d611f</code>
+<p class="small">The app is signed with Developer ID and notarized. If macOS refuses to open it, do not change Gatekeeper settings; check the SHA-256 and see <a href="https://github.com/amiller/dsmack/blob/main/docs/join.md#troubleshooting">troubleshooting</a>.</p>
+</div>
+<figure>
+<img src="assets/hero.jpg" width="1200" height="800" alt="A silver Mac mini resting inside an open abalone shell on dark slate, the shell's green, blue and rose lustre reflected on the aluminium">
+</figure>
+</section>
+
+<section aria-labelledby="what-h">
+<img class="band" src="assets/home.jpg" width="1600" height="610" alt="A Mac mini on a wooden desk by a window at dusk, an abalone shell beside it">
+<p class="caption">A node is a Mac you already own, left on.</p>
+<h2 id="what-h">What it is, and what it is not</h2>
+<div class="cols">
+<div>
+<h3 class="on">What it is</h3>
+<ul class="list">
+<li id="build"><strong>An app anyone can build.</strong> <span>The source is public. Anyone with an Apple Developer account can build Dsmack Node and sign it themselves. <a href="build.html">Build instructions</a>.</span></li>
+<li><strong>The network admits the code, not the signer.</strong> <span>A Mac joins by showing Apple's attestation of the build it runs. If that build's measurement is on the admitted list, it is in. Who signed it does not matter.</span></li>
+<li><strong>One shared key.</strong> <span>Every admitted node holds the same key. It only moves from one admitted node to another, sealed to the receiver. One compromised node exposes it.</span></li>
+<li><strong>A testnet.</strong> <span>It runs on Base Sepolia. Joining helps show the admission check works on Macs nobody here controls. Nothing is earned yet; the participation receipt has no monetary value.</span></li>
+</ul>
+</div>
+<div>
+<h3 class="off">What it is not</h3>
+<ul class="list">
+<li><strong>A cloud you rent.</strong> <span>The Macs belong to the people running them, on their own desks and shelves.</span></li>
+<li><strong>Free of operators.</strong> <span>Operators can still refuse service, delay or drop requests, and stop the seeds. Whoever holds the registry key decides which builds are admitted next, and that change is public on chain.</span></li>
+<li><strong>Anonymous.</strong> <span>Dsmack does not hide your IP address. <a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a>.</span></li>
+</ul>
+</div>
+</div>
+</section>
+
+<section aria-labelledby="nodes-h">
+<div class="head">
+<h2 id="nodes-h">Nodes</h2>
+<p id="summary">Reading the relay directory · <a href="nodes/">All nodes</a></p>
+</div>
+<ul class="rows" id="rows"></ul>
+<p class="small">Online means a signed check-in in the last 90 seconds. Listing is opt-in, so this shows only nodes that chose to appear.</p>
+</section>
+
+<section id="redeem" class="split" aria-labelledby="redeem-h">
+<div><img src="assets/shell.png" width="640" height="431" alt="An open abalone shell, its inside lustre shifting from green to blue to rose"></div>
+<div>
+<h2 id="redeem-h">Redeem a coupon</h2>
+<p class="dim">Abalone is the companion app for coupons. A coupon gets you an API key for private inference. The key is made inside an admitted node and sealed to you, so the operators never see it.</p>
+<p class="dim">Open the gift link, let your agent install Abalone and redeem it, then open a fresh terminal. You do not need to run a node for this.</p>
+<a href="https://github.com/amiller/abalone#redeem-a-coupon">Redeem a coupon with Abalone</a>
+</div>
+</section>
+
+<section aria-labelledby="hello-h">
+<h2 id="hello-h">Say hello</h2>
+<p class="dim prose">If you joined, post in <a href="https://github.com/amiller/dsmack/discussions">Discussions</a>. If a step stalled, <a href="https://github.com/amiller/dsmack/issues/new?template=join-problem.yml">open a join problem</a> with what the app showed.</p>
+</section>
+</main>
+
+<footer>
+<div><div class="display">Dsmack</div><div class="dim">Base Sepolia testnet</div></div>
+<nav aria-label="Footer">
+<ul>
+<li><a href="https://github.com/amiller/dsmack">Source</a></li>
+<li><a href="https://github.com/amiller/dsmack/releases">Releases</a></li>
+<li><a href="nodes/">Nodes</a></li>
+<li><a href="build.html">Build it yourself</a></li>
+<li><a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a></li>
+<li><a href="https://github.com/amiller/abalone">Abalone</a></li>
+</ul>
+</nav>
+</footer>
+</div>
+<script type="module" src="assets/home.js"></script>
 </body>
 </html>

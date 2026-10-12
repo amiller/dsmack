@@ -4,7 +4,7 @@
 # Usage: scripts/release/measure_two_teams.sh OUT_DIR   (OUT_DIR must not exist)
 set -euo pipefail
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
-mkdir "$1"
+mkdir -p "$(dirname "$1")" && mkdir "$1"
 OUT=$(cd "$1" && pwd)
 KC="$OUT/throwaway.keychain-db"
 trap 'security delete-keychain "$KC" 2>/dev/null || true' EXIT

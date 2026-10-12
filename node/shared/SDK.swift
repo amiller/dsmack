@@ -192,7 +192,12 @@ extension Node {
     func startSDK() throws {
         guard let port=cfg.sdkPort,sdkBound==nil else {return}
         guard let m=try ownMeasurement()?.value else {throw DemoError.invalid("the SDK needs this build's measurement")}
+        #if SDK_TEST_TRUST
+        let service=sdkService(sponsor:cfg.sdkTestTrust.sponsor,measurement:m,runners:cfg.sdkRunners,anchor:cfg.sdkTestTrust.anchor)
+        log("sdk test trust",["sponsor":hex(cfg.sdkTestTrust.sponsor.rawRepresentation),"anchorSHA256":hex(sha(cfg.sdkTestTrust.anchor))])
+        #else
         let service=sdkService(sponsor:SDK.sponsor,measurement:m,runners:cfg.sdkRunners)
+        #endif
         sdkBound=try SDK.listen(port:port,service.reply)
         log("sdk listening",["address":"127.0.0.1:\(sdkBound!)"])
     }

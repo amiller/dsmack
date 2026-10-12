@@ -1,4 +1,5 @@
 // dsmack-sdk JS client: the Python dsmack_sdk's wire and derivation, over node:net (see ../python/dsmack_sdk).
+// Context fields are ABI words, as node/shared/SDK.swift encodes them.
 import net from 'node:net';
 import { hkdfSync } from 'node:crypto';
 
@@ -10,7 +11,7 @@ const hex = (h) => Buffer.from(h.replace(/^0x/, ''), 'hex');
 const u = (n, bytes) => hex(BigInt(n).toString(16).padStart(bytes * 2, '0'));
 
 export function context(chainId, registry, scope, keyEpoch, appId) {
-  return Buffer.concat([u(chainId, 32), hex(registry), hex(scope), u(keyEpoch, 8), hex(appId)]);
+  return Buffer.concat([u(chainId, 32), Buffer.alloc(12), hex(registry), hex(scope), u(keyEpoch, 32), hex(appId)]);
 }
 export const appRoot = (groupScalar, chainId, registry, scope, keyEpoch, appId) =>
   hkdf(groupScalar, context(chainId, registry, scope, keyEpoch, appId), Buffer.from('dsmack-sdk/v1/app'));

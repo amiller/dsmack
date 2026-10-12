@@ -20,6 +20,11 @@ struct Config {
     let sdkPort: UInt16?
     /// Runner CDHashes (full SHA-256) admitted to the SDK port; required, non-empty, with sdkPort.
     let sdkRunners: [Data]
+    #if SDK_TEST_TRUST
+    /// Test builds only (-D SDK_TEST_TRUST, never a release): the allow-record sponsor and the App Attest root that
+    /// synthetic runner fixtures use, from sdkTestSponsor (Ed25519 hex) and sdkTestAnchor (base64 DER).
+    let sdkTestTrust: (sponsor:Curve25519.Signing.PublicKey,anchor:Data)
+    #endif
     /// Set only for owner-flagged seeds (`sealer: true`): the sealed group key beside the config file.
     let sealPath: URL?
     init(_ d: [String:Any],path: URL?=nil) throws {
@@ -49,6 +54,10 @@ struct Config {
         if let p=d["sdkPort"] {guard let n=p as? Int,(1...65535).contains(n) else {throw DemoError.invalid("sdkPort must be 1-65535")};sdkPort=UInt16(n)} else {sdkPort=nil}
         sdkRunners=try (d["sdkRunners"] as? [String] ?? []).map(bytes32)
         try need((sdkPort==nil)==sdkRunners.isEmpty && (d["sdkRunners"]==nil || d["sdkRunners"] is [String]),"sdkPort and a non-empty sdkRunners list go together")
+        #if SDK_TEST_TRUST
+        guard let sponsor=d["sdkTestSponsor"] as? String,let anchor=(d["sdkTestAnchor"] as? String).flatMap({Data(base64Encoded:$0)}) else {throw DemoError.invalid("test build needs sdkTestSponsor and sdkTestAnchor")}
+        sdkTestTrust=(try Curve25519.Signing.PublicKey(rawRepresentation:unhex(sponsor)),anchor)
+        #endif
         try need(label.range(of:"^[A-Za-z0-9 ._-]{0,32}$",options:.regularExpression) != nil,"label: up to 32 of A-Z a-z 0-9 space . _ -")
         badges=d["badges"] as? String;accountFactory=d["accountFactory"] as? String
         try need((badges == nil)==(accountFactory == nil),"incomplete badge configuration")

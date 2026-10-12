@@ -1,7 +1,8 @@
 #!/bin/bash
 # Mac side of the seed resilience test: signed Node.app and SeedSealTests.app (same team and
 # Keychain group, different CDHashes), an ad hoc unentitled copy of the test, and cd-args.json.
-# usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID
+# usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID; optional NODE_FLAGS for
+# Node.app only (sdk_e2e.py: -D SDK_TEST_TRUST)
 set -euo pipefail
 out=$(cd "${1:?out dir}" && pwd); src=$(cd "$(dirname "$0")/.." && pwd)
 shared=(Protocol Measure NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node SDK AppAttestVerify)
@@ -25,7 +26,7 @@ bundle() { # name executable sources...
     --generate-entitlement-der --timestamp=none "$app"
   codesign --verify --strict "$app"
 }
-bundle Node node -D HONEST "${shared[@]}" "$src/mac/main.swift"
+bundle Node node -D HONEST ${NODE_FLAGS:-} "${shared[@]}" "$src/mac/main.swift"
 bundle SeedSealTests test "${shared[@]}" "$src/tests/SeedSealTests.swift"
 cp "$out/SeedSealTests.app/Contents/MacOS/test" "$out/seal-test-adhoc"
 codesign --force --sign - "$out/seal-test-adhoc"

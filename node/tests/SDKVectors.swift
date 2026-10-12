@@ -28,6 +28,9 @@ import CryptoKit
         let rootX2=try SDK.appRoot(g2,chainId:chainId,registry:registry,scope:scope,keyEpoch:2,appId:appX).withUnsafeBytes{Data($0)}
         print("vector app_root(g2, epoch 2, app X) \(hex(rootX2))")
         try check(hex(rootX2)==vectorX2,"pinned app_root vector")
+        try check(hex(try SDK.appSigner(SymmetricKey(data:rootX2)).publicKey.x963Representation)==vectorAppPubX2,"pinned app_pub vector")
+        try check(hex(sha(try SDK.allowMessage(chainId:chainId,registry:registry,appId:appX,composeHash:Data(repeating:0xcc,count:32),scope:scope,until:4_000_000_000)))==vectorAllowX2,
+                  "pinned allow message vector")
 
         func node(_ name:String) throws -> Node {
             try Node(Config(["rpc":"http://127.0.0.1:1","registry":registry,"chainId":Int(chainId),"category":hex(zero32),"relay":"http://127.0.0.1:1",
@@ -192,6 +195,8 @@ import CryptoKit
                   "loopback server: challenge, admitted get_key, then get_key on the admitted connection")
         print("SDKVectors passed: \(passed) checks")
     }
-    /// Cross-checked with an independent Python HKDF-SHA256 over the same salt and info.
+    /// The same vectors are pinned in sdk/test_sdk.py test_vectors_match_swift (Python dsmack_sdk).
     static let vectorX2="0xff7581dad655737c4a35ef4192a3f5897bfdf54ea7c70570b8c185a4230fab59"
+    static let vectorAppPubX2="0x0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb"
+    static let vectorAllowX2="0xcb083f9aba691b70423c0898a0d5cfa9ebc957f53bacde317e524dc8296bb620"
 }

@@ -1,22 +1,26 @@
-"""dsmack-sdk against stand-in nodes on a local anvil AppRegistry. Run: python3 -m pytest sdk/test_sdk.py
-SDK_EVIDENCE_DIR=<dir> also records each outcome there as JSON."""
-import hashlib, json, os, secrets, socket, subprocess, sys, time
+"""dsmack-sdk end to end: stand-in runners (runner/kms/sdk_runner.py) with synthetic runner App Attest evidence
+against node SDK ports. Run: python3 -m pytest sdk/test_sdk.py
+Default: stand-in nodes (runner/kms/sdk_node.py) on a local anvil with AppRegistry. SDK_E2E=<json> instead targets
+real nodes (node/tests/sdk_e2e.py writes it): {rpc, chain_id, registry, demo, app_registry, owner_key, sponsor_seed,
+fixture, nodes: {A, B}, composes: {name: path}}. SDK_EVIDENCE_DIR=<dir> records each outcome there as JSON."""
+import base64, hashlib, json, os, secrets, socket, subprocess, sys, time
 from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / 'sdk/python'))
+sys.path[:0] = [str(ROOT / 'sdk/python'), str(ROOT / 'runner/kms'), str(ROOT)]
 import dsmack_sdk as sdk
-from dsmack_sdk import verify
+from dsmack_sdk import b, verify
+from dsmack_sdk.node import pub
+from synthetic_attest import SyntheticRunner
+from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 
-ANVIL_PORT = 18645
-RPC = f'http://127.0.0.1:{ANVIL_PORT}'
 OWNER_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'  # anvil account 0, public test key
 OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 SCOPE = '00' * 32
-REGISTRY = '0x' + '11' * 20   # stand-in DemoV2 address in the derivation context
 X, Y = (hashlib.sha256(b'dsmack-sdk-test/app-' + n).hexdigest() for n in (b'x', b'y'))
 OUT = Path(os.environ['SDK_EVIDENCE_DIR']) if 'SDK_EVIDENCE_DIR' in os.environ else None
+FIXTURE = ROOT / 'node/tests/sdk_runner_fixture.json'
 
 
 def record(name, obj):
@@ -26,14 +30,14 @@ def record(name, obj):
 
 
 def run(*cmd, **kw):
-    return subprocess.run(cmd, check=True, capture_output=True, text=True, **kw).stdout
+    return subprocess.run([str(c) for c in cmd], check=True, capture_output=True, text=True, **kw).stdout
 
 
-def wait(pred):
-    for _ in range(100):
+def wait(pred, tries=100, every=0.1):
+    for _ in range(tries):
         if pred():
             return
-        time.sleep(0.1)
+        time.sleep(every)
     raise TimeoutError
 
 
@@ -49,90 +53,164 @@ def compose(app_id, name, env):
                       sort_keys=True, separators=(',', ':')).encode()
 
 
-def secret(path):
+COMPOSES = {'C1': (X, 'c1', {'A': '1'}), "C1'": (X, 'c1', {'A': '2'}), 'C2': (Y, 'c2', {'A': '1'}), 'C3': (X, 'c3', {'A': '1'})}
+WINDOWS = (('C1', X), ("C1'", X), ('C2', Y))   # admitted on AppRegistry and given sponsor allow records; C3 is not
+
+
+def secret(path, value):
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    os.write(fd, secrets.token_bytes(31).rjust(32, b'\0').hex().encode())   # < P-256 n
+    os.write(fd, value.encode())
     os.close(fd)
     return path
+
+
+def standin(d):
+    """Anvil + AppRegistry + stand-in nodes A and B holding one test G at epoch 1; bump restarts A at epoch 2."""
+    port = 18645
+    procs = [subprocess.Popen(['anvil', '--port', str(port), '--silent'])]
+    wait(lambda: listening(port))
+    rpc = f'http://127.0.0.1:{port}'
+    out = run('forge', 'script', 'script/AppRegistry.s.sol', '--rpc-url', rpc, '--broadcast',
+              cwd=ROOT / 'contracts', env={**os.environ, 'PRIVATE_KEY': OWNER_KEY, 'FOUNDRY_DISABLE_NIGHTLY_WARNING': '1'})
+    paths = {}
+    for n, c in COMPOSES.items():
+        paths[n] = d / f'{n}.json'
+        paths[n].write_bytes(compose(*c))
+    paths['coupon'] = ROOT / 'apps/coupon-sdk/app-compose.json'
+    fx = d / 'fixture.json'
+    run(sys.executable, ROOT / 'node/tests/sdk_runner_fixture.py', fx, *[f'--compose={n}={hashlib.sha256(paths[n].read_bytes()).hexdigest()}' for n in paths])
+    sponsor = secrets.token_hex(32)
+    sponsor_pub = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(sponsor)).public_key().public_bytes_raw().hex()
+    g1, g2 = (secret(d / f'group-{e}.key', secrets.token_bytes(31).rjust(32, b'\0').hex()) for e in (1, 2))
+    cfg = {'rpc': rpc, 'chain_id': 31337, 'registry': '0x' + '11' * 20, 'app_registry': out.split('AppRegistry ')[1].split()[0],
+           'owner_key': OWNER_KEY, 'sponsor_seed': sponsor, 'fixture': str(fx), 'composes': {n: str(p) for n, p in paths.items()},
+           'nodes': {'A': '127.0.0.1:18791', 'B': '127.0.0.1:18792'}}
+    anchor = json.loads(fx.read_text())['synthetic_root']
+    nodes = {}
+
+    def node(name, keys):
+        if name in nodes:
+            nodes[name].terminate()
+            nodes[name].wait()
+        port = int(cfg['nodes'][name].split(':')[1])
+        nodes[name] = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_node.py', '--port', str(port), *[f'--group-key={e}={k}' for e, k in keys],
+                                        '--rpc', rpc, '--registry', cfg['registry'], '--chain-id', '31337', '--scope', SCOPE, '--sponsor', sponsor_pub,
+                                        '--anchor', anchor, '--runner', '5a' * 32, '--member', '0x' + '00' * 32, '--m', '0x' + '4d' * 32,
+                                        '--checked-tx', 'standin'], stderr=open(d / f'node-{name}.log', 'a'))
+        procs.append(nodes[name])
+        wait(lambda: listening(port))
+    node('A', [(1, g1)]), node('B', [(1, g1)])
+    cfg['bump'] = lambda: node('A', [(1, g1), (2, g2)])
+    return cfg, procs
 
 
 @pytest.fixture(scope='module')
 def net(tmp_path_factory):
     d = tmp_path_factory.mktemp('sdk')
-    procs = [subprocess.Popen(['anvil', '--port', str(ANVIL_PORT), '--silent'])]
-    wait(lambda: listening(ANVIL_PORT))
-    out = run('forge', 'script', 'script/AppRegistry.s.sol', '--rpc-url', RPC, '--broadcast',
-              cwd=ROOT / 'contracts', env={**os.environ, 'PRIVATE_KEY': OWNER_KEY, 'FOUNDRY_DISABLE_NIGHTLY_WARNING': '1'})
-    reg = out.split('AppRegistry ')[1].split()[0]
-    gas = {'deploy_script_output': [l.strip() for l in out.splitlines() if 'gas' in l.lower()]}
-    composes = {n: compose(*a) for n, a in {'C1': (X, 'c1', {'A': '1'}), "C1'": (X, 'c1', {'A': '2'}),
-                                             'C2': (Y, 'c2', {'A': '1'}), 'C3': (X, 'c3', {'A': '1'})}.items()}
-    send = lambda *a: json.loads(run('cast', 'send', '--json', '--rpc-url', RPC, '--private-key', OWNER_KEY, reg, *a))
+    procs = []
+    if 'SDK_E2E' in os.environ:
+        cfg = json.loads(Path(os.environ['SDK_E2E']).read_text())
+        cfg['bump'] = lambda: run('cast', 'send', '--rpc-url', cfg['rpc'], '--private-key', cfg['owner_key'], cfg['demo'], 'startKeyEpoch(bytes32)', '0x' + SCOPE)
+    else:
+        cfg, procs = standin(d)
+    reg, rpc = cfg['app_registry'], cfg['rpc']
+    send = lambda *a: json.loads(run('cast', 'send', '--json', '--rpc-url', rpc, '--private-key', cfg['owner_key'], reg, *a))
+    gas = {}
     for app in (X, Y):
         gas[f'createApp {app[:8]}'] = int(send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + SCOPE)['gasUsed'], 16)
-    for n, app in (('C1', X), ("C1'", X), ('C2', Y)):
-        h = hashlib.sha256(composes[n]).hexdigest()
-        gas[f'admit {n}'] = int(send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + h, '0', str(2**64 - 1))['gasUsed'], 16)
-    for n, c in composes.items():
-        (d / f'{n}.json').write_bytes(c)
-    group = secret(d / 'group.key')
-    runner_ok, runner_bad = secret(d / 'runner-ok.key'), secret(d / 'runner-bad.key')
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-    ok_pub = ec.derive_private_key(int(runner_ok.read_text(), 16), ec.SECP256R1()).public_key().public_bytes(
-        Encoding.X962, PublicFormat.UncompressedPoint).hex()
-    nodes = {}
-    for name, port, scope in (('A', 18791, SCOPE), ('B', 18792, SCOPE), ('S', 18793, '01' * 32)):
-        procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_node.py', '--port', str(port), '--group-key', group,
-                                       '--rpc', RPC, '--app-registry', reg, '--registry', REGISTRY, '--chain-id', '31337',
-                                       '--scope', scope, '--key-epoch', '1', '--admit-runner', ok_pub, '--member', '00' * 32,
-                                       '--m', 'standin', '--checked-tx', 'standin'], stderr=open(d / f'node-{name}.log', 'w')))
-        nodes[name] = f'http://127.0.0.1:{port}'
-        wait(lambda: listening(port))
+    sponsor = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(cfg['sponsor_seed']))
+    until = int(time.time()) + 3 * 3600
 
-    def boot(node, compose_name, runner=runner_ok):
-        sock = d / f'{node}-{compose_name}-{runner.stem}.sock'
-        p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', d / f'{compose_name}.json',
-                              '--node', nodes[node], '--runner-key', runner, '--socket', sock], stderr=subprocess.PIPE, text=True)
+    def allow(app, compose_hash, scope=SCOPE):
+        message = sdk.allow_message(cfg['chain_id'], cfg['registry'], app, compose_hash, scope, until)
+        return {'scope': '0x' + scope, 'until': until, 'signature': '0x' + sponsor.sign(message).hex()}
+    hashes = {n: hashlib.sha256(Path(p).read_bytes()).hexdigest() for n, p in cfg['composes'].items()}
+    records = {}
+    for n, app in WINDOWS:
+        gas[f'admit {n}'] = int(send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + hashes[n], '0', str(2**64 - 1))['gasUsed'], 16)
+        records[n] = allow(app, hashes[n])
+    for n, r in records.items():
+        (d / f'allow-{n}.json').write_text(json.dumps(r))
+
+    def boot(node, name, allow_from=None, enrollment=None, extra=(), record_=None):
+        """Starts a stand-in runner for compose `name` on node; returns (Client, None, sock) or (None, error, sock)."""
+        sock = d / f'{node}-{name}-{secrets.token_hex(3)}.sock'
+        allow_path = d / f'allow-{allow_from or name}.json'
+        if record_ is not None:
+            allow_path = d / f'allow-custom-{secrets.token_hex(3)}.json'
+            allow_path.write_text(json.dumps(record_))
+        p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', cfg['composes'][name], '--node', cfg['nodes'][node],
+                              '--allow', allow_path, '--fixture', cfg['fixture'], '--enrollment', enrollment or name, '--socket', sock, *extra],
+                             stderr=subprocess.PIPE, text=True)
         procs.append(p)
-        wait(lambda: sock.exists() or p.poll() is not None)
+        wait(lambda: sock.exists() or p.poll() is not None, 300)
         if p.poll() is not None:
             return None, p.stderr.read().strip(), sock
         return sdk.Client(str(sock)), None, sock
     record('gas-anvil', gas)
-    yield {'boot': boot, 'runner_bad': runner_bad, 'reg': reg, 'gas': gas}
+    yield {**cfg, 'boot': boot, 'hashes': hashes, 'allow': allow, 'dir': d}
     for p in procs:
         p.terminate()
 
 
-def demo_key(client):
+def demo_key(client, epoch=None, group_public=None):
     info = client.info()
-    reply = client.get_key('demo', 'ed25519:demo')
-    verify.key_reply(reply, 'demo', 'ed25519:demo', info['group_public'])
+    reply = client.get_key('demo', 'ed25519:demo', epoch)
+    verify.key_reply(reply, 'demo', 'ed25519:demo', group_public or info['group_public'])
     return info, reply
 
 
+def test_vectors_match_swift():
+    """The vectors node/tests/SDKVectors.swift pins, from the same fixed group scalars."""
+    g2 = (0x22).to_bytes(32, 'big')
+    root = sdk.app_root(g2, 84532, '0xd4b33c83576a6049d29c6b849ec73491e52781a0', SCOPE, 2, 'a1' * 32)
+    assert root.hex() == 'ff7581dad655737c4a35ef4192a3f5897bfdf54ea7c70570b8c185a4230fab59'
+    assert pub(ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())) == APP_PUB_X2
+    assert sdk.leaf(root, 'near-account', 'ed25519:near-account').hex() == LEAF_X2
+    assert hashlib.sha256(sdk.allow_message(84532, '0xd4b33c83576a6049d29c6b849ec73491e52781a0', 'a1' * 32, 'cc' * 32, SCOPE, 4_000_000_000)).hexdigest() == ALLOW_X2
+    record('0-vectors', {'app_root_x2': root.hex(), 'app_pub_x2': APP_PUB_X2, 'leaf_x2_near_account': LEAF_X2, 'allow_message_sha256': ALLOW_X2})
+
+
+def test_fixture_evidence_verifies():
+    """Client-side runner evidence from the committed fixture, checked by verifier/core.py at the fixture's time."""
+    from verifier.core import Policy, verify_assertion, verify_attestation
+    fx = json.loads(FIXTURE.read_text())
+    runner = SyntheticRunner(FIXTURE, 'good')
+    request = {'v': 1, 'op': 'info', 'app_id': '0x' + X, 'compose_hash': '0x' + fx['compose_sha256'], 'allow': {'scope': '0x' + SCOPE, 'until': 1, 'signature': '0x'}}
+    data = sdk.runner_data('0x' + '09' * 32, request)
+    e = runner.attest(data)
+    policy = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(3,), cdhashes=(b(fx['cdhash']),), require_macos_acl=True)
+    pem = b'-----BEGIN CERTIFICATE-----\n' + base64.encodebytes(base64.b64decode(fx['synthetic_root'])) + b'-----END CERTIFICATE-----\n'
+    enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], base64.b64decode(e['bootClientData']), policy, pem, fx['now'])
+    verify_assertion(base64.b64decode(e['assertion']), base64.b64decode(e['assertClientData']), enrolled['public_key'], 0, policy)
+    assert json.loads(base64.b64decode(e['assertClientData']))['data'].startswith('dsmack-sdk-runner/1|0x' + '09' * 32 + '|0x')
+
+
 def test_same_group_key_same_app_key(net):
-    (a, _, _), (b, _, _) = net['boot']('A', 'C1'), net['boot']('B', 'C1')
-    (ia, ra), (ib, rb) = demo_key(a), demo_key(b)
+    (a, err_a, _), (bb, err_b, _) = net['boot']('A', 'C1'), net['boot']('B', 'C1')
+    assert a and bb, (err_a, err_b)
+    (ia, ra), (ib, rb) = demo_key(a), demo_key(bb)
     assert ra['key'] == rb['key'] and ra['public_key'] == rb['public_key']
-    assert ia['compose_hash'] == ib['compose_hash'] and ia['app_id'] == X
-    c, _, _ = net['boot']('A', "C1'")
+    assert ia['group_public'] == ib['group_public']
+    assert b(ia['compose_hash']) == b(ib['compose_hash']) == b(net['hashes']['C1']) and b(ia['app_id']) == b(X)
+    c, err, _ = net['boot']('A', "C1'")
+    assert c, err
     _, rc = demo_key(c)
-    assert rc['public_key'] == ra['public_key'] and c.info()['compose_hash'] != ia['compose_hash']
+    assert rc['public_key'] == ra['public_key'] and b(c.info()['compose_hash']) != b(ia['compose_hash'])
     ev = a.evidence(hashlib.sha256(b'claim_pub').digest())
     statement = verify.evidence(ev, hashlib.sha256(b'claim_pub').digest(), ia['group_public'])
-    assert statement[-65 - 8 - 32:-65 - 8].hex() == ia['compose_hash']
-    record('1-same-group-key-same-key', {'node_A': {'info': ia, 'public_key': ra['public_key']},
+    assert statement[-65 - 64 - 32:-65 - 64] == b(ia['compose_hash']) and statement[-65 - 32:-65] == b(ia['M'])
+    record('1-same-group-key-same-key', {'node_A': {'info': ia, 'public_key': ra['public_key'], 'chain': ra['chain']},
                                          'node_B': {'info': ib, 'public_key': rb['public_key']},
                                          "node_A_C1prime": {'compose_hash': c.info()['compose_hash'], 'public_key': rc['public_key']},
                                          'chains_verified': True, 'evidence_A': ev})
 
 
 def test_different_app_different_key(net):
-    (a, _, _), (y, _, _) = net['boot']('A', 'C1'), net['boot']('A', 'C2')
+    (a, _, _), (y, err, _) = net['boot']('A', 'C1'), net['boot']('A', 'C2')
+    assert y, err
     (_, ra), (iy, ry) = demo_key(a), demo_key(y)
-    assert iy['app_id'] == Y and ry['public_key'] != ra['public_key'] and ry['key'] != ra['key']
+    assert b(iy['app_id']) == b(Y) and ry['public_key'] != ra['public_key'] and ry['key'] != ra['key']
     k1, k2 = a.get_key('demo', 'secp256k1:demo'), a.get_key('other', 'ed25519:demo')
     assert len({ra['key'], k1['key'], k2['key']}) == 3
     with pytest.raises(sdk.DsmackError, match='purpose'):
@@ -141,24 +219,73 @@ def test_different_app_different_key(net):
 
 
 def test_unlisted_compose_refused(net):
-    client, err, sock = net['boot']('A', 'C3')
-    assert client is None and 'compose_not_allowed' in err and not sock.exists()
-    client, err2, _ = net['boot']('S', 'C1')
-    assert client is None and 'scope_not_held' in err2
-    record('3-unlisted-compose-refused', {'C3_no_window': err, 'C1_at_node_without_scope': err2, 'socket_created': False})
+    client, err, sock = net['boot']('A', 'C3', allow_from='C1')
+    assert client is None and 'compose not allowed under app_id' in err and not sock.exists()
+    client, err2, _ = net['boot']('A', 'C1', record_=net['allow'](X, net['hashes']['C1'], '01' * 32))
+    assert client is None and 'no group key held for scope' in err2
+    record('3-unlisted-compose-refused', {'C3_no_allow_record': err, 'C1_scope_not_held': err2, 'socket_created': False})
 
 
-def test_unadmitted_runner_gets_nothing(net):
-    client, err, sock = net['boot']('A', 'C1', net['runner_bad'])
-    assert client is None and 'runner_not_admitted' in err and not sock.exists()
-    record('4-unadmitted-caller-nothing', {'error': err, 'socket_created': False})
+def test_no_evidence_runner_refused(net):
+    client, err, sock = net['boot']('A', 'C1', extra=['--no-evidence'])
+    assert client is None and 'runner evidence required' in err and not sock.exists()
+    client, err2, _ = net['boot']('A', 'C1', enrollment='wrong_cdhash')
+    assert client is None and 'cdhash_policy_failed' in err2
+    client, err3, _ = net['boot']('A', 'C1', enrollment='C2')
+    assert client is None and 'not this compose' in err3
+    record('4-no-evidence-refused', {'no_evidence': err, 'runner_cdhash_not_admitted': err2, 'enrollment_for_other_compose': err3, 'socket_created': False})
 
 
 def test_js_twin(net):
-    a, _, sock = net['boot']('B', 'C1')
+    a, err, sock = net['boot']('B', 'C1')
+    assert a, err
     _, ra = demo_key(a)
     out = json.loads(run('node', ROOT / 'sdk/js/test-client.mjs', sock))
-    assert out['get_key']['public_key'] == ra['public_key'] and out['info']['app_id'] == X
-    root = sdk.app_root(bytes([7]) * 32, 31337, '0x' + '11' * 20, '00' * 32, 1, 'ab' * 32)
+    assert out['get_key']['public_key'] == ra['public_key'] and b(out['info']['app_id']) == b(X)
+    root = sdk.app_root(bytes([7]) * 32, 31337, '0x' + '11' * 20, SCOPE, 1, 'ab' * 32)
     assert out['vectors'] == {'app_root': root.hex(), 'leaf': sdk.leaf(root, 'near-account', 'ed25519:near-account').hex()}
     record('5-js-twin', {'public_key': out['get_key']['public_key'], 'derivation_vectors_match_python': True})
+
+
+def test_coupon_account_derive(net):
+    """apps/coupon-sdk's derive step (coupon_account.py account) through a runner for its compose."""
+    h = net['hashes']['coupon']
+    app = json.loads(Path(net['composes']['coupon']).read_bytes())['app_id']
+    send = lambda *a: run('cast', 'send', '--rpc-url', net['rpc'], '--private-key', net['owner_key'], net['app_registry'], *a)
+    send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + SCOPE)
+    send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + h, '0', str(2**64 - 1))
+    c, err, sock = net['boot']('A', 'coupon', record_=net['allow'](app, h))
+    assert c, err
+    out = json.loads(run(sys.executable, ROOT / 'apps/coupon-sdk/coupon_account.py', 'account',
+                         env={**os.environ, 'PYTHONPATH': str(ROOT / 'sdk/python'), 'DSMACK_SOCKET': str(sock), 'NEAR_RPC': 'unused-by-account'}))
+    assert out['chain_verified'] and b(out['compose_hash']) == b(h) and len(out['account_id']) == 64
+    record('6-coupon-account', out)
+
+
+def test_previous_epoch_after_bump(net):
+    a, err, _ = net['boot']('A', 'C1')
+    assert a, err
+    before_info, before = demo_key(a)
+    old = before_info['key_epoch']
+    net['bump']()
+    deadline = time.time() + 240
+    while True:
+        c, err, _ = net['boot']('A', 'C1')
+        if c and c.info()['key_epoch'] == old + 1:
+            break
+        assert time.time() < deadline, err
+        time.sleep(5)
+    info, now = demo_key(c)
+    _, prev = demo_key(c, old, before_info['group_public'])
+    assert now['public_key'] != before['public_key'] and info['group_public'] != before_info['group_public']
+    assert prev['public_key'] == before['public_key'] and prev['key_epoch'] == old
+    with pytest.raises(sdk.DsmackError, match=f'key epoch {old + 2} not held'):
+        c.get_key('demo', 'ed25519:demo', old + 2)
+    record('7-previous-epoch', {'epoch_before': old, 'epoch_after': info['key_epoch'], 'public_key_before': before['public_key'],
+                                'public_key_after': now['public_key'], 'public_key_previous_epoch_after_bump': prev['public_key'],
+                                'group_public_before': before_info['group_public'], 'group_public_after': info['group_public']})
+
+
+APP_PUB_X2 = '0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb'
+LEAF_X2 = 'dd5ea56b2eee1eda3497b19e04546459abb967d68dab4dd96245579a85269bf0'
+ALLOW_X2 = 'cb083f9aba691b70423c0898a0d5cfa9ebc957f53bacde317e524dc8296bb620'

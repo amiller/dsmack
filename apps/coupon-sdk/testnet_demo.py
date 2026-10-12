@@ -1,8 +1,8 @@
 """Coupon app against NEAR testnet through two stand-in nodes sharing one test group key.
 Usage: testnet_demo.py OUT_DIR. Keys live in OUT_DIR/state (0600) and are never printed. Steps: local anvil
-AppRegistry admits app-compose.json under its app_id; nodes A and B boot it; the container (image from the
-compose) derives the account via /var/run/dsmack.sock; a faucet-funded throwaway funds the implicit account;
-the container on node B signs one transfer back."""
+AppRegistry admits app-compose.json under its app_id and a test sponsor signs its allow record; stand-in nodes A and B
+boot it with synthetic runner evidence; the container (image from the compose) derives the account via
+/var/run/dsmack.sock; a faucet-funded throwaway funds the implicit account; the container on node B signs one transfer back."""
 import hashlib, json, os, secrets, subprocess, sys, time, urllib.request
 from pathlib import Path
 
@@ -61,24 +61,30 @@ try:
     reg = out.split('AppRegistry ')[1].split()[0]
     log['app_registry_anvil'] = {'address': reg, 'forge': [l.strip() for l in out.splitlines() if 'gas' in l.lower()]}
     group = secret('group.key', lambda: secrets.token_bytes(31).rjust(32, b'\0').hex())
-    runner_key = secret('runner.key', lambda: secrets.token_bytes(31).rjust(32, b'\0').hex())
-    from cryptography.hazmat.primitives.asymmetric import ec
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
-    runner_pub = ec.derive_private_key(int(runner_key.read_text(), 16), ec.SECP256R1()).public_key().public_bytes(
-        Encoding.X962, PublicFormat.UncompressedPoint).hex()
+    sponsor = secret('sponsor.key', lambda: secrets.token_bytes(32).hex())
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    sponsor_key = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(sponsor.read_text()))
+    import dsmack_sdk
+    until = int(time.time()) + 6 * 3600
+    allow = OUT / 'allow.json'
+    allow.write_text(json.dumps({'scope': '0x' + '00' * 32, 'until': until, 'signature': '0x' + sponsor_key.sign(
+        dsmack_sdk.allow_message(31337, '0x' + '11' * 20, c['app_id'], compose_hash, '00' * 32, until)).hex()}))
+    fixture = OUT / 'runner-fixture.json'
+    run(sys.executable, ROOT / 'node/tests/sdk_runner_fixture.py', fixture, f'--compose=coupon={compose_hash}')
     socks = {}
     for name, port in (('A', 18891), ('B', 18892)):
-        procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_node.py', '--port', str(port), '--group-key', group,
-                                       '--rpc', RPC, '--app-registry', reg, '--registry', '0x' + '11' * 20, '--chain-id', '31337',
-                                       '--scope', '00' * 32, '--key-epoch', '1', '--admit-runner', runner_pub, '--member', '00' * 32,
-                                       '--m', 'standin', '--checked-tx', 'standin'], stderr=open(OUT / f'node-{name}.log', 'w')))
+        procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_node.py', '--port', str(port), f'--group-key=1={group}',
+                                       '--rpc', RPC, '--registry', '0x' + '11' * 20, '--chain-id', '31337', '--scope', '00' * 32,
+                                       '--sponsor', sponsor_key.public_key().public_bytes_raw().hex(), '--anchor', json.loads(fixture.read_text())['synthetic_root'],
+                                       '--runner', '5a' * 32, '--member', '0x' + '00' * 32, '--m', '0x' + '00' * 32, '--checked-tx', 'standin'],
+                                      stderr=open(OUT / f'node-{name}.log', 'w')))
         time.sleep(0.5)
         sockdir = STATE / f'sock-{name}'
         sockdir.mkdir(exist_ok=True)
         (sockdir / 'dsmack.sock').unlink(missing_ok=True)
-        procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', compose,
-                                       '--node', f'http://127.0.0.1:{port}', '--runner-key', runner_key,
-                                       '--socket', 'dsmack.sock'], cwd=sockdir, stderr=open(OUT / f'runner-{name}.log', 'w')))
+        procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', compose, '--node', f'127.0.0.1:{port}',
+                                       '--allow', allow, '--fixture', fixture, '--enrollment', 'coupon', '--socket', 'dsmack.sock'],
+                                      cwd=sockdir, stderr=open(OUT / f'runner-{name}.log', 'w')))
         wait(lambda: (sockdir / 'dsmack.sock').exists())
         socks[name] = sockdir / 'dsmack.sock'
 

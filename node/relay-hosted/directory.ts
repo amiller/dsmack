@@ -74,6 +74,12 @@ export class NativeDirectory {
     private listingInFlight?:Promise<any>;
     private listingCache?:{at:number,value:any};
     constructor(private client:any,private network:Network,private abi:any,private badgeAbi:any,private enabled=false,private clock=()=>Math.floor(Date.now()/1000)){}
+    /** JSON-safe copy of the check-in list and assertion counters for the relay state file. */
+    snapshot(){return {entries:[...this.entries].map(([id,e])=>[id,{...e,epoch:String(e.epoch),record:{...e.record,accountGeneration:String(e.record.accountGeneration)},receiptBlock:e.receiptBlock&&{...e.receiptBlock,number:String(e.receiptBlock.number)}}]),counters:[...this.counters]};}
+    restore(saved:any){
+        this.entries=new Map(saved.entries.map(([id,e]:any)=>[id,{...e,epoch:BigInt(e.epoch),record:{...e.record,accountGeneration:BigInt(e.record.accountGeneration)},receiptBlock:e.receiptBlock&&{...e.receiptBlock,number:BigInt(e.receiptBlock.number)}}]));
+        this.counters=new Map(saved.counters);this.revision++;this.listingCache=undefined;
+    }
     private read(functionName:string,args:unknown[],blockNumber:bigint,target=this.network.DemoV1,abi=this.abi.demo){return this.client.readContract({address:target,abi,functionName,args,blockNumber});}
     private prune(now:number){for(const [id,e] of this.entries)if(now-Date.parse(e.record.checkIn.lastVerifiedAt)/1000>=RETENTION)this.entries.delete(id);for(const [id,c] of this.counters)if(now-c.at>=RETENTION)this.counters.delete(id);}
     private async head(){const head=await this.client.getBlock();const now=this.clock();require(Number(head.timestamp)<=now+5&&now-Number(head.timestamp)<45);return head;}
@@ -152,10 +158,13 @@ export class NativeDirectory {
             if(token>0n)require((await this.read('ownerOf',[token],head.number,this.network.ResearchBadges,this.badgeAbi.badges)).toLowerCase()===b.account);
             account={status:'verified',address:b.account,participantToken:token>0n?token.toString():null};
         }
-        const receiptState=await this.receipt(b,policy.category,head,now);const sync=receiptState.record;
+        // The node keeps its receipt and session key in memory only, so a restarted node claims no receipt.
+        // Its last verified receipt at this key epoch stays listed (and ages to stale) instead of becoming unverified.
+        const carried=!b.receiptTransaction&&previous?.receiptBlock&&previous.epoch===BigInt(b.keyEpoch)?previous:undefined;
+        const receiptState=carried?{record:structuredClone(carried.record.sync),block:carried.receiptBlock}:await this.receipt(b,policy.category,head,now);const sync=receiptState.record;
         await this.canonical(head);
         const verifiedAt=this.clock();require(verifiedAt>=now&&verifiedAt-Number(head.timestamp)<45&&verifiedAt<=b.expiresAt);
-        if(sync.receiptBlockTime){sync.receiptCheckedAt=iso(verifiedAt);if(verifiedAt-Date.parse(sync.receiptBlockTime)/1000>RECEIPT_TTL)sync.status='stale';}
+        if(sync.receiptBlockTime){if(!carried)sync.receiptCheckedAt=iso(verifiedAt);if(verifiedAt-Date.parse(sync.receiptBlockTime)/1000>RECEIPT_TTL)sync.status='stale';}
         const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),label:b.label??null,version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash,measurement:policy.measured?b.measurement!:null},checkIn:{lastVerifiedAt:iso(verifiedAt),expiresAt:iso(verifiedAt+TTL),status:'fresh'},sync};
         this.counters.set(kid,{count,at:verifiedAt});this.entries.set(b.member,{record,sessionPublic:b.sessionPublic,context,epoch:BigInt(b.keyEpoch),receiptBlock:receiptState.block});
         this.revision++;this.listingCache=undefined;

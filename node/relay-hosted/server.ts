@@ -7,7 +7,7 @@ import type {SponsorPolicy} from "./sponsor-policy.ts";
 type Context={env:Record<string,string>,dataDir:string,sponsorPolicy?:SponsorPolicy};
 type Entry={raw:Hex,hash:Hex,complete:boolean,success?:boolean};
 type Mail={at:number,message:Record<string,unknown>};
-type State={transactions:Record<string,Entry>,boxes:Record<string,Mail[]>};
+type State={transactions:Record<string,Entry>,boxes:Record<string,Mail[]>,directories?:{root?:any,nft?:any}};
 const abi=JSON.parse(await Deno.readTextFile(new URL('./abi.json',import.meta.url)));
 const badgeAbi=JSON.parse(await Deno.readTextFile(new URL('./badge-abi.json',import.meta.url)));
 const deployment=JSON.parse(await Deno.readTextFile(new URL('./network.json',import.meta.url)));
@@ -86,7 +86,11 @@ export class Relay {
         await Deno.mkdir(this.directory,{recursive:true});
         try {this.state=JSON.parse(await Deno.readTextFile(this.directory+'/state.json'));}
         catch(e) {if(!(e instanceof Deno.errors.NotFound))throw e;}
+        // State files written before the directory was persisted have no directories key.
+        if(this.state.directories?.root)this.rootNativeDirectory!.restore(this.state.directories.root);
+        if(this.state.directories?.nft)this.nativeDirectory!.restore(this.state.directories.nft);
     }
+    private saveDirectories() {this.state.directories={root:this.rootNativeDirectory?.snapshot(),nft:this.nativeDirectory?.snapshot()};return this.save();}
     private save() {
         const content=JSON.stringify(this.state);
         const operation=this.writeQueue.then(async()=>{
@@ -208,8 +212,8 @@ export class Relay {
         const reader=request.body?.getReader();need(reader,'missing request body');let raw='';let size=0;const decoder=new TextDecoder();
         while(true){const chunk=await reader.read();if(chunk.done)break;size+=chunk.value.length;if(size>65536){await reader.cancel();throw new Error('request too large');}raw+=decoder.decode(chunk.value,{stream:true});}raw+=decoder.decode();
         const body=JSON.parse(raw);
-        if(path==='/directory/check-in'){need(nativeDirectory&&size<=16384,'DIRECTORY_INVALID');return response(await nativeDirectory.checkIn(body));}
-        if(path==='/directory/leave'){need(nativeDirectory&&size<=4096,'DIRECTORY_INVALID');return response(await nativeDirectory.leave(body));}
+        if(path==='/directory/check-in'){need(nativeDirectory&&size<=16384,'DIRECTORY_INVALID');const result=await nativeDirectory.checkIn(body);await this.saveDirectories();return response(result);}
+        if(path==='/directory/leave'){need(nativeDirectory&&size<=4096,'DIRECTORY_INVALID');const result=await nativeDirectory.leave(body);await this.saveDirectories();return response(result);}
         if(path.startsWith('/send/')) {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
             need(size<=8192 && typeof body.from==='string' && /^[a-zA-Z0-9_-]{1,80}$/.test(body.from),'invalid message');

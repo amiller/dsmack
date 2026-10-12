@@ -1,4 +1,5 @@
 import {privateKeyToAccount} from "npm:viem@2.38.0/accounts";
+import {toHex,type Hex} from "npm:viem@2.38.0";
 
 Deno.test('iPhone and Mac share NFT mailboxes with separate admission; legacy stays isolated',async()=>{
     // Public Anvil fixture key, never a deployed sponsor credential.
@@ -102,3 +103,41 @@ for(const mode of ['absent','wrong-registry','wrong-sponsor','reused-category','
         } finally {await rpc.shutdown();await Deno.remove(directory,{recursive:true});}
     });
 }
+
+Deno.test('directory check-in list is restored from and written to the state file',async()=>{
+    const key='0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
+    const directory=await Deno.makeTempDir(),now=Math.floor(Date.now()/1000);
+    const block={number:'0x64',hash:'0x'+'bc'.repeat(32),parentHash:'0x'+'00'.repeat(32),timestamp:toHex(now),transactions:[],gasLimit:'0x1',gasUsed:'0x0',logsBloom:'0x'+'00'.repeat(256),miner:'0x'+'00'.repeat(20),extraData:'0x',size:'0x1',difficulty:'0x0',nonce:'0x0000000000000000'};
+    const rpc=Deno.serve({hostname:'127.0.0.1',port:0,onListen:()=>{}},async request=>{
+        const value=await request.json();
+        const results:Record<string,unknown>={eth_chainId:'0x7a69',eth_getBlockByNumber:block,eth_call:'0x'+'00'.repeat(31)+'01'};
+        if(!results[value.method])throw new Error('Unexpected RPC call: '+value.method);
+        return Response.json({jsonrpc:'2.0',id:value.id,result:results[value.method]});
+    });
+    const check=(condition:unknown,message:string)=>{if(!condition)throw new Error(message);};
+    try {
+        for(const name of ['server.ts','directory.ts','abi.json','badge-abi.json'])
+            await Deno.copyFile(new URL(name,import.meta.url),directory+'/'+name);
+        const fixture=JSON.parse(await Deno.readTextFile(new URL('network.json',import.meta.url)));
+        fixture.chainId=31337;fixture.admin=privateKeyToAccount(key).address;
+        delete fixture.ResearchBadges;delete fixture.PersonalBadgeAccountFactory;
+        const nft={...fixture,DemoV1:'0x1111111111111111111111111111111111111111',macCategory:'0x'+'22'.repeat(32)};
+        await Deno.writeTextFile(directory+'/network.json',JSON.stringify(fixture));
+        await Deno.writeTextFile(directory+'/network-nft.json',JSON.stringify(nft));
+        const session=await crypto.subtle.generateKey({name:'ECDSA',namedCurve:'P-256'},true,['sign','verify']);
+        const sessionPublic=toHex(new Uint8Array(await crypto.subtle.exportKey('raw',session.publicKey)));
+        const member=('0x'+'ab'.repeat(32)) as Hex,context=('0x'+'cd'.repeat(32)) as Hex,iso=(s:number)=>new Date(s*1000).toISOString();
+        const record={id:'0x'+'ef'.repeat(32),member,account:{status:'unavailable',address:null,participantToken:null},accountGeneration:'0',label:'seed-1',version:{selfReported:'0.2.0',buildNumber:'5',admittedCodeHash:'0x'+'17'.repeat(32),measurement:null},checkIn:{lastVerifiedAt:iso(now-10),expiresAt:iso(now+80),status:'fresh'},sync:{scope:'0x'+'00'.repeat(32),keyEpoch:'1',groupPublicFingerprint:null,status:'unverified',receiptTransaction:null,receiptCheckedAt:null,receiptBlockTime:null}};
+        const dataDir=directory+'/data';await Deno.mkdir(dataDir);
+        await Deno.writeTextFile(dataDir+'/state.json',JSON.stringify({transactions:{},boxes:{},directories:{nft:{entries:[[member,{record,sessionPublic,context,epoch:'1',receiptBlock:null}]],counters:[]}}}));
+        const {default:handler}=await import('file://'+directory+'/server.ts');
+        const env={PRIVATE_KEY:key,RPC_URL:'http://127.0.0.1:'+rpc.addr.port,NATIVE_DIRECTORY_ENABLED:'true'};
+        const listed=await (await handler(new Request('http://relay/nft/directory'),{env,dataDir})).json();
+        check(listed.status==='available'&&listed.nodes.length===1&&listed.nodes[0].member===member&&listed.nodes[0].label==='seed-1','redeploy emptied the directory: '+JSON.stringify(listed));
+        const {leavePayload}=await import('file://'+directory+'/directory.ts');
+        const signature=toHex(new Uint8Array(await crypto.subtle.sign({name:'ECDSA',hash:'SHA-256'},session.privateKey,leavePayload(nft,member,sessionPublic,context,now))));
+        const left=await (await handler(new Request('http://relay/nft/directory/leave',{method:'POST',body:JSON.stringify({member,context,at:now,signature})}),{env,dataDir})).json();
+        check(left.left===true,'leave failed: '+JSON.stringify(left));
+        check(JSON.parse(await Deno.readTextFile(dataDir+'/state.json')).directories.nft.entries.length===0,'leave not written to the state file');
+    } finally {await rpc.shutdown();await Deno.remove(directory,{recursive:true});}
+});

@@ -54,7 +54,10 @@ Each node has the following fixed fields. Addresses and hashes use lowercase
 is the original canonical receipt block timestamp; checking an old receipt again
 never refreshes it. A current-epoch receipt label records the successful canonical
 receipt and both times. It does not prove the process still holds the private key. A receipt
-older than 120 seconds by `receiptBlockTime` is stale even when the app has checked in recently. Fresh
+older than 120 seconds by `receiptBlockTime` is stale even when the app has checked in recently.
+The node keeps its last receipt and session key in memory, so after a node restart it checks in
+with `receiptTransaction: null`. The relay then keeps that member's previously verified receipt for
+the same key epoch, with its original `receiptCheckedAt`, instead of reporting `unverified`. Fresh
 check-in means a verified assertion arrived, not continuous online availability.
 The list contains at most 64 entries. Version is 1–64 ASCII characters matching `[0-9][A-Za-z0-9._-]{0,63}`.
 Build number is a canonical decimal string from 0 through `2147483647`. Decimal epoch strings are 1–20 digits and at
@@ -131,10 +134,11 @@ canonical blocks are rechecked (deduplicated by block) on each new observation;
 a reorg removes the verified receipt label.
 
 The relay retains at most 64 entries, 256 replay counters and 16 queued changes.
-The replay cache and entries are in memory, reset on relay restart and removed
-after 300 seconds. A restart therefore starts with an empty directory; the
-30-second signed request window limits replay across restart. This is observation
-state, not on-chain membership or a new consensus mechanism.
+The replay cache and entries are written to the relay state file after each
+accepted check-in or leave, restored on relay restart, and removed 300 seconds
+after the last verified check-in. A redeploy therefore keeps the directory and its
+replay counters. This is observation state, not on-chain membership or a new
+consensus mechanism.
 
 ## Listing by default
 

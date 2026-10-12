@@ -39,6 +39,9 @@ Deno.test('iPhone and Mac share NFT mailboxes with separate admission; legacy st
         await call('/nft/send/same-name',{from:'new',type:'HELLO'});
         check((await call('/recv/same-name')).body.message.from==='old','legacy mailbox crossed networks');
         check((await call('/nft/recv/same-name')).body.message.from==='new','NFT mailbox crossed networks');
+        await call('/nft/send/seed-b',{from:'seed-a',type:'HEARTBEAT',keyEpoch:1,holds:true});
+        check((await call('/nft/recv/seed-b')).body.message.holds===true,'seed heartbeat not relayed');
+        check((await call('/nft/send/seed-b',{from:'seed-a',type:'GOSSIP'})).body.error==='unsupported message type','unknown mail type accepted');
         check((await call('/nft/enroll',{category:fixture.macCategory})).body.error==='unknown category','NFT route accepted legacy category');
         check((await call('/enroll',{category:nft.macCategory})).body.error==='unknown category','legacy route accepted NFT category');
         await call('/ios/send/release-nft-seed',{from:'iphone',type:'HELLO'});

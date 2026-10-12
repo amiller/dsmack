@@ -202,7 +202,7 @@ export class Relay {
         if(path.startsWith('/send/')) {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
             need(size<=8192 && typeof body.from==='string' && /^[a-zA-Z0-9_-]{1,80}$/.test(body.from),'invalid message');
-            need(['HELLO','PARCEL','PROOF','ERROR'].includes(body.type),'unsupported message type');
+            need(['HELLO','PARCEL','PROOF','ERROR','HEARTBEAT'].includes(body.type),'unsupported message type');
             const enqueue=async()=>{
                 await this.sponsorPolicy?.allowMail?.(mailboxPrefix+name,body,'enqueue');
                 for(const [key,items] of Object.entries(this.state.boxes)){const live=items.filter(x=>Date.now()-x.at<120000);if(live.length)this.state.boxes[key]=live;else delete this.state.boxes[key];}

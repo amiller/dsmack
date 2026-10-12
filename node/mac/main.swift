@@ -9,7 +9,7 @@ func runCLI() {
         let args=CommandLine.arguments
         try need(args.count==3 && ["listen","connect","participate","seed"].contains(args[2]),"usage: node <config.json> listen|connect|participate|seed")
         guard let d=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:args[1]))) as? [String:Any] else {throw DemoError.invalid("config JSON")}
-        let node=Node(try Config(d),log:emit)
+        let node=Node(try Config(d,path:URL(fileURLWithPath:args[1])),log:emit)
         if args[2]=="seed" {node.maintainSeed()} else if args[2]=="listen" {try node.listen()} else if args[2]=="participate" {try node.participate()} else {try node.connect()}
         emit("done",[:])
     } catch {emit("error",["error":"\(error)"]);exit(1)}

@@ -1,0 +1,12 @@
+{
+ "comment": "Expected M (scripts/release/measure.py). Raw .cd/.page0/.ent fixtures use L=2320, S=3608; .json fixtures carry linkeditCmd/codeSigCmd. Rejected: wrong CodeDirectory version or no DER entitlements.",
+ "L": 2320,
+ "S": 3608,
+ "probe": "0x659b447e217c572e066774293fb44f775846f46e98249778d7d360904da9beb7",
+ "probeModified": "0xa73749ca8e0c39332cdd9f60fdda4cd9b4ab1fb6c3896f24b257b96405d6c1f2",
+ "node": "0xf4c18c659d93e56a6f0664222e1587713e2288bfa7f4b71b8eaf22b2c7d73f80",
+ "nodeModified": "0x097253ffba4b49612d29da81be26f50ae33b7d224571cedf1d57c2a3f4540c08",
+ "probeSame": ["A-original", "D-dev-timestamp", "G-strip-then-dev", "I-dev-resign-same"],
+ "nodeSame": ["node-honest", "node-resigned", "node-synthetic-team"],
+ "rejected": {"B-adhoc": "layout", "C-adhoc-otherid": "blob", "E-dev-noent": "layout", "H-strip-then-adhoc": "blob", "iphone-honest": "blob"}
+}

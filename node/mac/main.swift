@@ -14,6 +14,14 @@ func runCLI() {
         emit("done",[:])
     } catch {emit("error",["error":"\(error)"]);exit(1)}
 }
+/// Own measurement inputs for MeasurementRegistry.register, and M.
+if CommandLine.arguments.count==2 && CommandLine.arguments[1]=="--measure" {
+    do {
+        let x=try CodeMeasurement.ofSelf()
+        emit("measurement",["M":hex(try x.value()),"cdhash":hex(Data(CodeMeasurement.sha(x.cd))),"cd":hex(Data(x.cd)),"page0":hex(Data(x.page0)),"ent":hex(Data(x.ent)),"L":x.L,"S":x.S])
+        exit(0)
+    } catch {emit("error",["error":"\(error)"]);exit(1)}
+}
 #if GUI
 if CommandLine.arguments.count==3 && CommandLine.arguments[1]=="--dsmack-finish-update" {NativeUpdater.finishHandoff(CommandLine.arguments[2])}
 if CommandLine.arguments.count==3 && ["listen","connect","participate","seed"].contains(CommandLine.arguments[2]) {runCLI()} else {runParticipantApp()}

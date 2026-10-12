@@ -107,7 +107,7 @@ export async function loadMembers(fetcher = fetch, now = Date.now() / 1000) {
       version: node ? `${node.version.selfReported} (build ${node.version.buildNumber})` : null,
       admitted: m.admitted === undefined ? (m.category === null ? "no join on chain" : "no assertion found") : m.admitted ? "admitted" : "not admitted",
       admittedNote: m.admitted === undefined ? "" : m.measurement ? `measured · M ${short(m.measurement)}` : `legacy build ${short(m.cdhash)}`,
-      checkIn, registryAt: m.lastEventAt, lastSeen, recent: lastSeen !== null && now - lastSeen <= 7 * 86400,
+      checkIn, registryAt: m.lastEventAt, lastSeen, recent: !!node || (m.lastEventAt !== null && now - m.lastEventAt <= 86400),
       presence: node ? (node.fresh && now - checkIn <= 90 ? "online" : "stale") : directory.status === "unknown" ? "unknown" : "no check-in",
       epoch: epoch === null ? "no receipt" : `${epoch}${epoch === currentEpoch ? " (current)" : ` (stale; current ${currentEpoch})`}`,
       lastTx: m.lastTx,

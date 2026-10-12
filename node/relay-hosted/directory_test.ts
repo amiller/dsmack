@@ -101,3 +101,20 @@ Deno.test('directory lists a heartbeating measured node, marks it stale after th
  f.advance(5);const stale:any=await f.directory.listing();check(stale.nodes[0].checkIn.status==='stale'&&!directoryView(stale,f.now()).nodes[0].fresh,'fresh after TTL');
  f.advance(210);check((await f.directory.listing() as any).nodes.length===0,'retained after 300 s');
 });
+// The node holds its receipt and session key in memory only; after a restart it checks in with receiptTransaction null.
+Deno.test('a restarted node with no receipt keeps its last verified receipt at the same key epoch',async()=>{
+ const f=await fixture();await f.directory.checkIn(f.input);
+ f.advance(200);f.refresh();await f.assertion(2);f.input.receiptTransaction=null;
+ let reads=0;const original=f.client.getTransactionReceipt;f.client.getTransactionReceipt=async()=>{reads++;return await original();};
+ check((await f.directory.checkIn(f.input) as any).syncStatus==='stale'&&reads===0,'restart dropped the verified receipt');
+ const n=(await f.directory.listing() as any).nodes[0];check(n.sync.status==='stale'&&n.sync.receiptTransaction===h('77')&&n.sync.receiptCheckedAt===new Date((f.now()-200)*1000).toISOString(),JSON.stringify(n.sync));
+ f.advance(6);f.refresh();await f.assertion(3);f.policy.epoch=2n;f.input.keyEpoch='2';
+ check((await f.directory.checkIn(f.input) as any).syncStatus==='unverified','receipt carried across a key epoch');
+ const g=await fixture();g.input.receiptTransaction=null;check((await g.directory.checkIn(g.input) as any).syncStatus==='unverified','unclaimed receipt verified');
+});
+Deno.test('snapshot survives JSON and restores the listing and replay counters',async()=>{
+ const f=await fixture(true);await f.directory.checkIn(f.input);const before=await f.directory.listing();
+ const restored=new NativeDirectory(f.client,network,abi,badges,true,f.now);restored.restore(JSON.parse(JSON.stringify(f.directory.snapshot())));
+ check(JSON.stringify(await restored.listing())===JSON.stringify(before),'restored listing differs');
+ f.advance(6);f.refresh();await f.consent();await rejects(()=>restored.checkIn(f.input));await f.assertion(2);await restored.checkIn(f.input);
+});

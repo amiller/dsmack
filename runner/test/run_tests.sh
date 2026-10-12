@@ -12,7 +12,7 @@ check() { local name=$1; shift; if "$@" >/dev/null 2>&1; then echo "PASS $name";
 VB=$RUNS/base; mkdir -p "$VB/volumes"; ln -s "$(cd .. && pwd)/vmlinux-arm64" "$(cd .. && pwd)/store" "$VB/"
 # --app is the genesis app "dev|<compose_hash>" unless RUN_APP is set.
 run() { local a=("$@") i c; for i in "${!a[@]}"; do [ "${a[$i]}" = --compose ] && c=${a[$((i+1))]}; done
-  bin/runner run --base "$VB" --kms http://127.0.0.1:${PORT:-8790} --app "${RUN_APP:-dev|$(bin/runner check "$c")}" "$@"; }
+  bin/runner run --base "$VB" --dev-kms http://127.0.0.1:${PORT:-8790} --app "${RUN_APP:-dev|$(bin/runner check "$c")}" "$@"; }
 appdir() { printf '%s' "$1" | shasum -a 256 | cut -c1-64; }
 same() { test -n "$1" && test "$1" = "$2"; }
 # A KMS that must refuse to start: it gets 3 s to exit on its own, else it is killed and the check fails.
@@ -84,7 +84,7 @@ check kms_dev_mode_refuses_real_cdhash grep -q "configure exactly one mode" "$RU
 run --compose test/app-compose.json --out "$RUNS/attest" --attest > "$RUNS/attest.txt" 2>&1; echo "  $(tail -1 "$RUNS/attest.txt")"
 check attest_on_adhoc_build_fails_loudly grep -q "isSupported is false" "$RUNS/attest.txt"
 check attest_logs_own_cdhash grep -q "cdhash $(codesign -d --verbose=4 bin/runner 2>&1 | sed -n 's/^CandidateCDHashFull sha256=//p'), app dev|$H\$" "$RUNS/attest.txt"
-bin/runner run --base "$VB" --kms http://127.0.0.1:8790 --compose test/app-compose.json --out "$RUNS/noapp" --no-attest > "$RUNS/noapp.txt" 2>&1; echo "  $(tail -1 "$RUNS/noapp.txt")"
+bin/runner run --base "$VB" --dev-kms http://127.0.0.1:8790 --compose test/app-compose.json --out "$RUNS/noapp" --no-attest > "$RUNS/noapp.txt" 2>&1; echo "  $(tail -1 "$RUNS/noapp.txt")"
 check runner_requires_app grep -q "missing --app <value>" "$RUNS/noapp.txt"
 run --compose test/app-compose-meter.json --out "$RUNS/attest-anchor" --attest --dev-test-anchor "$RUNS/fake/ca.der" > "$RUNS/attest-anchor.txt" 2>&1; echo "  $(tail -1 "$RUNS/attest-anchor.txt")"
 check attest_refuses_dev_test_anchor grep -q "dev-test-anchor is DEV-ONLY and refused with --attest" "$RUNS/attest-anchor.txt"

@@ -3,8 +3,12 @@
 The prototype runs a digest-pinned compose workload through Apple's
 Containerization 0.33.4 and Virtualization.framework. Its guest has no network
 device. A Unix socket at `/run/egress.sock` reaches the host proxy, which applies
-egress policy, originates pinned TLS and signs receipts. The host and stand-in
-KMS can read issuer secrets; App Attest establishes identity and binding.
+egress policy, originates pinned TLS and signs receipts. App keys come from a
+Dsmack node's SDK port (`--sdk-node`): the runner proves its CDHash and compose
+with App Attest, receives the app root and serves the guest `/var/run/dsmack.sock`
+([protocol](../docs/protocols/runner.md#dsmack-sdk-keys-from-the-node---sdk-node)).
+The stand-in KMS (`--dev-kms`) is DEV-ONLY. The host can read app keys; App
+Attest establishes identity and binding.
 
 Read the [runner protocol](../docs/protocols/runner.md) and
 [peer interface](../docs/protocols/runner-peer.md) for exact compose, key,
@@ -55,6 +59,6 @@ Named volumes are unencrypted, operator-readable and rollbackable. They must not
 hold the sole copy of a secret. The app-id binding preserves derived keys and
 volumes across admitted upgrades; changed builds require explicit admission.
 
-`--no-attest`, KMS `--dev-unattested` and receipt `--dev-unattested` are synthetic
+`--no-attest`, `--dev-kms`, KMS `--dev-unattested` and receipt `--dev-unattested` are synthetic
 paths. `--dev-test-anchor` and `--dev-task-boot-delay-ms` are refused with
 `--attest`. Never use development paths with a real provider key.

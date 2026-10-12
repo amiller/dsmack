@@ -122,7 +122,8 @@ export class Relay {
             need(Object.keys(this.state.transactions).length<10000,'relay transaction journal full');
             const gas=await this.client.estimateGas({account:this.account,to,data});
             const nonce=await this.client.getTransactionCount({address:this.account.address,blockTag:'pending'});
-            const gasPrice=await this.client.getGasPrice()*2n;
+            const observedGasPrice=await this.client.getGasPrice();
+            const gasPrice=this.sponsorPolicy?.gasPrice?this.sponsorPolicy.gasPrice(observedGasPrice):observedGasPrice*2n;
             need(deployment.chainId!==84532 || gas<=16000000n,'enrollment exceeds relay gas cap');
             const limit=deployment.chainId===84532 && gas+gas/10n>16000000n?16000000n:gas+gas/10n;
             await this.sponsorPolicy?.reserve({id,to,data,nonce,gas:limit,gasPrice});

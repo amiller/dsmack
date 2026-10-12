@@ -1,6 +1,6 @@
 import {decodeAbiParameters,decodeFunctionData,encodeAbiParameters,keccak256,parseTransaction,recoverTransactionAddress,type Address,type Hex,type TransactionSerialized} from 'npm:viem@2.38.0';
 export type SponsorRequest={id:Hex,to:Address,data:Hex,nonce:number,gas:bigint,gasPrice:bigint};
-export interface SponsorPolicy {reserve(request:SponsorRequest):Promise<void>;reconcile(raw:Hex):Promise<void>;allowMail?(to:string,body:unknown,stage?:'enqueue'|'deliver'):Promise<void>;status?():Promise<Record<string,unknown>>;}
+export interface SponsorPolicy {reserve(request:SponsorRequest):Promise<void>;reconcile(raw:Hex):Promise<void>;allowMail?(to:string,body:unknown,stage?:'enqueue'|'deliver'):Promise<void>;status?():Promise<Record<string,unknown>>;gasPrice?(observed:bigint):bigint;}
 export type QualificationBudget={version:1,approved:boolean,reference:string,validUntil:string,owner:Address,registry:Address,adapter:Address,category:Hex,seedKeyId:Hex,peerKeyId:Hex,seedMember:Hex,peerMember:Hex,seedName:string,peerName:string,priceCap:string,totalCap:string};
 export type Reservation={id:Hex,to:Address,dataHash:Hex,nonce:number,gas:string,gasPrice:string,fee:string,kind:string,member:Hex,account?:Address,keyId?:Hex,sessionKeyHash?:Hex,joinTx?:Hex,mailbox?:string,envelopeDigest?:Hex};
 export type Ledger={scope:Hex,reservations:Reservation[],bindings?:Record<string,string>};
@@ -39,11 +39,11 @@ export class QualificationSponsorPolicy implements SponsorPolicy {
   need(same(config.owner,OWNER)&&same(config.registry,REGISTRY)&&same(config.adapter,ADAPTER)&&same(config.category,CATEGORY),'wrong sponsorship domain');
   for(const key of [config.seedKeyId,config.peerKeyId,config.seedMember,config.peerMember])need(/^0x[0-9a-f]{64}$/.test(key),'unbound selected identity');
   need(config.seedKeyId!==config.peerKeyId&&member(config.category,config.seedKeyId)===config.seedMember&&member(config.category,config.peerKeyId)===config.peerMember,'identity derivation differs');
-  need(/^\d+$/.test(config.priceCap)&&BigInt(config.priceCap)>0n&&BigInt(config.priceCap)<=12000000n&&/^\d+$/.test(config.totalCap)&&BigInt(config.totalCap)>0n&&BigInt(config.totalCap)<=211000000000000n,'budget limits invalid');
+  need(/^\d+$/.test(config.priceCap)&&BigInt(config.priceCap)>0n&&BigInt(config.priceCap)<=10000000n&&/^\d+$/.test(config.totalCap)&&BigInt(config.totalCap)>0n&&BigInt(config.totalCap)<=211000000000000n,'budget limits invalid');
   need(/^[a-zA-Z0-9_-]{1,80}$/.test(config.seedName)&&/^[a-zA-Z0-9_-]{1,80}$/.test(config.peerName)&&config.seedName!==config.peerName,'selected mailbox names invalid');
   need(Number.isFinite(Date.parse(config.validUntil)),'invalid qualification deadline');
   this.scope=keccak256(new TextEncoder().encode(JSON.stringify(config)));this.now=deps.now||Date.now;
-  this.journal=new DurableSponsorLedger(file,this.scope,BigInt(config.totalCap),8,(r,all)=>{const limits:Record<string,[number,bigint,Hex]>={'peer-enroll':[1,14000000n,config.peerMember],'seed-bootstrap':[1,500000n,config.seedMember],'peer-join':[2,500000n,config.peerMember],'seed-receipt':[2,500000n,config.seedMember],'peer-receipt':[2,500000n,config.peerMember]};const l=limits[r.kind];need(l&&r.member===l[2]&&BigInt(r.gas)<=l[1]&&BigInt(r.gasPrice)<=BigInt(config.priceCap)&&all.filter(x=>x.kind===r.kind).length<=l[0],'durable action limits differ');if(r.kind==='seed-bootstrap')need(/^0x[0-9a-f]{64}$/.test(r.sessionKeyHash||''),'bootstrap session absent');if(r.kind==='seed-receipt'||r.kind==='peer-receipt')need(/^0x[0-9a-f]{64}$/.test(r.joinTx||'')&&/^0x[0-9a-f]{64}$/.test(r.envelopeDigest||''),'receipt binding absent');},ledger=>this.validateBindings(ledger));
+  this.journal=new DurableSponsorLedger(file,this.scope,BigInt(config.totalCap),8,(r,all)=>{const limits:Record<string,[number,bigint,Hex]>={'peer-enroll':[1,16000000n,config.peerMember],'seed-bootstrap':[1,500000n,config.seedMember],'peer-join':[2,500000n,config.peerMember],'seed-receipt':[2,500000n,config.seedMember],'peer-receipt':[2,500000n,config.peerMember]};const l=limits[r.kind];need(l&&r.member===l[2]&&BigInt(r.gas)<=l[1]&&BigInt(r.gasPrice)<=BigInt(config.priceCap)&&all.filter(x=>x.kind===r.kind).length<=l[0],'durable action limits differ');if(r.kind==='seed-bootstrap')need(/^0x[0-9a-f]{64}$/.test(r.sessionKeyHash||''),'bootstrap session absent');if(r.kind==='seed-receipt'||r.kind==='peer-receipt')need(/^0x[0-9a-f]{64}$/.test(r.joinTx||'')&&/^0x[0-9a-f]{64}$/.test(r.envelopeDigest||''),'receipt binding absent');},ledger=>this.validateBindings(ledger));
  }
  private validateBindings(ledger:Ledger){
   need(ledger.bindings===undefined||typeof ledger.bindings==='object'&&ledger.bindings!==null&&Object.keys(ledger.bindings).length<=2,'invalid mail bindings');
@@ -73,7 +73,7 @@ export class QualificationSponsorPolicy implements SponsorPolicy {
    need(b.length>=164&&b.length<=1024&&(b[32]&0x40)!==0&&(b[32]&0x80)!==0&&(b[32]&0x3e)===0&&b.slice(33,37).every(x=>x===0)&&b[53]===0&&b[54]===32,'invalid credential layout');
    const kid=('0x'+Array.from(b.slice(55,87),x=>x.toString(16).padStart(2,'0')).join('')) as Hex;
    need(kid===this.config.peerKeyId,'only selected peer enrollment; seed must resume valid identity');
-   return {kind:'peer-enroll',member:this.config.peerMember,cap:14000000n,max:1};
+   return {kind:'peer-enroll',member:this.config.peerMember,cap:16000000n,max:1};
   }
   need(same(to,this.config.registry),'unapproved sponsorship target');
   const decoded=decodeFunctionData({abi:this.abi.demo,data});need(decoded.functionName==='execute','only native execute');
@@ -103,6 +103,7 @@ export class QualificationSponsorPolicy implements SponsorPolicy {
   }
   await this.deps.preSignCheck(fee);need(this.now()<Date.parse(this.config.validUntil),'qualification expired before signing');
  }
+ gasPrice(observed:bigint){const cap=BigInt(this.config.priceCap);need(observed>0n&&observed<=cap,'network gas price exceeds approved ceiling');return observed*2n<=cap?observed*2n:cap;}
  async status(){const l=await this.journal.load();const maxima:Record<string,number>={'peer-enroll':1,'seed-bootstrap':1,'peer-join':2,'seed-receipt':2,'peer-receipt':2};const remaining=Object.fromEntries(Object.entries(maxima).map(([kind,max])=>[kind,max-l.reservations.filter(r=>r.kind===kind).length]));return {mode:'qualification',expiresAt:this.config.validUntil,expired:this.now()>=Date.parse(this.config.validUntil),additionalPublicEnrollmentCapacity:0,remainingActions:remaining,reservedFeeWei:String(l.reservations.reduce((n,r)=>n+BigInt(r.fee),0n)),ceilingWei:this.config.totalCap};}
  async reconcile(raw:Hex){
   const tx=parseTransaction(raw);need(tx.type==='legacy'&&tx.chainId===84532&&tx.to&&tx.data&&tx.nonce!==undefined&&tx.gas&&tx.gasPrice&&(tx.value??0n)===0n,'unapproved pending transaction');

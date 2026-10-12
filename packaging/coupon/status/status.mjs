@@ -1,3 +1,4 @@
+import { drawCapacity, readCapacity } from "./capacity.mjs";
 import { drawParticipation } from "./participation.mjs";
 import { drawDirectory, readDirectory } from "./directory.mjs";
 // Two independent operator observations. Neither authorizes a coupon claim.
@@ -75,9 +76,10 @@ export async function readFeed(fetcher = fetch, filename = "health.json") {
 }
 
 if (typeof document !== "undefined") {
-  let health = null, issuer = null, participation = null, directory = null;
+  let health = null, issuer = null, participation = null, directory = null, capacity = null;
   const text = (id, value) => { document.getElementById(id).textContent = value; };
   const draw = () => {
+    drawCapacity(capacity);
     drawParticipation(participation);
     drawDirectory(directory);
     const current = view(health), peer = issuerView(issuer);
@@ -104,6 +106,7 @@ if (typeof document !== "undefined") {
       readFeed().then(value => { health = value; }, () => { health = null; }),
       readFeed(fetch, "issuer.json").then(value => { issuer = value; }, () => { issuer = null; }),
       readFeed(fetch, "participation.json").then(value => { participation = value; }, () => { participation = null; }),
+      readCapacity().then(value => { capacity = value; }, () => { capacity = null; }),
       readDirectory().then(value => { directory = value; }, () => { directory = null; }),
     ]);
     draw();

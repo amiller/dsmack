@@ -8,7 +8,7 @@ redemption or private custody.
 
 ## Serve reviewed public copies
 
-Serve `index.html`, `status.mjs`, `participation.mjs`, `directory.mjs` and three separately validated JSON copies together
+Serve `index.html`, `status.mjs`, `participation.mjs`, `directory.mjs`, `capacity.mjs` and three separately validated JSON copies together
 over HTTPS. Never mount an operator state directory in the web server. Do not
 publish adapter logs, raw probe output, owner plans or credentials. The browser
 fetches anonymously without cookies, redirects or caching, limits each response
@@ -17,6 +17,21 @@ fonts or analytics; the epoch link is followed only when clicked. The opt-in nod
 directory additionally makes a read-only request to the pinned Dsmack relay on
 `pod.dstack.soc1024.com`, without credentials, redirects or caching. A dashboard
 hosted elsewhere requires the relay to permit this public GET through CORS.
+
+## Joining capacity
+
+The capacity panel reads the pinned relay's `/nft/status` with a five-second
+timeout and 32 KiB limit. It requires a fresh Base Sepolia observation, an
+unpaused public-pilot budget and a remaining additional enrollment slot. Missing,
+malformed or stale observations show unknown; qualification-only, consumed,
+paused and expired allowances do not advertise public capacity. The browser
+expires the window locally even if polling stops.
+
+An advertised slot is an upper bound, not a reservation for an invited friend,
+proof of eligibility or seed readiness. Current fees and admission may still
+refuse a request. The panel publishes no participant identities or budget ledger.
+Serve the reviewed relay status schema alongside this panel; the older relay
+without budget metadata deliberately shows unknown.
 
 ## Find your node
 

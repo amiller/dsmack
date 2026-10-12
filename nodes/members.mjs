@@ -156,3 +156,22 @@ export function draw(view, doc = document) {
     body.append(row);
   }
 }
+
+export const STATUS = "https://pod.dstack.soc1024.com/apple-attest-p2p-relay/status";
+export async function loadSponsor(fetcher = fetch) {
+  const r = await fetcher(STATUS, {credentials: "omit", cache: "no-store", signal: AbortSignal.timeout(5000)});
+  if (!r.ok) throw new Error(`Relay status ${r.status}`);
+  const {address, balanceWei, enrollCostWei} = (await r.json()).sponsor;
+  if (!/^0x[0-9a-fA-F]{40}$/.test(address)) throw new Error("Bad sponsor address");
+  const balance = BigInt(balanceWei);
+  return {address, joins: balance / BigInt(enrollCostWei), eth: (Number(balance / 10n ** 14n) / 1e4).toFixed(4)};
+}
+
+export function drawSponsor(s, doc = document) {
+  const p = doc.getElementById("sponsor");
+  p.hidden = !s; if (!s) return;
+  const a = doc.createElement("a"); a.rel = "noreferrer"; a.href = `${EXPLORER}/address/${s.address}`; a.title = s.address;
+  a.textContent = `${s.eth} ETH on Base Sepolia`;
+  p.className = s.joins < 1n ? "low" : "";
+  p.replaceChildren(s.joins < 1n ? "Relay cannot sponsor joins right now (" : `Relay can sponsor about ${s.joins} more joins (`, a, ")");
+}

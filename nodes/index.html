@@ -22,6 +22,7 @@
   .presence.stale { color: var(--rose); }
   .presence.no-check-in, .presence.unknown, .presence.revoked { color: var(--dim); font-weight: 400; }
   #toggle-all { font: inherit; font-size: 14px; font-weight: 500; margin-top: 16px; padding: 8px 18px; border: 1px solid var(--dim); border-radius: 999px; background: transparent; color: var(--al); cursor: pointer; }
+  #sponsor { color: var(--dim); font-size: 14px; margin-top: -8px; } #sponsor.low { color: var(--rose); } #sponsor.low a { color: inherit; }
   .note { border-left: 2px solid var(--rule); padding-left: 16px; color: var(--dim); font-size: 14px; }
 </style>
 <div class="wrap">
@@ -44,6 +45,7 @@
   <section aria-labelledby="members-title">
     <h2 id="members-title">Members <span class="badge" id="chain-state">unknown</span></h2>
     <p id="summary">Loading the registry.</p>
+    <p id="sponsor" hidden></p>
     <div class="table-scroll"><table><thead><tr><th>Node</th><th>Online</th><th>Admitted</th><th>Last seen</th><th>Key epoch</th><th>Latest tx</th></tr></thead><tbody id="member-rows"></tbody></table></div>
     <button type="button" id="toggle-all">Show all members</button>
   </section>
@@ -60,12 +62,13 @@
   </footer>
 </main>
 <script type="module">
-  import {draw, loadMembers, toggleAll} from "./members.mjs";
+  import {draw, drawSponsor, loadMembers, loadSponsor, toggleAll} from "./members.mjs";
   document.getElementById("toggle-all").onclick = () => toggleAll();
   const refresh = () => loadMembers().then(v => draw(v), e => {
     document.getElementById("chain-state").textContent = "unknown";
     document.getElementById("summary").textContent = `Registry read failed: ${e.message}. Membership is unknown.`;
   });
-  refresh(); setInterval(refresh, 30000);
+  const sponsor = () => loadSponsor().then(s => drawSponsor(s), e => { console.error(e); drawSponsor(null); });
+  refresh(); sponsor(); setInterval(() => { refresh(); sponsor(); }, 30000);
 </script>
 </html>

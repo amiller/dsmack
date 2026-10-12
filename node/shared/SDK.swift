@@ -5,10 +5,6 @@ import Darwin
 /// dsmack-sdk v1, node side (planning dsmack-sdk-design §2-3): per-app roots derived from the group key G,
 /// served to the runner as JSON lines. The "dsmack-sdk/..." strings are frozen: changing one changes every app key.
 enum SDK {
-    /// Ed25519 key that signs interim allow records: the lab network policy authority key that signs genesis approvals
-    /// (native-live2 policy-authority.pub). Compiled in, so it is part of M.
-    /// TODO(AppRegistry): interim; replace with composes(appId, composeHash) windows read on chain at the statement's block.
-    static let sponsor=try! Curve25519.Signing.PublicKey(rawRepresentation:unhex("a9f24171fb7f1a1ce28409d97127018d981b25417f8ba531a2af8d90b787b41e"))
     static let runnerDomain="dsmack-sdk-runner/1",challengeSeconds:UInt64=60,maxEnrollmentAge:Int64=12*3600
     static let p256Order=[UInt8](try! unhex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"))
 
@@ -37,9 +33,15 @@ enum SDK {
         try need([scope,appId,composeHash,measurement].allSatisfy{$0.count==32} && appPub.count==65,"statement field widths")
         return Data("dsmack-sdk/app/1".utf8)+word(chainId)+(try addressWord(registry))+scope+word(keyEpoch)+appId+composeHash+word(block)+measurement+appPub
     }
-    /// The interim allow check: the sponsor signs (app_id, compose_hash, scope, until) for this chain and registry.
-    static func allowMessage(chainId: UInt64,registry: String,appId: Data,composeHash: Data,scope: Data,until: UInt64) throws -> Data {
-        Data("dsmack-sdk/allow/1".utf8)+word(chainId)+(try addressWord(registry))+appId+composeHash+scope+word(until)
+    /// AppRegistry's apps(appId) and composes(appId, composeHash), both read at `block`.
+    struct Entry {let block:UInt64,admin:Data,scope:Data,from:UInt64,until:UInt64}
+    /// AppRegistry.isAllowed at the entry's block, with the reason when not; returns the app's scope.
+    static func allowedScope(_ e: Entry) throws -> Data {
+        try need(e.admin != Data(repeating:0,count:20),"app_id not in AppRegistry at block \(e.block)")
+        try need(e.until != 0,"compose not allowed under app_id at block \(e.block)")
+        try need(e.from<=e.block,"compose window opens at block \(e.from), read at \(e.block)")
+        try need(e.block<e.until,"compose window closed at block \(e.until), read at \(e.block)")
+        return e.scope
     }
 
     /// JSON lines on 127.0.0.1 (the loopback channel the runner already uses for its KMS; no socket file).
@@ -80,8 +82,9 @@ enum SDK {
 /// One connection's runner admission: the challenge it was issued and, once admitted, the runner's compose_hash.
 struct SDKSession {var challenge:(value:Data,issued:UInt64)?;var compose:Data?}
 
-/// challenge, get_key, evidence and info. Each key op names the runner's app_id and compose_hash and carries the
-/// sponsor's allow record {scope, until, signature}; get_key returns the app root sealed to eph_pub, never leaf keys.
+/// challenge, get_key, evidence and info. Each key op names the runner's app_id and compose_hash; the node reads
+/// AppRegistry at the current block for the app's scope and the compose's window, and the G-signed statement names that
+/// block. get_key returns the app root sealed to eph_pub, never leaf keys.
 /// Runner admission (the RunnerGate pattern of the native authority): the first key op on a connection carries
 /// runner_evidence, the runner's /attest object, whose assertion covers
 /// {"compose_hash","data":"dsmack-sdk-runner/1|<challenge>|<sha256 of the request without runner_evidence, JSON
@@ -89,11 +92,12 @@ struct SDKSession {var challenge:(value:Data,issued:UInt64)?;var compose:Data?}
 /// before. Enrollment and assertion must name a CDHash in `runners` and the request's compose_hash; the connection then
 /// serves only that compose. Without it every key op is refused.
 struct SDKService {
-    let chainId: UInt64,registry: String,sponsor: Curve25519.Signing.PublicKey,measurement: Data
+    let chainId: UInt64,registry: String,appRegistry: String,measurement: Data
     let runners: [Data],anchor: Data
     let checkIn: () throws -> (member:Data,tx:String)
     let group: (Data,UInt64?) throws -> (epoch:UInt64,key:P256.Signing.PrivateKey)
-    var block: () throws -> UInt64
+    /// AppRegistry entry for (app_id, compose_hash) at one block.
+    var appTable: (Data,Data) throws -> SDK.Entry
     var now: () -> UInt64={UInt64(Date().timeIntervalSince1970)}
 
     func reply(_ line: Data,_ session: inout SDKSession) -> Data {
@@ -108,16 +112,16 @@ struct SDKService {
         if q["op"] as? String=="challenge" {
             let c=SymmetricKey(size:.bits256).withUnsafeBytes{Data($0)};session.challenge=(c,now());return ["challenge":hex(c)]
         }
-        guard let op=q["op"] as? String,let a=q["app_id"] as? String,let c=q["compose_hash"] as? String,let allow=q["allow"] as? [String:Any]
-        else {throw DemoError.invalid("request needs op, app_id, compose_hash and allow")}
+        guard let op=q["op"] as? String,let a=q["app_id"] as? String,let c=q["compose_hash"] as? String
+        else {throw DemoError.invalid("request needs op, app_id and compose_hash")}
         let appId=try bytes32(a),composeHash=try bytes32(c)
         var epoch:UInt64?
         if let e=q["epoch"] {guard let n=e as? Int,n>=0 else {throw DemoError.invalid("epoch")};epoch=UInt64(n)}
         guard ["get_key","evidence","info"].contains(op) else {throw DemoError.invalid("unknown op")}
-        let scope=try allowed(appId,composeHash,allow)
+        let entry=try appTable(appId,composeHash),scope=try SDK.allowedScope(entry)
         if session.compose==nil {try admit(q,composeHash,&session)}
         try need(session.compose==composeHash,"connection admitted for another compose")
-        let r=try release(appId,composeHash,scope,epoch)
+        let r=try release(appId,composeHash,scope,entry.block,epoch)
         switch op {
         case "get_key":
             guard let e=q["eph_pub"] as? String else {throw DemoError.invalid("get_key needs eph_pub")}
@@ -135,14 +139,6 @@ struct SDKService {
         default:
             return r.fields.merging(["member":hex(try checkIn().member),"sdk":"dsmack-sdk/v1"]){$1}
         }
-    }
-    func allowed(_ appId: Data,_ composeHash: Data,_ d: [String:Any]) throws -> Data {
-        guard let s=d["scope"] as? String,let u=d["until"] as? Int,u>=0,let g=d["signature"] as? String else {throw DemoError.invalid("allow needs scope, until and signature")}
-        let scope=try bytes32(s)
-        let message=try SDK.allowMessage(chainId:chainId,registry:registry,appId:appId,composeHash:composeHash,scope:scope,until:UInt64(u))
-        try need(sponsor.isValidSignature(try unhex(g),for:message),"compose not allowed under app_id")
-        try need(now()<UInt64(u),"allow record expired")
-        return scope
     }
     func admit(_ q: [String:Any],_ composeHash: Data,_ session: inout SDKSession) throws {
         guard let e=q["runner_evidence"] as? [String:Any] else {throw DemoError.invalid("runner evidence required")}
@@ -169,36 +165,47 @@ struct SDKService {
         } catch let reject as AppAttestReject {throw DemoError.invalid("runner evidence: \(reject.reason)")}
         session.compose=composeHash
     }
-    func release(_ appId: Data,_ composeHash: Data,_ scope: Data,_ epoch: UInt64?) throws
+    func release(_ appId: Data,_ composeHash: Data,_ scope: Data,_ b: UInt64,_ epoch: UInt64?) throws
         -> (root:SymmetricKey,signer:P256.Signing.PrivateKey,statement:Data,fields:[String:Any]) {
         let g=try group(scope,epoch)
         let root=try SDK.appRoot(g.key,chainId:chainId,registry:registry,scope:scope,keyEpoch:g.epoch,appId:appId)
-        let signer=try SDK.appSigner(root),pub=signer.publicKey.x963Representation,b=try block()
+        let signer=try SDK.appSigner(root),pub=signer.publicKey.x963Representation
         let statement=try SDK.statement(chainId:chainId,registry:registry,scope:scope,keyEpoch:g.epoch,appId:appId,composeHash:composeHash,block:b,measurement:measurement,appPub:pub)
         let signature=try g.key.signature(for:statement)
         return (root,signer,statement,["app_id":hex(appId),"compose_hash":hex(composeHash),"scope":hex(scope),"key_epoch":g.epoch,"chain_id":chainId,
-            "registry":registry,"block":b,"M":hex(measurement),"app_pub":hex(pub),"statement":hex(statement),
+            "registry":registry,"app_registry":appRegistry,"block":b,"M":hex(measurement),"app_pub":hex(pub),"statement":hex(statement),
             "group_signature":hex(signature.rawRepresentation),"group_public":hex(g.key.publicKey.x963Representation)])
     }
 }
 
+extension Chain {
+    /// AppRegistry apps(appId) {admin, scope} and composes(appId, composeHash) {from, until}, both at `block`.
+    func appEntry(_ appRegistry: String,_ appId: Data,_ composeHash: Data,at block: UInt64) throws -> SDK.Entry {
+        let app=try call("apps(bytes32)",appId,to:appRegistry,at:block),window=try call("composes(bytes32,bytes32)",appId+composeHash,to:appRegistry,at:block)
+        try need(app.count==64 && app.prefix(12)==Data(repeating:0,count:12) && window.count==64,"AppRegistry encoding")
+        return SDK.Entry(block:block,admin:app.subdata(in:12..<32),scope:app.suffix(32),from:try smallWord(window.prefix(32)),until:try smallWord(window.suffix(32)))
+    }
+}
+
 extension Node {
-    func sdkService(sponsor: Curve25519.Signing.PublicKey,measurement: Data,runners: [Data],anchor: Data=AppAttestProfile.rootDER) -> SDKService {
-        SDKService(chainId:cfg.chainId,registry:cfg.registry,sponsor:sponsor,measurement:measurement,runners:runners,anchor:anchor,
+    func sdkService(appRegistry: String,measurement: Data,runners: [Data],anchor: Data=AppAttestProfile.rootDER) -> SDKService {
+        SDKService(chainId:cfg.chainId,registry:cfg.registry,appRegistry:appRegistry,measurement:measurement,runners:runners,anchor:anchor,
                    checkIn:{[unowned self] in guard let c=lastCheckIn() else {throw DemoError.invalid("no check-in yet")};return c},
-                   group:{[unowned self] in try groupKey($0,epoch:$1)},block:{[chain] in try quantity(chain.rpc("eth_blockNumber",[]))})
+                   group:{[unowned self] in try groupKey($0,epoch:$1)},
+                   appTable:{[chain] in try chain.appEntry(appRegistry,$0,$1,at:try quantity(chain.rpc("eth_blockNumber",[])))})
     }
     /// Serves the SDK once per process when the config sets sdkPort.
     func startSDK() throws {
         guard let port=cfg.sdkPort,sdkBound==nil else {return}
+        guard let appRegistry=cfg.appRegistry else {throw DemoError.invalid("the SDK needs appRegistry in config")}
         guard let m=try ownMeasurement()?.value else {throw DemoError.invalid("the SDK needs this build's measurement")}
         #if SDK_TEST_TRUST
-        let service=sdkService(sponsor:cfg.sdkTestTrust.sponsor,measurement:m,runners:cfg.sdkRunners,anchor:cfg.sdkTestTrust.anchor)
-        log("sdk test trust",["sponsor":hex(cfg.sdkTestTrust.sponsor.rawRepresentation),"anchorSHA256":hex(sha(cfg.sdkTestTrust.anchor))])
+        let service=sdkService(appRegistry:appRegistry,measurement:m,runners:cfg.sdkRunners,anchor:cfg.sdkTestAnchor)
+        log("sdk test trust",["anchorSHA256":hex(sha(cfg.sdkTestAnchor))])
         #else
-        let service=sdkService(sponsor:SDK.sponsor,measurement:m,runners:cfg.sdkRunners)
+        let service=sdkService(appRegistry:appRegistry,measurement:m,runners:cfg.sdkRunners)
         #endif
         sdkBound=try SDK.listen(port:port,service.reply)
-        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)"])
+        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)","appRegistry":appRegistry])
     }
 }

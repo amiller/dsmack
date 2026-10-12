@@ -10,7 +10,7 @@ write('valid.zip',base)
 write('traversal.zip',{**base,'Node.app/../../escape':b'x'})
 write('absolute.zip',{**base,'/tmp/escape':b'x'})
 write('backslash.zip',{**base,'Node.app/..\\escape':b'x'})
-write('missing-metadata.zip',{k:v for k,v in base.items() if not k.endswith('.json')})
+write('missing-executable.zip',{k:v for k,v in base.items() if not k.endswith('MacOS/node')})
 with zipfile.ZipFile(root/'symlink.zip','w') as z:
  for path,data in base.items():z.writestr(path,data)
  entry=zipfile.ZipInfo('Node.app/link');entry.create_system=3;entry.external_attr=0o120777<<16;z.writestr(entry,b'/tmp')

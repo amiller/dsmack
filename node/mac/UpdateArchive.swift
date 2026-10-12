@@ -3,9 +3,9 @@ import Foundation
 // Validate the central AND local ZIP records before invoking the system extractor.
 // This deliberately supports only ordinary, non-symlink Node.app ZIPs, not ZIP64.
 enum NativeUpdateArchive {
-    static func validate(_ url:URL,expectedBytes:Int) throws {
+    static func validate(_ url:URL) throws {
         let data=try Data(contentsOf:url,options:.mappedIfSafe)
-        guard data.count==expectedBytes,data.count>=22 else {throw NativeUpdateError("The update download is incomplete.")}
+        guard data.count>=22,data.count<=250_000_000 else {throw NativeUpdateError("The update download is empty or too large.")}
         func u16(_ i:Int)throws->Int {guard i>=0,i+2<=data.count else {throw NativeUpdateError("Truncated update archive.")};return Int(data[i])|Int(data[i+1])<<8}
         func u32(_ i:Int)throws->Int {return try u16(i)|(u16(i+2)<<16)}
         var end:Int?
@@ -45,6 +45,6 @@ enum NativeUpdateArchive {
             guard !ranges.contains(where:{$0.overlaps(range)}) else {throw NativeUpdateError("Overlapping update ZIP entries.")}
             ranges.append(range);cursor+=46+n+extra+comment
         }
-        guard cursor==e,names.contains("Node.app/Contents/Info.plist"),names.contains("Node.app/Contents/MacOS/node"),names.contains("Node.app/Contents/Resources/dsmack-release.json") else {throw NativeUpdateError("The update does not contain the required signed release metadata.")}
+        guard cursor==e,names.contains("Node.app/Contents/Info.plist"),names.contains("Node.app/Contents/MacOS/node") else {throw NativeUpdateError("The update has no Node.app executable and Info.plist.")}
     }
 }

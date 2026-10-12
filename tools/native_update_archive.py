@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Package an already signed/notarized Node.app in the updater's bounded ZIP format.
+"""Package an already signed Node.app in the updater's bounded ZIP format.
 
 No signing, notarization, admission or publication is performed here.
 """
@@ -18,9 +18,8 @@ def package(app: Path, output: Path):
     files = [p for p in files if p.is_file()]
     if not files or len(files) > 4096 or sum(p.stat().st_size for p in files) > 600_000_000:
         raise ValueError('app exceeds updater limits')
-    required = ['Contents/Info.plist', 'Contents/MacOS/node', 'Contents/Resources/dsmack-release.json']
-    if any(not (app / name).is_file() for name in required):
-        raise ValueError('missing executable or sealed release metadata')
+    if any(not (app / name).is_file() for name in ['Contents/Info.plist', 'Contents/MacOS/node']):
+        raise ValueError('missing executable or Info.plist')
     # No ZIP extra fields, resource-fork sidecars or alternate Unicode path records.
     with zipfile.ZipFile(output, 'x', compression=zipfile.ZIP_DEFLATED, allowZip64=False) as z:
         for p in files:

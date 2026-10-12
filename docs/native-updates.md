@@ -47,7 +47,8 @@ name the matching current build with empty `previousBuilds`; this reports that
 the app is up to date and does not offer an upgrade. An actual upgrade must
 explicitly list the current build in `previousBuilds` and select a strictly newer
 numeric build. A previously verified higher build prevents replaying a lower
-offer. These local preferences are not a rollback-resistant hardware counter. Archive downloads are limited to 250 MB;
+offer. These local preferences are not a rollback-resistant hardware counter.
+Archive downloads are limited to 250 MB;
 expanded ordinary non-symlink `Node.app` ZIPs are bounded to 600 MB. Only HTTPS
 GitHub API/release/CDN redirects are accepted. No arbitrary update URL override
 is offered in the ordinary app.

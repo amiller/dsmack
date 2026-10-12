@@ -548,7 +548,11 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             case "peer holds group key":
                 if let peer=fields["peer"] as? String {self.peerNames.insert(peer)}
                 self.status["verifiedPeersThisSession"]=self.peerNames.count
-            case "retrying":self.setState("retrying","Connection interrupted; retrying…","Retrying in \(fields["retryAfterSeconds"] ?? 0) seconds. Details are below.")
+            case "retrying":
+                // Protocol.swift reports relay refusals as "HTTP <status> <path>: <JSON body>".
+                let relayError=(fields["error"] as? String).flatMap{m in m.firstIndex(of:"{").flatMap{(try? JSONSerialization.jsonObject(with:Data(m[$0...].utf8))) as? [String:Any]}}?["error"] as? String
+                let title=relayError.map{$0=="sponsor_out_of_funds" ? "Relay cannot sponsor joins right now (\($0))":"Relay: \($0)"} ?? "Connection interrupted; retrying…"
+                self.setState("retrying",title,"Retrying in \(fields["retryAfterSeconds"] ?? 0) seconds. Details are below.")
             case "configuration unavailable":self.setState("unconfigured","Release network not configured",fields["message"] as? String ?? "")
             case "stopped":self.setState("stopped","Couldn’t connect.","The connection attempt stopped. Save a diagnostic report for help; technical details contain the exact error.")
             default:break

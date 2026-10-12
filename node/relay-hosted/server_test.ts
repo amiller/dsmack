@@ -6,8 +6,9 @@ Deno.test('iPhone and Mac share NFT mailboxes with separate admission; legacy st
     const directory=await Deno.makeTempDir();
     const rpc=Deno.serve({hostname:'127.0.0.1',port:0,onListen:()=>{}},async request=>{
         const value=await request.json();
-        if(value.method!=='eth_chainId')throw new Error('Unexpected RPC call: '+value.method);
-        return Response.json({jsonrpc:'2.0',id:value.id,result:'0x7a69'});
+        const results:Record<string,string>={eth_chainId:'0x7a69',eth_getBalance:'0x64',eth_gasPrice:'0x1'};
+        if(!results[value.method])throw new Error('Unexpected RPC call: '+value.method);
+        return Response.json({jsonrpc:'2.0',id:value.id,result:results[value.method]});
     });
     const check=(condition:unknown,message:string)=>{if(!condition)throw new Error(message);};
     try {
@@ -34,6 +35,7 @@ Deno.test('iPhone and Mac share NFT mailboxes with separate admission; legacy st
         check((await call('/ios/info')).body.registry===nft.DemoV1,'iPhone registry diverged');
         check((await call('/ios/status')).body.completed===1,'iPhone sponsor journal not shared');
         check((await call('/status')).body.completed===1,'existing journal lost');
+        check((await call('/nft/status')).body.sponsor.balanceWei==='100','sponsor balance missing from status');
         check((await call('/nft/status')).body.completed===1,'sponsor journal not shared');
         await call('/send/same-name',{from:'old',type:'HELLO'});
         await call('/nft/send/same-name',{from:'new',type:'HELLO'});
@@ -64,8 +66,9 @@ for(const mode of ['absent','wrong-registry','wrong-sponsor','reused-category','
         const directory=await Deno.makeTempDir();
         const rpc=Deno.serve({hostname:'127.0.0.1',port:0,onListen:()=>{}},async request=>{
             const value=await request.json();
-            if(value.method!=='eth_chainId')throw new Error('Unexpected RPC call: '+value.method);
-            return Response.json({jsonrpc:'2.0',id:value.id,result:'0x7a69'});
+            const results:Record<string,string>={eth_chainId:'0x7a69',eth_getBalance:'0x64',eth_gasPrice:'0x1'};
+            if(!results[value.method])throw new Error('Unexpected RPC call: '+value.method);
+            return Response.json({jsonrpc:'2.0',id:value.id,result:results[value.method]});
         });
         try {
             for(const name of ['server.ts','directory.ts','abi.json','badge-abi.json'])

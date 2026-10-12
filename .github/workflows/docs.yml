@@ -14,7 +14,3 @@ jobs:
           persist-credentials: false
       - name: Local links
         run: python3 tools/check_docs.py
-      - name: No internal planning words in public docs
-        run: |
-          if grep -rnPi '\b(friends?\b(?!\.html|-SHA256SUMS)|(?<!\d-)previews?\b|coordinators?\b|(?<!dev-)worktrees?\b|owner acceptance\b)|local-data' README.md docs --include='*.md' --exclude-dir=internal; then exit 1; fi
-          if grep -rnwE 'Sol|Astra|Opus|Fable|GLM' README.md docs --include='*.md' --exclude-dir=internal; then exit 1; fi

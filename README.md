@@ -1,57 +1,62 @@
 # Dsmack
 
-Dsmack is a peer-to-peer network of attested Mac nodes. Its first service
-redeems coupons for private inference; [Abalone](https://github.com/amiller/abalone)
-is the client.
+Dsmack is a peer-to-peer network of Macs, each running an app that proves with
+Apple App Attest exactly which code it is. Its first service turns gift coupons
+into private AI inference for [Abalone](https://github.com/amiller/abalone).
 
 ## Join the network
 
-You need an Apple silicon Mac on macOS 27 with Full Security.
+You need an Apple silicon Mac on macOS 27 with Full Security. You do not need
+Xcode, an Apple Developer account, a wallet or gas.
 
-1. Download `Dsmack Node` from the latest `node-vX.Y.Z` [release](https://github.com/amiller/dsmack/releases).
-2. Open it.
-3. Find your node on the [dashboard](https://amiller.github.io/dsmack/nodes/).
+1. Download `Dsmack Node` from the [latest release](https://github.com/amiller/dsmack/releases)
+   and extract the ZIP.
+2. Open it and accept the normal macOS prompt. It says **You’re in.** once it
+   holds the network's shared key.
+3. Choose **Share in public node directory…** and find your node on the
+   [dashboard](https://amiller.github.io/dsmack/nodes/).
 
-Any Apple Developer team may build and sign the app from source; the network
-admits the code measurement, not the signer ([build it yourself](#build-it-yourself)).
-[Troubleshooting](docs/join.md) and [node details](docs/node-details.md).
+If a step stalls, see [troubleshooting](docs/join.md#troubleshooting).
 
-## Redeem a coupon
-
-If someone sent you a gift link, follow
+If someone sent you a gift coupon, you do not need to join. Follow
 [Redeem a coupon](https://github.com/amiller/abalone#redeem-a-coupon) in Abalone.
-Your agent installs the client and redeems the coupon; you then use the credit
-from a fresh terminal. Joining the network is not required to redeem.
 
-## Build it yourself
+## What the network is and is not
 
-[Mac builds](docs/native-build.md) pins the toolchain and checks that two builds
-of the same source match. [Independent builders](docs/native-builder.md)
-describes signing under a different Apple Developer team and registering that
-build with the relay.
+When a node joins, it sends fresh App Attest evidence for its executable. The
+network checks that evidence against a registry of admitted builds and only then
+hands over the shared key. It admits the code, not the signer: anyone with an
+Apple Developer account can build the app from source, sign it under their own
+team and register it, and that copy is accepted if its executable matches an
+admitted build.
 
-## Source and documentation
+What the people running it can still do:
 
-- [Architecture](docs/architecture.md) and [protocols](docs/protocols/README.md).
-- [Contributing](CONTRIBUTING.md) and the [synthetic coupon package](packaging/coupon/README.md).
-- [Roadmap](docs/roadmap.md), [mainnet plans](docs/mainnet.md) and [public issues](https://github.com/amiller/dsmack/issues).
+- The registry's administrator decides which builds are admitted, and can change
+  that decision.
+- The relay can delay or drop messages, and its sponsor can stop paying for the
+  on-chain transactions.
+- Every admitted node holds the full shared key, so one compromised node exposes it.
+- The coupon service runs on one operator's Mac. That operator can read the
+  issuer's secrets and roll back its state, and the coupon sponsor can revoke the
+  credentials it issues. Your prompts go encrypted from Abalone straight to the
+  model provider and do not pass through the issuer.
 
-## Trust and privacy
+Dsmack does not hide your IP address. Joining does not make your Mac run the
+coupon service. The participation receipt each node gets on Base Sepolia has no
+monetary value and does not prove a unique person or Mac. [Mainnet has not launched](docs/mainnet.md).
 
-The coupon issuer delivers a capped sponsor-managed credential encrypted to
-recipient keys. The recipient connects directly to NEAR for inference; the
-issuer does not proxy that session's prompts. The sponsor retains revocation
-powers, and the cap is a spending limit rather than a separate cash balance.
+## Where to go next
 
-The current Mac profile verifies Apple App Attest code identity, the exact
-workload compose, and a fresh binding to issuer keys, policies and Noise peers.
-It is identity-only: the host/operator and stand-in KMS can read issuer secrets.
-Private custody and rollback protection remain unqualified. Abalone separately
-verifies and encrypts the inference connection and reports accepted provider
-security-update exceptions. Incognito does not promise IP anonymity.
+- [Node dashboard](https://amiller.github.io/dsmack/nodes/)
+- [Troubleshooting](docs/join.md) and [node details](docs/node-details.md):
+  updates, diagnostics and checking a release before you open it
+- Build it yourself: [Mac builds](docs/native-build.md) pins the toolchain and
+  checks that two builds match; [independent builders](docs/native-builder.md)
+  covers signing under your own team
+- [Architecture](docs/architecture.md), [protocols](docs/protocols/README.md)
+  and the [full documentation index](docs/README.md)
+- [Contributing](CONTRIBUTING.md), [issues](https://github.com/amiller/dsmack/issues)
+  and [security reporting](SECURITY.md)
 
-See the [charter](docs/charter.md), [release boundaries](docs/release.md) and
-[security reporting](SECURITY.md). Source is available under the [MIT license](LICENSE);
-vendored dependencies retain their own notices. Historical experiments remain
-available in Git history; the current tree contains maintained source, guides and
-required fixtures.
+Source is under the [MIT license](LICENSE); vendored dependencies keep their own notices.

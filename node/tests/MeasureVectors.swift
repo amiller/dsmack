@@ -1,6 +1,6 @@
 import Foundation
 
-// Shared vectors with tests/test_measure.py and contracts/test/CodeMeasurement.t.sol.
+// Shared vectors with tests/test_measure.py and contracts/test/Measurement.t.sol.
 // MeasureVectors [fixtures dir]  |  MeasureVectors --file <Mach-O>  |  MeasureVectors --self (measures after a stdin line)
 @main struct MeasureVectors {
     static func main() throws {
@@ -29,7 +29,19 @@ import Foundation
             do {_=try load(n).value();fatalError("\(n) must be rejected")}
             catch DemoError.invalid(let m) {try need(m==reason,"\(n): \(m) != \(reason)")}
         }
-        print("CodeMeasurement vectors passed: probe \(v["probe"]!), node \(v["node"]!), modified differ, \((v["rejected"] as! [String:String]).count) rejected")
+        let dv=try JSONSerialization.jsonObject(with:Data(contentsOf:d.appendingPathComponent("measure-der-vectors.json"))) as! [String:Any]
+        let base=try load(dv["base"] as! String)
+        func withEnt(_ c:[String:String]) throws -> CodeMeasurement {
+            let ent=[UInt8](try unhex(c["ent"]!)),off=CodeMeasurement.be32(base.cd,0x10)
+            var cd=base.cd;cd.replaceSubrange(off-224..<off-192,with:CodeMeasurement.sha(CodeMeasurement.be(0xfade7172)+CodeMeasurement.be(ent.count+8)+ent))
+            return CodeMeasurement(cd:cd,page0:base.page0,ent:ent,L:base.L,S:base.S)
+        }
+        for (n,c) in dv["accept"] as! [String:[String:String]] {try need(hex(try withEnt(c).value())==c["M"]!,"DER vector \(n)")}
+        for (n,c) in dv["reject"] as! [String:[String:String]] {
+            do {_=try withEnt(c).value();fatalError("DER vector \(n) must be rejected")}
+            catch DemoError.invalid(let m) {try need(m==c["reason"]!,"DER vector \(n): \(m) != \(c["reason"]!)")}
+        }
+        print("CodeMeasurement vectors passed: probe \(v["probe"]!), node \(v["node"]!), modified differ, \((v["rejected"] as! [String:String]).count) rejected, \((dv["accept"] as! [String:Any]).count+(dv["reject"] as! [String:Any]).count) DER cases")
     }
     static func show(_ x:CodeMeasurement) throws {
         print(String(decoding:try JSONSerialization.data(withJSONObject:["cdhash":hex(Data(CodeMeasurement.sha(x.cd))),"M":hex(try x.value()),"L":x.L,"S":x.S],options:[.sortedKeys]),as:UTF8.self))

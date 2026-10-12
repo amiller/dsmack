@@ -64,4 +64,20 @@ contract MeasurementTest is Test {
         bytes32 h = sha256(x.page0); for (uint256 i; i < 32; i++) x.cd[o + i] = h[i];
         assertEq(m(x), probe);
     }
+    /// DER edge cases (fixtures/resign/measure-der-vectors.json), byte-for-byte with measure.py and Measure.swift.
+    function test_derVectors() public {
+        string memory j = vm.readFile(string.concat(D, "measure-der-vectors.json"));
+        string[] memory names = vm.parseJsonKeys(j, ".accept");
+        for (uint256 i; i < names.length; i++) {
+            In memory x = load("node-honest"); x.ent = vm.parseJsonBytes(j, string.concat(".accept.", names[i], ".ent")); sealEnt(x);
+            assertEq(m(x), vm.parseJsonBytes32(j, string.concat(".accept.", names[i], ".M")), names[i]);
+        }
+        names = vm.parseJsonKeys(j, ".reject");
+        for (uint256 i; i < names.length; i++) {
+            In memory x = load("node-honest"); x.ent = vm.parseJsonBytes(j, string.concat(".reject.", names[i], ".ent")); sealEnt(x);
+            vm.expectRevert(bytes(vm.parseJsonString(j, string.concat(".reject.", names[i], ".reason"))));
+            r.measure(x.cd, x.page0, x.ent, x.L, x.S);
+        }
+        assertEq(vm.parseJsonBytes32(j, ".accept.otherTeamValues.M"), vm.parseJsonBytes32(v, ".node"));
+    }
 }

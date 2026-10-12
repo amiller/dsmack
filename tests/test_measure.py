@@ -57,3 +57,16 @@ def test_signer_fields_free_behavior_pinned():
         assert (m([bytes(c), page0, bytes(e), L, S]) == V['probe']) == same
     p = bytearray(page0); p[L + 32] ^= 1; c = bytearray(cd); c[off:off + 32] = hashlib.sha256(p).digest()
     assert m([bytes(c), bytes(p), ent, L, S]) == V['probe']                                       # masked __LINKEDIT vmsize
+
+
+def test_der_vectors():
+    X = json.loads((D / 'measure-der-vectors.json').read_text())
+    cd, page0, _, L, S = load(X['base'])
+    def run(c):
+        ent = bytes.fromhex(c['ent'][2:]); x = bytearray(cd); seal_ent(x, ent)
+        return measure(bytes(x), page0, ent, L, S)
+    for c in X['accept'].values(): assert '0x' + run(c).hex() == c['M']
+    for c in X['reject'].values():
+        with pytest.raises(ValueError) as e: run(c)
+        assert str(e.value) == c['reason']
+    assert X['accept']['otherTeamValues']['M'] == X['accept']['identityValueAnyType']['M'] == V['node']

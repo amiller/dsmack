@@ -80,6 +80,21 @@ contract MeasurementRegistryTest is Test {
         (uint64 from, uint64 until) = r.windows(m(".nodeModified"));
         assertEq(from, 0); assertEq(until, 0);
     }
+    /// Registration is open through until - 1; a revoke inside a window stops resolution and registration at once,
+    /// and admitting the same M again restores CDHashes registered before the revoke.
+    function test_registerBoundaryAndRevokeMidWindow() public {
+        r.admit(m(".node"), 100, 200);
+        vm.roll(199);
+        bytes32 h = node("node-honest");
+        assertEq(r.rpIdHash(h), OURS);
+        vm.roll(150);
+        r.revoke(m(".node"));
+        assertFalse(r.isAdmitted(m(".node"), 150));
+        assertEq(r.rpIdHash(h), 0); assertEq(r.teamIdHash(h), 0); assertEq(r.bundleIdHash(h), 0);
+        vm.expectRevert("measurement not admitted"); node("node-resigned");
+        r.admit(m(".node"), 150, 200);
+        assertEq(r.rpIdHash(h), OURS);
+    }
     function test_gas() public {
         r.admit(m(".node"), 0, 1000);
         string memory j = vm.readFile("fixtures/resign/node-honest.json");

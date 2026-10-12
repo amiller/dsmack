@@ -21,7 +21,7 @@ def recommendation(archive, tag, expiry, previous, rollback, evidence, now=None)
         raise ValueError('recommendation must expire within seven days')
     if not evidence.startswith('https://github.com/amiller/dsmack/') or '?' in evidence or '#' in evidence:
         raise ValueError('evidence must identify the public release review in amiller/dsmack')
-    if not previous or len(previous) > 32 or len(rollback) > 32 or len(set(previous)) != len(previous) or len(set(rollback)) != len(rollback):
+    if len(previous) > 32 or len(rollback) > 32 or len(set(previous)) != len(previous) or len(set(rollback)) != len(rollback):
         raise ValueError('previous and rollback build lists must be bounded and unique')
     size = archive.stat().st_size
     if not 0 < size <= 250_000_000:
@@ -63,7 +63,8 @@ def main():
     p.add_argument('--archive', required=True, type=Path)
     p.add_argument('--tag', required=True)
     p.add_argument('--expires', required=True)
-    p.add_argument('--previous-build', action='append', type=int, required=True)
+    p.add_argument('--previous-build', action='append', type=int, default=[],
+                   help='qualified prior build; omit for an initial recommendation with no upgrade path')
     p.add_argument('--rollback-build', action='append', type=int, default=[])
     p.add_argument('--evidence', required=True)
     p.add_argument('--owner-qualified', action='store_true', required=True,

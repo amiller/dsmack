@@ -3,7 +3,8 @@ import {createPublicClient, http, encodeFunctionData, encodeAbiParameters, kecca
 import {privateKeyToAccount} from "npm:viem@2.38.0/accounts";
 import {decode} from "npm:cbor-x@1.6.0/decode-no-eval";
 
-type Context={env:Record<string,string>,dataDir:string};
+import type {SponsorPolicy} from "./sponsor-policy.ts";
+type Context={env:Record<string,string>,dataDir:string,sponsorPolicy?:SponsorPolicy};
 type Entry={raw:Hex,hash:Hex,complete:boolean,success?:boolean};
 type Mail={at:number,message:Record<string,unknown>};
 type State={transactions:Record<string,Entry>,boxes:Record<string,Mail[]>};
@@ -41,10 +42,12 @@ export class Relay {
     private directory:string;
     private initialized:Promise<void>;
     private readonly sponsorWritesPaused:boolean;
+    private readonly sponsorPolicy?:SponsorPolicy;
     private nativeDirectory?:NativeDirectory;
     private rootNativeDirectory?:NativeDirectory;
     constructor(context:Context) {
         this.sponsorWritesPaused=context.env.SPONSOR_WRITES_PAUSED==='true';
+        this.sponsorPolicy=context.sponsorPolicy;
         this.account=privateKeyToAccount(hex(context.env.PRIVATE_KEY,32));
         this.client=createPublicClient({transport:http(context.env.RPC_URL || 'https://sepolia.base.org',{timeout:30000,retryCount:1})});
         if(deployment.ResearchBadges&&deployment.PersonalBadgeAccountFactory)this.rootNativeDirectory=new NativeDirectory(this.client,deployment,abi,badgeAbi,context.env.NATIVE_DIRECTORY_ENABLED==='true');
@@ -81,6 +84,7 @@ export class Relay {
         this.writeQueue=operation.catch(()=>{});return operation;
     }
     private async settle(entry:Entry):Promise<Hex> {
+        if(!entry.complete)await this.sponsorPolicy?.reconcile(entry.raw);
         if(entry.complete){need(entry.success===true,"transaction reverted");return entry.hash;}
         let receipt;
         try {receipt=await this.client.getTransactionReceipt({hash:entry.hash});}catch { /* May not have been sent yet. */ }
@@ -95,6 +99,7 @@ export class Relay {
                 if(deployment.chainId===84532 && message.toLowerCase().includes('gas limit too high') && transaction.type==='legacy' && transaction.gas!>16000000n) {
                     const estimate=await this.client.estimateGas({account:this.account,to:transaction.to!,data:transaction.data});
                     need(estimate<=16000000n,'enrollment exceeds relay gas cap');
+                    await this.sponsorPolicy?.reserve({id:keccak256((transaction.to!.toLowerCase()+transaction.data!.slice(2)) as Hex),to:transaction.to!,data:transaction.data!,nonce:transaction.nonce!,gas:estimate+estimate/10n>16000000n?16000000n:estimate+estimate/10n,gasPrice:transaction.gasPrice!});
                     entry.raw=await this.account.signTransaction({type:'legacy',chainId:deployment.chainId,to:transaction.to!,data:transaction.data,nonce:transaction.nonce!,gas:estimate+estimate/10n>16000000n?16000000n:estimate+estimate/10n,gasPrice:transaction.gasPrice!});
                     entry.hash=keccak256(entry.raw);await this.save();
                     return await this.settle(entry);
@@ -120,6 +125,7 @@ export class Relay {
             const gasPrice=await this.client.getGasPrice()*2n;
             need(deployment.chainId!==84532 || gas<=16000000n,'enrollment exceeds relay gas cap');
             const limit=deployment.chainId===84532 && gas+gas/10n>16000000n?16000000n:gas+gas/10n;
+            await this.sponsorPolicy?.reserve({id,to,data,nonce,gas:limit,gasPrice});
             const raw=await this.account.signTransaction({chainId:deployment.chainId,to,data,nonce,gas:limit,gasPrice,type:'legacy'});
             const entry={raw,hash:keccak256(raw),complete:false};this.state.transactions[id]=entry;
             // The exact signed transaction is durable BEFORE submission; retries reuse it.
@@ -146,12 +152,18 @@ export class Relay {
         const nativeDirectory=nft?this.nativeDirectory:ios?undefined:this.rootNativeDirectory;
         if(path==='/directory'&&request.method==='GET'){if(!nativeDirectory)return response({error:'directory route not configured'},404);const result=response(await nativeDirectory.listing());result.headers.set('Access-Control-Allow-Origin','*');result.headers.set('Cache-Control','no-store');return result;}
         if(request.method==='GET' && ['/info','/_warmup'].includes(path))return response({owner:this.account.address,chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2});
-        if(request.method==='GET' && path==='/status')return response({sponsorWritesPaused:this.sponsorWritesPaused,pending:Object.values(this.state.transactions).filter(e=>!e.complete).map(e=>({hash:e.hash,gas:parseTransaction(e.raw).gas?.toString()})),completed:Object.values(this.state.transactions).filter(e=>e.complete).length});
+        if(request.method==='GET' && path==='/status'){const status=response({generatedAt:new Date().toISOString(),chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2,sponsorWritesPaused:this.sponsorWritesPaused,sponsorBudget:await this.sponsorPolicy?.status?.(),pending:Object.values(this.state.transactions).filter(e=>!e.complete).map(e=>({hash:e.hash,gas:parseTransaction(e.raw).gas?.toString()})),completed:Object.values(this.state.transactions).filter(e=>e.complete).length});status.headers.set('Cache-Control','no-store');status.headers.set('Access-Control-Allow-Origin','*');return status;}
         if(request.method==='GET' && path.startsWith('/recv/')) {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
-            const queue=(this.state.boxes[mailboxPrefix+name]||[]).filter(x=>Date.now()-x.at<120000);
-            const entry=queue.shift();if(queue.length)this.state.boxes[mailboxPrefix+name]=queue;else delete this.state.boxes[mailboxPrefix+name];
-            if(entry)await this.save();return response({message:entry?.message||null});
+            const dequeue=async()=>{
+                const queue=(this.state.boxes[mailboxPrefix+name]||[]).filter(x=>Date.now()-x.at<120000);
+                let entry=queue.shift();const hadEntry=!!entry;
+                while(entry&&this.sponsorPolicy?.allowMail){try{await this.sponsorPolicy.allowMail(mailboxPrefix+name,entry.message,'deliver');break;}catch{entry=queue.shift();}}
+                if(queue.length)this.state.boxes[mailboxPrefix+name]=queue;else delete this.state.boxes[mailboxPrefix+name];
+                if(hadEntry)await this.save();return response({message:entry?.message||null});
+            };
+            if(this.sponsorPolicy){const operation=this.txQueue.then(dequeue);this.txQueue=operation.catch(()=>{});return await operation;}
+            return await dequeue();
         }
         need(request.method==='POST','unknown route');
         const reader=request.body?.getReader();need(reader,'missing request body');let raw='';let size=0;const decoder=new TextDecoder();
@@ -163,9 +175,14 @@ export class Relay {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
             need(size<=8192 && typeof body.from==='string' && /^[a-zA-Z0-9_-]{1,80}$/.test(body.from),'invalid message');
             need(['HELLO','PARCEL','PROOF','ERROR'].includes(body.type),'unsupported message type');
-            for(const [key,items] of Object.entries(this.state.boxes)){const live=items.filter(x=>Date.now()-x.at<120000);if(live.length)this.state.boxes[key]=live;else delete this.state.boxes[key];}
-            need(this.state.boxes[mailboxPrefix+name]||Object.keys(this.state.boxes).length<500,'mailbox limit');
-            const queue=this.state.boxes[mailboxPrefix+name]||[];need(queue.length<32,'mailbox full');queue.push({at:Date.now(),message:body});this.state.boxes[mailboxPrefix+name]=queue;await this.save();return response({queued:queue.length});
+            const enqueue=async()=>{
+                await this.sponsorPolicy?.allowMail?.(mailboxPrefix+name,body,'enqueue');
+                for(const [key,items] of Object.entries(this.state.boxes)){const live=items.filter(x=>Date.now()-x.at<120000);if(live.length)this.state.boxes[key]=live;else delete this.state.boxes[key];}
+                need(this.state.boxes[mailboxPrefix+name]||Object.keys(this.state.boxes).length<500,'mailbox limit');
+                const queue=this.state.boxes[mailboxPrefix+name]||[];need(queue.length<32,'mailbox full');queue.push({at:Date.now(),message:body});this.state.boxes[mailboxPrefix+name]=queue;await this.save();return response({queued:queue.length});
+            };
+            if(this.sponsorPolicy){const operation=this.txQueue.then(enqueue);this.txQueue=operation.catch(()=>{});return await operation;}
+            return await enqueue();
         }
         if(path==='/enroll') {
             need(hex(body.category,32).toLowerCase()===selected.macCategory.toLowerCase(),'unknown category');

@@ -166,5 +166,5 @@ python3 -m unittest tools/test_coupon_testnet_status.py tools/test_mac_coupon_st
 
 The browser journey must exercise the actual static candidate and label any
 synthetic public feeds. UI tests do not qualify real peers, redemption or the
-public hosting path. See [joining the testnet](../../../docs/join-testnet.md)
+public hosting path. See [Join the network](../../../README.md#join-the-network)
 for the distinct participation release path.

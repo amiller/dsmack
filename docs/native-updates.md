@@ -3,9 +3,9 @@
 This candidate adds **Check for updates…** and **Recover a previous version…**
 to the native Testnet menu. It does not change the currently distributed RC3 app
 or its blocked seed. A new signed release and its actual admission/upgrade
-qualification are required before this flow is offered to friends.
+qualification are required before this flow is offered to node operators.
 
-## Friend journey
+## Operator journey
 
 1. Choose **Check for updates…**. If the release owner has published a compatible,
    unexpired recommendation for a newer build, the app shows its version/build.
@@ -28,7 +28,7 @@ operation deletes enrollment files or touches Keychain. If launch fails, the
 helper explains that the previous app remains available. **Recover a previous
 version…** reveals the retained old app when its recorded executable hash still
 matches, otherwise the releases folder. It never silently launches an old build:
-network policy may no longer admit it. Obtain the coordinator's confirmation
+network policy may no longer admit it. Check the release notes
 before reopening an older version. This candidate does not promise automatic
 rollback of network admission, App Attest renewal or on-chain effects.
 

@@ -2,7 +2,7 @@
 
 A public **join link may be published before an independent second Mac has
 completed acceptance**. Its release notes must say what is available and what
-remains unverified. The stable entry point is [Join the Dsmack testnet](join-testnet.md);
+remains unverified. The stable entry point is [Join the Dsmack testnet](../../README.md#join-the-network);
 a release is not promoted to independent-operator qualification by publishing it.
 This process covers native participation and the separate coupon issuer profile.
 
@@ -21,7 +21,7 @@ independent-device acceptance. No stable staging invitation is published.
 Promote reviewed source and signed artifacts through a separately qualified
 public-network build. Do not copy staging identities, contract addresses, epoch
 state or test balances into the public network, or present isolated results as
-public availability. Mainnet remains [planned, not launched](mainnet.md).
+public availability. Mainnet remains [planned, not launched](../mainnet.md).
 
 ## Stages and ownership
 
@@ -46,8 +46,8 @@ The currently available native package is the legacy AttestNode
 [v0.1.0-rc.3](https://github.com/amiller/apple-attest-p2p/releases/tag/v0.1.0-rc.3).
 It retains its original release location/name. The
 [verification manifest](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/release/v0.1.0-rc.3.json),
-[compiled network pins](../node/mac/NetworkConfig.swift) and
-[protocol profile](protocol-profile-v1.md) describe that baseline. Source
+[compiled network pins](../../node/mac/NetworkConfig.swift) and
+[protocol profile](../protocol-profile-v1.md) describe that baseline. Source
 publication in this repository does not retag or replace that signed artifact.
 
 RC3's original source/tag is public in
@@ -137,7 +137,7 @@ reliability; it does not establish independent devices, operators or compromise
 domains. Independent friend acceptance remains pending until its later run, after
 the public join link is available.
 
-The [native state implementation](../node/shared/Node.swift) scopes persistent
+The [native state implementation](../../node/shared/Node.swift) scopes persistent
 enrollment by chain, registry, category and configured `name`. It takes a
 nonblocking exclusive lock on that identity's state; starting the same identity
 twice must refuse with `identity already running`. Distinct names select distinct
@@ -145,7 +145,7 @@ state domains, but do not alone prove distinct enrolled keys. Preserve both
 existing state files and Keychain identities; do not copy enrollment state or
 reset a name as a recovery shortcut.
 
-The [GUI developer path](../node/mac/GUI.swift) accepts `--config` with one
+The [GUI developer path](../../node/mac/GUI.swift) accepts `--config` with one
 reviewed configuration file, uses its explicit name, and forces persistent
 identity. Normal GUI launch reuses its saved participant name, so opening the
 same installation twice is not a second-member experiment. The compiled release
@@ -174,11 +174,11 @@ rehearsal does not authorize new enrollment, network administration, receipt
 creation or spending beyond the operator's existing scope. A future updater must
 also pass a verified update/restart and failed-update recovery on this local
 setup before its simpler friend journey is advertised. Current RC3 updates remain
-manual as described in the [joining guide](join-testnet.md).
+manual as described in the [joining guide](../../README.md#join-the-network).
 
 ## Current-source local protocol qualification
 
-The [11 October V2 rehearsal](../packaging/participation/same-mac-v2-qualification-20261011.json)
+The [11 October V2 rehearsal](../../packaging/participation/same-mac-v2-qualification-20261011.json)
 passed real Apple Development attestation, two same-Mac peer exchanges, and a
 participant restart preserving its enrolled member. It used the current native
 CLI core on an isolated Anvil chain with fixture funds. Independent review checked
@@ -200,7 +200,7 @@ curl --fail --silent --show-error https://pod.dstack.soc1024.com/apple-attest-p2
 `/info` reports configured chain/registry/protocol and sponsor identity. `/status`
 reports sponsor write pause and journal pending/completed transactions. These do
 not establish current seed health, a successful App Attest handshake, online
-membership, or coupon readiness. The [read-only release checker](../packaging/participation/README.md) bundles
+membership, or coupon readiness. The [read-only release checker](../../packaging/participation/README.md) bundles
 these observations with exact-package checksum and chain configuration checks.
 Record observation time and failure response;
 do not convert a successful HTTP response into a peer count. Check the exact app
@@ -208,7 +208,7 @@ journey for fresh native admission and key acquisition.
 
 If relay/RPC/seed access fails, show unavailable/unknown and retain identity and
 operator state. Relay operators preserve the durable transaction journal and
-pending entries; the [relay operations guide](../node/relay-hosted/README.md)
+pending entries; the [relay operations guide](../../node/relay-hosted/README.md)
 describes sponsor-write pausing and nonce coordination. Recovery must reconcile
 pending transactions before new writes. A dashboard outage must not grant or
 revoke peer authority, and cached green status must expire.
@@ -233,11 +233,11 @@ old evidence are not directory consent. The observer does not scan events or
 report counts of unlisted identities. Its output contains one-block registry,
 key-epoch/commitment and relay observations; registration and an old check-in do
 not establish online state, current admission, synchronized key possession or
-service readiness. See the [observer contract](../packaging/participation/README.md).
+service readiness. See the [observer contract](../../packaging/participation/README.md).
 
 For the selected Mac issuer, the coordinator first runs the normal coupon-free
 admission probe against the exact intended epoch and reviews its public pins.
-Use the [public coupon-free admission probe](../packaging/coupon/mac-admission-probe.md)
+Use the [public coupon-free admission probe](../../packaging/coupon/mac-admission-probe.md)
 with an explicit reviewed public Abalone revision, policy files, approval root and
 peer. The release packet records these inputs and the exact invocation; a public
 wrapper does not substitute for a fresh run against the selected epoch.
@@ -251,7 +251,7 @@ python3 tools/mac_coupon_status.py \
 
 This checks report/pin consistency and keeps the probe's original timestamp; it
 does not independently verify attestation or imply provider readiness. The
-[dashboard runbook](../packaging/coupon/status/README.md) specifies exact inputs,
+[dashboard runbook](../../packaging/coupon/status/README.md) specifies exact inputs,
 separate controller `health.json`, static files and publishing behavior. Do not
 substitute the Mac inventory reader for either feed.
 
@@ -265,14 +265,14 @@ public, it can be handed to friends with those acceptance gates clearly open.
 
 ## Coupon issuer releases are separate
 
-The [Mac coupon profile](../packaging/coupon/public-testnet.md) and
-[operations runbook](../packaging/coupon/public-testnet-operations.md) govern
+The [Mac coupon profile](../../packaging/coupon/public-testnet.md) and
+[operations runbook](../../packaging/coupon/public-testnet-operations.md) govern
 workload/source/compose pins, fresh issuer admission, private control channel,
 credential renewal, funding and durable obligation recovery. Native RC3 joining
 does not install this service or opt a participant into it.
 
-Abalone [preview.5](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.5)
-publishes the selected Linux client and immutable provenance. The coordinator’s
+Abalone's [Redeem a coupon](https://github.com/amiller/abalone#redeem-a-coupon)
+names the current Linux client and its provenance. The coordinator’s
 [recorded coupon-bundle release notes](https://github.com/amiller/abalone/releases/tag/coupon-bundle-20261011-extra-owner)
 record the compatible issuer inputs, renewed claim window and current limits.
 Use the issuer bundle supplied with the coupon; this separate recording bundle

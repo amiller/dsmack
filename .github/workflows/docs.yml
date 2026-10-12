@@ -1,0 +1,20 @@
+name: Docs
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  docs:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Local links
+        run: python3 tools/check_docs.py
+      - name: No internal planning words in public docs
+        run: |
+          if grep -rnPi '\b(friends?\b(?!\.html|-SHA256SUMS)|(?<!\d-)previews?\b|coordinators?\b|(?<!dev-)worktrees?\b|owner acceptance\b)|local-data' README.md docs --include='*.md' --exclude-dir=internal; then exit 1; fi
+          if grep -rnwE 'Sol|Astra|Opus|Fable|GLM' README.md docs --include='*.md' --exclude-dir=internal; then exit 1; fi

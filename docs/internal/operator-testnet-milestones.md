@@ -1,7 +1,7 @@
 # Dsmack operator testnet: milestones 1–3
 
 This acceptance track, dated 11 October 2026, makes the next product release
-concrete. It supplements the [broader roadmap](roadmap.md); the numbers below
+concrete. It supplements the [broader roadmap](../roadmap.md); the numbers below
 identify this track, not historical GitHub milestone numbers. A deadline can
 bound a sprint, but cannot turn an unverified device journey into a pass.
 
@@ -31,13 +31,11 @@ pass solely because a dashboard renders or two processes run on the same Mac.
 
 The [RC3 record](https://github.com/amiller/dsmack/blob/761cd18dc87f26b5fa72ccc8639ab7a0fbd74982/release/v0.1.0-rc.3.json) reports successful exact-package
 restart and exchange between two processes on one operator Mac. Independent
-first-open and second-team builder acceptance remain unrecorded. The
-[Abalone preview.2 release](https://github.com/amiller/abalone/releases/tag/v0.1.0-preview.2)
-explicitly pauses coupon redemption pending usable provider authorization/path.
+first-open and second-team builder acceptance remain unrecorded.
 Consequently none of these three milestones is established by those records.
-This is a historical baseline. The [joining guide](join-testnet.md) tracks the
+This is a historical baseline. The [joining guide](../../README.md#join-the-network) tracks the
 current package and public availability. The [11 October current-source V2
-rehearsal](../packaging/participation/same-mac-v2-qualification-20261011.json) adds
+rehearsal](../../packaging/participation/same-mac-v2-qualification-20261011.json) adds
 a reviewed same-Mac native exchange/restart pass on an isolated development chain;
 it does not qualify the public RC3 service or independent-device acceptance.
 Use dated observations with their exact scope when updating milestone verdicts.
@@ -49,10 +47,10 @@ operator state out of public evidence. Report **passed**, **failed** (an exercis
 condition did not hold), or **blocked** (the required run could not be performed),
 with the precise reason. A simulated result may support development only.
 
-The [joining guide](join-testnet.md) distinguishes available products; the
-[protocol profile](protocol-profile-v1.md) specifies their authority boundaries.
+The [joining guide](../../README.md#join-the-network) distinguishes available products; the
+[protocol profile](../protocol-profile-v1.md) specifies their authority boundaries.
 The [managed release gates](testnet-release-process.md) and
-[coupon operations](../packaging/coupon/public-testnet-operations.md) remain
+[coupon operations](../../packaging/coupon/public-testnet-operations.md) remain
 applicable. There is no committed production/mainnet date here. Native participation
 uses Base Sepolia; the coupon preview guard uses Base mainnet with bounded real
 funds. “Public testnet” names a product release stage, not a promise of test currency.

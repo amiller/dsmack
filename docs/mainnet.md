@@ -1,15 +1,15 @@
 # Dsmack mainnet — planned
 
 There is no recommended Dsmack P2P mainnet release or mainnet invitation yet.
-The [public testnet joining page](join-testnet.md) is the entry point for peer
-participation; check its availability before installing. A coupon service using
+[Join the network](../README.md#join-the-network) is the entry point for peer
+participation. A coupon service using
 Base mainnet is a separate deployment, not a Dsmack P2P mainnet launch.
 
 ## Launch criteria
 
 Mainnet needs a separately reviewed release decision with evidence for:
 
-- Independent friends installing the recommended signed build, joining,
+- Independent operators installing the recommended signed build, joining,
   synchronizing, restarting and upgrading while preserving their accounts.
 - A tested update policy: recommended and deprecated releases, an announced
   admission cutoff, failed-update recovery and an operator recovery procedure.

@@ -1,7 +1,7 @@
-# Mac preview operations runbook (sanitized placeholders)
+# Mac issuer operations runbook (sanitized placeholders)
 
 Companion to [`tools/mac_preview_status.py`](../../tools/mac_preview_status.py) for the
-one historically qualified public-testnet preview issuer admission; redemption is currently paused and unqualified on the operator Mac. Scope:
+live testnet issuer on the operator's Mac mini. Scope:
 reading the operator-recorded inventory and preparing, reviewing and describing
 operator actions. Every `<ANGLE-BRACKET>` item is a PLACEHOLDER the owner fills on
 the operator host under its own review. Nothing here is a live target command, and
@@ -10,7 +10,7 @@ renewal, key read, process kill or provider operation.
 
 ## Qualification truth this runbook never changes
 
-- One historically qualified issuer admission, with redemption currently paused and unqualified: the public-testnet PREVIEW issuer/admission.
+- One live testnet issuer, on the operator's Mac mini. Its custody is identity-only.
 - Managed private staging: **not qualified**. Private dev/reference apps: running
   but not a managed fleet and not independently qualified. Production: **not deployed**.
 - Independent participant count stays unknown; it is never inferred from relay or

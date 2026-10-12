@@ -32,4 +32,4 @@ unique-human or unique-Mac credential. Losing the controlling Keychain key befor
 successful handoff loses account control; there is no sponsor recovery backdoor.
 
 Inspect **Show technical details** for pending claims. Qualify this path separately
-from the coupon friend journey described in [release acceptance](release.md).
+from the coupon recipient journey described in [release acceptance](release.md).

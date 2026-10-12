@@ -1,12 +1,12 @@
-# Mac ARM Base-only packaging candidate
+# Mac ARM Base-only coupon image
 
-[Dockerfile.mac-base](Dockerfile.mac-base) is an unintegrated candidate profile
-of the packaged coupon node for `linux/arm64`. It exists so an Apple Silicon
-host can run the development image natively (an x86_64 image there would run
-under emulation). It is not a supported live issuer, not a Mac build
-qualification, and not a recipient CVM; everything in the
-[packaged profile README](README.md) about synthetic development scope,
-protected operator pipes and missing attestation applies unchanged.
+[Dockerfile.mac-base](Dockerfile.mac-base) builds the `linux/arm64` coupon node
+image that the live testnet issuer runs on a Mac mini. The image admitted
+on 12 October 2026 has manifest digest
+`sha256:4ce99a16c5a6b25fd24f2c6bd259af525fc1837334a9b447973c23d7d07fecc2`; its
+source revision is not yet in this repository. The image is not a recipient CVM,
+and the issuer's custody limits in the [packaged profile README](README.md)
+(operator-readable secrets, no rollback protection) apply unchanged.
 
 ## What differs from the linux/amd64 image
 

@@ -2,10 +2,9 @@
 
 This package mounts the reviewed coupon service on the paired Abalone Noise peer
 registry. It uses direct-provider delivery, not the older inference-routing gift
-launcher. It is a synthetic Linux amd64 development profile, not a supported live
-issuer or a recipient CVM. The selected future issuer is a dstack-backed dsmack
-node; the Mac app participates in the network. Attestation/admission, sealed secret
-provisioning and rollback protection must be qualified before a live launch.
+launcher. The default profile is a synthetic Linux amd64 development image, not a
+recipient CVM. The live issuer runs on a Mac mini; see [mac-base.md](mac-base.md).
+Sealed secret provisioning and rollback protection are not qualified on either profile.
 
 Build an allowlisted source package from the code repository:
 

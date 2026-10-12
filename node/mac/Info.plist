@@ -3,7 +3,8 @@
 <plist version="1.0"><dict>
 <key>CFBundleIdentifier</key><string>dev.dsmack.provider</string>
 <key>CFBundleExecutable</key><string>node</string>
-<key>CFBundleName</key><string>Node</string>
+<key>CFBundleName</key><string>Dsmack Node</string>
+<key>CFBundleDisplayName</key><string>Dsmack Node</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>

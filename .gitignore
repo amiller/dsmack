@@ -30,6 +30,7 @@ node_modules/
 # Historical/operator output stays outside the maintained public tree.
 data/
 release/
+!scripts/release/
 artwork/
 explainer/
 app/macos/evidence-*/

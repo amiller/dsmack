@@ -42,19 +42,78 @@ prevent joining; the app does not yet discover alternative peers on its own.
 
 ## Updates
 
-Releases from `native-v0.1.0-rc.4` on have **Check for updates…**, which reads a
-signed recommendation from a GitHub release, verifies the download and installs
-it beside the old app ([verified native updates](native-updates.md)). Older
-releases, including RC3, have no updater: download the next release, check its
-checksum, choose **Quit peer**, replace the app and reopen it. Keep Application
-Support and Keychain data. App Attest enrollment may expire and renew as a new
-member. Account and receipt continuity depend on keeping the original personal
-signing identity and linked-account metadata; check them after reopening. A new
-source commit or ZIP does not by itself mean the network admits that build.
+The app's menu has **Check for updates…** and a line showing the last result.
+On first launch it asks once whether to check daily and records the answer.
+A check downloads `updates.json` from the latest release:
 
-If a replacement cannot join, save the diagnostic report and keep your identity
-and both release files. Reopen an earlier app only if the release notes say it is
-still admitted; do not reset your account.
+```json
+{"version": "0.2.1", "tag": "node-v0.2.1", "url": "https://github.com/amiller/dsmack/releases/download/node-v0.2.1/Dsmack-Node-0.2.1.zip",
+ "sha256": "<zip SHA-256>", "M": "0x<code measurement>", "notes": "…"}
+```
+
+The feed only says where to look. The `MeasurementRegistry` on the app's
+compiled-in network decides what installs. For a newer version the app reads
+`isAdmitted(M, block)` and shows "admitted" or "not admitted". On **Download
+and verify** it installs only if every step passes:
+
+1. The ZIP's SHA-256 equals the feed's, and the ZIP is a plain `Node.app` (no
+   symlinks, extra fields or paths outside it).
+2. macOS accepts the app's code signature, from any Apple team.
+3. The executable's CodeDirectory hashes to the CDHash macOS validated.
+4. The app's measurement M ([how M is computed](build.md)) equals the feed's M,
+   and its version equals the feed's.
+5. The configured RPC reports the configured chain, and `isAdmitted(M, block)`
+   and `isAdmitted(M, block + 43200)` are both true: admitted now and for at
+   least a day of Base blocks.
+
+Any failure refuses with its reason and leaves the running app unchanged. An
+unreachable registry is a refusal. Nothing falls back to comparing Apple teams.
+The confirmation shows the version, Team ID, M and whether the identity carries
+over: same team and bundle id keep the Keychain group and App Attest key. A
+build from another team gets a new member and cannot read this app's personal
+key. **Install and restart** appends `{time, fromCdhash, toCdhash, M, team, feed}`
+to `~/Library/Application Support/AttestNode/updates.json`. The new app goes in
+`~/Applications/Dsmack Releases/node-vX.Y.Z-<sha>/`. A helper waits for the
+old app to quit, verifies again with a fresh registry read, then opens the new
+app. The old app is kept. Builds without a configured measurement registry
+refuse every update.
+
+Releases up to `native-v0.1.0-rc.4` have the older updater or none: download
+the next release, check `SHA256SUMS`, choose **Quit peer**, replace the app and
+reopen it. Keep Application Support and Keychain data.
+
+### Publishing a release (operator)
+
+1. Build, sign and notarize `Dsmack Node` (bundle id `dev.dsmack.provider`).
+   Tag the source `node-vX.Y.Z` with `CFBundleShortVersionString` `X.Y.Z`.
+2. Package and write the feed:
+   ```sh
+   python3 tools/native_update_archive.py --app Node.app --output Dsmack-Node-X.Y.Z.zip
+   python3 scripts/release/publish_update.py --archive Dsmack-Node-X.Y.Z.zip \
+     --tag node-vX.Y.Z --notes "…" --output updates.json
+   ```
+   `publish_update.py` computes M with `scripts/release/measure.py` from the
+   executable inside the ZIP. Attach the ZIP, `updates.json` and `SHA256SUMS`
+   to the GitHub release `node-vX.Y.Z` and mark it **Latest**: nodes read
+   `releases/latest/download/updates.json`. Publish other releases with
+   `--latest=false`.
+3. Open a window for the new M: `admit(M_new, from, until)` on the
+   `MeasurementRegistry`, with `from` at or before the current block and
+   `until` well past the overlap. Nodes refuse it until `from` and if fewer
+   than 43,200 blocks remain.
+4. Update the seeds first. Confirm each seed on the new build registers,
+   joins and records a `KeyReceipt` before announcing the release.
+5. Close the old window: `admit(M_old, from_old, now + overlap)`. During the
+   overlap old seeds hand the key to new builds; no epoch bump is needed.
+   To withdraw a vulnerable build at once, `revoke(M_old)` and start a new key epoch.
+
+### A node that doesn't update
+
+It keeps working until its measurement's `until` block. After that its
+assertions revert with "build not admitted", it is inactive within 60 seconds,
+and it can neither receive nor hand on the key. Its menu shows the newer
+version as admitted until the user installs it. Its copy of the key in memory
+stops mattering only after the next key epoch.
 
 ## Building and signing it yourself
 

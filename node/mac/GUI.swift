@@ -81,13 +81,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private var node: Node?
     private var updateProgress: NSPanel?
     private let directoryLabel=NSTextField(wrappingLabelWithString:"Public directory sharing is off.")
-    private var directoryDefaults:UserDefaults {
-        #if UPDATE_REHEARSAL
-        return NativeUpdateRehearsal.defaults
-        #else
-        return UserDefaults.standard
-        #endif
-    }
+    private let directoryDefaults=UserDefaults.standard
     private var directoryRequested=false
     private var directoryPreferenceKey:String?
     private var terminationPending=false
@@ -140,6 +134,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         menu.addItem(withTitle:"Show testnet status",action:#selector(showWindow),keyEquivalent:"").target=self
         menu.addItem(withTitle:"Save status image…",action:#selector(saveStatusImage),keyEquivalent:"").target=self
         menu.addItem(withTitle:"Check for updates…",action:#selector(checkForUpdates),keyEquivalent:"").target=self
+        let updateLine=menu.addItem(withTitle:"Updates: not checked",action:nil,keyEquivalent:"");updateLine.tag=Self.updateStatusTag;updateLine.isEnabled=false
         menu.addItem(withTitle:"Recover a previous version…",action:#selector(recoverVersion),keyEquivalent:"").target=self
         let sharing=menu.addItem(withTitle:"Share in public node directory…",action:#selector(toggleDirectorySharing),keyEquivalent:"");sharing.target=self;sharing.isEnabled=false
         let copyID=menu.addItem(withTitle:"Copy public node ID",action:#selector(copyPublicNodeID),keyEquivalent:"");copyID.target=self;copyID.isEnabled=false
@@ -155,18 +150,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         #if ASSEMBLY_CAPTURE
         startAssemblyCapture(self)
         #endif
-        #if UPDATE_REHEARSAL
-        window.title="Dsmack Update Rehearsal — isolated artifact selection"
-        if !NativeUpdateRehearsal.participationEnabled {
-            titleLabel.stringValue="Update rehearsal"
-            stateLabel.stringValue="NO NETWORK PARTICIPATION"
-            detailLabel.stringValue="Local artifact selection exercises the real update verifier and installer. No peer, identity, account or NFT acceptance is claimed."
-            badgeLabel.stringValue="Build " + (Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "unknown")
-            participationCaption.stringValue="PRIVATE COMPONENT REHEARSAL / NOT A PUBLIC RELEASE"
-            return
-        }
-        #endif
         DispatchQueue.global(qos:.utility).async {self.runParticipant()}
+        startDailyUpdateChecks()
     }
     #if ASSEMBLY_PREVIEW || ASSEMBLY_CAPTURE
     func previewCapture(to url:URL) throws {try captureStatus(to:url)}
@@ -239,36 +224,73 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         panel.center();panel.orderFront(nil);updateProgress=panel
     }
     private func endUpdateProgress() {updateProgress?.close();updateProgress=nil}
-    @objc private func checkForUpdates() {
+    static let updateStatusTag=7701,consentKey="dsmack.updates.consent.v1",lastCheckKey="dsmack.updates.lastCheck.v1"
+    private func setUpdateStatus(_ text:String) {
+        for menu in [menuItem?.menu,NSApp.mainMenu?.items.first?.submenu] {menu?.item(withTag:Self.updateStatusTag)?.title="Updates: "+text}
+    }
+    /// Asks once, records the answer, then checks on launch and every 24 hours.
+    private func startDailyUpdateChecks() {
+        let defaults=UserDefaults.standard
+        if defaults.dictionary(forKey:Self.consentKey)==nil {
+            let alert=NSAlert();alert.messageText="Check for Dsmack Node updates daily?"
+            alert.informativeText="Once a day Dsmack Node reads updates.json from the latest node release on GitHub and asks the measurement registry on \(ReleaseNetwork.name) whether that build is admitted. Nothing is downloaded or installed without your confirmation. You can always use Check for updates… in the menu."
+            alert.addButton(withTitle:"Check daily");alert.addButton(withTitle:"Don’t check")
+            defaults.set(["daily":alert.runModal() == .alertFirstButtonReturn,"time":Date().timeIntervalSince1970],forKey:Self.consentKey)
+        }
+        guard defaults.dictionary(forKey:Self.consentKey)?["daily"] as? Bool==true else {setUpdateStatus("daily check off");return}
+        let tick={
+            guard Date().timeIntervalSince1970-defaults.double(forKey:Self.lastCheckKey)>=86400 else {return}
+            self.runUpdateCheck(interactive:false)
+        }
+        tick();Timer.scheduledTimer(withTimeInterval:3600,repeats:true){_ in tick()}
+    }
+    @objc private func checkForUpdates() {runUpdateCheck(interactive:true)}
+    private func runUpdateCheck(interactive:Bool) {
         guard !NativeUpdater.shared.busy else {return}
-        showUpdateProgress("Checking the release owner’s current recommendation… Your peer keeps running.")
+        if interactive {showUpdateProgress("Reading updates.json and the measurement registry… Your peer keeps running.")}
         NativeUpdater.shared.check { result in
             self.endUpdateProgress()
+            let time=DateFormatter.localizedString(from:Date(),dateStyle:.none,timeStyle:.short)
             switch result {
             case .failure(let error):
-                let alert=NSAlert();alert.messageText="Dsmack updates";alert.informativeText=error.localizedDescription;alert.runModal()
-            case .success(let offered):
-                guard let release=offered else {
-                    let current=NSAlert();current.messageText="Dsmack is up to date";current.informativeText="You are running the release owner's currently recommended build.";current.runModal();return
+                self.setUpdateStatus("check failed at \(time)")
+                if interactive {let alert=NSAlert();alert.messageText="Update check failed";alert.informativeText=error.localizedDescription;alert.runModal()}
+            case .success(let c):
+                UserDefaults.standard.set(Date().timeIntervalSince1970,forKey:Self.lastCheckKey)
+                let m=hex(c.feed.M)
+                switch (c.newer,c.admission) {
+                case (false,_):
+                    self.setUpdateStatus("\(c.installed) is current (\(time))")
+                    if interactive {let alert=NSAlert();alert.messageText="Dsmack Node is up to date";alert.informativeText="You run \(c.installed). The latest release is \(c.feed.version).";alert.runModal()}
+                case (true,.failure(let error)):
+                    self.setUpdateStatus("\(c.feed.version) not admitted (\(time))")
+                    if interactive {let alert=NSAlert();alert.messageText="Dsmack Node \(c.feed.version) is not admitted";alert.informativeText="Measurement \(m) — \(error.localizedDescription) It will not be installed.";alert.runModal()}
+                case (true,.success(let block)):
+                    self.setUpdateStatus("\(c.feed.version) admitted (\(time))")
+                    self.offerUpdate(c,block:block)
                 }
-                let alert=NSAlert();alert.messageText="Dsmack \(release.version) is recommended"
-                alert.informativeText="The release owner recommends build \(release.build) for this network. This is an owner qualification, not an independent chain admission check. Download and verify its signature, identity permissions and network before installing. Your existing app and identity data will be retained."
-                alert.addButton(withTitle:"Download and verify");alert.addButton(withTitle:"Cancel")
-                guard alert.runModal() == .alertFirstButtonReturn else {return}
-                self.showUpdateProgress("Downloading and verifying the signed update… Your current app keeps running and remains unchanged.")
-                NativeUpdater.shared.stage { staged in
-                    self.endUpdateProgress()
-                    switch staged {
-                    case .failure(let error):
-                        let failure=NSAlert();failure.messageText="Update not installed";failure.informativeText=error.localizedDescription+" Your current app remains unchanged.";failure.runModal()
-                    case .success:
-                        let ready=NSAlert();ready.messageText="Verified update ready"
-                        ready.informativeText="Install and restart this peer? The new signed app is installed separately. Application Support and Keychain are preserved. An expired App Attest enrollment may renew as a new member; confirm your personal account and receipt after reconnecting. Keep another admitted key holder running if this Mac is a network seed."
-                        ready.addButton(withTitle:"Install and restart");ready.addButton(withTitle:"Later")
-                        if ready.runModal() == .alertFirstButtonReturn {
-                            do {try NativeUpdater.shared.installAndRestart()}catch{NSAlert(error:error).runModal()}
-                        }
-                    }
+            }
+        }
+    }
+    private func offerUpdate(_ c:UpdateCheck,block:UInt64) {
+        let alert=NSAlert();alert.messageText="Dsmack Node \(c.feed.version) is available"
+        alert.informativeText="You run \(c.installed). Measurement \(hex(c.feed.M)) is admitted by the registry on \(ReleaseNetwork.name) at block \(block).\n\n\(c.feed.notes)\n\nDownloading checks the SHA-256 and measurement against updates.json and the registry before anything is installed."
+        alert.addButton(withTitle:"Download and verify");alert.addButton(withTitle:"Later")
+        guard alert.runModal() == .alertFirstButtonReturn else {return}
+        showUpdateProgress("Downloading and verifying… Your current app keeps running unchanged.")
+        NativeUpdater.shared.stage { staged in
+            self.endUpdateProgress()
+            switch staged {
+            case .failure(let error):
+                self.setUpdateStatus("\(c.feed.version) refused")
+                let failure=NSAlert();failure.messageText="Update not installed";failure.informativeText=error.localizedDescription+" Your current app is unchanged.";failure.runModal()
+            case .success(let v):
+                let carries=NativeUpdater.shared.identityCarriesOver(v)
+                let ready=NSAlert();ready.messageText="Dsmack Node \(v.version) verified"
+                ready.informativeText="Team ID \(v.team), bundle \(v.identifier)\nMeasurement \(hex(v.M)), admitted at block \(v.block)\n\n"+(carries ? "Same team and bundle id: this Mac's identity and Keychain items carry over.":"Different team or bundle id: the new app gets a new App Attest key and member and cannot read this app's personal key. NFT continuity needs the builder handoff.")+"\n\nThe new app is installed beside this one; Application Support and Keychain are kept."
+                ready.addButton(withTitle:"Install and restart");ready.addButton(withTitle:"Later")
+                if ready.runModal() == .alertFirstButtonReturn {
+                    do {try NativeUpdater.shared.installAndRestart()}catch{NSAlert(error:error).runModal()}
                 }
             }
         }
@@ -457,11 +479,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 emit("configuration unavailable",["message":"This development build has no validated release network yet."]);return
             }
             if config["name"] == nil {
-                #if UPDATE_REHEARSAL
-                let defaults=NativeUpdateRehearsal.defaults
-                #else
                 let defaults=UserDefaults.standard
-                #endif
                 let identity=defaults.string(forKey:"participantName") ?? UUID().uuidString.lowercased()
                 defaults.set(identity,forKey:"participantName");config["name"]=identity
             }
@@ -560,11 +578,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     private func writeStatus() {
         // Agent-readable evidence follows exactly the same events as the window.
         guard let root=try? FileManager.default.url(for:.applicationSupportDirectory,in:.userDomainMask,appropriateFor:nil,create:true) else {return}
-        #if UPDATE_REHEARSAL
-        let dir=NativeUpdateRehearsal.root.appendingPathComponent("status",isDirectory:true)
-        #else
         let dir=root.appendingPathComponent("AttestNode",isDirectory:true)
-        #endif
         do {
             try FileManager.default.createDirectory(at:dir,withIntermediateDirectories:true)
             let file=dir.appendingPathComponent("status.json")

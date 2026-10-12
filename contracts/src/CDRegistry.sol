@@ -14,9 +14,11 @@ import {StrictDER} from "./StrictDER.sol";
 /// Free (signer identity, no effect on the executable's code or privileges): CD identifier,
 /// team ID, slots -1 (Info.plist), -2 (requirements), -3 (resources), -5 (XML entitlements),
 /// and the CMS signature.
-/// Info.plist is not pinned: the probe/node apps read no Info.plist keys, and hardened runtime
-/// (pinned) blocks DYLD_* injection through LSEnvironment. Residual: a re-signer can change
-/// non-code bundle metadata (e.g. ATS exceptions, LSEnvironment for non-DYLD variables).
+/// Info.plist and resource metadata are not pinned by this registry. The updater reads
+/// signed bundle version/release metadata: these are signer-reported values, not an
+/// on-chain version attestation. It separately compares the compiled network pins.
+/// Hardened runtime (pinned) blocks DYLD_* injection through LSEnvironment. Residual:
+/// a re-signer can change non-code metadata (e.g. ATS and non-DYLD environment settings).
 /// Each admitted CDHash records rpIdHash = sha256(application-identifier), the App Attest RP ID.
 /// The owner sets the approved build; CDHashes registered under an earlier build stop resolving.
 contract CDRegistry {

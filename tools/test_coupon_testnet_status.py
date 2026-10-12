@@ -43,6 +43,17 @@ class PublicStatusTests(unittest.TestCase):
         self.assertFalse(result['private_issuance_qualified'])
         self.assertFalse(result['l1_finality_verified'])
 
+    def test_dashboard_projection_is_minimal_and_matches_validated_status(self):
+        result = module.dashboard(self.export())
+        self.assertEqual(set(result), {'schema', 'network', 'identity_profile', 'observed_at_unix',
+            'issuer_status', 'peer', 'source_revision', 'trust_profile', 'bundle_url',
+            'bundle_sha256', 'approval_expires_at_unix', 'claim_window_ends_at_unix'})
+        self.assertEqual(result['schema'], 'dsmack-issuer-observation-v1')
+        self.assertEqual(result['observed_at_unix'], int(self.now.timestamp()))
+        self.assertEqual(result['issuer_status'], 'issuer-reachable')
+        self.assertNotIn('providerReadiness', json.dumps(result))
+        self.assertNotIn('independent_participant_count', result)
+
     def test_stale_and_expired_not_healthy(self):
         self.assertEqual(self.export('2029-12-31T23:54:59Z')['issuer_status'], 'stale')
         self.manifest['approval_expires_at'] = '2029-12-31T23:59:59Z'

@@ -11,9 +11,10 @@ import subprocess
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-SOURCES = ['node/shared/Protocol.swift', 'node/shared/PersonalAccount.swift', 'node/shared/BadgeClaim.swift', 'node/shared/Upgrade.swift', 'node/shared/Chain.swift',
+SOURCES = ['node/shared/Protocol.swift', 'node/shared/NativeDirectory.swift', 'node/shared/PersonalAccount.swift', 'node/shared/BadgeClaim.swift', 'node/shared/Upgrade.swift', 'node/shared/Chain.swift',
            'node/shared/NativeAttestation.swift', 'node/shared/Node.swift', 'node/mac/main.swift',
-           'node/mac/GUI.swift', 'node/mac/NetworkConfig.swift']
+           'node/mac/GUI.swift', 'node/mac/NetworkConfig.swift', 'node/mac/UpdatePolicy.swift',
+           'node/mac/UpdateArchive.swift', 'node/mac/NativeUpdater.swift']
 
 
 def output(*args):
@@ -53,6 +54,19 @@ def main():
     if args.gui:
         resources = app / 'Contents/Resources'
         resources.mkdir()
+        network_source = (ROOT / 'node/mac/NetworkConfig.swift').read_text()
+        import re
+        network_match = re.search(r'#"""\s*(\{.*?\})\s*"""#', network_source, re.S)
+        if not network_match:
+            raise SystemExit('Release network metadata is missing')
+        network_settings = json.loads(network_match.group(1))
+        network_keys = ('chainId', 'registry', 'category', 'protocolVersion', 'relay',
+                        'rpc', 'peer', 'badges', 'accountFactory')
+        # Resource sealing authenticates these pins alongside the executable.
+        release_metadata = {'format': 1, 'profile': 'native-v2', 'build': int(args.build_number),
+                            'version': args.version, 'sourceCommit': output('git', 'rev-parse', 'HEAD'),
+                            'network': {key: str(network_settings[key]) for key in network_keys}}
+        (resources / 'dsmack-release.json').write_text(json.dumps(release_metadata, sort_keys=True) + '\n')
         for number, source in enumerate(artwork_inputs, 1):
             shutil.copyfile(ROOT / source, resources / f'fold-token-{number}.png')
     sdk = output('xcrun', '--sdk', 'macosx', '--show-sdk-path')

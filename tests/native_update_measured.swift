@@ -54,9 +54,16 @@ import Foundation
         refuses("RPC on another chain","not \(chain.chainId+1)"){
             _=try NativeUpdater.install(zip:zip("honest-b"),feed:try feed("honest-b"),admission:MeasurementAdmission(chain:Chain(rpcURL:rpc,registry:registry,chainId:chain.chainId+1)),root:dir.appendingPathComponent("wrong-chain"))
         }
-        let block=try quantity(chain.rpc("eth_blockNumber",[]))
-        try send("admit(bytes32,uint64,uint64)",M+word(0)+word(block+100))
-        refuses("window closes within a day","closes within"){_=try install("honest-a",honest)}
+        // anvil automine: the admit transaction is mined at block+1, which the check then reads as latest.
+        var block=try quantity(chain.rpc("eth_blockNumber",[]))
+        try send("admit(bytes32,uint64,uint64)",M+word(0)+word(block+1+MeasurementAdmission.margin))
+        refuses("window closes exactly 43,200 blocks after the check","closes within"){_=try install("honest-a",honest)}
+        block=try quantity(chain.rpc("eth_blockNumber",[]))
+        try send("admit(bytes32,uint64,uint64)",M+word(0)+word(block+2+MeasurementAdmission.margin))
+        let edge=try install("honest-a",honest);precondition(edge.block==block+1,"edge block");print("installs with 43,201 blocks left");checks+=1
+        block=try quantity(chain.rpc("eth_blockNumber",[]))
+        try send("admit(bytes32,uint64,uint64)",M+word(block+2)+word(UInt64(Int64.max)))
+        refuses("window opens after the check","Build not admitted"){_=try install("honest-a",honest)}
         try send("revoke(bytes32)",M)
         refuses("revoked measurement","Build not admitted"){_=try install("honest-a",honest)}
         print("PASS \(checks) measured update checks")

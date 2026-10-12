@@ -148,10 +148,13 @@ export class Relay {
         need(c===network.macCategory.toLowerCase(),'unknown category');return false;
     }
     /** MeasurementRegistry.register before enroll, once per CDHash; refuses a measurement outside its window. */
-    private async registerMeasurement(network:typeof deployment,body:any) {
+    private async registerMeasurement(network:typeof deployment,body:any,authData:Uint8Array) {
         need(['cd','page0','ent','L','S'].every(k=>body[k]!==undefined),'enrollment requires the code measurement {cd,page0,ent,L,S}');
         const cd=toHex(binary(body.cd)),page0=toHex(binary(body.page0)),ent=toHex(binary(body.ent)),L=integer(body.L),S=integer(body.S);
         need(page0.length===2+16384*2,'measurement page0');
+        // Extensions follow the 164-byte attested-credential prefix the adapter requires (AppleAuthData.check).
+        need(authData.length>164,'attestation authData');const attested=decode(authData.subarray(164))?.apple_cd_hash_hash_01;
+        need(attested instanceof Uint8Array&&toHex(attested)===sha256(cd),'code measurement is not of the attested CDHash');
         const address=network.measurementRegistry as Address;
         let m:Hex;try {m=await this.client.readContract({address,abi:measuredAbi,functionName:'measure',args:[cd,page0,ent,L,S]});}catch {throw new Error('invalid code measurement');}
         need(await this.client.readContract({address,abi:measuredAbi,functionName:'isAdmitted',args:[m,await this.client.getBlockNumber()]}),'build not admitted');
@@ -213,7 +216,7 @@ export class Relay {
             const measured=this.measured(selected,body.category);
             const evidence=decode(binary(body.attestation));
             const data=encodeFunctionData({abi:abi.adapter,functionName:'enroll',args:[toHex(evidence.attStmt.x5c[0]),toHex(evidence.authData),hex(body.clientData,32)]});
-            if(measured)await this.registerMeasurement(selected,body);
+            if(measured)await this.registerMeasurement(selected,body,evidence.authData);
             return response({tx:await this.transact(measured?selected.measuredAdapter:selected.macAdapter,data)});
         }
         if(path==='/register-build') {

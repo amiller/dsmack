@@ -1,6 +1,6 @@
 // Relay enrollment against a fake JSON-RPC: the measured category registers M before enroll.
 import {privateKeyToAccount} from "npm:viem@2.38.0/accounts";
-import {decodeFunctionData,encodeFunctionResult,keccak256,parseTransaction,toHex,type Hex} from "npm:viem@2.38.0";
+import {decodeFunctionData,encodeFunctionResult,hexToBytes,keccak256,parseTransaction,sha256,toHex,type Hex} from "npm:viem@2.38.0";
 import {encode} from "npm:cbor-x@1.6.0";
 const key='0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80';
 const abi=JSON.parse(await Deno.readTextFile(new URL('./abi.json',import.meta.url)));
@@ -9,7 +9,8 @@ const h=(n:string,size=32)=>('0x'+n.repeat(size)) as Hex;
 const M=h('9a'),measured={measuredCategory:h('23'),measuredAdapter:h('34',20),measurementRegistry:h('45',20)};
 const b64=(v:Uint8Array)=>btoa(String.fromCharCode(...v));
 const blobs={cd:b64(new Uint8Array(400).fill(1)),page0:b64(new Uint8Array(16384)),ent:b64(new Uint8Array(90).fill(2)),L:1000,S:1200};
-const attestation=b64(encode({attStmt:{x5c:[new Uint8Array([1,2,3])]},authData:new Uint8Array([4,5,6])}));
+const attest=(cd:string)=>b64(encode({attStmt:{x5c:[new Uint8Array([1,2,3])]},authData:new Uint8Array([...new Uint8Array(164),...encode({apple_cd_hash_hash_01:hexToBytes(sha256(Uint8Array.from(atob(cd),c=>c.charCodeAt(0))))})])}));
+const attestation=attest(blobs.cd);
 
 async function relay(mode:'legacy'|'measured',chain:{admitted:boolean,registered:boolean}) {
     const {measuredAbi}=await import('./server.ts');
@@ -73,6 +74,7 @@ Deno.test('measured category: refuses "build not admitted" and missing measureme
         check((await r.enroll({category:measured.measuredCategory,...blobs})).error==='build not admitted','admitted a closed window');
         check((await r.enroll({category:measured.measuredCategory})).error==='enrollment requires the code measurement {cd,page0,ent,L,S}','enrolled without M');
         check((await r.enroll({category:measured.measuredCategory,...blobs,page0:blobs.ent})).error==='measurement page0','short page0 accepted');
+        check((await r.enroll({category:measured.measuredCategory,...blobs,attestation:attest(blobs.ent)})).error==='code measurement is not of the attested CDHash','registered a CodeDirectory the attestation does not name');
         check(r.sent.length===0,'sent '+JSON.stringify(r.sent));
     } finally {await r.close();}
 });

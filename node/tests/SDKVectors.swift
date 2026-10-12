@@ -1,8 +1,8 @@
 import Foundation
 import CryptoKit
 
-// dsmack-sdk node side: app_root vectors, allow check, runner admission, statement, epochs and the loopback server.
-// Fixed group scalars, no RPC or Keychain. Compile with every node/shared source.
+// dsmack-sdk node side: app_root vectors, AppRegistry allow check, runner admission, statement, epochs and the loopback
+// server. Fixed group scalars, no RPC or Keychain: the AppRegistry read is an in-memory table at a chosen block. Compile with every node/shared source.
 // usage: SDKVectors node/tests/sdk_runner_fixture.json  (test-only synthetic App Attest evidence, never Apple's:
 // Tests/ops/runner_fixture.json of work/native-core-ledger-20261012 aa80468, its root, CDHash 5a..5a and leaf scalars)
 @main struct SDKVectors {
@@ -15,12 +15,12 @@ import CryptoKit
         let chainId:UInt64=84532,registry="0xd4b33c83576a6049d29c6b849ec73491e52781a0",scope=zero32
         let b=Data(repeating:0,count:31)
         let g1=try P256.Signing.PrivateKey(rawRepresentation:b+[0x11]),g2=try P256.Signing.PrivateKey(rawRepresentation:b+[0x22])
-        let sponsor=try Curve25519.Signing.PrivateKey(rawRepresentation:b+[0x33]),stranger=try Curve25519.Signing.PrivateKey(rawRepresentation:b+[0x44])
+        let appRegistry="0x9a676e781a523b5d0c0e43731313a708cb607508",admin=Data(repeating:0xad,count:20)
         let fx=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[1]))) as! [String:Any]
         try need(fx["synthetic_only"] as? Bool==true,"fixture must be synthetic")
         let now=UInt64(fx["now"] as! Int),anchor=Data(base64Encoded:fx["synthetic_root"] as! String)!,runner=try bytes32(fx["cdhash"] as! String)
         let enrollments=fx["enrollments"] as! [String:[String:Any]]
-        let appX=Data(repeating:0xa1,count:32),appY=Data(repeating:0xa2,count:32)
+        let appX=Data(repeating:0xa1,count:32),appY=Data(repeating:0xa2,count:32),appS=Data(repeating:0xa5,count:32),appZ=Data(repeating:0xa9,count:32)
         // c1 and c1b are the composes the synthetic runner enrollments "good" and "wrong_compose" attest.
         let c1=try bytes32(fx["compose_sha256"] as! String),c1b=zero32,c3=Data(repeating:0xc3,count:32)
         let m=Data(repeating:0x4d,count:32)
@@ -29,26 +29,31 @@ import CryptoKit
         print("vector app_root(g2, epoch 2, app X) \(hex(rootX2))")
         try check(hex(rootX2)==vectorX2,"pinned app_root vector")
         try check(hex(try SDK.appSigner(SymmetricKey(data:rootX2)).publicKey.x963Representation)==vectorAppPubX2,"pinned app_pub vector")
-        try check(hex(sha(try SDK.allowMessage(chainId:chainId,registry:registry,appId:appX,composeHash:Data(repeating:0xcc,count:32),scope:scope,until:4_000_000_000)))==vectorAllowX2,
-                  "pinned allow message vector")
 
         func node(_ name:String) throws -> Node {
             try Node(Config(["rpc":"http://127.0.0.1:1","registry":registry,"chainId":Int(chainId),"category":hex(zero32),"relay":"http://127.0.0.1:1",
-                             "name":name,"protocolVersion":2,"sdkPort":1,"sdkRunners":[hex(runner)]]),log:{_,_ in})
+                             "name":name,"protocolVersion":2,"sdkPort":1,"sdkRunners":[hex(runner)],"appRegistry":appRegistry]),log:{_,_ in})
         }
-        do {_=try Config(["rpc":"http://127.0.0.1:1","registry":registry,"chainId":1,"category":hex(zero32),"relay":"http://127.0.0.1:1","name":"x","sdkPort":1]);throw DemoError.invalid("accepted")}
-        catch DemoError.invalid(let e) {try check(e=="sdkPort and a non-empty sdkRunners list go together","sdkPort without runner CDHashes refused")}
+        let base:[String:Any]=["rpc":"http://127.0.0.1:1","registry":registry,"chainId":1,"category":hex(zero32),"relay":"http://127.0.0.1:1","name":"x"]
+        for (extra,expected,label) in [(["sdkPort":1,"appRegistry":appRegistry],"sdkPort and a non-empty sdkRunners list go together","sdkPort without runner CDHashes refused"),
+                                        (["sdkPort":1,"sdkRunners":[hex(runner)]],"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")] as [([String:Any],String,String)] {
+            do {_=try Config(base.merging(extra){$1});throw DemoError.invalid("accepted")}
+            catch DemoError.invalid(let e) {try check(e==expected,label)}
+        }
         let a=try node("a"),bNode=try node("b")
         a.hold(scope,g1,epoch:1);a.hold(scope,g2,epoch:2);bNode.hold(scope,g2,epoch:2)
         try check(a.previous[scope]?.epoch==1 && a.cfg.sdkPort==1,"bump keeps the previous epoch's key")
-        func service(_ n:Node,runners:[Data]?=nil,at:UInt64?=nil) -> SDKService {
-            var s=n.sdkService(sponsor:sponsor.publicKey,measurement:m,runners:runners ?? n.cfg.sdkRunners,anchor:anchor);s.block={1234};s.now={at ?? now};return s
+        // The AppRegistry table: apps(appId) {admin, scope} and composes(appId, composeHash) {from, until}, read at `block`.
+        var apps=[appX:scope,appY:scope,appS:Data(repeating:1,count:32)]
+        let open:(UInt64,UInt64)=(0,UInt64.max)
+        var windows=[appX+c1:open,appY+c1:open,appX+c1b:open,appS+c1:open]
+        func service(_ n:Node,runners:[Data]?=nil,at:UInt64?=nil,block:UInt64=1234) -> SDKService {
+            var s=n.sdkService(appRegistry:appRegistry,measurement:m,runners:runners ?? n.cfg.sdkRunners,anchor:anchor);s.now={at ?? now}
+            s.appTable={app,compose in let w=windows[app+compose] ?? (0,0)
+                return SDK.Entry(block:block,admin:apps[app]==nil ? Data(repeating:0,count:20):admin,scope:apps[app] ?? zero32,from:w.0,until:w.1)}
+            return s
         }
         let sa=service(a),sb=service(bNode)
-        func allow(_ app:Data,_ compose:Data,until:Int=4_000_000_000,by key:Curve25519.Signing.PrivateKey?=nil) throws -> [String:Any] {
-            let message=try SDK.allowMessage(chainId:chainId,registry:registry,appId:app,composeHash:compose,scope:scope,until:UInt64(until))
-            return ["scope":hex(scope),"until":until,"signature":hex(try (key ?? sponsor).signature(for:message))]
-        }
         func call(_ s:SDKService,_ q:[String:Any],_ session:inout SDKSession) throws -> [String:Any] {
             let line=s.reply(try JSONSerialization.data(withJSONObject:q),&session)
             try need(line.last==10 && line.dropLast().firstIndex(of:10)==nil,"one JSON line per reply")
@@ -79,10 +84,9 @@ import CryptoKit
             return try call(s,full,&session)
         }
         var sxA=SDKSession(),sxB=SDKSession(),szA=SDKSession()
-        func getKey(_ s:SDKService,_ session:inout SDKSession,_ app:Data,_ compose:Data,allow record:[String:Any]?=nil,epoch:Int?=nil,runner name:String?=nil) throws -> (reply:[String:Any],root:Data?) {
+        func getKey(_ s:SDKService,_ session:inout SDKSession,_ app:Data,_ compose:Data,epoch:Int?=nil,runner name:String?=nil) throws -> (reply:[String:Any],root:Data?) {
             let eph=P256.KeyAgreement.PrivateKey()
-            var q:[String:Any]=["v":1,"op":"get_key","app_id":hex(app),"compose_hash":hex(compose),"allow":try record ?? allow(app,compose),
-                                "eph_pub":hex(eph.publicKey.x963Representation)]
+            var q:[String:Any]=["v":1,"op":"get_key","app_id":hex(app),"compose_hash":hex(compose),"eph_pub":hex(eph.publicKey.x963Representation)]
             if let epoch {q["epoch"]=epoch}
             let r=try send(s,&session,q,runner:name)
             guard let epk=r["epk"] as? String,let sealed=r["sealed"] as? String,let st=r["statement"] as? String else {return (r,nil)}
@@ -92,8 +96,8 @@ import CryptoKit
         }
 
         var plain=SDKSession()
-        try refused(try getKey(sa,&plain,appX,c1).reply,"runner evidence required","plain local client with a valid allow record, get_key")
-        let plainQuery:[String:Any]=["v":1,"app_id":hex(appX),"compose_hash":hex(c1),"allow":try allow(appX,c1),"report_data":"0x07"]
+        try refused(try getKey(sa,&plain,appX,c1).reply,"runner evidence required","plain local client for an allowed compose, get_key")
+        let plainQuery:[String:Any]=["v":1,"app_id":hex(appX),"compose_hash":hex(c1),"report_data":"0x07"]
         for op in ["evidence","info"] {var q=plainQuery;q["op"]=op;try refused(try call(sa,q,&plain),"runner evidence required","plain local client, \(op)")}
         _=try call(sa,["v":1,"op":"challenge"],&plain)
         try refused(try getKey(sa,&plain,appX,c1).reply,"runner evidence required","plain client holding a challenge but no evidence")
@@ -121,10 +125,25 @@ import CryptoKit
         let ax2=try getKey(sa,&szA,appX,c1b,runner:"wrong_compose")
         try check(ax2.root==ax.root && ax2.reply["app_pub"] as? String==ax.reply["app_pub"] as? String && ax2.reply["statement"] as? String != ax.reply["statement"] as? String,
                   "different compose_hash under the same app_id: same key, statement names the compose")
-        try refused(try getKey(sa,&sxA,appX,c3,allow:try allow(appX,c1)).reply,"compose not allowed under app_id","unlisted compose")
-        try refused(try getKey(sa,&sxA,appY,c1,allow:try allow(appX,c1)).reply,"compose not allowed under app_id","record for another app")
-        try refused(try getKey(sa,&sxA,appX,c1,allow:try allow(appX,c1,by:stranger)).reply,"compose not allowed under app_id","record signed by a non-sponsor key")
-        try refused(try getKey(sa,&sxA,appX,c1,allow:try allow(appX,c1,until:1000)).reply,"allow record expired","expired record")
+        try check(ax.reply["block"] as? Int==1234 && ax.reply["app_registry"] as? String==appRegistry,"statement names the block the AppRegistry was read at")
+        var fresh3=SDKSession()
+        try refused(try getKey(sa,&fresh3,appX,c3,runner:"good").reply,"compose not allowed under app_id at block 1234","unlisted compose, before runner admission")
+        try check(fresh3.compose==nil,"unlisted compose admits no connection")
+        try refused(try getKey(sa,&sxA,appX,c3).reply,"compose not allowed under app_id","unlisted compose on an admitted connection")
+        try refused(try getKey(sa,&sxA,appZ,c1).reply,"app_id not in AppRegistry at block 1234","app not created")
+        windows[appX+c1]=(0,1234)
+        try refused(try getKey(sa,&sxA,appX,c1).reply,"compose window closed at block 1234, read at 1234","window closed at the read block, on an admitted connection")
+        let early=try getKey(service(a,block:1233),&sxA,appX,c1)
+        try check(early.root==rootX2 && early.reply["block"] as? Int==1233,"same window read at an earlier block, before it closed, is honoured and named")
+        windows[appX+c1]=(1235,UInt64.max)
+        try refused(try getKey(sa,&sxA,appX,c1).reply,"compose window opens at block 1235","window not yet open")
+        windows[appX+c1]=nil
+        try refused(try getKey(sa,&sxA,appX,c1).reply,"compose not allowed under app_id","revoked compose")
+        windows[appX+c1]=open
+        apps[appX]=nil
+        try refused(try getKey(sa,&sxA,appX,c1).reply,"app_id not in AppRegistry","window left behind for an app the table no longer lists")
+        apps[appX]=scope
+        try refused(try getKey(sa,&sxA,appS,c1).reply,"no group key held for scope 0x0101","scope comes from the table: an app in a scope this node lacks")
 
         let a1=try getKey(sa,&sxA,appX,c1,epoch:1)
         let rootX1=try SDK.appRoot(g1,chainId:chainId,registry:registry,scope:scope,keyEpoch:1,appId:appX).withUnsafeBytes{Data($0)}
@@ -142,7 +161,7 @@ import CryptoKit
             try check(!(e==2 ? g1:g2).publicKey.isValidSignature(sig,for:st) && !g.publicKey.isValidSignature(sig,for:st+[0]),"\(name) statement fails under the other key or altered")
         }
 
-        let evidenceQuery:[String:Any]=["v":1,"op":"evidence","app_id":hex(appX),"compose_hash":hex(c1),"allow":try allow(appX,c1),"report_data":hex(Data(repeating:7,count:32))]
+        let evidenceQuery:[String:Any]=["v":1,"op":"evidence","app_id":hex(appX),"compose_hash":hex(c1),"report_data":hex(Data(repeating:7,count:32))]
         try refused(try call(sa,evidenceQuery,&sxA),"no check-in yet","evidence before any check-in")
         a.keyLock.withLock{a.checkIn=(word(42),"0x"+String(repeating:"ab",count:32))}
         let ev=try call(sa,evidenceQuery,&sxA)
@@ -161,8 +180,11 @@ import CryptoKit
         a.retire(scope)
         try refused(try getKey(sa,&sxA,appX,c1).reply,"no group key held","current request after the key is retired")
         try check(try getKey(sa,&sxA,appX,c1,epoch:2).root==rootX2,"retired epoch stays available as previous")
-
-        try check(hex(SDK.sponsor.rawRepresentation)=="0xa9f24171fb7f1a1ce28409d97127018d981b25417f8ba531a2af8d90b787b41e","compiled-in interim sponsor is the lab policy authority key")
+        a.hold(scope,g1,epoch:3)
+        try check(try getKey(sa,&sxA,appX,c1,epoch:2).root==rootX2 && getKey(sa,&sxA,appX,c1).reply["key_epoch"] as? Int==3,"re-acquired epoch 3 after retiring 2: serves 3 and previous 2")
+        try refused(try getKey(sa,&sxA,appX,c1,epoch:1).reply,"key epoch 1 not held","second bump drops epoch 1: previous epoch only")
+        a.retire(scope);a.hold(scope,g2,epoch:5)
+        try refused(try getKey(sa,&sxA,appX,c1,epoch:3).reply,"key epoch 3 not held","skipped epoch: 3 is not the epoch before 5, so it is not kept")
         try check(try SDK.reduceP256(Data(repeating:0xff,count:32))==unhex("0x00000000ffffffff00000000000000004319055258e8617b0c46353d039cdaae"),"p256 reduction subtracts n once")
         do {_=try SDK.reduceP256(Data(SDK.p256Order));throw DemoError.invalid("zero scalar accepted")} catch DemoError.invalid(let e) {try check(e=="derived scalar is zero","zero scalar refused")}
 
@@ -185,7 +207,7 @@ import CryptoKit
         let plainReplies=[try exchange(plainFD,getQ),try exchange(plainFD,info)]
         close(plainFD)
         try check(plainReplies.allSatisfy{($0["error"] as? String)?.contains("runner evidence required")==true && $0["sealed"]==nil && $0["app_pub"]==nil},
-                  "loopback server: plain local client with a valid allow record gets nothing")
+                  "loopback server: plain local client for an allowed compose gets nothing")
         let fd=try connectLoopback()
         let challenge=try unhex(try exchange(fd,["v":1,"op":"challenge"])["challenge"] as! String)
         var admitted=getQ;admitted["runner_evidence"]=try runnerEvidence("good",challenge,getQ)
@@ -198,5 +220,4 @@ import CryptoKit
     /// The same vectors are pinned in sdk/test_sdk.py test_vectors_match_swift (Python dsmack_sdk).
     static let vectorX2="0xff7581dad655737c4a35ef4192a3f5897bfdf54ea7c70570b8c185a4230fab59"
     static let vectorAppPubX2="0x0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb"
-    static let vectorAllowX2="0xcb083f9aba691b70423c0898a0d5cfa9ebc957f53bacde317e524dc8296bb620"
 }

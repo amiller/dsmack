@@ -11,8 +11,9 @@ struct Chain {
         guard let value=r["result"] else {throw DemoError.invalid("RPC result")}
         return value
     }
-    func call(_ signature: String,_ words: Data=Data(),to target: String?=nil) throws -> Data {
-        guard let s=try rpc("eth_call",[["to":target ?? registry,"data":hex(keccak(Data(signature.utf8)).prefix(4)+words)],"latest"]) as? String else {throw DemoError.invalid("call response")}
+    func call(_ signature: String,_ words: Data=Data(),to target: String?=nil,at block: UInt64?=nil) throws -> Data {
+        let tag=block.map{"0x"+String($0,radix:16)} ?? "latest"
+        guard let s=try rpc("eth_call",[["to":target ?? registry,"data":hex(keccak(Data(signature.utf8)).prefix(4)+words)],tag]) as? String else {throw DemoError.invalid("call response")}
         return try unhex(s)
     }
     func requestDeadline() throws -> UInt64 {

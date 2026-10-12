@@ -152,3 +152,13 @@ See the [checker instructions](../packaging/participation/README.md) and the
 [dated public observation](../packaging/participation/qualification-20261011.json).
 The [Mac package verification](../packaging/participation/mac-package-verification-20261011.json)
 records signature and stapled-ticket checks, not a first open on another Mac.
+
+## SDK app registry (Base Sepolia)
+
+`AppRegistry` is deployed at `0xa4d26deDf4d086216a0E2cFbc7bdA49918f5C5c3` on chain 84532,
+owner `0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61`. The coupon app
+`keccak256("dsmack-coupon-v1")` = `0x25e69b5ec66f7453e69abfcf0e4ec54e35643db48be80fa9f96c464010d8429f`
+is created with scope 0 and no admitted compose hash. A node serving `sdkPort` names it in config
+as `appRegistry` (required with `sdkPort`; without it the node refuses to start the SDK). Each key
+op reads `apps(app_id)` and `composes(app_id, compose_hash)` at the current block; the G-signed
+statement names that block, so a verifier re-reads the window there.

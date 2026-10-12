@@ -1,13 +1,13 @@
 """Live dsmack-sdk rung 1: sdk/test_sdk.py against two real Mac nodes on a disposable Anvil network. Laptop side.
 The Mac directory --remote must hold build/ from `NODE_FLAGS='-D SDK_TEST_TRUST' node/tests/seed_build.sh` (a test
-build: allow-record sponsor and App Attest root come from config, for synthetic runner fixtures). Deploys DemoV2 with
-a MeasurementRegistry category admitting that build's M, and AppRegistry; node A seeds (bootstraps G), node B
-participates and imports G from A through the relay. Both serve sdkPort on Mac loopback, forwarded here; stand-in
+build: the App Attest root comes from config, for synthetic runner fixtures). Deploys DemoV2 with a
+MeasurementRegistry category admitting that build's M, and AppRegistry, which both nodes read (config appRegistry);
+node A seeds (bootstraps G), node B participates and imports G from A through the relay. The suite's epoch bump must
+leave B running: it re-acquires the new key from A and keeps serving the previous epoch. Both serve sdkPort on Mac loopback, forwarded here; stand-in
 runners (runner/kms/sdk_runner.py) run here. Every config, plist, log and enrollment state stays inside --remote."""
 import argparse, atexit, hashlib, json, os, secrets, subprocess, sys, time
 from pathlib import Path
 from web3 import Web3
-from cryptography.hazmat.primitives.asymmetric import ed25519
 
 ROOT = Path(__file__).resolve().parents[2]
 KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'  # public Anvil account 0
@@ -77,10 +77,13 @@ deploy = {**net, 'macCategory': msr['measuredCategory'], 'measured': msr, 'AppRe
 note(deploy=deploy['DemoV1'], measuredCategory=msr['measuredCategory'], measurementRegistry=msr['measurementRegistry'], appRegistry=app_registry, M=measured['M'])
 background([sys.executable, str(ROOT / 'node/relay/relay.py'), '--rpc', rpc, '--deploy', str(out / 'deploy/deploy.json'), '--port', str(args.relay_port),
             '--settle', '0', '--log', str(out / 'relay.jsonl')], 'relay', env)
-background(['ssh', '-N', '-o', 'ExitOnForwardFailure=yes', '-R', f'{args.rpc_port}:127.0.0.1:{args.rpc_port}', '-R', f'{args.relay_port}:127.0.0.1:{args.relay_port}',
-            *[x for p in args.sdk_ports for x in ('-L', f'{p}:127.0.0.1:{p}')], args.host], 'tunnel')
-time.sleep(4)
-assert all(p.poll() is None for p in procs), 'anvil, relay or tunnel exited'
+# Forwards go on the shared ssh control master (an `ssh -N` mux client exits at once), cancelled at exit.
+forwards = ['-R', f'{args.rpc_port}:127.0.0.1:{args.rpc_port}', '-R', f'{args.relay_port}:127.0.0.1:{args.relay_port}',
+            *[x for p in args.sdk_ports for x in ('-L', f'{p}:127.0.0.1:{p}')]]
+subprocess.run(['ssh', '-O', 'forward', *forwards, args.host], check=True)
+atexit.register(lambda: subprocess.run(['ssh', '-O', 'cancel', *forwards, args.host]))
+time.sleep(2)
+assert all(p.poll() is None for p in procs), 'anvil or relay exited'
 assert 'owner' in ssh(f'curl -sf http://127.0.0.1:{args.relay_port}/info'), 'relay unreachable from the Mac'
 
 # Synthetic runner fixture for this run (fresh enrolled_at; the committed fixture's is older than the node's 12 h).
@@ -93,13 +96,12 @@ composes['coupon'] = ROOT / 'apps/coupon-sdk/app-compose.json'
 fixture = out / 'runner-fixture.json'
 note(fixture=run(sys.executable, 'node/tests/sdk_runner_fixture.py', fixture,
                  *[f'--compose={n}={hashlib.sha256(p.read_bytes()).hexdigest()}' for n, p in composes.items()]).strip())
-sponsor_seed = secrets.token_hex(32)
-sponsor_pub = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(sponsor_seed)).public_key().public_bytes_raw().hex()
+sponsor_seed = secrets.token_hex(32)  # stand-in runners still send allow records; these nodes ignore them
 stamp = Path(R).name[-8:]
 names = {'A': f'sdk{stamp}-a', 'B': f'sdk{stamp}-b'}
 cfg = {n: {'rpc': rpc, 'registry': deploy['DemoV1'], 'chainId': 31337, 'category': deploy['macCategory'], 'protocolVersion': 2,
            'relay': f'http://127.0.0.1:{args.relay_port}', 'name': names[n], 'persistentIdentity': True, 'publicDirectory': False,
-           'sdkPort': port, 'sdkRunners': ['0x' + '5a' * 32], 'sdkTestSponsor': sponsor_pub,
+           'sdkPort': port, 'sdkRunners': ['0x' + '5a' * 32], 'appRegistry': app_registry,
            'sdkTestAnchor': json.loads(fixture.read_text())['synthetic_root']} for n, port in zip('AB', args.sdk_ports)}
 cfg['B']['peer'] = names['A']
 ssh(f'rm -rf {R}/home {R}/logs')  # fresh enrollment state for this chain
@@ -126,6 +128,13 @@ try:
                        env={**os.environ, 'SDK_E2E': str(out / 'e2e.json'), 'SDK_EVIDENCE_DIR': str(out / 'tests')})
     (out / 'pytest.txt').write_text(r.stdout + r.stderr)
     note(pytest=r.stdout.strip().splitlines()[-1], returncode=r.returncode)
+    b_events = events('B')
+    rotated = [e for e in b_events if e['event'] == 'participating' and e['keyEpoch'] > 0]
+    alive = 'PID' in ssh(f'launchctl list dev.dsmack.test.{names["B"]} || true')
+    note(check='B: participant rotated without exiting', key_epoch_changed=sum(e['event'] == 'key epoch changed' for e in b_events),
+         participating_after_bump=rotated[-1:] , still_running=alive)
+    assert rotated and rotated[-1]['previousEpoch'] == rotated[-1]['keyEpoch'] - 1 and alive, 'participant B did not rotate in place'
+    assert r.returncode == 0, 'pytest failed'
 finally:
     for n in 'AB':
         subprocess.run(['ssh', args.host, f'bash -s -- mac-stop {plist(n)}'], input=recover, text=True, capture_output=True)

@@ -2,7 +2,9 @@
 against node SDK ports. Run: python3 -m pytest sdk/test_sdk.py
 Default: stand-in nodes (runner/kms/sdk_node.py) on a local anvil with AppRegistry. SDK_E2E=<json> instead targets
 real nodes (node/tests/sdk_e2e.py writes it): {rpc, chain_id, registry, demo, app_registry, owner_key, sponsor_seed,
-fixture, nodes: {A, B}, composes: {name: path}}. SDK_EVIDENCE_DIR=<dir> records each outcome there as JSON."""
+fixture, nodes: {A, B}, composes: {name: path}}. SDK_EVIDENCE_DIR=<dir> records each outcome there as JSON.
+Real nodes read AppRegistry at a block and ignore the runner's allow record; stand-in nodes still check sponsor
+allow records, so each admitted window also gets one."""
 import base64, hashlib, json, os, secrets, socket, subprocess, sys, time
 from pathlib import Path
 import pytest
@@ -18,7 +20,8 @@ from cryptography.hazmat.primitives.asymmetric import ec, ed25519
 OWNER_KEY = '0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80'  # anvil account 0, public test key
 OWNER = '0xf39Fd6e51aad88F6F4ce6aB8827279cffFb92266'
 SCOPE = '00' * 32
-X, Y = (hashlib.sha256(b'dsmack-sdk-test/app-' + n).hexdigest() for n in (b'x', b'y'))
+X, Y, Z = (hashlib.sha256(b'dsmack-sdk-test/app-' + n).hexdigest() for n in (b'x', b'y', b'z'))
+SCOPE_Z = '01' * 32   # app Z's table scope; no node holds a key for it
 OUT = Path(os.environ['SDK_EVIDENCE_DIR']) if 'SDK_EVIDENCE_DIR' in os.environ else None
 FIXTURE = ROOT / 'node/tests/sdk_runner_fixture.json'
 
@@ -53,8 +56,9 @@ def compose(app_id, name, env):
                       sort_keys=True, separators=(',', ':')).encode()
 
 
-COMPOSES = {'C1': (X, 'c1', {'A': '1'}), "C1'": (X, 'c1', {'A': '2'}), 'C2': (Y, 'c2', {'A': '1'}), 'C3': (X, 'c3', {'A': '1'})}
-WINDOWS = (('C1', X), ("C1'", X), ('C2', Y))   # admitted on AppRegistry and given sponsor allow records; C3 is not
+COMPOSES = {'C1': (X, 'c1', {'A': '1'}), "C1'": (X, 'c1', {'A': '2'}), 'C2': (Y, 'c2', {'A': '1'}), 'C3': (X, 'c3', {'A': '1'}),
+            'C4': (Z, 'c4', {'A': '1'}), 'C5': (X, 'c5', {'A': '1'})}
+WINDOWS = (('C1', X), ("C1'", X), ('C2', Y), ('C4', Z), ('C5', X))   # admitted on AppRegistry (and allow records); C3 is not
 
 
 def secret(path, value):
@@ -100,7 +104,7 @@ def standin(d):
         procs.append(nodes[name])
         wait(lambda: listening(port))
     node('A', [(1, g1)]), node('B', [(1, g1)])
-    cfg['bump'] = lambda: node('A', [(1, g1), (2, g2)])
+    cfg['bump'] = lambda: [node(n, [(1, g1), (2, g2)]) for n in 'AB']
     return cfg, procs
 
 
@@ -116,8 +120,8 @@ def net(tmp_path_factory):
     reg, rpc = cfg['app_registry'], cfg['rpc']
     send = lambda *a: json.loads(run('cast', 'send', '--json', '--rpc-url', rpc, '--private-key', cfg['owner_key'], reg, *a))
     gas = {}
-    for app in (X, Y):
-        gas[f'createApp {app[:8]}'] = int(send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + SCOPE)['gasUsed'], 16)
+    for app, scope in ((X, SCOPE), (Y, SCOPE), (Z, SCOPE_Z)):
+        gas[f'createApp {app[:8]}'] = int(send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + scope)['gasUsed'], 16)
     sponsor = ed25519.Ed25519PrivateKey.from_private_bytes(bytes.fromhex(cfg['sponsor_seed']))
     until = int(time.time()) + 3 * 3600
 
@@ -128,7 +132,7 @@ def net(tmp_path_factory):
     records = {}
     for n, app in WINDOWS:
         gas[f'admit {n}'] = int(send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + hashes[n], '0', str(2**64 - 1))['gasUsed'], 16)
-        records[n] = allow(app, hashes[n])
+        records[n] = allow(app, hashes[n], SCOPE_Z if app == Z else SCOPE)
     for n, r in records.items():
         (d / f'allow-{n}.json').write_text(json.dumps(r))
 
@@ -148,7 +152,7 @@ def net(tmp_path_factory):
             return None, p.stderr.read().strip(), sock
         return sdk.Client(str(sock)), None, sock
     record('gas-anvil', gas)
-    yield {**cfg, 'boot': boot, 'hashes': hashes, 'allow': allow, 'dir': d}
+    yield {**cfg, 'boot': boot, 'hashes': hashes, 'allow': allow, 'dir': d, 'send': send}
     for p in procs:
         p.terminate()
 
@@ -167,8 +171,7 @@ def test_vectors_match_swift():
     assert root.hex() == 'ff7581dad655737c4a35ef4192a3f5897bfdf54ea7c70570b8c185a4230fab59'
     assert pub(ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())) == APP_PUB_X2
     assert sdk.leaf(root, 'near-account', 'ed25519:near-account').hex() == LEAF_X2
-    assert hashlib.sha256(sdk.allow_message(84532, '0xd4b33c83576a6049d29c6b849ec73491e52781a0', 'a1' * 32, 'cc' * 32, SCOPE, 4_000_000_000)).hexdigest() == ALLOW_X2
-    record('0-vectors', {'app_root_x2': root.hex(), 'app_pub_x2': APP_PUB_X2, 'leaf_x2_near_account': LEAF_X2, 'allow_message_sha256': ALLOW_X2})
+    record('0-vectors', {'app_root_x2': root.hex(), 'app_pub_x2': APP_PUB_X2, 'leaf_x2_near_account': LEAF_X2})
 
 
 def test_fixture_evidence_verifies():
@@ -221,9 +224,9 @@ def test_different_app_different_key(net):
 def test_unlisted_compose_refused(net):
     client, err, sock = net['boot']('A', 'C3', allow_from='C1')
     assert client is None and 'compose not allowed under app_id' in err and not sock.exists()
-    client, err2, _ = net['boot']('A', 'C1', record_=net['allow'](X, net['hashes']['C1'], '01' * 32))
-    assert client is None and 'no group key held for scope' in err2
-    record('3-unlisted-compose-refused', {'C3_no_allow_record': err, 'C1_scope_not_held': err2, 'socket_created': False})
+    client, err2, _ = net['boot']('A', 'C4')
+    assert client is None and f'no group key held for scope 0x{SCOPE_Z}' in err2
+    record('3-unlisted-compose-refused', {'C3_not_in_table': err, 'C4_scope_not_held': err2, 'socket_created': False})
 
 
 def test_no_evidence_runner_refused(net):
@@ -262,30 +265,62 @@ def test_coupon_account_derive(net):
     record('6-coupon-account', out)
 
 
+@pytest.mark.skipif('SDK_E2E' not in os.environ, reason='stand-in nodes check allow records, not AppRegistry')
+def test_registry_window(net):
+    """The node reads composes(app, compose) at a block: open window served, closed window refused, and the statement's
+    earlier block still reads as allowed (the verifier's re-read)."""
+    c, err, _ = net['boot']('B', 'C5')
+    assert c, err
+    _, r = demo_key(c)
+    statement = b(r['chain'][0]['message'])
+    issued = int.from_bytes(statement[16 + 6 * 32:16 + 7 * 32], 'big')
+    h = '0x' + net['hashes']['C5']
+    closed = int(run('cast', 'block-number', '--rpc-url', net['rpc']))
+    assert issued < closed
+    net['send']('admit(bytes32,bytes32,uint64,uint64)', '0x' + X, h, '0', str(closed))
+    with pytest.raises(sdk.DsmackError, match=f'compose window closed at block {closed}'):
+        c.info()
+    again, err2, _ = net['boot']('A', 'C5')
+    assert again is None and f'compose window closed at block {closed}' in err2
+    allowed = lambda at: run('cast', 'call', '--rpc-url', net['rpc'], '--block', str(at), net['app_registry'],
+                             'isAllowed(bytes32,bytes32,uint256)(bool)', '0x' + X, h, str(issued)).strip()
+    latest = int(run('cast', 'block-number', '--rpc-url', net['rpc']))
+    assert allowed(issued) == 'true' and allowed(latest) == 'true'
+    record('8-registry-window', {'statement_block': issued, 'window_until': closed, 'refused_open_runner': True,
+                                 'refused_new_boot': err2, 'isAllowed_at_statement_block': True, 'isAllowed_statement_block_read_at_latest': True})
+
+
 def test_previous_epoch_after_bump(net):
-    a, err, _ = net['boot']('A', 'C1')
-    assert a, err
-    before_info, before = demo_key(a)
-    old = before_info['key_epoch']
+    """A (seed) and B (participant) both serve the new epoch and the previous one after startKeyEpoch."""
+    before = {}
+    for n in 'AB':
+        a, err, _ = net['boot'](n, 'C1')
+        assert a, err
+        before[n] = demo_key(a)
+    old = before['A'][0]['key_epoch']
     net['bump']()
-    deadline = time.time() + 240
-    while True:
-        c, err, _ = net['boot']('A', 'C1')
-        if c and c.info()['key_epoch'] == old + 1:
-            break
-        assert time.time() < deadline, err
-        time.sleep(5)
-    info, now = demo_key(c)
-    _, prev = demo_key(c, old, before_info['group_public'])
-    assert now['public_key'] != before['public_key'] and info['group_public'] != before_info['group_public']
-    assert prev['public_key'] == before['public_key'] and prev['key_epoch'] == old
-    with pytest.raises(sdk.DsmackError, match=f'key epoch {old + 2} not held'):
-        c.get_key('demo', 'ed25519:demo', old + 2)
-    record('7-previous-epoch', {'epoch_before': old, 'epoch_after': info['key_epoch'], 'public_key_before': before['public_key'],
-                                'public_key_after': now['public_key'], 'public_key_previous_epoch_after_bump': prev['public_key'],
-                                'group_public_before': before_info['group_public'], 'group_public_after': info['group_public']})
+    rec = {'epoch_before': old}
+    for n in 'AB':
+        before_info, before_key = before[n]
+        deadline = time.time() + 300
+        while True:
+            c, err, _ = net['boot'](n, 'C1')
+            if c and c.info()['key_epoch'] == old + 1:
+                break
+            assert time.time() < deadline, err
+            time.sleep(5)
+        info, now = demo_key(c)
+        _, prev = demo_key(c, old, before_info['group_public'])
+        assert now['public_key'] != before_key['public_key'] and info['group_public'] != before_info['group_public']
+        assert prev['public_key'] == before_key['public_key'] and prev['key_epoch'] == old
+        with pytest.raises(sdk.DsmackError, match=f'key epoch {old + 2} not held'):
+            c.get_key('demo', 'ed25519:demo', old + 2)
+        rec[n] = {'epoch_after': info['key_epoch'], 'public_key_before': before_key['public_key'], 'public_key_after': now['public_key'],
+                  'public_key_previous_epoch_after_bump': prev['public_key'], 'group_public_before': before_info['group_public'],
+                  'group_public_after': info['group_public']}
+    assert rec['A']['public_key_after'] == rec['B']['public_key_after']
+    record('7-previous-epoch', rec)
 
 
 APP_PUB_X2 = '0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb'
 LEAF_X2 = 'dd5ea56b2eee1eda3497b19e04546459abb967d68dab4dd96245579a85269bf0'
-ALLOW_X2 = 'cb083f9aba691b70423c0898a0d5cfa9ebc957f53bacde317e524dc8296bb620'

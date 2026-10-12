@@ -20,10 +20,12 @@ struct Config {
     let sdkPort: UInt16?
     /// Runner CDHashes (full SHA-256) admitted to the SDK port; required, non-empty, with sdkPort.
     let sdkRunners: [Data]
+    /// AppRegistry address the SDK reads compose windows from; required with sdkPort.
+    let appRegistry: String?
     #if SDK_TEST_TRUST
-    /// Test builds only (-D SDK_TEST_TRUST, never a release): the allow-record sponsor and the App Attest root that
-    /// synthetic runner fixtures use, from sdkTestSponsor (Ed25519 hex) and sdkTestAnchor (base64 DER).
-    let sdkTestTrust: (sponsor:Curve25519.Signing.PublicKey,anchor:Data)
+    /// Test builds only (-D SDK_TEST_TRUST, never a release): the App Attest root that synthetic runner fixtures use,
+    /// from sdkTestAnchor (base64 DER).
+    let sdkTestAnchor: Data
     #endif
     /// Set only for owner-flagged seeds (`sealer: true`): the sealed group key beside the config file.
     let sealPath: URL?
@@ -54,9 +56,12 @@ struct Config {
         if let p=d["sdkPort"] {guard let n=p as? Int,(1...65535).contains(n) else {throw DemoError.invalid("sdkPort must be 1-65535")};sdkPort=UInt16(n)} else {sdkPort=nil}
         sdkRunners=try (d["sdkRunners"] as? [String] ?? []).map(bytes32)
         try need((sdkPort==nil)==sdkRunners.isEmpty && (d["sdkRunners"]==nil || d["sdkRunners"] is [String]),"sdkPort and a non-empty sdkRunners list go together")
+        appRegistry=d["appRegistry"] as? String
+        try need((sdkPort==nil)==(appRegistry==nil),"sdkPort and appRegistry go together")
+        if let appRegistry {_=try addressWord(appRegistry)}
         #if SDK_TEST_TRUST
-        guard let sponsor=d["sdkTestSponsor"] as? String,let anchor=(d["sdkTestAnchor"] as? String).flatMap({Data(base64Encoded:$0)}) else {throw DemoError.invalid("test build needs sdkTestSponsor and sdkTestAnchor")}
-        sdkTestTrust=(try Curve25519.Signing.PublicKey(rawRepresentation:unhex(sponsor)),anchor)
+        guard let anchor=(d["sdkTestAnchor"] as? String).flatMap({Data(base64Encoded:$0)}) else {throw DemoError.invalid("test build needs sdkTestAnchor")}
+        sdkTestAnchor=anchor
         #endif
         try need(label.range(of:"^[A-Za-z0-9 ._-]{0,32}$",options:.regularExpression) != nil,"label: up to 32 of A-Z a-z 0-9 space . _ -")
         badges=d["badges"] as? String;accountFactory=d["accountFactory"] as? String
@@ -71,7 +76,8 @@ struct Config {
                 && relay==fixed["relay"] as? String && protocolVersion==fixed["protocolVersion"] as? Int
                 && badges?.lowercased()==(fixed["badges"] as? String)?.lowercased()
                 && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased()
-                && d["sdkRunners"] as? [String]==fixed["sdkRunners"] as? [String],"release network override rejected")
+                && d["sdkRunners"] as? [String]==fixed["sdkRunners"] as? [String]
+                && appRegistry?.lowercased()==(fixed["appRegistry"] as? String)?.lowercased(),"release network override rejected")
         }
         #endif
     }
@@ -91,7 +97,8 @@ final class Node {
     var directoryReceipt: String?
     /// Guards group-key writes and the last check-in, which the SDK server thread reads.
     let keyLock=NSLock()
-    /// The previous epoch's group key per scope, kept in RAM until the next bump or exit (SDK get_key(epoch=prev)).
+    /// The previous epoch's group key per scope, kept in RAM until the next bump or exit (SDK get_key(epoch=prev));
+    /// only the epoch directly before the held one.
     var previous=[Data:(epoch:UInt64,key:P256.Signing.PrivateKey)]()
     var checkIn:(member:Data,tx:String)?
     var sdkBound:UInt16?
@@ -99,6 +106,7 @@ final class Node {
     func hold(_ scope: Data,_ key: P256.Signing.PrivateKey,epoch: UInt64) {
         keyLock.withLock {
             if let old=held[scope],let e=heldEpoch[scope],e != epoch {previous[scope]=(e,old)}
+            if let p=previous[scope],p.epoch+1 != epoch {previous[scope]=nil}
             held[scope]=key;heldEpoch[scope]=epoch
         }
     }
@@ -467,19 +475,33 @@ final class Node {
         try send(peer,["type":"PROOF","signature":hex(try key.signature(for:nonce).rawRepresentation)])
     }
     /// Keep the admitted participant alive, serving authenticated peers after receipt.
-    /// A missing seed never silently replaces the committed shared key.
+    /// A missing seed never silently replaces the committed shared key. On a key epoch bump the held key becomes the
+    /// previous one (still served for get_key(epoch=prev)) and the new epoch's key is acquired from a peer as at start,
+    /// retrying with backoff while no peer holds it yet.
     func participate() throws {
         try start()
         #if os(macOS)
         try startSDK()
         #endif
-        let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
-        if heldEpoch[zero32] != epoch {retire(zero32)}
-        if held[zero32] == nil {try connect(startIdentity:false)} else {_=try join()}
-        badgeParticipation=true
-        log("participating",["member":hex(me),"keyEpoch":epoch])
-        attemptParticipantBadge()
-        try serve()
+        var rotating=false
+        while true {
+            let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
+            if heldEpoch[zero32] != epoch {retire(zero32)}
+            if held[zero32] != nil {_=try join()}
+            else if !rotating {try connect(startIdentity:false)}
+            else {
+                var delay:Double=2
+                while true {
+                    do {try connect(startIdentity:false);break}
+                    catch {log("rotation retrying",["error":"\(error)","retryAfterSeconds":delay]);awaitHolder(delay);delay=min(delay*2,60)}
+                }
+            }
+            badgeParticipation=true
+            log("participating",["member":hex(me),"keyEpoch":heldEpoch[zero32] ?? epoch,"previousEpoch":previous[zero32].map{Int($0.epoch)} ?? -1])
+            attemptParticipantBadge()
+            do {try serve();return}
+            catch DemoError.invalid(let reason) where reason=="key epoch changed" {log("key epoch changed",["heldEpoch":epoch]);rotating=true}
+        }
     }
 
 }

@@ -8,8 +8,9 @@ qualification are required before this flow is offered to friends.
 ## Friend journey
 
 1. Choose **Check for updates…**. If the release owner has published a compatible,
-   unexpired recommendation, the app shows its version/build. Otherwise the
-   current app keeps running and explains the refusal.
+   unexpired recommendation for a newer build, the app shows its version/build.
+   A matching current-build recommendation reports that the app is up to date.
+   Otherwise the current app keeps running and explains the refusal.
 2. Choose **Download and verify**. Dsmack checks the exact archive checksum,
    safe ZIP paths, notarized Developer ID assessment, the current app's signing
    requirement/team/bundle identifier, unchanged identity-access entitlements,
@@ -41,10 +42,12 @@ verified chain-admission proof. Compromise of that release authority can deny or
 misrecommend updates; the app separately constrains installed bytes to its Apple
 signing identity, unchanged entitlements and sealed network profile.
 
-The recommendation must expire within seven days, explicitly support the current
-build, and select a strictly newer numeric build. A previously verified higher
-build prevents replaying a lower offer. These local preferences are not a
-rollback-resistant hardware counter. Archive downloads are limited to 250 MB;
+The recommendation must expire within seven days. An initial recommendation may
+name the matching current build with empty `previousBuilds`; this reports that
+the app is up to date and does not offer an upgrade. An actual upgrade must
+explicitly list the current build in `previousBuilds` and select a strictly newer
+numeric build. A previously verified higher build prevents replaying a lower
+offer. These local preferences are not a rollback-resistant hardware counter. Archive downloads are limited to 250 MB;
 expanded ordinary non-symlink `Node.app` ZIPs are bounded to 600 MB. Only HTTPS
 GitHub API/release/CDN redirects are accepted. No arbitrary update URL override
 is offered in the ordinary app.
@@ -76,6 +79,11 @@ python3 tools/native_update_recommendation.py \
   --evidence https://github.com/amiller/dsmack/pull/REVIEW_NUMBER \
   --owner-qualified --output dsmack-update.json
 ```
+
+For an initial release with no qualified upgrade predecessor, omit
+`--previous-build`. The producer then emits `previousBuilds: []`; omitting
+`--rollback-build` also leaves `rollbackBuilds: []`. This can qualify production
+discovery and an up-to-date result, but does not establish an upgrade path.
 
 These values are illustrative, not a recommendation for an existing release.
 The flag is an owner assertion, not a test. Pin the immutable native release tag,

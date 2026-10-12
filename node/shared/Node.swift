@@ -276,7 +276,7 @@ final class Node {
     }
     /// Operator seed with bounded retries; never silently rotate a committed key.
     func maintainSeed() {
-        var delay:Double=2
+        var delay:Double=2,wakeable=true
         while true {
             do {
                 try start()
@@ -290,10 +290,11 @@ final class Node {
                     try connect(startIdentity:false)
                 }
                 if let path=cfg.sealPath,!committed || sealedFrom != epoch {try seal(path,epoch:epoch)}
-                log("seed ready",["keyEpoch":epoch]);delay=2;try serve()
+                log("seed ready",["keyEpoch":epoch]);delay=2;wakeable=true;try serve()
             } catch {
                 log("seed retrying",["error":String(describing:error),"retryAfterSeconds":delay])
-                awaitHolder(delay);delay=min(delay*2,60)
+                // Relay senders are unauthenticated: one heartbeat may cut a failure streak's backoff short, not every wait.
+                if awaitHolder(delay,wakeable:wakeable) {wakeable=false};delay=min(delay*2,60)
             }
         }
     }
@@ -317,7 +318,7 @@ final class Node {
     var sealTag: Data {Data("dev.dsmack.seed-seal.v1:\(cfg.chainId):\(cfg.registry.lowercased()):\(cfg.name)".utf8)}
     /// Backoff that listens: a peer heartbeat announcing a held key at this epoch ends the wait early,
     /// and HELLOs get an immediate ERROR so requesters move to their next peer.
-    func awaitHolder(_ seconds: Double) {
+    @discardableResult func awaitHolder(_ seconds: Double,wakeable: Bool=true) -> Bool {
         let end=Date().addingTimeInterval(seconds)
         do {
             let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
@@ -326,13 +327,14 @@ final class Node {
                 if m["type"] as? String=="HELLO" {try send(from,["type":"ERROR","reason":"seed holds no key"])}
                 if m["type"] as? String=="HEARTBEAT" && cfg.peers.contains(from) {
                     heartbeats[from]=Date()
-                    if m["holds"] as? Bool==true && (m["keyEpoch"] as? NSNumber)?.uint64Value==epoch {log("peer holds key",["peer":from]);return}
+                    if wakeable && m["holds"] as? Bool==true && (m["keyEpoch"] as? NSNumber)?.uint64Value==epoch {log("peer holds key",["peer":from]);return true}
                 }
             }
         } catch {
             log("seed backoff unreachable",["error":String(describing:error)])
             Thread.sleep(forTimeInterval:max(0,end.timeIntervalSinceNow))
         }
+        return false
     }
     /// Production participants ignore unauthenticated test STOP messages.
     func serve(allowTestStop: Bool=false) throws {

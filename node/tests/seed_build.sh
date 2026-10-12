@@ -4,7 +4,7 @@
 # usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID
 set -euo pipefail
 out=$(cd "${1:?out dir}" && pwd); src=$(cd "$(dirname "$0")/.." && pwd)
-shared=(Protocol NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node)
+shared=(Protocol Measure NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node)
 shared=("${shared[@]/#/$src/shared/}"); shared=("${shared[@]/%/.swift}")
 cat > "$out/entitlements.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>

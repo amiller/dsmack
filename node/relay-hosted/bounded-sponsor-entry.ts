@@ -3,17 +3,17 @@
 import relayHandler from './server.ts';
 import {QualificationSponsorPolicy,type QualificationBudget,type SponsorPolicy} from './sponsor-policy.ts';
 import {PublicPilotSponsorPolicy,type PilotBudget} from './pilot-sponsor-policy.ts';
-import {nativeSponsorChecks,pilotAccountAddress,pilotAccountEligibleForFirstClaim} from './sponsor-chain-checks.ts';
+import {nativeSponsorChecks,pilotAccountAddress,pilotAccountEligibleForFirstClaim,type MeasuredAdmission} from './sponsor-chain-checks.ts';
 type Context={env:Record<string,string>,dataDir:string};
-type Config={phase:'qualification',budget:QualificationBudget}|{phase:'public-pilot',budget:PilotBudget};
+type Config=({phase:'qualification',budget:QualificationBudget}|{phase:'public-pilot',budget:PilotBudget})&{measured?:MeasuredAdmission};
 let singleton:Promise<SponsorPolicy>|undefined;let singleDataDir:string|undefined;
 const abi=JSON.parse(await Deno.readTextFile(new URL('./abi.json',import.meta.url)));
 const badges=JSON.parse(await Deno.readTextFile(new URL('./badge-abi.json',import.meta.url)));
 async function policy(ctx:Context){
  if(singleDataDir!==undefined&&singleDataDir!==ctx.dataDir)throw Error('sponsorship writer changed');singleDataDir=ctx.dataDir;
  singleton??=(async()=>{const c=JSON.parse(await Deno.readTextFile(new URL('./native-sponsor-plan.json',import.meta.url))) as Config;
-  if(c.phase==='qualification')return new QualificationSponsorPolicy(c.budget,ctx.dataDir+'/native-qualification-budget.json',abi,nativeSponsorChecks(240000000000000n));
-  if(c.phase==='public-pilot'){const deps=nativeSponsorChecks(0n);return new PublicPilotSponsorPolicy(c.budget,ctx.dataDir+'/native-public-pilot-budget.json',{...abi,factory:badges.factory,badges:badges.badges},{...deps,verifyHello:deps.verifyHello!,accountAddress:pilotAccountAddress,accountEligibleForFirstClaim:pilotAccountEligibleForFirstClaim});}
+  if(c.phase==='qualification')return new QualificationSponsorPolicy(c.budget,ctx.dataDir+'/native-qualification-budget.json',abi,nativeSponsorChecks(240000000000000n,c.measured));
+  if(c.phase==='public-pilot'){const deps=nativeSponsorChecks(0n,c.measured);return new PublicPilotSponsorPolicy(c.budget,ctx.dataDir+'/native-public-pilot-budget.json',{...abi,factory:badges.factory,badges:badges.badges},{...deps,verifyHello:deps.verifyHello!,accountAddress:pilotAccountAddress,accountEligibleForFirstClaim:pilotAccountEligibleForFirstClaim});}
   throw Error('bounded native sponsorship configuration absent');
  })();return await singleton;
 }

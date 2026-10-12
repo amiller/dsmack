@@ -57,6 +57,19 @@ a gas key. Registration is not proof of valid Apple signing. Contract
 validation runs during gas estimation and again on chain. Unknown targets and
 administrator calls are not exposed. The legacy root configuration has no NFT addresses; these routes are enabled
 on the separately configured `/nft` release.
+A network file may add measured admission (open-admission design §2, §4) with
+all three of `measuredCategory`, `measuredAdapter` (an `AppleAttestMeasuredV1`)
+and `measurementRegistry` (a `MeasurementRegistry`); the category and adapter must
+differ from `macCategory`/`macAdapter`, which keep working beside it. `/enroll` for
+the measured category requires the node's `{cd, page0, ent, L, S}` (base64 blobs,
+integer offsets). The relay computes M with the registry's `measure`, refuses
+`build not admitted` unless `isAdmitted(M, latest block)`, sponsors
+`register(cd, page0, ent, L, S)` unless `measurementOf(sha256(cd))` is already M,
+then sends `enroll` to `measuredAdapter`. Without these keys `/enroll` is unchanged
+and `/register-build` remains the legacy `registerBuild` path. Bounded sponsor
+plans pin the admission baseline with an optional `measured: {registry,
+measurement}` (an open window for that M) in place of the legacy `buildId`.
+Enrollment tests: `deno test --config node/relay-hosted/deno.json --frozen --node-modules-dir=none --allow-read --allow-write --allow-net --allow-env node/relay-hosted/enroll_test.ts`.
 Mailboxes are untrusted and unauthenticated transport: malicious traffic can
 still delay or discard delivery. Peers verify chain/session/key bindings.
 

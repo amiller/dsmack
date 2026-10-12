@@ -1,6 +1,7 @@
 #!/bin/bash
 # Build the CLI node from two checkout paths under two throwaway teams, plus a MODIFIED build;
 # sign each with a fresh self-signed identity and compare measurements.
+# macOS LibreSSL (/usr/bin/openssl) writes PKCS#12 that security(1) can import; OpenSSL 3 does not.
 # Usage: scripts/release/measure_two_teams.sh OUT_DIR   (OUT_DIR must not exist)
 set -euo pipefail
 ROOT=$(git -C "$(dirname "$0")" rev-parse --show-toplevel)
@@ -14,9 +15,9 @@ security set-keychain-settings -t 3600 "$KC"
 security unlock-keychain -p throwaway "$KC"
 printf '[req]\ndistinguished_name=dn\n[dn]\n[ext]\nbasicConstraints=critical,CA:false\nkeyUsage=critical,digitalSignature\nextendedKeyUsage=critical,codeSigning\n' > "$OUT/cert.cnf"
 for team in TEAMAAAAAA TEAMBBBBBB; do
-  openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout "$OUT/$team.key" -out "$OUT/$team.pem" \
+  /usr/bin/openssl req -x509 -newkey rsa:2048 -nodes -days 1 -keyout "$OUT/$team.key" -out "$OUT/$team.pem" \
     -subj "/CN=Throwaway $team/OU=$team/O=Throwaway" -config "$OUT/cert.cnf" -extensions ext 2>/dev/null
-  openssl pkcs12 -export -inkey "$OUT/$team.key" -in "$OUT/$team.pem" -out "$OUT/$team.p12" -passout pass:throwaway
+  /usr/bin/openssl pkcs12 -export -inkey "$OUT/$team.key" -in "$OUT/$team.pem" -out "$OUT/$team.p12" -passout pass:throwaway
   security import "$OUT/$team.p12" -k "$KC" -P throwaway -T /usr/bin/codesign >/dev/null
   rm "$OUT/$team.key" "$OUT/$team.p12"
 done
@@ -33,7 +34,7 @@ echo "unsigned executables identical: $(shasum -a 256 "$OUT/build/honest-a/Node.
 
 sign() {  # name team signature-size
   local identity
-  identity=$(openssl x509 -in "$OUT/$2.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)
+  identity=$(/usr/bin/openssl x509 -in "$OUT/$2.pem" -noout -fingerprint -sha1 | cut -d= -f2 | tr -d :)
   ditto "$OUT/build/$1/Node.app" "$OUT/signed/$1/Node.app"
   codesign --sign "$identity" --keychain "$KC" --team-identifier "$2" --options runtime \
     --entitlements "$OUT/build/$1/entitlements.plist" --generate-entitlement-der \

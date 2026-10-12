@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>Dsmack nodes</title>
+<style>
+  :root { color-scheme: light; font: 1rem/1.5 system-ui, sans-serif; color: #18232e; background: #f3f6fa; }
+  body { max-width: 64rem; margin: 2rem auto; padding: 0 1rem; }
+  h1 { font-size: 2rem; margin-bottom: .25rem; } h2 { font-size: 1.15rem; }
+  .intro, small { color: #455568; }
+  section { background: white; border: 1px solid #ccd6e2; border-radius: .65rem; padding: 1.25rem; margin-bottom: 1rem; }
+  .badge { font-size: .8rem; border: 1px solid #ccd6e2; border-radius: 1rem; padding: .15rem .6rem; }
+  code { font-size: .85rem; }
+  table { width: 100%; border-collapse: collapse; font-size: .8rem; } th, td { text-align: left; padding: .5rem; border-bottom: 1px solid #ccd6e2; overflow-wrap: anywhere; } .table-scroll { overflow-x: auto; }
+  a { color: #165aa0; overflow-wrap: anywhere; } .note { border-left: 3px solid #59748c; padding-left: 1rem; }
+</style>
+<main>
+  <h1>Dsmack nodes</h1>
+  <p class="intro">Base Sepolia registry plus relay check-ins · refresh every 30 seconds · a check-in older than 90 seconds is stale</p>
+  <p><a href="../">Home</a> · <a href="https://github.com/amiller/dsmack/blob/main/docs/join.md">Join the network</a> · <a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout</a></p>
+  <section aria-labelledby="members-title">
+    <h2 id="members-title">Members <span class="badge" id="chain-state">unknown</span></h2>
+    <p id="summary">Loading the registry.</p>
+    <div class="table-scroll"><table><thead><tr><th>Member</th><th>Registry</th><th>Version</th><th>Last seen</th><th>Attestation</th><th>Key epoch</th><th>Latest tx</th></tr></thead><tbody id="member-rows"></tbody></table></div>
+  </section>
+  <section aria-labelledby="directory-title">
+    <h2 id="directory-title">Relay directory <span class="badge" id="directory-state">unknown</span></h2>
+    <p id="directory-message">Loading the relay directory.</p>
+    <small>Check-ins are opt-in. The relay verifies each App Attest assertion and receipt; this page displays its report. Members without a check-in show their last registry event instead.</small>
+  </section>
+  <p class="note">"Active" is the registry's <code>isActive</code>, the check peers run before talking to each other; it holds for 60 seconds after a member's last on-chain check. "App Attest at join" means the registry accepted an attestation for that member; any Apple team may join, so it does not identify who runs the node.</p>
+  <noscript><p>This page needs JavaScript to read the registry.</p></noscript>
+</main>
+<script type="module">
+  import {draw, loadMembers} from "./members.mjs";
+  const refresh = () => loadMembers().then(v => draw(v), e => {
+    document.getElementById("chain-state").textContent = "unknown";
+    document.getElementById("summary").textContent = `Registry read failed: ${e.message}. Membership is unknown.`;
+  });
+  refresh(); setInterval(refresh, 30000);
+</script>
+</html>

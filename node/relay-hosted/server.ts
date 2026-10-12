@@ -26,6 +26,12 @@ export const measuredAbi=parseAbi(['function measure(bytes cd,bytes page0,bytes 
 const measuredKeys=['measuredCategory','measuredAdapter','measurementRegistry'];
 const response=(body:unknown,status=200)=>Response.json(body,{status});
 function need(ok:unknown,message:string):asserts ok {if(!ok)throw new Error(message);}
+const relayGasCap=16000000n;
+export class SponsorOutOfFunds extends Error {
+    override name='SponsorOutOfFunds';
+    constructor(readonly needWei:bigint,readonly haveWei:bigint){super('sponsor_out_of_funds');}
+    body(){return {error:'sponsor_out_of_funds',needWei:String(this.needWei),haveWei:String(this.haveWei)};}
+}
 function binary(value:unknown):Uint8Array {need(typeof value==='string' && value.length<64000,'invalid base64');return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
 function hex(value:unknown,size?:number):Hex {need(typeof value==='string' && /^0x(?:[0-9a-fA-F]{2})*$/.test(value) && (size===undefined || value.length===2+size*2),'invalid hex');return value as Hex;}
 function integer(value:unknown):bigint {need(typeof value==='string'||(typeof value==='number'&&Number.isSafeInteger(value)),'invalid number');const n=BigInt(value);need(n>=0n,'negative number');return n;}
@@ -130,10 +136,11 @@ export class Relay {
             need(Object.keys(this.state.transactions).length<10000,'relay transaction journal full');
             const gas=await this.client.estimateGas({account:this.account,to,data});
             const nonce=await this.client.getTransactionCount({address:this.account.address,blockTag:'pending'});
-            const observedGasPrice=await this.client.getGasPrice();
-            const gasPrice=this.sponsorPolicy?.gasPrice?this.sponsorPolicy.gasPrice(observedGasPrice):observedGasPrice*2n;
-            need(deployment.chainId!==84532 || gas<=16000000n,'enrollment exceeds relay gas cap');
-            const limit=deployment.chainId===84532 && gas+gas/10n>16000000n?16000000n:gas+gas/10n;
+            const gasPrice=await this.gasPrice();
+            need(deployment.chainId!==84532 || gas<=relayGasCap,'enrollment exceeds relay gas cap');
+            const limit=deployment.chainId===84532 && gas+gas/10n>relayGasCap?relayGasCap:gas+gas/10n;
+            const haveWei=await this.client.getBalance({address:this.account.address});
+            if(haveWei<limit*gasPrice)throw new SponsorOutOfFunds(limit*gasPrice,haveWei);
             await this.sponsorPolicy?.reserve({id,to,data,nonce,gas:limit,gasPrice});
             const raw=await this.account.signTransaction({chainId:deployment.chainId,to,data,nonce,gas:limit,gasPrice,type:'legacy'});
             const entry={raw,hash:keccak256(raw),complete:false};this.state.transactions[id]=entry;
@@ -141,6 +148,10 @@ export class Relay {
             await this.save();return await this.settle(entry);
         });
         this.txQueue=operation.catch(()=>{});return operation;
+    }
+    private async gasPrice() {
+        const observed=await this.client.getGasPrice();
+        return this.sponsorPolicy?.gasPrice?this.sponsorPolicy.gasPrice(observed):observed*2n;
     }
     private measured(network:typeof deployment,category:unknown):boolean {
         const c=hex(category,32).toLowerCase();
@@ -180,7 +191,7 @@ export class Relay {
         const nativeDirectory=nft?this.nativeDirectory:ios?undefined:this.rootNativeDirectory;
         if(path==='/directory'&&request.method==='GET'){if(!nativeDirectory)return response({error:'directory route not configured'},404);const result=response(await nativeDirectory.listing());result.headers.set('Access-Control-Allow-Origin','*');result.headers.set('Cache-Control','no-store');return result;}
         if(request.method==='GET' && ['/info','/_warmup'].includes(path))return response({owner:this.account.address,chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2});
-        if(request.method==='GET' && path==='/status'){const status=response({generatedAt:new Date().toISOString(),chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2,sponsorWritesPaused:this.sponsorWritesPaused,sponsorBudget:await this.sponsorPolicy?.status?.(),pending:Object.values(this.state.transactions).filter(e=>!e.complete).map(e=>({hash:e.hash,gas:parseTransaction(e.raw).gas?.toString()})),completed:Object.values(this.state.transactions).filter(e=>e.complete).length});status.headers.set('Cache-Control','no-store');status.headers.set('Access-Control-Allow-Origin','*');return status;}
+        if(request.method==='GET' && path==='/status'){const status=response({generatedAt:new Date().toISOString(),chainId:selected.chainId,registry:selected.DemoV1,protocolVersion:2,sponsorWritesPaused:this.sponsorWritesPaused,sponsorBudget:await this.sponsorPolicy?.status?.(),sponsor:{address:this.account.address,balanceWei:String(await this.client.getBalance({address:this.account.address})),enrollCostWei:String(relayGasCap*await this.gasPrice())},pending:Object.values(this.state.transactions).filter(e=>!e.complete).map(e=>({hash:e.hash,gas:parseTransaction(e.raw).gas?.toString()})),completed:Object.values(this.state.transactions).filter(e=>e.complete).length});status.headers.set('Cache-Control','no-store');status.headers.set('Access-Control-Allow-Origin','*');return status;}
         if(request.method==='GET' && path.startsWith('/recv/')) {
             const name=path.slice(6);need(/^[a-zA-Z0-9_-]{1,80}$/.test(name),'invalid mailbox');
             const dequeue=async()=>{
@@ -261,7 +272,9 @@ export class Relay {
 let relay:Relay|undefined;
 export default async function handler(request:Request,context:Context) {
     try {relay ??= new Relay(context);return await relay.handle(request);}
-    catch(e) {console.error('Relay request failed:',e instanceof Error?e.name:'unknown');return response({error:e instanceof Error && e.name==='Error'?e.message:'relay transaction unavailable; retry'},503);}
+    catch(e) {
+        if(e instanceof SponsorOutOfFunds){console.error('Relay sponsor out of funds:',JSON.stringify(e.body()));return response(e.body(),503);}
+        console.error('Relay request failed:',e instanceof Error?e.name:'unknown');return response({error:e instanceof Error && e.name==='Error'?e.message:'relay transaction unavailable; retry'},503);}
 }
 if(import.meta.main) {
     const context={env:Deno.env.toObject(),dataDir:Deno.env.get('RELAY_DATA')||'./relay-data'};

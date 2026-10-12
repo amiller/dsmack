@@ -75,6 +75,11 @@ still delay or discard delivery. Peers verify chain/session/key bindings.
 
 The transaction journal has a hard 10,000-entry cap; plan maintenance before
 reaching it. Do not delete pending entries. RPC failures return retryable errors.
+Before signing, the relay compares the sponsor balance with gas limit × gas price.
+If it is short, it logs and returns HTTP 503
+`{"error":"sponsor_out_of_funds","needWei":"…","haveWei":"…"}` (decimal strings).
+`/status` reports `sponsor: {address, balanceWei, enrollCostWei}`, where
+`enrollCostWei` is the 16M-gas relay cap at the current signing price.
 
 
 For administrator nonce coordination, `SPONSOR_WRITES_PAUSED=true` blocks every

@@ -12,7 +12,7 @@ const blobs={cd:b64(new Uint8Array(400).fill(1)),page0:b64(new Uint8Array(16384)
 const attest=(cd:string)=>b64(encode({attStmt:{x5c:[new Uint8Array([1,2,3])]},authData:new Uint8Array([...new Uint8Array(164),...encode({apple_cd_hash_hash_01:hexToBytes(sha256(Uint8Array.from(atob(cd),c=>c.charCodeAt(0))))})])}));
 const attestation=attest(blobs.cd);
 
-async function relay(mode:'legacy'|'measured',chain:{admitted:boolean,registered:boolean}) {
+async function relay(mode:'legacy'|'measured',chain:{admitted:boolean,registered:boolean,balance?:bigint,balanceDown?:boolean}) {
     const {measuredAbi}=await import('./server.ts');
     const sent:{to:string,fn:string}[]=[],calls:string[]=[],mined=new Set<string>();
     const rpc=Deno.serve({hostname:'127.0.0.1',port:0,onListen:()=>{}},async request=>{
@@ -26,6 +26,7 @@ async function relay(mode:'legacy'|'measured',chain:{admitted:boolean,registered
             const value=functionName==='measure'?M:functionName==='isAdmitted'?(chain.admitted&&args[0]===M&&args[1]===100n):chain.registered?M:h('00');
             return result(encodeFunctionResult({abi:measuredAbi,functionName,result:value as never}));
         }
+        if(method==='eth_getBalance')return chain.balanceDown?Response.json({jsonrpc:'2.0',id,error:{code:-32000,message:'upstream unavailable'}}):result(toHex(chain.balance??10n**18n));
         if(method==='eth_estimateGas')return result('0x5208');
         if(method==='eth_getBlockByNumber')return result({number:'0x64',hash:h('bc'),parentHash:h('bb'),timestamp:'0x1',baseFeePerGas:'0x1',gasLimit:'0x1c9c380',gasUsed:'0x0',transactions:[]});
         if(method==='eth_getTransactionCount')return result(toHex(sent.length));
@@ -49,7 +50,9 @@ async function relay(mode:'legacy'|'measured',chain:{admitted:boolean,registered
     const {default:handler}=await import('file://'+directory+'/server.ts');
     const context={env:{PRIVATE_KEY:key,RPC_URL:'http://127.0.0.1:'+rpc.addr.port},dataDir:directory+'/data'};
     const enroll=async(body:Record<string,unknown>)=>await (await handler(new Request('http://relay/enroll',{method:'POST',body:JSON.stringify({attestation,clientData:h('cd'),...body})}),context)).json();
-    return {network,sent,calls,enroll,async close(){await rpc.shutdown();await Deno.remove(directory,{recursive:true});}};
+    const get=async(path:string)=>{const response=await handler(new Request('http://relay'+path),context);return {status:response.status,body:await response.json()};};
+    const post=async(body:Record<string,unknown>)=>{const response=await handler(new Request('http://relay/enroll',{method:'POST',body:JSON.stringify({attestation,clientData:h('cd'),...body})}),context);return {status:response.status,body:await response.json()};};
+    return {network,sent,calls,enroll,get,post,async close(){await rpc.shutdown();await Deno.remove(directory,{recursive:true});}};
 }
 
 Deno.test('measured category: register M before enroll, through the measured adapter',async()=>{
@@ -102,4 +105,25 @@ Deno.test('measured configuration must be complete and separate',async()=>{
             check(/^measured admission/.test(body.error),'accepted bad config: '+JSON.stringify(body));
         } finally {await Deno.remove(directory,{recursive:true});}
     }
+});
+Deno.test('sponsor balance below gas limit x price: named 503, nothing signed; /status reports balance',async()=>{
+    // estimateGas 21000 -> limit 23100; gasPrice 1 -> signed at 2: one enroll needs 46200 wei.
+    const r=await relay('legacy',{admitted:false,registered:false,balance:46199n});
+    try {
+        const {status,body}=await r.post({category:r.network.macCategory});
+        check(status===503&&JSON.stringify(body)===JSON.stringify({error:'sponsor_out_of_funds',needWei:'46200',haveWei:'46199'}),'unnamed refusal '+status+JSON.stringify(body));
+        check(r.sent.length===0,'sent '+JSON.stringify(r.sent));
+        const s=(await r.get('/status')).body;
+        check(s.sponsor.balanceWei==='46199'&&s.sponsor.enrollCostWei==='32000000'&&s.pending.length===0&&s.completed===0,'status '+JSON.stringify(s));
+    } finally {await r.close();}
+    const exact=await relay('legacy',{admitted:false,registered:false,balance:46200n});
+    try {check((await exact.enroll({category:exact.network.macCategory})).tx,'exact balance refused');} finally {await exact.close();}
+});
+Deno.test('genuine RPC failure while reading the sponsor balance keeps the generic retry error',async()=>{
+    const r=await relay('legacy',{admitted:false,registered:false,balanceDown:true});
+    try {
+        const {status,body}=await r.post({category:r.network.macCategory});
+        check(status===503&&body.error==='relay transaction unavailable; retry','masked RPC failure '+JSON.stringify(body));
+        check(r.sent.length===0,'sent '+JSON.stringify(r.sent));
+    } finally {await r.close();}
 });

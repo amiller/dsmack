@@ -3,8 +3,12 @@ The Mac directory --remote must hold build/ from `NODE_FLAGS='-D SDK_TEST_TRUST'
 build: allow-record sponsor and App Attest root come from config, for synthetic runner fixtures). Deploys DemoV2 with
 a MeasurementRegistry category admitting that build's M, and AppRegistry; node A seeds (bootstraps G), node B
 participates and imports G from A through the relay. Both serve sdkPort on Mac loopback, forwarded here; stand-in
-runners (runner/kms/sdk_runner.py) run here. Every config, plist, log and enrollment state stays inside --remote."""
-import argparse, atexit, hashlib, json, os, secrets, subprocess, sys, time
+runners (runner/kms/sdk_runner.py) run here. Every config, plist, log and enrollment state stays inside --remote.
+--runner-dir names a Mac runner/ checkout holding build/ and build-other/ from runner/sign.sh (the second signed with
+BUNDLE_VERSION=2: same code, another CDHash). Then the nodes admit only build/cdhash.txt, take Apple's App Attest root as
+sdkTestAnchor, and every runner boot is that signed runner on the Mac with fresh App Attest, booting --oci (the coupon
+image) in a VM (node/tests/sdk_real_runner.py); build-other is the runner with a wrong CDHash."""
+import argparse, atexit, base64, hashlib, json, os, secrets, subprocess, sys, time
 from pathlib import Path
 from web3 import Web3
 from cryptography.hazmat.primitives.asymmetric import ed25519
@@ -15,6 +19,7 @@ ap = argparse.ArgumentParser()
 ap.add_argument('--host', default='mini-mesh'); ap.add_argument('--remote', required=True); ap.add_argument('--out', type=Path, required=True)
 ap.add_argument('--rpc-port', type=int, default=18955); ap.add_argument('--relay-port', type=int, default=18956)
 ap.add_argument('--sdk-ports', type=int, nargs=2, default=[18961, 18962])
+ap.add_argument('--runner-dir'); ap.add_argument('--oci', type=Path); ap.add_argument('--kernel')  # Mac paths are absolute
 args = ap.parse_args()
 out = args.out.resolve(); out.mkdir(parents=True, exist_ok=False); R = args.remote
 procs = []
@@ -85,11 +90,13 @@ assert 'owner' in ssh(f'curl -sf http://127.0.0.1:{args.relay_port}/info'), 'rel
 
 # Synthetic runner fixture for this run (fresh enrolled_at; the committed fixture's is older than the node's 12 h).
 composes = {}
-sys.path[:0] = [str(ROOT / 'sdk')]
+sys.path[:0] = [str(ROOT / 'sdk'), str(ROOT / 'app/macos')]
 import test_sdk
+coupon = ROOT / 'apps/coupon-sdk/app-compose.json'
+vm_image = json.loads(json.loads(coupon.read_text())['docker_compose_file'])['services']['app']['image'] if args.runner_dir else None
 for n, c in test_sdk.COMPOSES.items():
-    composes[n] = out / f'compose-{n}.json'; composes[n].write_bytes(test_sdk.compose(*c))
-composes['coupon'] = ROOT / 'apps/coupon-sdk/app-compose.json'
+    composes[n] = out / f'compose-{n}.json'; composes[n].write_bytes(test_sdk.compose(*c, vm_image=vm_image))
+composes['coupon'] = coupon
 fixture = out / 'runner-fixture.json'
 note(fixture=run(sys.executable, 'node/tests/sdk_runner_fixture.py', fixture,
                  *[f'--compose={n}={hashlib.sha256(p.read_bytes()).hexdigest()}' for n, p in composes.items()]).strip())
@@ -102,6 +109,21 @@ cfg = {n: {'rpc': rpc, 'registry': deploy['DemoV1'], 'chainId': 31337, 'category
            'sdkPort': port, 'sdkRunners': ['0x' + '5a' * 32], 'sdkTestSponsor': sponsor_pub,
            'sdkTestAnchor': json.loads(fixture.read_text())['synthetic_root']} for n, port in zip('AB', args.sdk_ports)}
 cfg['B']['peer'] = names['A']
+runner = None
+if args.runner_dir:
+    from check_evidence import root
+    from cryptography import x509
+    from cryptography.hazmat.primitives.serialization import Encoding
+    rd = args.runner_dir
+    cdhash, other = (ssh(f'cat {rd}/{b}/cdhash.txt').strip() for b in ('build', 'build-other'))
+    assert cdhash != other
+    subprocess.run(['scp', str(args.oci), f'{args.host}:{R}/{args.oci.name}'], check=True)
+    runner = {'host': args.host, 'remote': f'{R}/runs', 'kernel': args.kernel, 'oci': f'{R}/{args.oci.name}',
+              'apps': {'good': f'{rd}/build/Runner.app', 'wrong_cdhash': f'{rd}/build-other/Runner.app'}, 'cdhash': cdhash, 'other_cdhash': other}
+    apple = base64.b64encode(x509.load_pem_x509_certificate(root()).public_bytes(Encoding.DER)).decode()
+    for c in cfg.values():
+        c.update(sdkRunners=['0x' + cdhash], sdkTestAnchor=apple)
+    note(runner=runner)
 ssh(f'rm -rf {R}/home {R}/logs')  # fresh enrollment state for this chain
 for n, role in (('A', 'seed'), ('B', 'participate')):
     agent = {'Label': f'dev.dsmack.test.{names[n]}', 'KeepAlive': False, 'RunAtLoad': True,
@@ -120,13 +142,15 @@ try:
     for n in 'AB': wait(n, lambda e: e['event'] == 'sdk listening', 'sdk listening')
     e2e = {'rpc': rpc, 'chain_id': 31337, 'registry': deploy['DemoV1'], 'demo': deploy['DemoV1'], 'app_registry': app_registry, 'owner_key': KEY,
            'sponsor_seed': sponsor_seed, 'fixture': str(fixture), 'composes': {n: str(p) for n, p in composes.items()},
-           'nodes': {n: f'127.0.0.1:{p}' for n, p in zip('AB', args.sdk_ports)}}
+           'nodes': {n: f'127.0.0.1:{p}' for n, p in zip('AB', args.sdk_ports)}, **({'runner': runner} if runner else {})}
     (out / 'e2e.json').write_text(json.dumps(e2e))
     r = subprocess.run([sys.executable, '-m', 'pytest', '-v', str(ROOT / 'sdk/test_sdk.py')], text=True, capture_output=True, cwd=ROOT,
                        env={**os.environ, 'SDK_E2E': str(out / 'e2e.json'), 'SDK_EVIDENCE_DIR': str(out / 'tests')})
     (out / 'pytest.txt').write_text(r.stdout + r.stderr)
     note(pytest=r.stdout.strip().splitlines()[-1], returncode=r.returncode)
 finally:
+    if runner:  # this run's runners only: each has --out under its own runs/ directory
+        subprocess.run(['ssh', args.host, f"pkill -f -- '--out {runner['remote']}/'"])
     for n in 'AB':
         subprocess.run(['ssh', args.host, f'bash -s -- mac-stop {plist(n)}'], input=recover, text=True, capture_output=True)
         events(n)

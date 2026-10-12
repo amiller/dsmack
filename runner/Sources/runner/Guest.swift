@@ -4,17 +4,17 @@ import Foundation
 
 struct Enrollment { let keyId: String, attestation: Data, clientData: Data }
 
-// The guest's own endpoints on http://runner.local: /attest and /key. Spec: notes/abalone-node-interface.md.
+// The guest's own endpoints on http://runner.local: /attest and, with --dev-kms, /key. Spec: notes/abalone-node-interface.md.
 // With --attest the App Attest key is re-enrolled every --reenroll-seconds (default 6 h): Apple's attestation leaf is
 // valid about 48 h and verifiers cap enrollment age, so /attest always serves the newest enrollment. Enrollment
 // evidence stays in RAM; the runner writes no keyId or attestation to disk.
 final class Guest: @unchecked Sendable {
-    let app: String, composeHash: String, receiptPub: String, appKey: SymmetricKey
+    let app: String, composeHash: String, receiptPub: String, appKey: SymmetricKey?  // nil: keys come from the node (/var/run/dsmack.sock)
     let lock = NSLock()
     var enrollment: Enrollment?, devClientData: Data  // enrollment nil = --no-attest
     var tail = Task<Void, Never> {}
 
-    init(app: String, composeHash: String, receiptPub: String, appKey: SymmetricKey, boot: Enrollment?, bootClientData: Data) {
+    init(app: String, composeHash: String, receiptPub: String, appKey: SymmetricKey?, boot: Enrollment?, bootClientData: Data) {
         (self.app, self.composeHash, self.receiptPub, self.appKey, enrollment, devClientData) = (app, composeHash, receiptPub, appKey, boot, bootClientData)
     }
 
@@ -26,6 +26,7 @@ final class Guest: @unchecked Sendable {
             guard let data = req?["data"] as? String else { throw Refusal(status: 400, reason: "/attest body must be {\"data\": <string>}") }
             return try canonical(try await attest(data))
         case "/key":
+            guard let appKey else { throw Refusal(status: 404, reason: "runner.local/key is the --dev-kms path; this runner serves keys on /var/run/dsmack.sock") }
             guard let p = req?["path"] as? String else { throw Refusal(status: 400, reason: "/key body must be {\"path\": <string>}") }
             let k = HKDF<SHA256>.deriveKey(inputKeyMaterial: appKey, salt: Data(), info: Data("mac-compose-get-key/1|\(p)".utf8), outputByteCount: 32)
             return try canonical(["key": k.withUnsafeBytes { hex($0) }])

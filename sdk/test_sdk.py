@@ -2,7 +2,9 @@
 against node SDK ports. Run: python3 -m pytest sdk/test_sdk.py
 Default: stand-in nodes (runner/kms/sdk_node.py) on a local anvil with AppRegistry. SDK_E2E=<json> instead targets
 real nodes (node/tests/sdk_e2e.py writes it): {rpc, chain_id, registry, demo, app_registry, owner_key, sponsor_seed,
-fixture, nodes: {A, B}, composes: {name: path}}. SDK_EVIDENCE_DIR=<dir> records each outcome there as JSON."""
+fixture, nodes: {A, B}, composes: {name: path}}; with a "runner" entry (sdk_e2e.py --runner-dir) each boot is the signed
+Swift runner on the Mac with fresh App Attest (node/tests/sdk_real_runner.py) instead of the stand-in.
+SDK_EVIDENCE_DIR=<dir> records each outcome there as JSON."""
 import base64, hashlib, json, os, secrets, socket, subprocess, sys, time
 from pathlib import Path
 import pytest
@@ -46,9 +48,14 @@ def listening(port):
         return s.connect_ex(('127.0.0.1', port)) == 0
 
 
-def compose(app_id, name, env):
+def compose(app_id, name, env, vm_image=None):
+    """vm_image: a bootable image for the real runner, whose guest idles while the test uses its socket."""
     dc = {'services': {'app': {'image': 'docker.io/library/python@sha256:' + '0' * 64, 'environment': env}}}
-    return json.dumps({'app_id': app_id, 'docker_compose_file': json.dumps(dc, sort_keys=True), 'egress': {'allow': []},
+    egress = {'allow': []}
+    if vm_image:
+        dc['services']['app'].update(image=vm_image, command=['python', '-c', 'import time; time.sleep(900)'])
+        egress.update(max_requests=0, max_tokens=0)
+    return json.dumps({'app_id': app_id, 'docker_compose_file': json.dumps(dc, sort_keys=True), 'egress': egress,
                        'kms_enabled': True, 'manifest_version': 2, 'name': name, 'runner': 'docker-compose'},
                       sort_keys=True, separators=(',', ':')).encode()
 
@@ -132,13 +139,24 @@ def net(tmp_path_factory):
     for n, r in records.items():
         (d / f'allow-{n}.json').write_text(json.dumps(r))
 
+    real = None
+    if 'runner' in cfg:
+        sys.path[:0] = [str(ROOT / 'node/tests')]
+        from sdk_real_runner import RealRunners
+        real = RealRunners(cfg, d)
+
     def boot(node, name, allow_from=None, enrollment=None, extra=(), record_=None):
-        """Starts a stand-in runner for compose `name` on node; returns (Client, None, sock) or (None, error, sock)."""
+        """Starts a runner for compose `name` on node; returns (Client, None, sock) or (None, error, sock)."""
         sock = d / f'{node}-{name}-{secrets.token_hex(3)}.sock'
         allow_path = d / f'allow-{allow_from or name}.json'
         if record_ is not None:
             allow_path = d / f'allow-custom-{secrets.token_hex(3)}.json'
             allow_path.write_text(json.dumps(record_))
+        if real:
+            assert enrollment in (None, name, 'wrong_cdhash'), 'a real runner enrolls only for the compose it boots'
+            path, err, _ = real.boot(cfg['nodes'][node], cfg['composes'][name], json.loads(allow_path.read_text()),
+                                     'wrong_cdhash' if enrollment == 'wrong_cdhash' else 'good', attest='--no-evidence' not in extra)
+            return (sdk.Client(str(path)), None, path) if path else (None, err, sock)
         p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', cfg['composes'][name], '--node', cfg['nodes'][node],
                               '--allow', allow_path, '--fixture', cfg['fixture'], '--enrollment', enrollment or name, '--socket', sock, *extra],
                              stderr=subprocess.PIPE, text=True)
@@ -148,9 +166,11 @@ def net(tmp_path_factory):
             return None, p.stderr.read().strip(), sock
         return sdk.Client(str(sock)), None, sock
     record('gas-anvil', gas)
-    yield {**cfg, 'boot': boot, 'hashes': hashes, 'allow': allow, 'dir': d}
+    yield {**cfg, 'boot': boot, 'hashes': hashes, 'allow': allow, 'dir': d, 'real': real}
     for p in procs:
         p.terminate()
+    if real:
+        real.close()
 
 
 def demo_key(client, epoch=None, group_public=None):
@@ -200,6 +220,10 @@ def test_same_group_key_same_app_key(net):
     ev = a.evidence(hashlib.sha256(b'claim_pub').digest())
     statement = verify.evidence(ev, hashlib.sha256(b'claim_pub').digest(), ia['group_public'])
     assert statement[-65 - 64 - 32:-65 - 64] == b(ia['compose_hash']) and statement[-65 - 32:-65] == b(ia['M'])
+    if net['real']:
+        assert ia['cdhash'] == ib['cdhash'] == net['runner']['cdhash']
+        ev['assertion_verified'] = apple_assertion(ev['assertion'], net['runner']['cdhash'], ia['compose_hash'],
+                                                   hashlib.sha256(b'claim_pub').digest().hex(), 'dsmack-sdk-assert/1')
     record('1-same-group-key-same-key', {'node_A': {'info': ia, 'public_key': ra['public_key'], 'chain': ra['chain']},
                                          'node_B': {'info': ib, 'public_key': rb['public_key']},
                                          "node_A_C1prime": {'compose_hash': c.info()['compose_hash'], 'public_key': rc['public_key']},
@@ -211,11 +235,15 @@ def test_different_app_different_key(net):
     assert y, err
     (_, ra), (iy, ry) = demo_key(a), demo_key(y)
     assert b(iy['app_id']) == b(Y) and ry['public_key'] != ra['public_key'] and ry['key'] != ra['key']
-    k1, k2 = a.get_key('demo', 'secp256k1:demo'), a.get_key('other', 'ed25519:demo')
-    assert len({ra['key'], k1['key'], k2['key']}) == 3
+    k1, k2, k3 = a.get_key('demo', 'secp256k1:demo'), a.get_key('other', 'ed25519:demo'), a.get_key('demo', 'p256:demo')
+    assert len({ra['key'], k1['key'], k2['key'], k3['key']}) == 4
+    group = a.info()['group_public']
+    verify.key_reply(k1, 'demo', 'secp256k1:demo', group), verify.key_reply(k3, 'demo', 'p256:demo', group)
+    assert set(a.get_key('demo', 'raw:demo')) == {'v', 'key'}
     with pytest.raises(sdk.DsmackError, match='purpose'):
         a.get_key('demo', 'demo')
-    record('2-different-app-different-key', {'app_X': {'public_key': ra['public_key']}, 'app_Y': {'app_id': Y, 'public_key': ry['public_key']}})
+    record('2-different-app-different-key', {'app_X': {'public_key': ra['public_key'], 'secp256k1': k1['public_key'], 'p256': k3['public_key']},
+                                             'app_Y': {'app_id': Y, 'public_key': ry['public_key']}})
 
 
 def test_unlisted_compose_refused(net):
@@ -228,12 +256,16 @@ def test_unlisted_compose_refused(net):
 
 def test_no_evidence_runner_refused(net):
     client, err, sock = net['boot']('A', 'C1', extra=['--no-evidence'])
-    assert client is None and 'runner evidence required' in err and not sock.exists()
+    # The real runner's --no-attest still sends evidence, of type "dev"; the stand-in sends none.
+    assert client is None and ('runner evidence fields' if net['real'] else 'runner evidence required') in err and not sock.exists()
     client, err2, _ = net['boot']('A', 'C1', enrollment='wrong_cdhash')
     assert client is None and 'cdhash_policy_failed' in err2
-    client, err3, _ = net['boot']('A', 'C1', enrollment='C2')
-    assert client is None and 'not this compose' in err3
-    record('4-no-evidence-refused', {'no_evidence': err, 'runner_cdhash_not_admitted': err2, 'enrollment_for_other_compose': err3, 'socket_created': False})
+    out = {'no_evidence': err, 'runner_cdhash_not_admitted': err2, 'socket_created': False}
+    if not net['real']:  # an honest runner cannot enroll for a compose other than the one it boots
+        client, err3, _ = net['boot']('A', 'C1', enrollment='C2')
+        assert client is None and 'not this compose' in err3
+        out['enrollment_for_other_compose'] = err3
+    record('4-no-evidence-refused', out)
 
 
 def test_js_twin(net):
@@ -254,10 +286,15 @@ def test_coupon_account_derive(net):
     send = lambda *a: run('cast', 'send', '--rpc-url', net['rpc'], '--private-key', net['owner_key'], net['app_registry'], *a)
     send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + SCOPE)
     send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + h, '0', str(2**64 - 1))
-    c, err, sock = net['boot']('A', 'coupon', record_=net['allow'](app, h))
-    assert c, err
-    out = json.loads(run(sys.executable, ROOT / 'apps/coupon-sdk/coupon_account.py', 'account',
-                         env={**os.environ, 'PYTHONPATH': str(ROOT / 'sdk/python'), 'DSMACK_SOCKET': str(sock), 'NEAR_RPC': 'unused-by-account'}))
+    if net['real']:  # the coupon container itself, in the Runner VM, through /var/run/dsmack.sock
+        stdout, log = net['real'].run_to_exit(net['nodes']['A'], net['composes']['coupon'], net['allow'](app, h))
+        out = json.loads(stdout.strip().splitlines()[-1])
+        assert 'guest exited' in log, log
+    else:
+        c, err, sock = net['boot']('A', 'coupon', record_=net['allow'](app, h))
+        assert c, err
+        out = json.loads(run(sys.executable, ROOT / 'apps/coupon-sdk/coupon_account.py', 'account',
+                             env={**os.environ, 'PYTHONPATH': str(ROOT / 'sdk/python'), 'DSMACK_SOCKET': str(sock), 'NEAR_RPC': 'unused-by-account'}))
     assert out['chain_verified'] and b(out['compose_hash']) == b(h) and len(out['account_id']) == 64
     record('6-coupon-account', out)
 
@@ -269,12 +306,11 @@ def test_previous_epoch_after_bump(net):
     old = before_info['key_epoch']
     net['bump']()
     deadline = time.time() + 240
-    while True:
-        c, err, _ = net['boot']('A', 'C1')
-        if c and c.info()['key_epoch'] == old + 1:
-            break
-        assert time.time() < deadline, err
+    while net['real'] and a.info()['key_epoch'] != old + 1:  # the node's current epoch, through the runner booted before the bump
+        assert time.time() < deadline
         time.sleep(5)
+    c, err, _ = net['boot']('A', 'C1')
+    assert c and c.info()['key_epoch'] == old + 1, err
     info, now = demo_key(c)
     _, prev = demo_key(c, old, before_info['group_public'])
     assert now['public_key'] != before['public_key'] and info['group_public'] != before_info['group_public']
@@ -284,6 +320,19 @@ def test_previous_epoch_after_bump(net):
     record('7-previous-epoch', {'epoch_before': old, 'epoch_after': info['key_epoch'], 'public_key_before': before['public_key'],
                                 'public_key_after': now['public_key'], 'public_key_previous_epoch_after_bump': prev['public_key'],
                                 'group_public_before': before_info['group_public'], 'group_public_after': info['group_public']})
+
+
+def apple_assertion(e, cdhash, compose_hash, data, domain):
+    """A real runner's App Attest evidence, checked by verifier/core.py against Apple's root, for this CDHash only."""
+    sys.path[:0] = [str(ROOT / 'app/macos')]
+    from check_evidence import policy, root
+    from verifier.core import verify_assertion, verify_attestation
+    pol = policy(b(cdhash))
+    enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], base64.b64decode(e['bootClientData']), pol, root(), time.time())
+    verify_assertion(base64.b64decode(e['assertion']), base64.b64decode(e['assertClientData']), enrolled['public_key'], 0, pol)
+    asserted = json.loads(base64.b64decode(e['assertClientData']))
+    assert asserted == {'compose_hash': b(compose_hash).hex(), 'data': data, 'domain': domain}, asserted
+    return True
 
 
 APP_PUB_X2 = '0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb'

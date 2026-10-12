@@ -20,7 +20,7 @@ check() { local name=$1; shift; if "$@" >/dev/null 2>&1; then echo "PASS $name";
 # kernel and image store are shared with $BASE, the volumes (the live node's ledgers) are not.
 VB=$RUNS/base; mkdir -p "$VB/volumes"; ln -s "$BASE/vmlinux-arm64" "$BASE/store" "$VB/"
 attested() { open -n -W --stdout "$RUNS/$1.stdout" --stderr "$RUNS/$1.txt" "$APP" --args run --base "$VB" \
-  --kms "http://127.0.0.1:$2" --out "$RUNS/$1" --compose "$PWD/$3" --app "${RUN_APP:-$CDH|$("$APP/Contents/MacOS/runner" check "$3")}" --attest "${@:4}"
+  --dev-kms "http://127.0.0.1:$2" --out "$RUNS/$1" --compose "$PWD/$3" --app "${RUN_APP:-$CDH|$("$APP/Contents/MacOS/runner" check "$3")}" --attest "${@:4}"
   echo "  $1: $(tail -1 "$RUNS/$1.txt")"; }
 # The guest line after "== NAME" in run $1's stdout: a /attest or /key response body.
 line() { awk -v s="== $2" '$0==s{getline; print; exit}' "$RUNS/$1/guest_stdout.txt"; }

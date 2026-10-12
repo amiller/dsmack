@@ -4,8 +4,8 @@ You need an Apple silicon Mac on macOS 27 with Full Security and System
 Integrity Protection enabled. You do not need Xcode, an Apple Developer
 account, a wallet or gas.
 
-1. Download `Dsmack Node` from the latest `node-vX.Y.Z` release on the
-   [releases page](https://github.com/amiller/dsmack/releases) and extract the ZIP.
+1. Download `Dsmack Node` from the
+   [latest release](https://github.com/amiller/dsmack/releases) and extract the ZIP.
 2. Open `Dsmack Node` and accept the normal macOS prompt. Do not change
    Gatekeeper settings to make it open. The app enrolls with App Attest, finds a
    peer and fetches the shared network key. It says **You’re in.** when it holds
@@ -40,5 +40,6 @@ Sepolia. It has no monetary value and does not prove a unique person or Mac.
 Only the first two receipts have Fold artwork; the app shows
 **ARTWORK NOT LOADED** for the rest.
 
-[Node details](node-details.md) covers updates, the release checker and what
-earlier releases were verified to do.
+[Node details](node-details.md) covers updates and checking a release before
+you open it. [What the network is and is not](../README.md#what-the-network-is-and-is-not)
+explains what admission proves and what the operators can still do.

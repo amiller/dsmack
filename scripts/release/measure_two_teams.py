@@ -77,9 +77,16 @@ def measure_args(a):
 
 def main():
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument('--out', type=Path, required=True, help='directory for one JSON vector per build')
-    p.add_argument('builds', nargs=3, metavar='NAME=EXECUTABLE', help='honest-a, honest-b, modified')
+    p.add_argument('--one', metavar='EXECUTABLE', help='print the measurement and CDHash of one signed executable')
+    p.add_argument('--out', type=Path, help='directory for one JSON vector per build')
+    p.add_argument('builds', nargs='*', metavar='NAME=EXECUTABLE', help='honest-a, honest-b, modified')
     a = p.parse_args()
+    if a.one:
+        vector = cd_args(a.one)
+        print('M      0x' + measure_args(vector) + '\nCDHash ' + vector['cdhash'])
+        return
+    if not a.out or len(a.builds) != 3:
+        p.error('--out and three NAME=EXECUTABLE builds are required')
     a.out.mkdir(parents=True, exist_ok=True)
     result = {}
     for spec in a.builds:
@@ -89,6 +96,8 @@ def main():
         (a.out / f'{name}.json').write_text(json.dumps(vector, indent=1) + '\n')
         result[name] = {'M': vector['M'], 'cdhash': vector['cdhash']}
     (a.out / 'summary.json').write_text(json.dumps(result, indent=2) + '\n')
+    (a.out / 'outputs.txt').write_text(''.join(f"{k.lower()}_{n.replace('-', '_')}={v[k]}\n"
+                                               for n, v in result.items() for k in ('M', 'cdhash')))
     print(json.dumps(result, indent=2))
     ha, hb, mod = (result[k] for k in ('honest-a', 'honest-b', 'modified'))
     if not (ha['M'] == hb['M'] != mod['M']):

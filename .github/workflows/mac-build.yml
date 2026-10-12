@@ -1,10 +1,10 @@
 name: Mac unsigned build and reproducibility
 on:
   pull_request:
-    paths: ['node/**', 'scripts/release/**', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
   push:
     branches: [main, 'release/**']
-    paths: ['node/**', 'scripts/release/**', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,5 +37,30 @@ jobs:
         with:
           name: mac-${{ matrix.flavor }}-unsigned-reproducibility
           path: build/repro/
+          retention-days: 14
+          if-no-files-found: error
+  measure-two-teams:
+    runs-on: xcode-27
+    timeout-minutes: 20
+    outputs:
+      m_honest_a: ${{ steps.measure.outputs.m_honest_a }}
+      m_honest_b: ${{ steps.measure.outputs.m_honest_b }}
+      m_modified: ${{ steps.measure.outputs.m_modified }}
+      cdhash_honest_a: ${{ steps.measure.outputs.cdhash_honest_a }}
+      cdhash_honest_b: ${{ steps.measure.outputs.cdhash_honest_b }}
+      cdhash_modified: ${{ steps.measure.outputs.cdhash_modified }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: One measurement for two teams, another for a modified build
+        id: measure
+        run: |
+          scripts/release/measure_two_teams.sh build/measure
+          tee -a "$GITHUB_OUTPUT" < build/measure/vectors/outputs.txt
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: measure-two-teams
+          path: build/measure/vectors/
           retention-days: 14
           if-no-files-found: error

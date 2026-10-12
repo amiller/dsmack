@@ -74,7 +74,7 @@ Deno.test('v2 record context binds measurement and label; shared Swift vector',a
  const b:CheckIn={member,keyId:base64(kid),sessionPublic:('0x04'+'11'.repeat(64)) as Hex,issuedAt:1800000000,expiresAt:1800000090,selfReported:'0.3.0',buildNumber:'12',scope:h('00'),keyEpoch:'2',receiptTransaction:h('77'),account:null,accountGeneration:'0',accountSignature:null,assertion:'',measurement:h('99'),label:'mini-mesh'};
  check(recordContext(network,b)==='0xf67b2597d4f39b6c878f6398e041a8134ac7a3a5ab1ecff073fa25dac96ab447',recordContext(network,b));
  check(recordContext(network,{...b,label:'other'})!==recordContext(network,b)&&recordContext(network,{...b,measurement:h('98')})!==recordContext(network,b),'v2 fields unbound');
- const {measurement:_m,label:_l,...v1}=b;check(recordContext(network,v1)!==recordContext(network,b),'v1 and v2 domains collide');
+ const {measurement:_m,label:_l,...v1}=b;check(recordContext(network,v1)==='0x266bd99ec0d58414898fd2df13a2fd299c6813194a0a1d8f438a42d5ce778fbe','v1 context changed');
  for(const [field,value] of [['label','<b>'],['label','x'.repeat(33)],['measurement','0x99'],['label',undefined]] as [string,unknown][])await rejects(()=>validateCheckIn({...b,[field]:value},b.issuedAt));
  await rejects(()=>validateCheckIn({...v1,label:'x'},b.issuedAt));
 });

@@ -4,7 +4,7 @@ Direction confirmed by Andrew on 10 October 2026. This is a product commitment a
 
 ## Decentralization is a requirement
 
-dsmack is actual peer-to-peer node software, a network and its service protocol. It insists on decentralization in the DevProof sense: developers and operators must be constrained by verifiable rules, not merely trusted to behave. A fleet under one privileged coordinator does not meet the charter merely because its nodes communicate over libp2p.
+dsmack is actual peer-to-peer node software, a network and its service protocol. It insists on decentralization in the DevProof sense: developers and operators must be constrained by verifiable rules, not merely trusted to behave. A fleet under one privileged operator does not meet the charter merely because its nodes communicate over libp2p.
 
 For each supported service profile, identify who controls admission, discovery, routing, secrets, balances and upgrades. Show how users verify those controls and what any developer, operator or vendor can change. A privileged party must not be able to silently substitute the accepted service or seize its authority. Document upgrade notice, user choice and continuity mechanisms and test their actual enforcement. An individual peer can stop serving; independence must be evaluated at the network level rather than confused with a promise that every peer stays online.
 

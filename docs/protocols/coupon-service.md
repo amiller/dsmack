@@ -8,7 +8,7 @@ produces signed evidence. Clients do not configure a standalone CVM.
 
 The separate [v2 accepted-offer experiment](coupon-v2.md) binds terms to delivery
 and observation for pre-bound synthetic recipients. It preserves v1 behavior and
-does not qualify the accountless public-preview release path.
+does not qualify the accountless public testnet release path.
 
 The [packaged development node](../../packaging/coupon/README.md) mounts these
 services on a pinned Abalone peer registry, preserves its protected Noise identity

@@ -1,13 +1,12 @@
 # Joining, updating and leaving
 
-Use the [Join page](join-testnet.md) for the current recommended artifact and
-availability. Peer participation, coupon redemption and operating a coupon issuer
+[Join the network](../README.md#join-the-network) names the current release. Peer participation, coupon redemption and operating a coupon issuer
 are separate journeys. [Mainnet is planned](mainnet.md).
 
 ## Release lifecycle
 
 Publishing a source tag or downloading a signed app does not change the network's
-admission policy. A release coordinator must separately qualify the artifact and
+admission policy. The release owner must separately qualify the artifact and
 announce a cutover. Current native admission uses a selected build baseline;
 replacing that baseline can reject the older build. Do not assume a compatibility
 window exists merely because both downloads remain public.
@@ -16,7 +15,7 @@ The release process must distinguish these states:
 
 | State | Meaning |
 | --- | --- |
-| Candidate | Available for qualification; not a friend recommendation. |
+| Candidate | Available for qualification; not recommended for joining. |
 | Recommended | Exact signed artifact qualified against the named network. |
 | Deprecated | Replacement is recommended; any remaining admission window is explicit. |
 | No longer admitted | The network refuses this build; a retained download is historical. |
@@ -59,4 +58,4 @@ Qualify join → synchronized exchange → recognizable directory entry → veri
 update → restart, checking the same personal account throughout. Include a failed
 download or verification, recovery without identity loss, ordinary departure and
 an abrupt disconnect. Record actual installed behavior. Two processes on one Mac
-can exercise components, but independent-friend acceptance remains separate.
+can exercise components, but independent-operator acceptance remains separate.

@@ -118,6 +118,6 @@ Release changes must name the exact wire versions, code/compose and chain-policy
 pins, migration and backward-compatibility decisions. Preserve personal identity,
 coupon obligations and immutable prior release artifacts. Never silently fall
 back to an older/weaker profile when admission fails. Follow the
-[managed release process](testnet-release-process.md) before directing new users
-to a changed network. [Milestone acceptance](operator-testnet-milestones.md)
+[managed release process](internal/testnet-release-process.md) before directing new users
+to a changed network. [Milestone acceptance](internal/operator-testnet-milestones.md)
 requires real device evidence beyond schema, crypto or same-host tests.

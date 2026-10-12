@@ -3,11 +3,11 @@
 Dsmack's native participation network and workload runner provide infrastructure
 for services. Coupon issuance is the first packaged service; Abalone is its client.
 Joining as a native peer does not automatically run an issuer or replicate its
-accounting database. The selected preview operates one persistent issuer. A
+accounting database. The testnet runs one persistent issuer. A
 mandatory-service mechanism or developer-curated service subscription is not
 implemented by native joining.
 
-A friend uses Abalone to accept a coupon, bind the claim to recipient-generated
+A recipient uses Abalone to accept a coupon, bind the claim to recipient-generated
 keys, and receive encrypted provider access. The issuer records an issuance
 attempt with the selected guard before creating a capped credential. The client
 then sends encrypted inference requests directly to the provider.
@@ -24,7 +24,7 @@ then sends encrypted inference requests directly to the provider.
 | Contracts | [contracts/src](../contracts/src/CDRegistry.sol) | Build/admission registries, accounts and issuance guards |
 | Packaging and operations | [packaging/coupon](../packaging/coupon/README.md) | Source export, pinned images, supervision and status |
 
-The selected preview is a Mac issuer with an ordinary local ARM container,
+The testnet issuer is a Mac with an ordinary local ARM container,
 Base mainnet's debug single-RPC guard and a Linux recipient. A network release
 stage and the blockchain network are separate settings. The amd64 dstack and
 Ethereum finality implementations remain available as distinct profiles.
@@ -40,7 +40,7 @@ E2EE is a separate boundary from issuance custody.
 The coupon image contains JavaScript peer transport and Python service logic,
 including issuance, accounting and replay handling. Python also supports
 verification, testing and release tooling; it is not merely an example workload.
-The native Mac participant is Swift and its signed app does not require the friend
+The native Mac participant is Swift and its signed app does not require the user
 to install Python.
 
 The [ARM Dockerfile](../packaging/coupon/Dockerfile.mac-base) builds the service

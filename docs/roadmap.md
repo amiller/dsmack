@@ -6,7 +6,7 @@ private research and historical receipts are kept outside this source tree.
 
 | Work | Outcome |
 | --- | --- |
-| [Friend feedback](https://github.com/amiller/dsmack/issues/1) | Installed Linux recipient journey with useful private inference |
+| [Recipient feedback](https://github.com/amiller/dsmack/issues/1) | Installed Linux recipient journey with useful private inference |
 | [Release packet](https://github.com/amiller/dsmack/issues/2) | Accepted Mac issuer, public artifacts and bounded operations |
 | [Optimistic redemption](https://github.com/amiller/dsmack/issues/4) | Explicit provisional authorization and failure handling |
 | [Network status](https://github.com/amiller/dsmack/issues/6) | Fresh observations and honest healthy/stale/unknown states |
@@ -16,9 +16,9 @@ private research and historical receipts are kept outside this source tree.
 
 ## First release
 
-The selected preview uses a Mac issuer and direct NEAR delivery: Abalone redeems
+The testnet uses a Mac issuer and direct NEAR delivery: Abalone redeems
 a coupon, receives a capped sponsor-managed credential and sends encrypted requests
-to the provider. Fresh Mac admission, the final bundle and independent friend
+to the provider. Fresh Mac admission, the final bundle and independent recipient
 acceptance remain pending. See [release gates](release.md).
 
 The sponsor retains revocation/account powers. Identity-only admission does not

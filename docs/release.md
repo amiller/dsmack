@@ -1,7 +1,7 @@
 # Release and acceptance
 
-The public source and MIT license are available for development. The selected
-Mac-issuer/Linux-recipient preview remains in preparation. A source checkout,
+The public source and MIT license are available for development. The testnet runs a
+Mac issuer and a Linux recipient client. A source checkout,
 a successfully built image and a live accepted release are separate milestones.
 
 ## Selected profile
@@ -24,12 +24,12 @@ a successfully built image and a live accepted release are separate milestones.
 | Acquisition | Public artifact hashes and a clean Linux install with usable instructions |
 | Discovery and status | Reachable public service, timestamped readiness/admission observations and honest unknown coverage |
 | Operations | Bounded funding, management-token renewal and recovery preserving issued/ambiguous claims |
-| Friend journey | Install, accept a funded coupon, decrypt access and complete useful private inference without maintainer repairs |
+| Recipient journey | Install, accept a funded coupon, decrypt access and complete useful private inference without maintainer repairs |
 | Failure behavior | Expiry, refusal, restart and ambiguous paid effects handled under the selected policy |
 
 Keep the exact revision, signed policy, evidence digests, observation times and
 review decisions with each release artifact. Current fixtures replay historical
-cryptographic inputs; they do not satisfy fresh hardware or friend acceptance.
+cryptographic inputs; they do not satisfy fresh hardware or independent recipient acceptance.
 Raw captures, operator controls and private user traces belong outside the source tree.
 
 See the [profile and rollout](../packaging/coupon/public-testnet.md),

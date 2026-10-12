@@ -1,8 +1,8 @@
 # Experimental accepted-offer contract
 
 `/dsmack/coupon/2` is a local pre-bound, session-only binding experiment. It is
-reusable protocol work, not acceptance of the accountless public preview. The
-public preview requires a reviewed atomic first-bearer claim profile. This slice
+reusable protocol work, not acceptance of the accountless public testnet. The
+public testnet requires a reviewed atomic first-bearer claim profile. This slice
 uses synthetic provider fixtures and explicit admission of a development peer;
 it qualifies no provider behavior, hardware identity, privacy claim or settlement.
 

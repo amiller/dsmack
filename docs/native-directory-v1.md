@@ -135,5 +135,5 @@ five-second GUI fallback. Failed leave expires naturally and never deletes
 Application Support, App Attest enrollment, Keychain identity or NFT ownership.
 
 Unit tests use synthetic adapter/RPC fixtures to exercise policy and the exact
-browser schema. They are not Apple attestation, independent-friend, public-chain,
+browser schema. They are not Apple attestation, independent-operator, public-chain,
 GUI first-open or live relay deployment acceptance evidence.

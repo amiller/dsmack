@@ -10,8 +10,8 @@ The participant app and the coupon workload runner are separate components.
 From the repository root, with an unused output directory:
 
 ```sh
-python3 scripts/release/build_mac.py --gui --out local-data/mac-unsigned
-python3 scripts/release/check_repro.py --gui --out local-data/mac-repro
+python3 scripts/release/build_mac.py --gui --out build/mac-unsigned
+python3 scripts/release/check_repro.py --gui --out build/mac-repro
 ```
 
 Omit `--gui` for the CLI. The builder checks the toolchain lock, hashes direct

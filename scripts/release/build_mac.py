@@ -13,7 +13,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ['node/shared/Protocol.swift', 'node/shared/NativeDirectory.swift', 'node/shared/PersonalAccount.swift', 'node/shared/BadgeClaim.swift', 'node/shared/Upgrade.swift', 'node/shared/Chain.swift',
-           'node/shared/NativeAttestation.swift', 'node/shared/Node.swift', 'node/shared/Measure.swift', 'node/mac/main.swift',
+           'node/shared/NativeAttestation.swift', 'node/shared/Node.swift', 'node/shared/SDK.swift', 'node/shared/Measure.swift', 'node/mac/main.swift',
            'node/mac/GUI.swift', 'node/mac/NetworkConfig.swift', 'node/mac/UpdatePolicy.swift',
            'node/mac/UpdateArchive.swift', 'node/mac/NativeUpdater.swift']
 
@@ -40,8 +40,8 @@ def main():
     parser.add_argument('--bundle-id', default='dev.dsmack.provider')
     parser.add_argument('--team', help='Also write entitlements.plist for this Apple Team ID beside Node.app')
     parser.add_argument('--modified', action='store_true', help='Negative control: build the MODIFIED variant')
-    parser.add_argument('--version', default='0.1.0')
-    parser.add_argument('--build-number', default='3')
+    parser.add_argument('--version', default='0.3.0')
+    parser.add_argument('--build-number', default='6')
     args = parser.parse_args()
     lock = json.loads((ROOT / 'node/mac/toolchain.json').read_text())
     actual = {'xcode': output('xcodebuild', '-version'),

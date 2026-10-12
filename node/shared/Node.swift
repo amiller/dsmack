@@ -16,6 +16,8 @@ struct Config {
     let badges: String?; let accountFactory: String?
     let peers: [String]; let helloDelay: Double; let protocolVersion: Int; let persistentIdentity: Bool
     let publicDirectory: Bool; let label: String
+    /// Loopback port for the dsmack-sdk JSON-line server (SDK.swift); nil serves nothing.
+    let sdkPort: UInt16?
     /// Set only for owner-flagged seeds (`sealer: true`): the sealed group key beside the config file.
     let sealPath: URL?
     init(_ d: [String:Any],path: URL?=nil) throws {
@@ -42,6 +44,7 @@ struct Config {
         publicDirectory=d["publicDirectory"] as? Bool ?? false
         #endif
         label=d["label"] as? String ?? ""
+        if let p=d["sdkPort"] {guard let n=p as? Int,(1...65535).contains(n) else {throw DemoError.invalid("sdkPort must be 1-65535")};sdkPort=UInt16(n)} else {sdkPort=nil}
         try need(label.range(of:"^[A-Za-z0-9 ._-]{0,32}$",options:.regularExpression) != nil,"label: up to 32 of A-Z a-z 0-9 space . _ -")
         badges=d["badges"] as? String;accountFactory=d["accountFactory"] as? String
         try need((badges == nil)==(accountFactory == nil),"incomplete badge configuration")
@@ -72,6 +75,32 @@ final class Node {
     let directoryState=NativeDirectoryState()
     var nextDirectoryAttempt=Date.distantPast
     var directoryReceipt: String?
+    /// Guards group-key writes and the last check-in, which the SDK server thread reads.
+    let keyLock=NSLock()
+    /// The previous epoch's group key per scope, kept in RAM until the next bump or exit (SDK get_key(epoch=prev)).
+    var previous=[Data:(epoch:UInt64,key:P256.Signing.PrivateKey)]()
+    var checkIn:(member:Data,tx:String)?
+    var sdkBound:UInt16?
+    func lastCheckIn() -> (member:Data,tx:String)? {keyLock.withLock{checkIn}}
+    func hold(_ scope: Data,_ key: P256.Signing.PrivateKey,epoch: UInt64) {
+        keyLock.withLock {
+            if let old=held[scope],let e=heldEpoch[scope],e != epoch {previous[scope]=(e,old)}
+            held[scope]=key;heldEpoch[scope]=epoch
+        }
+    }
+    func retire(_ scope: Data) {
+        keyLock.withLock {
+            if let old=held.removeValue(forKey:scope),let e=heldEpoch.removeValue(forKey:scope) {previous[scope]=(e,old)}
+        }
+    }
+    /// The held key for `epoch` (nil: the current one), or the previous epoch's key.
+    func groupKey(_ scope: Data,epoch: UInt64?) throws -> (epoch:UInt64,key:P256.Signing.PrivateKey) {
+        try keyLock.withLock {
+            if let key=held[scope],let e=heldEpoch[scope],epoch==nil || epoch==e {return (e,key)}
+            if let old=previous[scope],let epoch,epoch==old.epoch {return old}
+            throw DemoError.invalid(epoch.map{"key epoch \($0) not held for scope \(hex(scope))"} ?? "no group key held for scope \(hex(scope))")
+        }
+    }
     private var measured: (fields:[String:Any],value:Data)?
     /// This executable's measurement inputs and M (open-admission design §2); nil where unsupported (iOS).
     func ownMeasurement() throws -> (fields:[String:Any],value:Data)? {
@@ -213,12 +242,13 @@ final class Node {
         guard let tx=try relay("execute",["request":request.json,"context":hex(context),"assertion":assertion.base64EncodedString(),
                                           "keyId":keyID,"groupSignature":signature])["tx"] as? String else {throw DemoError.invalid("relay tx")}
         if action==3 && scope==zero32 {directoryReceipt=tx}
+        let member=me;keyLock.withLock{checkIn=(member,tx)}
         log("executed",["action":action,"scope":hex(scope),"keyEpoch":epoch,"tx":tx]);return (tx,request)
     }
     func join() throws -> String {try execute(0)}
     func bootstrap(_ scope: Data) throws {
         let epoch=try chain.keyEpoch(scope,protocolVersion:cfg.protocolVersion)
-        let key=P256.Signing.PrivateKey();_=try execute(2,scope:scope,group:key);held[scope]=key;heldEpoch[scope]=epoch
+        let key=P256.Signing.PrivateKey();_=try execute(2,scope:scope,group:key);hold(scope,key,epoch:epoch)
     }
     func aad(_ scope: Data,_ recipient: Data,_ recipientPublic: Data) throws -> Data {
         try Data("TEE_INTEROP_PARCEL_V1".utf8)+word(cfg.chainId)+addressWord(cfg.registry)+scope+recipient+recipientPublic
@@ -251,7 +281,7 @@ final class Node {
         try need(try chain.groupPublic(scope)==key.publicKey.x963Representation,"imported key commitment")
         let epoch=try chain.keyEpoch(scope,protocolVersion:cfg.protocolVersion)
         let receipt=try execute(3,scope:scope,group:key,envelope:keccak(parcel))
-        held[scope]=key;heldEpoch[scope]=epoch
+        hold(scope,key,epoch:epoch)
         log("key verified",["scope":hex(scope),"keyEpoch":heldEpoch[scope] ?? 0,
             "groupPublic":hex(key.publicKey.x963Representation),"senderReceipt":senderTx,"receipt":receipt])
         return scope
@@ -280,8 +310,11 @@ final class Node {
         while true {
             do {
                 try start()
+                #if os(macOS)
+                try startSDK()
+                #endif
                 let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
-                if heldEpoch[zero32] != epoch {held.removeValue(forKey:zero32);heldEpoch.removeValue(forKey:zero32)}
+                if heldEpoch[zero32] != epoch {retire(zero32)}
                 let committed=try chain.committed(zero32)
                 if !committed {try bootstrap(zero32)}
                 else if held[zero32] == nil,let path=cfg.sealPath {try unseal(path,epoch:epoch)}
@@ -312,7 +345,7 @@ final class Node {
         guard opened.epoch==epoch && opened.key.publicKey.x963Representation==group else {
             log("sealed key stale",["sealedEpoch":opened.epoch,"keyEpoch":epoch]);return
         }
-        held[zero32]=opened.key;heldEpoch[zero32]=epoch;sealedFrom=epoch
+        hold(zero32,opened.key,epoch:epoch);sealedFrom=epoch
         log("sealed key loaded",["keyEpoch":epoch,"groupPublic":hex(group)])
     }
     var sealTag: Data {Data("dev.dsmack.seed-seal.v1:\(cfg.chainId):\(cfg.registry.lowercased()):\(cfg.name)".utf8)}
@@ -423,8 +456,11 @@ final class Node {
     /// A missing seed never silently replaces the committed shared key.
     func participate() throws {
         try start()
+        #if os(macOS)
+        try startSDK()
+        #endif
         let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
-        if heldEpoch[zero32] != epoch {held.removeValue(forKey:zero32);heldEpoch.removeValue(forKey:zero32)}
+        if heldEpoch[zero32] != epoch {retire(zero32)}
         if held[zero32] == nil {try connect(startIdentity:false)} else {_=try join()}
         badgeParticipation=true
         log("participating",["member":hex(me),"keyEpoch":epoch])

@@ -3,6 +3,8 @@ import importlib.util
 import json
 from pathlib import Path
 import plistlib
+import subprocess
+import sys
 import tempfile
 import unittest
 import zipfile
@@ -35,6 +37,24 @@ class PackagingTests(unittest.TestCase):
             self.assertEqual(len(z.infolist()),3)
             self.assertTrue(all(not i.extra and i.filename.startswith('Node.app/') for i in z.infolist()))
         with self.assertRaises(FileExistsError):archive.package(self.app,self.zip)
+    def test_initial_recommendation_has_no_implied_upgrade_path(self):
+        archive.package(self.app,self.zip)
+        result=self.make(previous=[])
+        self.assertEqual(result['previousBuilds'],[])
+        self.assertEqual(result['rollbackBuilds'],[])
+        output=self.root/'initial.json'
+        expiry=(dt.datetime.now(dt.timezone.utc)+dt.timedelta(days=1)).isoformat()
+        subprocess.run([sys.executable,str(ROOT/'tools/native_update_recommendation.py'),
+                        '--archive',str(self.zip),'--tag','native-v1.2.3','--expires',expiry,
+                        '--evidence','https://github.com/amiller/dsmack/pull/1',
+                        '--owner-qualified','--output',str(output)],check=True,capture_output=True)
+        self.assertEqual(json.loads(output.read_text())['previousBuilds'],[])
+    def test_populated_prior_build_validation_is_retained(self):
+        archive.package(self.app,self.zip)
+        for values in [[4,4],[5],[-1],[True],list(range(33))]:
+            for key in ['previous','rollback']:
+                with self.subTest(key=key,values=values):
+                    with self.assertRaises(ValueError):self.make(**{key:values})
     def test_fractional_expiry_emits_parser_compatible_seconds(self):
         archive.package(self.app,self.zip)
         self.assertEqual(self.make(expiry='2026-10-12T00:00:00.123456Z')['expires'],'2026-10-12T00:00:00Z')

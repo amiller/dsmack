@@ -1,9 +1,10 @@
 import {decode} from "npm:cbor-x@1.6.0/decode-no-eval";
-import {encodeAbiParameters, encodeFunctionData, decodeFunctionData, decodeEventLog, keccak256, toHex, hexToBytes, type Hex} from "npm:viem@2.38.0";
+import {encodeAbiParameters, encodeFunctionData, decodeFunctionData, decodeEventLog, keccak256, toHex, hexToBytes, parseAbi, type Hex} from "npm:viem@2.38.0";
 
 const ZERO=('0x'+'00'.repeat(32)) as Hex;
 const ZERO_ADDRESS='0x'+'00'.repeat(20);
 const TTL=90, RETENTION=300, RECEIPT_TTL=120, LIMIT=64;
+const measurementAbi=parseAbi(['function measurementOf(bytes32) view returns (bytes32)']);
 const encoder=new TextEncoder();
 const iso=(seconds:number)=>new Date(seconds*1000).toISOString();
 function require(ok:unknown):asserts ok {if(!ok)throw new Error('DIRECTORY_INVALID');}
@@ -23,12 +24,24 @@ function signature(der:Uint8Array):[bigint,bigint] {
     function scalar(){require(der[at++]===2);const n=der[at++];require(n>0&&n<=33&&at+n<=der.length);const bytes=der.slice(at,at+n);at+=n;require(bytes[0]<128&&(bytes[0]!==0||n===1||bytes[1]>=128));return BigInt(toHex(bytes));}
     const r=scalar(),s=scalar();require(at===der.length);return [r,s];
 }
-export type CheckIn={member:Hex,keyId:string,sessionPublic:Hex,issuedAt:number,expiresAt:number,selfReported:string,buildNumber:string,scope:Hex,keyEpoch:string,receiptTransaction:Hex|null,account:Hex|null,accountGeneration:string,accountSignature:Hex|null,assertion:string};
-type Network={chainId:number,DemoV1:Hex,macCategory:Hex,macAdapter:Hex,macCDRegistry:Hex,ResearchBadges?:Hex,PersonalBadgeAccountFactory?:Hex};
+// V2 adds the code measurement M and a public label, both bound by the assertion.
+export type CheckIn={member:Hex,keyId:string,sessionPublic:Hex,issuedAt:number,expiresAt:number,selfReported:string,buildNumber:string,scope:Hex,keyEpoch:string,receiptTransaction:Hex|null,account:Hex|null,accountGeneration:string,accountSignature:Hex|null,assertion:string,measurement?:Hex,label?:string};
+type Network={chainId:number,DemoV1:Hex,macCategory:Hex,macAdapter:Hex,macCDRegistry:Hex,measuredCategory?:Hex,measuredAdapter?:Hex,measurementRegistry?:Hex,ResearchBadges?:Hex,PersonalBadgeAccountFactory?:Hex};
+const V1=['member','keyId','sessionPublic','issuedAt','expiresAt','selfReported','buildNumber','scope','keyEpoch','receiptTransaction','account','accountGeneration','accountSignature','assertion'];
+/** The category whose member derivation matches, with its adapter and code registry. */
+export function admission(network:Network,b:CheckIn) {
+    const kid=binary(b.keyId,64);
+    const policies=[{category:network.macCategory,adapter:network.macAdapter,cds:network.macCDRegistry,measured:false}];
+    if(network.measuredCategory)policies.push({category:network.measuredCategory,adapter:network.measuredAdapter!,cds:network.measurementRegistry!,measured:true});
+    const p=policies.find(p=>keccak256(join(hexToBytes(p.category),kid))===b.member);require(p);
+    return {category:p.category.toLowerCase() as Hex,adapter:p.adapter.toLowerCase() as Hex,cds:p.cds.toLowerCase() as Hex,measured:p.measured};
+}
 type Entry={record:any,sessionPublic:Hex,context:Hex,epoch:bigint,receiptBlock:{number:bigint,hash:Hex}|null};
 export function validateCheckIn(input:unknown,now:number):CheckIn {
     require(input&&typeof input==='object'&&!Array.isArray(input));const b=input as CheckIn;
-    require(Object.keys(b).sort().join(',')===['member','keyId','sessionPublic','issuedAt','expiresAt','selfReported','buildNumber','scope','keyEpoch','receiptTransaction','account','accountGeneration','accountSignature','assertion'].sort().join(','));
+    const v2='measurement' in b;
+    require(Object.keys(b).sort().join(',')===(v2?[...V1,'measurement','label']:V1).sort().join(','));
+    if(v2){hex(b.measurement,32);require(typeof b.label==='string'&&/^[A-Za-z0-9 ._-]{0,32}$/.test(b.label));}
     hex(b.member,32);hex(b.sessionPublic,65);require(b.sessionPublic.startsWith('0x04'));
     require(Number.isSafeInteger(b.issuedAt)&&b.issuedAt>=now-30&&b.issuedAt<=now+5&&b.expiresAt===b.issuedAt+TTL);
     require(typeof b.selfReported==='string'&&/^[0-9][A-Za-z0-9._-]{0,63}$/.test(b.selfReported));decimal(b.buildNumber,2147483647n);
@@ -38,7 +51,8 @@ export function validateCheckIn(input:unknown,now:number):CheckIn {
     require(binary(b.keyId,64).length===32);binary(b.assertion,14000);return b;
 }
 export function recordContext(network:Network,b:CheckIn):Hex {
-    return keccak256(join(domain('DSMACK_NATIVE_DIRECTORY_CHECK_IN_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(network.macCategory),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),word(b.issuedAt),word(b.expiresAt),hexToBytes(keccak256(encoder.encode(b.selfReported))),word(b.buildNumber),hexToBytes(b.scope),word(b.keyEpoch),hexToBytes(b.receiptTransaction??ZERO),address(b.account??ZERO_ADDRESS),word(b.accountGeneration)));
+    const v2=b.measurement===undefined?[]:[hexToBytes(b.measurement),hexToBytes(keccak256(encoder.encode(b.label!)))];
+    return keccak256(join(domain(v2.length?'DSMACK_NATIVE_DIRECTORY_CHECK_IN_V2':'DSMACK_NATIVE_DIRECTORY_CHECK_IN_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(admission(network,b).category),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),word(b.issuedAt),word(b.expiresAt),hexToBytes(keccak256(encoder.encode(b.selfReported))),word(b.buildNumber),hexToBytes(b.scope),word(b.keyEpoch),hexToBytes(b.receiptTransaction??ZERO),address(b.account??ZERO_ADDRESS),word(b.accountGeneration),...v2));
 }
 export async function accountConsent(network:Network,b:CheckIn,context:Hex):Promise<Uint8Array> {
     return await digest(join(domain('DSMACK_DIRECTORY_ACCOUNT_CONSENT_V1'),word(network.chainId),address(network.DemoV1),hexToBytes(b.member),hexToBytes(keccak256(b.sessionPublic)),address(b.account!),word(b.accountGeneration),hexToBytes(context)));
@@ -102,26 +116,28 @@ export class NativeDirectory {
     checkIn(input:unknown):Promise<unknown>{require(this.pending<16);this.pending++;const operation=this.queue.then(()=>this.accept(input)).catch(()=>{throw new Error('DIRECTORY_INVALID');}).finally(()=>this.pending--);this.queue=operation.catch(()=>{});return operation;}
     private async accept(input:unknown){
         require(this.enabled);const now=this.clock();this.prune(now);const b=validateCheckIn(input,now);
-        const kid=toHex(binary(b.keyId,64));require(keccak256(join(hexToBytes(this.network.macCategory),hexToBytes(kid)))===b.member);
+        const kid=toHex(binary(b.keyId,64)),policy=admission(this.network,b);
         const previous=this.entries.get(b.member);require(!previous||now-Date.parse(previous.record.checkIn.lastVerifiedAt)/1000>=5);
         require(previous||this.entries.size<LIMIT);require(this.counters.has(kid)||this.counters.size<256);
         const context=recordContext(this.network,b);const head=await this.head();
         require(await this.read('keyEpochs',[b.scope],head.number)===BigInt(b.keyEpoch));
         require(await this.read('paused',[],head.number)===false);
-        const category=await this.read('categories',[this.network.macCategory],head.number);
-        require(category[0].toLowerCase()===this.network.macAdapter.toLowerCase()&&category[5]===true);
-        const code=await this.client.getBytecode({address:this.network.macAdapter,blockNumber:head.number});require(code&&keccak256(code)===category[1]);
+        const category=await this.read('categories',[policy.category],head.number);
+        require(category[0].toLowerCase()===policy.adapter&&category[5]===true);
+        const code=await this.client.getBytecode({address:policy.adapter,blockNumber:head.number});require(code&&keccak256(code)===category[1]);
         const revoked=await this.read('members',[b.member],head.number);require(revoked[3]===false);
-        require((await this.read('registry',[],head.number,this.network.macAdapter,this.abi.adapter)).toLowerCase()===this.network.DemoV1.toLowerCase());
-        require((await this.read('cds',[],head.number,this.network.macAdapter,this.abi.adapter)).toLowerCase()===this.network.macCDRegistry.toLowerCase());
+        require((await this.read('registry',[],head.number,policy.adapter,this.abi.adapter)).toLowerCase()===this.network.DemoV1.toLowerCase());
+        require((await this.read('cds',[],head.number,policy.adapter,this.abi.adapter)).toLowerCase()===policy.cds);
         const assertion=decode(binary(b.assertion,14000));require(assertion&&assertion.authenticatorData instanceof Uint8Array&&assertion.signature instanceof Uint8Array);
         const auth=assertion.authenticatorData;require(auth.length>=38);const count=new DataView(auth.buffer,auth.byteOffset,auth.byteLength).getUint32(33,false);require(count>(this.counters.get(kid)?.count??0));
         const [r,s]=signature(assertion.signature);
         const proof=encodeAbiParameters([{type:'bytes32'},{type:'bytes'},{type:'uint256'},{type:'uint256'}],[kid,toHex(auth),r,s]);
-        const verified=await this.client.call({account:this.network.DemoV1,to:this.network.macAdapter,data:encodeFunctionData({abi:this.abi.adapter,functionName:'verify',args:[context,proof]}),blockNumber:head.number});
+        const verified=await this.client.call({account:this.network.DemoV1,to:policy.adapter,data:encodeFunctionData({abi:this.abi.adapter,functionName:'verify',args:[context,proof]}),blockNumber:head.number});
         require(verified.data?.toLowerCase()===encodeAbiParameters([{type:'bytes32'}],[kid]));
         // The deployed canonical parser has already rejected duplicate/unknown/malformed extensions.
         const extensions=decode(auth.slice(37));const cdhash=toHex(extensions.apple_cd_hash_hash_01);hex(cdhash,32);
+        // The claimed M is listed only when the measured registry maps the attested CDHash to it.
+        if(policy.measured)require(b.measurement!==undefined&&await this.read('measurementOf',[cdhash],head.number,policy.cds,measurementAbi)===b.measurement);
         await crypto.subtle.importKey('raw',buffer(hexToBytes(b.sessionPublic)),{name:'ECDSA',namedCurve:'P-256'},false,['verify']);
         let account:any={status:'unavailable',address:null,participantToken:null};
         if(b.account!==null) {
@@ -136,16 +152,16 @@ export class NativeDirectory {
             if(token>0n)require((await this.read('ownerOf',[token],head.number,this.network.ResearchBadges,this.badgeAbi.badges)).toLowerCase()===b.account);
             account={status:'verified',address:b.account,participantToken:token>0n?token.toString():null};
         }
-        const receiptState=await this.receipt(b,head,now);const sync=receiptState.record;
+        const receiptState=await this.receipt(b,policy.category,head,now);const sync=receiptState.record;
         await this.canonical(head);
         const verifiedAt=this.clock();require(verifiedAt>=now&&verifiedAt-Number(head.timestamp)<45&&verifiedAt<=b.expiresAt);
         if(sync.receiptBlockTime){sync.receiptCheckedAt=iso(verifiedAt);if(verifiedAt-Date.parse(sync.receiptBlockTime)/1000>RECEIPT_TTL)sync.status='stale';}
-        const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash},checkIn:{lastVerifiedAt:iso(verifiedAt),expiresAt:iso(verifiedAt+TTL),status:'fresh'},sync};
+        const record={id:keccak256(join(word(this.network.chainId),address(this.network.DemoV1),hexToBytes(b.member))),member:b.member,account,accountGeneration:BigInt(b.accountGeneration),label:b.label??null,version:{selfReported:b.selfReported,buildNumber:b.buildNumber,admittedCodeHash:cdhash,measurement:policy.measured?b.measurement!:null},checkIn:{lastVerifiedAt:iso(verifiedAt),expiresAt:iso(verifiedAt+TTL),status:'fresh'},sync};
         this.counters.set(kid,{count,at:verifiedAt});this.entries.set(b.member,{record,sessionPublic:b.sessionPublic,context,epoch:BigInt(b.keyEpoch),receiptBlock:receiptState.block});
         this.revision++;this.listingCache=undefined;
         return {accepted:true,context,expiresAt:record.checkIn.expiresAt,account:account.address,admittedCodeHash:cdhash,syncStatus:sync.status};
     }
-    private async receipt(b:CheckIn,head:any,now:number){
+    private async receipt(b:CheckIn,category:Hex,head:any,now:number){
         const result:any={scope:b.scope,keyEpoch:b.keyEpoch,groupPublicFingerprint:null,status:'unverified',receiptTransaction:null,receiptCheckedAt:null,receiptBlockTime:null};
         let canonicalBlock:{number:bigint,hash:Hex}|null=null;
         if(!b.receiptTransaction)return {record:result,block:canonicalBlock};
@@ -154,14 +170,14 @@ export class NativeDirectory {
             const block=await this.client.getBlock({blockNumber:receipt.blockNumber});require(block.hash===receipt.blockHash&&Number(block.timestamp)<=now+5);
             const tx=await this.client.getTransaction({hash:b.receiptTransaction});require(tx.to?.toLowerCase()===this.network.DemoV1.toLowerCase());
             const decoded=decodeFunctionData({abi:this.abi.demo,data:tx.input});require(decoded.functionName==='execute');const request=(decoded.args as any)[0];
-            require(request.action===3&&request.category===this.network.macCategory.toLowerCase()&&request.scope===b.scope&&request.sessionKeyHash===keccak256(b.sessionPublic));
+            require(request.action===3&&request.category===category&&request.scope===b.scope&&request.sessionKeyHash===keccak256(b.sessionPublic));
             const epoch=await this.read('keyEpochs',[b.scope],head.number);require(epoch===BigInt(b.keyEpoch));
             const key=await this.read('sharedKeys',[b.scope],head.number);require(key[3]===true&&key[0]===request.keyX&&key[1]===request.keyY);
             const expected=await this.read('contextHash',[request],head.number);
             const logs=receipt.logs.filter((log:any)=>log.address.toLowerCase()===this.network.DemoV1.toLowerCase()).map((log:any)=>{try{return decodeEventLog({abi:this.abi.demo,data:log.data,topics:log.topics});}catch{return null;}});
             const checked=logs.filter((log:any)=>log?.eventName==='Checked'),receipts=logs.filter((log:any)=>log?.eventName==='KeyReceipt');require(checked.length===1&&receipts.length===1);
             const c:any=checked[0]!.args,k:any=receipts[0]!.args;
-            require(c.member===b.member&&c.category===this.network.macCategory.toLowerCase()&&c.context===expected&&c.sessionKeyHash===keccak256(b.sessionPublic));
+            require(c.member===b.member&&c.category===category&&c.context===expected&&c.sessionKeyHash===keccak256(b.sessionPublic));
             require(k.member===b.member&&k.scope===b.scope&&k.context===expected&&k.envelopeDigest===request.envelopeDigest);
             result.groupPublicFingerprint='sha256:'+toHex(await digest(join(new Uint8Array([4]),word(key[0]),word(key[1])))).slice(2);
             result.status=now-Number(block.timestamp)<=RECEIPT_TTL?'receipt-verified-current-epoch':'stale';result.receiptTransaction=b.receiptTransaction;result.receiptCheckedAt=iso(now);result.receiptBlockTime=iso(Number(block.timestamp));canonicalBlock={number:receipt.blockNumber,hash:receipt.blockHash};

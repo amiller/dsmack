@@ -28,7 +28,7 @@ Gatekeeper settings to make it open.
    enrolls with App Attest and finds a peer, then **You’re in.** once it holds
    the network's shared key.
 
-   <img src="docs/assets/step-open.png" width="480" alt="The Dsmack Node window showing Connecting.">
+   <img src="docs/assets/step-open.png" width="480" alt="The Dsmack Node window showing Connected / peer active.">
 
 3. Choose **Share in public node directory…** and find your node on the
    [dashboard](https://amiller.github.io/dsmack/nodes/).

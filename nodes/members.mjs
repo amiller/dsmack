@@ -17,7 +17,7 @@ const TOPIC = {
   revoked: "0xe5af7daed5ab2a2dc5f98d53619f05089c0c14d11a6621f6b906a2366c9a7ab3",
   asserted: "0x8baa3ce13e072df0e9c6811d3a5ca383f3db280949f547aaca24ac161ad21c69",
 };
-const SELECTOR = {isActive: "0x5c36901c", keyEpochs: "0xd71779d9", isAdmitted: "0xc216e459", isAdmittedAt: "0xfc9e2bfe",
+const SELECTOR = {keyEpochs: "0xd71779d9", isAdmitted: "0xc216e459", isAdmittedAt: "0xfc9e2bfe",
   assertionEvidence: "0x80fb5bc4", measurementOf: "0x2bbfe646"};
 const ADAPTER = {[MEASURED.category]: MEASURED.adapter, [LEGACY.category]: LEGACY.adapter};
 
@@ -85,10 +85,9 @@ export async function loadMembers(fetcher = fetch, now = Date.now() / 1000) {
   for (const n of directory.nodes) member(n.member);
   const list = [...members.values()], keyed = list.filter(m => m.keyId && ADAPTER[m.category]);
   const [blockHex, epochWord, ...words] = await batched(fetcher, [["eth_blockNumber", []], call(REGISTRY, SELECTOR.keyEpochs, ZERO),
-    ...list.map(m => call(REGISTRY, SELECTOR.isActive, m.member)),
     ...keyed.map(m => call(ADAPTER[m.category], SELECTOR.assertionEvidence, m.keyId))]);
   // assertionEvidence(keyId) = (context, cdhash, rp, checkedAt, counter): the CDHash of the member's last assertion.
-  keyed.forEach((m, i) => { m.cdhash = "0x" + words[list.length + i].slice(66, 130); });
+  keyed.forEach((m, i) => { m.cdhash = "0x" + words[i].slice(66, 130); });
   const measured = keyed.filter(m => m.category === MEASURED.category), legacy = keyed.filter(m => m.category === LEGACY.category);
   const ms = await batched(fetcher, [...measured.map(m => call(MEASURED.registry, SELECTOR.measurementOf, m.cdhash)),
     ...legacy.map(m => call(CD_REGISTRY, SELECTOR.isAdmitted, m.cdhash))]);
@@ -98,24 +97,24 @@ export async function loadMembers(fetcher = fetch, now = Date.now() / 1000) {
   measured.forEach((m, i) => { m.admitted = BigInt(windows[i]) === 1n; });
   const currentEpoch = BigInt(epochWord), epochAt = block => epochs.filter(e => e.block <= block).at(-1)?.epoch ?? 0n;
   const short = h => `${h.slice(0, 10)}…`;
-  const rows = list.map((m, i) => {
+  const rows = list.map(m => {
     const node = byMember.get(m.member);
     const epoch = m.receiptBlock === null ? null : epochAt(m.receiptBlock);
     const checkIn = node ? Date.parse(node.checkIn.lastVerifiedAt) / 1000 : null;
+    const lastSeen = Math.max(checkIn ?? 0, m.lastEventAt ?? 0) || null;
     return {
-      member: m.member, name: `${m.member.slice(0, 8)}…${m.member.slice(-6)}`,
-      active: BigInt(words[i]) === 1n, revoked: m.revoked,
-      version: node ? `${node.label ? node.label + " · " : ""}${node.version.selfReported} (build ${node.version.buildNumber})` : directory.status === "unknown" ? "unknown" : "no check-in",
-      admitted: m.admitted === undefined ? (m.category === null ? "no join on chain" : "no assertion found")
-        : m.measurement ? `${m.admitted ? "admitted" : "not admitted"} · M ${short(m.measurement)}` : `${m.admitted ? "admitted" : "not admitted"} · legacy build ${short(m.cdhash)}`,
-      lastSeen: checkIn ?? m.lastEventAt, lastSeenSource: node ? "check-in" : "registry event",
+      member: m.member, name: node?.label || `${m.member.slice(0, 8)}…${m.member.slice(-6)}`, revoked: m.revoked,
+      version: node ? `${node.version.selfReported} (build ${node.version.buildNumber})` : null,
+      admitted: m.admitted === undefined ? (m.category === null ? "no join on chain" : "no assertion found") : m.admitted ? "admitted" : "not admitted",
+      admittedNote: m.admitted === undefined ? "" : m.measurement ? `measured · M ${short(m.measurement)}` : `legacy build ${short(m.cdhash)}`,
+      checkIn, registryAt: m.lastEventAt, lastSeen, recent: lastSeen !== null && now - lastSeen <= 7 * 86400,
       presence: node ? (node.fresh && now - checkIn <= 90 ? "online" : "stale") : directory.status === "unknown" ? "unknown" : "no check-in",
-      attestation: m.joinedAt === null ? "no join on chain" : `App Attest at join · ${m.category === MEASURED.category ? "measured" : m.category === LEGACY.category ? "legacy" : "other"} category`,
       epoch: epoch === null ? "no receipt" : `${epoch}${epoch === currentEpoch ? " (current)" : ` (stale; current ${currentEpoch})`}`,
       lastTx: m.lastTx,
     };
   });
-  rows.sort((a, b) => (b.active - a.active) || (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
+  const rank = {online: 0, stale: 1};
+  rows.sort((a, b) => (rank[a.presence] ?? 2) - (rank[b.presence] ?? 2) || (b.lastSeen ?? 0) - (a.lastSeen ?? 0));
   return {rows, currentEpoch, directory, events: events.length};
 }
 
@@ -125,19 +124,35 @@ export function ago(seconds, now = Date.now() / 1000) {
   return d < 90 ? `${d} s ago` : d < 5400 ? `${Math.round(d / 60)} min ago` : d < 129600 ? `${Math.round(d / 3600)} h ago` : `${Math.round(d / 86400)} d ago`;
 }
 
+const SHOW_ALL = "dsmack-nodes-show-all";
+let showAll = false, lastView = null;
+try { showAll = localStorage.getItem(SHOW_ALL) === "1"; } catch {}
+export function toggleAll(doc = document) {
+  showAll = !showAll;
+  try { localStorage.setItem(SHOW_ALL, showAll ? "1" : "0"); } catch {}
+  if (lastView) draw(lastView, doc);
+}
+
 export function draw(view, doc = document) {
+  lastView = view;
   const text = (id, v) => { doc.getElementById(id).textContent = v; };
+  const el = (tag, v, cls) => { const e = doc.createElement(tag); e.textContent = v; if (cls) e.className = cls; return e; };
+  const recent = view.rows.filter(r => r.recent);
   text("chain-state", "observed"); text("directory-state", view.directory.status); text("directory-message", view.directory.message);
-  text("summary", `${view.rows.filter(r => r.active).length} active of ${view.rows.length} registry members · ${view.events} registry events · shared key epoch ${view.currentEpoch}`);
+  text("summary", `${view.rows.filter(r => r.presence === "online").length} online · ${recent.length} recent · ${view.rows.length} ever registered · shared key epoch ${view.currentEpoch}`);
+  text("toggle-all", showAll ? `Show only the ${recent.length} recent members` : `Show all ${view.rows.length} members`);
   const body = doc.getElementById("member-rows"); body.replaceChildren();
-  for (const r of view.rows) {
+  for (const r of showAll ? view.rows : recent) {
     const row = doc.createElement("tr");
-    const cell = v => { const td = doc.createElement("td"); typeof v === "string" ? td.textContent = v : td.append(v); row.append(td); };
-    const id = doc.createElement("code"); id.textContent = r.name; id.title = r.member;
+    const cell = (...parts) => { const td = doc.createElement("td"); td.append(...parts); row.append(td); };
+    const name = el("strong", r.name); name.title = r.member;
     const link = doc.createElement("a"); link.rel = "noreferrer";
     if (r.lastTx) { link.href = `${EXPLORER}/tx/${r.lastTx}`; link.textContent = `${r.lastTx.slice(0, 10)}…`; } else link.textContent = "none";
-    cell(id); cell(r.revoked ? "revoked" : r.active ? "active" : "inactive"); cell(r.version); cell(r.admitted);
-    cell(`${r.presence} · ${ago(r.lastSeen)} (${r.lastSeenSource})`); cell(r.attestation); cell(r.epoch); cell(link);
+    cell(name, el("small", r.version ?? ""));
+    cell(el("span", r.revoked ? "revoked" : r.presence, `presence ${r.revoked ? "revoked" : r.presence.replace(" ", "-")}`));
+    cell(r.admitted, el("small", r.admittedNote));
+    cell(ago(r.lastSeen), el("small", r.registryAt === null ? "no registry event" : `registry ${ago(r.registryAt)}`));
+    cell(r.epoch); cell(link);
     body.append(row);
   }
 }

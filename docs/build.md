@@ -74,8 +74,9 @@ python3 scripts/release/measure_two_teams.py \
 
 This prints your M and your CDHash. Compare M with the one admitted for that
 release; the [0.2.0 release notes](https://github.com/amiller/dsmack/releases/tag/node-v0.2.0)
-list `0xf8c1da8e…f8fb58` for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
-different flavor (`--gui` or not), or a change to the entitlements.
+list `0xf8c1da8e…f8fb58` for the app. If it does not match, the usual causes
+are a different commit, a different toolchain, a different flavor (`--gui` or
+not), or a change to the entitlements.
 
 ## Try it without an Apple account
 

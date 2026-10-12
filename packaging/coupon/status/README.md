@@ -53,8 +53,9 @@ online availability or current private-key possession.
 
 The new panel requires the separately deployed and qualified directory endpoint.
 Source tests with synthetic records do not establish public service availability
-or independent-device acceptance. Sharing defaults off; registration alone does
-not publish a participant in this directory.
+or independent-device acceptance. A public Mac node lists itself by default
+([opt-out](../../../docs/native-directory-v1.md#listing-by-default)); registration
+alone does not publish a participant in this directory.
 
 - `health.json` contains exactly `state`, `observed_at_unix`,
   `claiming_available` from the [controller](../public-testnet-operations.md).

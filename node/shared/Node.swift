@@ -14,6 +14,7 @@ struct Config {
     let rpc: URL; let registry: String; let chainId: UInt64; let category: Data; let relay: URL; let name: String
     let badges: String?; let accountFactory: String?
     let peer: String; let helloDelay: Double; let protocolVersion: Int; let persistentIdentity: Bool
+    let publicDirectory: Bool; let label: String
     init(_ d: [String:Any]) throws {
         guard let rpc=d["rpc"] as? String,let registry=d["registry"] as? String,let chainId=d["chainId"] as? Int,let category=d["category"] as? String,
               let relay=d["relay"] as? String,let name=d["name"] as? String,let r=URL(string:rpc),let l=URL(string:relay) else {throw DemoError.invalid("config fields")}
@@ -22,6 +23,14 @@ struct Config {
         protocolVersion=d["protocolVersion"] as? Int ?? 1
         try need(protocolVersion==1 || protocolVersion==2,"unsupported protocol version")
         persistentIdentity=d["persistentIdentity"] as? Bool ?? false
+        // A public Mac node lists itself in the relay directory unless "publicDirectory": false.
+        #if os(macOS)
+        publicDirectory=d["publicDirectory"] as? Bool ?? true
+        #else
+        publicDirectory=d["publicDirectory"] as? Bool ?? false
+        #endif
+        label=d["label"] as? String ?? ""
+        try need(label.range(of:"^[A-Za-z0-9 ._-]{0,32}$",options:.regularExpression) != nil,"label: up to 32 of A-Z a-z 0-9 space . _ -")
         badges=d["badges"] as? String;accountFactory=d["accountFactory"] as? String
         try need((badges == nil)==(accountFactory == nil),"incomplete badge configuration")
         if let badges,let accountFactory {_=try addressWord(badges);_=try addressWord(accountFactory)}
@@ -51,6 +60,17 @@ final class Node {
     let directoryState=NativeDirectoryState()
     var nextDirectoryAttempt=Date.distantPast
     var directoryReceipt: String?
+    private var measured: (fields:[String:Any],value:Data)?
+    /// This executable's measurement inputs and M (open-admission design §2); nil where unsupported (iOS).
+    func ownMeasurement() throws -> (fields:[String:Any],value:Data)? {
+        #if os(macOS)
+        if measured == nil {
+            do {let x=try CodeMeasurement.ofSelf();measured=(x.enrollFields,try x.value())}
+            catch {throw DemoError.invalid("cannot measure this executable; enrollment and directory listing need its code measurement: \(error)")}
+        }
+        #endif
+        return measured
+    }
     private let operationLock=NSLock()
     private var operations=[(Node)->Void]()
     func enqueueOperation(_ operation:@escaping (Node)->Void) {
@@ -86,6 +106,7 @@ final class Node {
     }
     init(_ cfg: Config,log: @escaping (String,[String:Any]) -> Void) {
         self.cfg=cfg;chain=Chain(rpcURL:cfg.rpc,registry:cfg.registry,chainId:cfg.chainId);self.log=log
+        directoryState.setEnabled(cfg.publicDirectory)
     }
     func relay(_ path: String,_ body: [String:Any]?=nil) throws -> [String:Any] {
         guard let r=try http(cfg.relay.appendingPathComponent(path),body) as? [String:Any] else {throw DemoError.invalid("relay response")}
@@ -134,6 +155,7 @@ final class Node {
                 }
             }
         }
+        let measurement=try ownMeasurement()
         if state==nil {
             keyID = try native("generateKey") {done in service.generateKey(completionHandler:done)}
             state=EnrollmentState(keyID:keyID);try saveState(state!)
@@ -157,8 +179,11 @@ final class Node {
             state!.attestation=attestation.base64EncodedString();state!.clientData=hex(context)
             try saveState(state!)
         }
-        let r=try relay("enroll",["category":hex(cfg.category),"attestation":attestation.base64EncodedString(),"clientData":hex(context)])
+        let r=try relay("enroll",Node.enrollBody(category:cfg.category,attestation:attestation,clientData:context,measurement:measurement?.fields ?? [:]))
         log("enrolled",["keyId":hex(kid),"member":hex(me),"tx":r["tx"] ?? "","sessionPublic":hex(sessionPublic)])
+    }
+    static func enrollBody(category:Data,attestation:Data,clientData:Data,measurement:[String:Any]) -> [String:Any] {
+        ["category":hex(category),"attestation":attestation.base64EncodedString(),"clientData":hex(clientData)].merging(measurement){$1}
     }
     /// action: 0 join, 2 bootstrap, 3 receipt. The relay is gas sponsor and Request.owner.
     func execute(_ action: UInt64,scope: Data=zero32,group: P256.Signing.PrivateKey?=nil,envelope: Data=zero32) throws -> String {

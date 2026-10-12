@@ -33,6 +33,15 @@ jobs:
         run: |
           xcrun swiftc node/shared/Protocol.swift node/shared/Measure.swift node/tests/MeasureVectors.swift -o build/measure-vectors
           build/measure-vectors
+      - name: Verify measured enroll payload and directory heartbeat encoding
+        run: |
+          xcrun swiftc -framework DeviceCheck node/shared/*.swift node/tests/MeasuredEnrollTests.swift -o build/measured-enroll-tests
+          build/measured-enroll-tests
+          build/measured-enroll-tests --unsigned
+          cp build/measured-enroll-tests build/measured-enroll-signed
+          printf '%s\n' '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>com.apple.security.get-task-allow</key><true/></dict></plist>' > build/test-ent.plist
+          codesign --force -s - --options runtime --entitlements build/test-ent.plist --generate-entitlement-der build/measured-enroll-signed
+          build/measured-enroll-signed --self
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: mac-${{ matrix.flavor }}-unsigned-reproducibility

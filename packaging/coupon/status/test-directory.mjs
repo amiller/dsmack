@@ -70,3 +70,13 @@ test("directory fetch pins endpoint, omits credentials and rejects redirects, ov
   await assert.rejects(readDirectory(async () => new Response(new Uint8Array([255]))));
   await assert.rejects(readDirectory(async () => new Response("{}", {status: 503})));
 });
+
+test("v2 records carry a signed label and a registry-verified measurement or null", () => {
+  const r = report(); r.nodes[0].label = "mini mesh-1"; r.nodes[0].version.measurement = h("7");
+  assert.equal(directoryView(r, now).nodes[0].label, "mini mesh-1");
+  r.nodes[0].version.measurement = null; assert.equal(directoryView(r, now).status, "available");
+  for (const bad of [r => {r.nodes[0].label = "<b>";}, r => {delete r.nodes[0].version.measurement;}, r => {r.nodes[0].version.measurement = "0x1";}]) {
+    const v = report(); v.nodes[0].label = ""; v.nodes[0].version.measurement = null; bad(v);
+    assert.equal(directoryView(v, now).status, "unknown");
+  }
+});

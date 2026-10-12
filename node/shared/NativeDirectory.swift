@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-/// Public sharing is explicit and starts off. This state contains no group key.
+/// Public sharing follows Config.publicDirectory, then the app's recorded consent. This state contains no group key.
 final class NativeDirectoryState {
     private let lock=NSLock()
     private var enabled=false
@@ -13,9 +13,10 @@ final class NativeDirectoryState {
 }
 
 enum NativeDirectoryEncoding {
-    static func context(chainId:UInt64,registry:String,category:Data,member:Data,session:Data,issuedAt:UInt64,version:String,build:UInt64,scope:Data,epoch:UInt64,receipt:Data,account:String,generation:UInt64)throws->Data {
-        try need([category,member,scope,receipt].allSatisfy{$0.count==32}&&session.count==65,"directory field widths")
-        let parts:[Data]=[keccak(Data("DSMACK_NATIVE_DIRECTORY_CHECK_IN_V1".utf8)),word(chainId),try addressWord(registry),category,member,keccak(session),word(issuedAt),word(issuedAt+90),keccak(Data(version.utf8)),word(build),scope,word(epoch),receipt,try addressWord(account),word(generation)]
+    /// v2 (measurement and label present) appends M and Keccak256(label) under the V2 domain.
+    static func context(chainId:UInt64,registry:String,category:Data,member:Data,session:Data,issuedAt:UInt64,version:String,build:UInt64,scope:Data,epoch:UInt64,receipt:Data,account:String,generation:UInt64,v2:(measurement:Data,label:String)?=nil)throws->Data {
+        try need([category,member,scope,receipt].allSatisfy{$0.count==32}&&session.count==65&&(v2?.measurement.count ?? 32)==32,"directory field widths")
+        let parts:[Data]=[keccak(Data(("DSMACK_NATIVE_DIRECTORY_CHECK_IN_V"+(v2==nil ? "1":"2")).utf8)),word(chainId),try addressWord(registry),category,member,keccak(session),word(issuedAt),word(issuedAt+90),keccak(Data(version.utf8)),word(build),scope,word(epoch),receipt,try addressWord(account),word(generation)]+(v2.map{[$0.measurement,keccak(Data($0.label.utf8))]} ?? [])
         let payload=parts.reduce(Data(),+)
         return keccak(payload)
     }
@@ -51,6 +52,7 @@ extension Node {
         let issued=UInt64(Date().timeIntervalSince1970)
         let epoch=try chain.keyEpoch(zero32,protocolVersion:cfg.protocolVersion)
         let receipt=directoryReceipt
+        let v2=try ownMeasurement().map{(measurement:$0.value,label:cfg.label)}
         var personal:PersonalAccountKey?;var account:String?;var generation:UInt64=0
         // Lookups only: an absent key/account remains unbound, with no creation or mint.
         if let factory=cfg.accountFactory {
@@ -63,20 +65,21 @@ extension Node {
                 }
             }
         }
-        let context=try NativeDirectoryEncoding.context(chainId:cfg.chainId,registry:cfg.registry,category:cfg.category,member:me,session:sessionPublic,issuedAt:issued,version:version,build:build,scope:zero32,epoch:epoch,receipt:receipt.map{try bytes32($0)} ?? zero32,account:account ?? "0x"+String(repeating:"0",count:40),generation:generation)
+        let context=try NativeDirectoryEncoding.context(chainId:cfg.chainId,registry:cfg.registry,category:cfg.category,member:me,session:sessionPublic,issuedAt:issued,version:version,build:build,scope:zero32,epoch:epoch,receipt:receipt.map{try bytes32($0)} ?? zero32,account:account ?? "0x"+String(repeating:"0",count:40),generation:generation,v2:v2)
         var consent:Data?
         if let personal,let account {consent=try personal.directoryConsent(NativeDirectoryEncoding.accountPayload(chainId:cfg.chainId,registry:cfg.registry,member:me,session:sessionPublic,account:account,generation:generation,context:context))}
         let assertion=try appAttest(enroll:false,context)
-        let body:[String:Any]=["member":hex(me),"keyId":keyID,"sessionPublic":hex(sessionPublic),"issuedAt":issued,"expiresAt":issued+90,
+        var body:[String:Any]=["member":hex(me),"keyId":keyID,"sessionPublic":hex(sessionPublic),"issuedAt":issued,"expiresAt":issued+90,
             "selfReported":version,"buildNumber":buildText,"scope":hex(zero32),"keyEpoch":String(epoch),"receiptTransaction":receipt as Any? ?? NSNull(),
             "account":account as Any? ?? NSNull(),"accountGeneration":String(generation),"accountSignature":consent.map{hex($0)} as Any? ?? NSNull(),"assertion":assertion.base64EncodedString()]
+        if let v2 {body["measurement"]=hex(v2.measurement);body["label"]=v2.label}
         try need(directoryOptIn,"directory sharing is off")
         let response=try directoryHTTP("directory/check-in",body,timeout:15)
         try need(response["accepted"] as? Bool == true && response["context"] as? String == hex(context),"directory response")
         directoryState.setContext(context)
         if !directoryOptIn {requestDirectoryLeave({});return}
         let publicID=try keccak(word(cfg.chainId)+addressWord(cfg.registry)+me)
-        log("directory checked in",["member":hex(me),"id":hex(publicID),"expiresAt":response["expiresAt"] ?? "","account":response["account"] ?? NSNull(),"admittedCodeHash":response["admittedCodeHash"] ?? "","syncStatus":response["syncStatus"] ?? "unverified"])
+        log("directory checked in",["member":hex(me),"measurement":v2.map{hex($0.measurement)} ?? NSNull(),"label":cfg.label,"id":hex(publicID),"expiresAt":response["expiresAt"] ?? "","account":response["account"] ?? NSNull(),"admittedCodeHash":response["admittedCodeHash"] ?? "","syncStatus":response["syncStatus"] ?? "unverified"])
     }
     /// Fast best-effort leave: no Apple assertion, chain write, membership revocation or account deletion.
     /// Safe for global app termination, including updater/system quit; completion fires within four seconds.

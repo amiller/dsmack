@@ -27,6 +27,9 @@ struct CodeMeasurement {
         return x
     }
 
+    /// Sent with the enroll request (about 17 KB) for MeasurementRegistry.register.
+    var enrollFields: [String:Any] {["cd":Data(cd).base64EncodedString(),"page0":Data(page0).base64EncodedString(),"ent":Data(ent).base64EncodedString(),"L":L,"S":S]}
+
     static func of(executable url: URL) throws -> CodeMeasurement {
         let b=[UInt8](try Data(contentsOf:url))
         try need(b.count>=32 && le32(b,0)==0xfeedfacf && le32(b,4)==0x0100000c,"arm64 Mach-O")

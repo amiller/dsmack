@@ -398,7 +398,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
     @objc private func toggleDirectorySharing() {
         if !directoryRequested {
             let alert=NSAlert();alert.messageText="Share your node publicly?"
-            alert.informativeText="The public testnet dashboard will show your membership ID, existing account address and participant receipt when verified, app version and admitted code hash, check-in times, and key-exchange receipt evidence. This does not establish a unique person or continuous availability. Turning sharing off removes the entry when reachable; interrupted entries expire. Your enrollment and account stay intact."
+            alert.informativeText="The public testnet dashboard will show your membership ID, existing account address and participant receipt when verified, app version, admitted code hash and code measurement, check-in times, and key-exchange receipt evidence. This does not establish a unique person or continuous availability. Turning sharing off removes the entry when reachable; interrupted entries expire. Your enrollment and account stay intact."
             alert.addButton(withTitle:"Share publicly");alert.addButton(withTitle:"Keep private")
             guard alert.runModal() == .alertFirstButtonReturn else {return}
         }
@@ -408,6 +408,13 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
         refreshDirectoryMenu()
         let enabled=directoryRequested
         node?.enqueueOperation{$0.setDirectoryOptIn(enabled)}
+    }
+    /// Asked once per network; listing is the default answer.
+    private func firstRunDirectoryConsent()->Bool {
+        let alert=NSAlert();alert.messageText="List this Mac in the public node directory?"
+        alert.informativeText="Running as a public node, this Mac is listed by default: the testnet dashboard shows its membership ID, app version, admitted code hash and code measurement, check-in times and key-exchange receipts. Your choice is recorded once; change it any time from the menu."
+        alert.addButton(withTitle:"List publicly");alert.addButton(withTitle:"Keep private")
+        return alert.runModal() == .alertFirstButtonReturn
     }
     private func publicNodeID()->String? {
         guard let member=status["member"] as? String,member.range(of:"^0x[0-9a-f]{64}$",options:.regularExpression) != nil else {return nil}
@@ -459,6 +466,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
                 defaults.set(identity,forKey:"participantName");config["name"]=identity
             }
             config["persistentIdentity"]=true
+            // Listing waits for the recorded consent below, never the CLI default.
+            config["publicDirectory"]=false
             let cfg=try Config(config)
             try need(!cfg.peer.isEmpty,"missing faucet peer")
             emit("configured",["network":ReleaseNetwork.name,"chainId":cfg.chainId,"registry":cfg.registry,"participant":cfg.name])
@@ -466,6 +475,7 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             let preference="dsmack.public-directory.v1."+hex(keccak(word(cfg.chainId)+(try addressWord(cfg.registry))))
             DispatchQueue.main.async {
                 self.node=participant;self.directoryPreferenceKey=preference
+                if self.directoryDefaults.object(forKey:preference)==nil {self.directoryDefaults.set(self.firstRunDirectoryConsent(),forKey:preference)}
                 self.directoryRequested=self.directoryDefaults.bool(forKey:preference)
                 if self.directoryRequested {self.directoryLabel.stringValue="Public sharing requested; waiting for a verified check-in."}
                 self.refreshDirectoryMenu()

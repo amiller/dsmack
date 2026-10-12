@@ -1,5 +1,5 @@
 import {NativeDirectory} from "./directory.ts";
-import {createPublicClient, http, encodeFunctionData, encodeAbiParameters, keccak256, toHex, parseTransaction, type Hex, type Address} from "npm:viem@2.38.0";
+import {createPublicClient, http, encodeFunctionData, encodeAbiParameters, keccak256, sha256, toHex, parseAbi, parseTransaction, type Hex, type Address} from "npm:viem@2.38.0";
 import {privateKeyToAccount} from "npm:viem@2.38.0/accounts";
 import {decode} from "npm:cbor-x@1.6.0/decode-no-eval";
 
@@ -22,6 +22,8 @@ try {
     const ios=JSON.parse(await Deno.readTextFile(new URL('./network-ios.json',import.meta.url)));
     iosDeployment={...ios,macCategory:hex(ios.iosCategory,32),macAdapter:hex(ios.iosAdapter,20),macCDRegistry:hex(ios.iosCDRegistry,20)};
 } catch(e) {if(!(e instanceof Deno.errors.NotFound))throw e;}
+export const measuredAbi=parseAbi(['function measure(bytes cd,bytes page0,bytes ent,uint256 L,uint256 S) pure returns (bytes32)','function isAdmitted(bytes32 m,uint256 blockNumber) view returns (bool)','function measurementOf(bytes32 cdhash) view returns (bytes32)','function register(bytes cd,bytes page0,bytes ent,uint256 L,uint256 S) returns (bytes32)']);
+const measuredKeys=['measuredCategory','measuredAdapter','measurementRegistry'];
 const response=(body:unknown,status=200)=>Response.json(body,{status});
 function need(ok:unknown,message:string):asserts ok {if(!ok)throw new Error(message);}
 function binary(value:unknown):Uint8Array {need(typeof value==='string' && value.length<64000,'invalid base64');return Uint8Array.from(atob(value),c=>c.charCodeAt(0));}
@@ -68,6 +70,12 @@ export class Relay {
                 'iPhone route must share NFT chain, sponsor and registry');
             for(const field of ['macCategory','macAdapter','macCDRegistry'])
                 need(iosDeployment[field].toLowerCase()!==nftDeployment[field].toLowerCase(),'iPhone route requires a separate admission policy');
+        }
+        // A measured admission policy (MeasurementRegistry + AppleAttestMeasuredV1) runs beside the legacy category.
+        for(const network of [deployment,nftDeployment].filter(Boolean)) {
+            const present=measuredKeys.filter(k=>network[k]!==undefined);
+            need(present.length===0||present.length===3,'measured admission needs '+measuredKeys.join(', '));
+            if(present.length)need(network.measuredCategory.toLowerCase()!==network.macCategory.toLowerCase()&&network.measuredAdapter.toLowerCase()!==network.macAdapter.toLowerCase(),'measured admission requires a separate category and adapter');
         }
         await Deno.mkdir(this.directory,{recursive:true});
         try {this.state=JSON.parse(await Deno.readTextFile(this.directory+'/state.json'));}
@@ -134,9 +142,28 @@ export class Relay {
         });
         this.txQueue=operation.catch(()=>{});return operation;
     }
+    private measured(network:typeof deployment,category:unknown):boolean {
+        const c=hex(category,32).toLowerCase();
+        if(c===network.measuredCategory?.toLowerCase())return true;
+        need(c===network.macCategory.toLowerCase(),'unknown category');return false;
+    }
+    /** MeasurementRegistry.register before enroll, once per CDHash; refuses a measurement outside its window. */
+    private async registerMeasurement(network:typeof deployment,body:any,authData:Uint8Array) {
+        need(['cd','page0','ent','L','S'].every(k=>body[k]!==undefined),'enrollment requires the code measurement {cd,page0,ent,L,S}');
+        const cd=toHex(binary(body.cd)),page0=toHex(binary(body.page0)),ent=toHex(binary(body.ent)),L=integer(body.L),S=integer(body.S);
+        need(page0.length===2+16384*2,'measurement page0');
+        // Extensions follow the 164-byte attested-credential prefix the adapter requires (AppleAuthData.check).
+        need(authData.length>164,'attestation authData');const attested=decode(authData.subarray(164))?.apple_cd_hash_hash_01;
+        need(attested instanceof Uint8Array&&toHex(attested)===sha256(cd),'code measurement is not of the attested CDHash');
+        const address=network.measurementRegistry as Address;
+        let m:Hex;try {m=await this.client.readContract({address,abi:measuredAbi,functionName:'measure',args:[cd,page0,ent,L,S]});}catch {throw new Error('invalid code measurement');}
+        need(await this.client.readContract({address,abi:measuredAbi,functionName:'isAdmitted',args:[m,await this.client.getBlockNumber()]}),'build not admitted');
+        if(await this.client.readContract({address,abi:measuredAbi,functionName:'measurementOf',args:[sha256(cd)]})!==m)
+            await this.transact(network.measurementRegistry,encodeFunctionData({abi:measuredAbi,functionName:'register',args:[cd,page0,ent,L,S]}));
+    }
     private networkRequest(r:any,network:typeof deployment) {
         need(r&&[0,2,3].includes(r.action),'unsupported action');
-        need(hex(r.category,32).toLowerCase()===network.macCategory.toLowerCase(),'unknown category');
+        this.measured(network,r.category);
         need(r.owner?.toLowerCase()===this.account.address.toLowerCase()&&r.memberSigner?.toLowerCase()===this.account.address.toLowerCase(),'wrong owner');
         return {action:r.action,category:hex(r.category,32),owner:this.account.address,memberSigner:this.account.address,sessionKeyHash:hex(r.sessionKeyHash,32),nonce:integer(r.nonce),validUntil:integer(r.validUntil),scope:hex(r.scope,32),keyX:integer(r.keyX),keyY:integer(r.keyY),envelopeDigest:hex(r.envelopeDigest,32)};
     }
@@ -186,10 +213,11 @@ export class Relay {
             return await enqueue();
         }
         if(path==='/enroll') {
-            need(hex(body.category,32).toLowerCase()===selected.macCategory.toLowerCase(),'unknown category');
+            const measured=this.measured(selected,body.category);
             const evidence=decode(binary(body.attestation));
             const data=encodeFunctionData({abi:abi.adapter,functionName:'enroll',args:[toHex(evidence.attStmt.x5c[0]),toHex(evidence.authData),hex(body.clientData,32)]});
-            return response({tx:await this.transact(selected.macAdapter,data)});
+            if(measured)await this.registerMeasurement(selected,body,evidence.authData);
+            return response({tx:await this.transact(measured?selected.measuredAdapter:selected.macAdapter,data)});
         }
         if(path==='/register-build') {
             need(selected.ResearchBadges&&selected.PersonalBadgeAccountFactory,'NFT builder registration not enabled');

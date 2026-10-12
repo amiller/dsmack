@@ -29,13 +29,17 @@ export function directoryView(value, now = Date.now() / 1000) {
   if (value.error !== null) return unknown();
   const ids = new Set(), members = new Set(), rows = [];
   for (const n of value.nodes) {
-    if (!exact(n, ["id", "member", "account", "version", "checkIn", "sync"]) || !hex(n.id, 64) || !hex(n.member, 64)
+    // label and version.measurement come from v2 check-ins; v1 records omit them.
+    const v2 = "label" in n;
+    if (!exact(n, ["id", "member", "account", "version", "checkIn", "sync", ...(v2 ? ["label"] : [])]) || !hex(n.id, 64) || !hex(n.member, 64)
+        || (v2 && !(n.label === null || (typeof n.label === "string" && /^[A-Za-z0-9 ._-]{0,32}$/.test(n.label))))
         || ids.has(n.id) || members.has(n.member)
         || !exact(n.account, ["status", "address", "participantToken"])
         || !["verified", "unavailable"].includes(n.account.status)
         || (n.account.status === "verified" ? !hex(n.account.address, 40) : n.account.address !== null || n.account.participantToken !== null)
         || !(n.account.participantToken === null || (uint(n.account.participantToken, (1n << 256n) - 1n) && BigInt(n.account.participantToken) > 0n))
-        || !exact(n.version, ["selfReported", "buildNumber", "admittedCodeHash"])
+        || !exact(n.version, ["selfReported", "buildNumber", "admittedCodeHash", ...(v2 ? ["measurement"] : [])])
+        || (v2 && !(n.version.measurement === null || hex(n.version.measurement, 64)))
         || typeof n.version.selfReported !== "string" || !/^[0-9][A-Za-z0-9._-]{0,63}$/.test(n.version.selfReported)
         || !uint(n.version.buildNumber, 2147483647n) || !hex(n.version.admittedCodeHash, 64)
         || !exact(n.checkIn, ["lastVerifiedAt", "expiresAt", "status"]) || !["fresh", "stale"].includes(n.checkIn.status)
@@ -94,7 +98,7 @@ export function drawDirectory(value, doc = document) {
   for (const node of nodes) {
     const card = doc.createElement("article"); card.className = "node-card"; card.dataset.nodeId = node.id;
     const identity = node.account.status === "verified" ? node.account.address : node.member;
-    const heading = doc.createElement("h3"); heading.textContent = `${node.account.status === "verified" ? "Account" : "Member"} ${identity.slice(0, 10)}…${identity.slice(-8)}`; card.append(heading);
+    const heading = doc.createElement("h3"); heading.textContent = `${node.label ? node.label + " · " : ""}${node.account.status === "verified" ? "Account" : "Member"} ${identity.slice(0, 10)}…${identity.slice(-8)}`; card.append(heading);
     const fields = [
       ["Participant receipt", node.account.participantToken === null ? "Not available" : `#${node.account.participantToken}`],
       ["Check-in", `${node.fresh ? "Fresh verified check-in" : "Stale check-in"} · ${node.checkIn.lastVerifiedAt}`],
@@ -104,6 +108,7 @@ export function drawDirectory(value, doc = document) {
     const evidence = [
       ["Account address", node.account.address ?? "No verified account binding"],
       ["Admitted build (relay-verified)", node.version.admittedCodeHash],
+      ["Code measurement (registry-verified)", node.version.measurement ?? "Not measured"],
       ["Receipt block time", node.sync.receiptBlockTime ?? "Unknown"],
       ["Public-key fingerprint", node.sync.groupPublicFingerprint ?? "Unknown"],
       ["Receipt transaction", node.sync.receiptTransaction ?? "Unknown"],

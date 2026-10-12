@@ -6,7 +6,12 @@ Builds node/tests/EntitlementProbe.swift, signs it ad hoc with hardened runtime 
 AMFI kills ad hoc code that has them), then rewrites only the XML blob to both true, updates slot -5 in the CodeDirectory
 (new ad hoc CDHash) and runs both copies. M is unchanged by the edit.
 
-Result on macOS 27.0 (26A428), mini, 2026-10-12: RESULT_PLACEHOLDER"""
+Result on macOS 27.0 (26A428), mini, 2026-10-12: slot -5 is ignored.
+codesign --verify --strict accepts the patched copy. In both copies the kernel's
+CS_OPS_ENTITLEMENTS_BLOB returns XML regenerated from the DER blob (both <false/>),
+SecTaskCopyValueForEntitlement returns false for both keys, the CS status is 0x22011311 with
+CS_GET_TASK_ALLOW clear, and codesign -d --entitlements prints the DER values. So M does not bind
+slot -5. Not covered: restricted entitlements under a provisioning profile."""
 import base64, hashlib, json, os, plistlib, shutil, struct, subprocess, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from measure import inputs, measure

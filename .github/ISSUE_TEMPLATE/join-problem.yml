@@ -1,0 +1,11 @@
+name: Join problem
+description: Dsmack Node did not reach "You’re in." or your node is missing from the dashboard
+title: "Join problem: "
+body:
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What did the app show, and at which step?
+      description: Include the release version and macOS version. If you saved a diagnostic report, read it first, then attach it; it contains public account identifiers but no secrets.
+    validations:
+      required: true

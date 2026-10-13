@@ -2,6 +2,8 @@
 # M_runner is signer-independent: sign one runner executable under two throwaway self-signed teams (each with its own
 # App ID, as another Apple team would) and require one M_runner and two CDHashes; the MODIFIED build (sign.sh MODIFIED=1)
 # must give another M_runner. M is scripts/release/measure.py, the node's definition.
+# The Runner.apps may be unsigned (scripts/release/build_mac.py --runner, as in CI) or signed (runner/sign.sh).
+# Writes OUT_DIR/m_runner.txt: the M_runner to compile into the node (scripts/release/measure_two_teams.sh RUNNER_M).
 # usage: runner/measure_two_teams.sh <runner build>/Runner.app <runner build-modified>/Runner.app OUT_DIR (must not exist)
 set -euo pipefail
 ROOT=$(cd "$(dirname "$0")/.." && pwd)
@@ -38,10 +40,11 @@ PLIST
 sign team-a "$1" TEAMAAAAAA org.example.alpha.runner 12000
 sign team-b "$1" TEAMBBBBBB net.example.beta.runner 16000
 sign modified "$2" TEAMAAAAAA org.example.alpha.runner 12000
-python3 - "$OUT/summary.txt" <<'PY'
+python3 - "$OUT/summary.txt" "$OUT/m_runner.txt" <<'PY'
 import sys
 r = {n: (m, c) for n, m, c in (l.split() for l in open(sys.argv[1]))}
 assert r['team-a'][0] == r['team-b'][0] != r['modified'][0], r
 assert len({v[1] for v in r.values()}) == 3, r
 print('runner measure-two-teams: pass, M_runner', r['team-a'][0])
+open(sys.argv[2], 'w').write(r['team-a'][0].removeprefix('0x') + '\n')
 PY

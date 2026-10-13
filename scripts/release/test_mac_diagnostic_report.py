@@ -8,7 +8,7 @@ import subprocess
 import tempfile
 
 ROOT=Path(__file__).resolve().parents[2]
-SOURCES=['node/shared/Protocol.swift','node/shared/PersonalAccount.swift','node/shared/BadgeClaim.swift','node/shared/Upgrade.swift','node/shared/Chain.swift','node/shared/NativeAttestation.swift','node/shared/Node.swift','node/mac/NetworkConfig.swift']
+SOURCES=['node/shared/Protocol.swift','node/shared/PersonalAccount.swift','node/shared/BadgeClaim.swift','node/shared/Upgrade.swift','node/shared/Chain.swift','node/shared/NativeAttestation.swift','node/shared/Node.swift','node/shared/SDK.swift','node/shared/SDKRunners.swift','node/shared/AppAttestVerify.swift','node/shared/Measure.swift','node/mac/NetworkConfig.swift']
 
 def main():
     parser=argparse.ArgumentParser(description=__doc__)

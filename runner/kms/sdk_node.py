@@ -1,11 +1,12 @@
 """Stand-in Dsmack node for the dsmack-sdk port, for hosts without a signed Mac node: the wire and checks of
-node/shared/SDK.swift SDKService (challenge, get_key, evidence, info; sponsor allow records; runner admission by
-App Attest evidence through verifier/core.py and the runner's measurement M_runner from its attested CodeDirectory;
-previous epoch kept). Test group keys (--group-key EPOCH=PATH, a P-256
-scalar as 64 hex, mode 0600, never logged) replace the node's held G; the highest epoch is current, the next lower
-one is the held previous epoch. --anchor is the fixture's synthetic root, never Apple's. The block is the chain's.
+node/shared/SDK.swift SDKService (challenge, get_key, evidence, info; runner admission first, by App Attest evidence in
+domain dsmack-sdk-runner/1 through verifier/core.py and the runner's measurement M_runner from its attested
+CodeDirectory, refused with runner_not_admitted; then AppRegistry apps(app_id) and composes(app_id, compose_hash) read
+at the current block, scope from the table; previous epoch kept). Test group keys (--group-key EPOCH=PATH, a P-256
+scalar as 64 hex, mode 0600, never logged) replace the node's held G; the current epoch is keyEpochs(scope) on the
+group-key registry (--registry, a DemoV2) at the read block, and the one before it is the held previous epoch. --anchor is the fixture's synthetic root, never Apple's. The block is the chain's.
 """
-import argparse, base64, hashlib, json, os, socketserver, sys, time, urllib.request
+import argparse, base64, hashlib, json, os, socketserver, sys, time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -14,9 +15,10 @@ from measure import app_identifier, measure
 import dsmack_sdk as sdk
 from dsmack_sdk import b, b32
 from dsmack_sdk.node import pub
+from dsmack_sdk.verify import Invalid, rpc
 from verifier.core import Policy, Reject, verify_assertion, verify_attestation
 from cryptography.hazmat.primitives import hashes
-from cryptography.hazmat.primitives.asymmetric import ec, ed25519
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
@@ -26,9 +28,9 @@ p.add_argument('--port', type=int, required=True)
 p.add_argument('--group-key', action='append', required=True, help='EPOCH=PATH')
 p.add_argument('--rpc', required=True)
 p.add_argument('--registry', required=True, help='group-key registry (DemoV2) address in the derivation context')
+p.add_argument('--app-registry', required=True, help='AppRegistry address the node reads and names in the derivation context')
 p.add_argument('--chain-id', type=int, required=True)
 p.add_argument('--scope', required=True, help='bytes32 hex this node holds G for')
-p.add_argument('--sponsor', required=True, help='Ed25519 public key (hex) that signs allow records')
 p.add_argument('--anchor', required=True, help='App Attest root, base64 DER (a synthetic fixture root)')
 p.add_argument('--runner', action='append', required=True, help='admitted runner measurement M_runner, hex')
 p.add_argument('--member', required=True)
@@ -40,8 +42,6 @@ KEYS = {}
 for spec in args.group_key:
     e, path = spec.split('=', 1)
     KEYS[int(e)] = ec.derive_private_key(int(Path(path).read_text().strip(), 16), ec.SECP256R1())
-CURRENT = max(KEYS)
-SPONSOR = ed25519.Ed25519PublicKey.from_public_bytes(b(args.sponsor))
 ROOT_PEM = b'-----BEGIN CERTIFICATE-----\n' + base64.encodebytes(base64.b64decode(args.anchor)) + b'-----END CERTIFICATE-----\n'
 RUNNERS = {b32(m) for m in args.runner}
 h = lambda x: '0x' + x.hex()
@@ -57,19 +57,18 @@ def sign(key, message):
     return h(r.to_bytes(32, 'big') + s.to_bytes(32, 'big'))
 
 
-def block():
-    req = urllib.request.Request(args.rpc, json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': 'eth_blockNumber', 'params': []}).encode(),
-                                 {'content-type': 'application/json'})
-    return int(json.loads(urllib.request.urlopen(req, timeout=10).read())['result'], 16)
-
-
-def allowed(app_id, compose_hash, d):
-    try:
-        SPONSOR.verify(b(d['signature']), sdk.allow_message(args.chain_id, args.registry, app_id, compose_hash, d['scope'], d['until']))
-    except Exception:
-        raise ValueError('compose not allowed under app_id')
-    require(time.time() < d['until'], 'allow record expired')
-    require(b32(d['scope']) == b32(args.scope), f'no group key held for scope {d["scope"]}')
+def allowed_scope(app_id, compose_hash):
+    """Chain.appEntry and SDK.allowedScope: the app's scope if compose_hash has an open window at the current block."""
+    bl = int(rpc(args.rpc, 'eth_blockNumber', []), 16)
+    call = lambda data: b(rpc(args.rpc, 'eth_call', [{'to': args.app_registry, 'data': data}, hex(bl)]))
+    app = call('0x38bb6def' + app_id.hex())                          # apps(bytes32)
+    window = call('0x61ae7c43' + app_id.hex() + compose_hash.hex())  # composes(bytes32,bytes32)
+    admin, scope, start, until = app[12:32], app[32:], int.from_bytes(window[:32], 'big'), int.from_bytes(window[32:], 'big')
+    require(admin != bytes(20), f'app_id not in AppRegistry at block {bl}')
+    require(until != 0, f'compose not allowed under app_id at block {bl}')
+    require(start <= bl, f'compose window opens at block {start}, read at {bl}')
+    require(bl < until, f'compose window closed at block {until}, read at {bl}')
+    return scope, bl
 
 
 def admit(q, compose_hash, session):
@@ -97,7 +96,7 @@ def admit(q, compose_hash, session):
                 and -60 <= time.time() - bd['enrolled_at'] <= 12 * 3600, 'runner enrollment is not this compose or is stale')
         verify_assertion(base64.b64decode(e['assertion']), asserted, enrolled['public_key'], 0, policy)
         body = json.loads(asserted)
-        require(set(body) == {'compose_hash', 'data', 'domain'} and body['domain'] == 'mac-compose-assert/1' and body['compose_hash'] == compose_hash.hex()
+        require(set(body) == {'compose_hash', 'data', 'domain'} and body['domain'] == sdk.RUNNER_DOMAIN and body['compose_hash'] == compose_hash.hex()
                 and body['data'] == sdk.runner_data(issued[0], request), 'runner assertion is not over this challenge and request')
     except Reject as r:
         raise ValueError(f'runner evidence: {r}')
@@ -105,15 +104,18 @@ def admit(q, compose_hash, session):
 
 
 def release(app_id, compose_hash, epoch):
-    e = CURRENT if epoch is None else epoch
-    require(e in KEYS and e >= CURRENT - 1, f'key epoch {e} not held for scope 0x{args.scope}')
+    scope, bl = allowed_scope(b32(app_id), b32(compose_hash))
+    require(scope == b32(args.scope), f'no group key held for scope {h(scope)}')
+    current = int(rpc(args.rpc, 'eth_call', [{'to': args.registry, 'data': '0xd71779d9' + b32(args.scope).hex()}, hex(bl)]), 16)  # keyEpochs
+    require(epoch is not None or current in KEYS, f'no group key held for scope 0x{args.scope}')
+    e = current if epoch is None else epoch
+    require(e in KEYS and e in (current, current - 1), f'key epoch {e} not held for scope 0x{args.scope}')
     g = KEYS[e]
-    root = sdk.app_root(g.private_numbers().private_value.to_bytes(32, 'big'), args.chain_id, args.registry, args.scope, e, app_id)
+    root = sdk.app_root(g.private_numbers().private_value.to_bytes(32, 'big'), args.chain_id, args.registry, args.app_registry, args.scope, e, app_id)
     signer = ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())
-    bl = block()
-    statement = sdk.app_statement(args.chain_id, args.registry, args.scope, e, app_id, compose_hash, bl, args.m, pub(signer))
+    statement = sdk.app_statement(args.chain_id, args.registry, args.app_registry, args.scope, e, app_id, compose_hash, bl, args.m, pub(signer))
     return root, signer, statement, {'app_id': h(b32(app_id)), 'compose_hash': h(b32(compose_hash)), 'scope': h(b32(args.scope)), 'key_epoch': e,
-                                     'chain_id': args.chain_id, 'registry': args.registry, 'block': bl, 'M': h(b32(args.m)), 'app_pub': '0x' + pub(signer),
+                                     'chain_id': args.chain_id, 'registry': args.registry, 'app_registry': args.app_registry, 'block': bl, 'M': h(b32(args.m)), 'app_pub': '0x' + pub(signer),
                                      'statement': h(statement), 'group_signature': sign(g, statement), 'group_public': '0x' + pub(g)}
 
 
@@ -123,12 +125,14 @@ def handle(q, session):
         c = os.urandom(32)
         session['challenge'] = (c.hex(), time.time())
         return {'challenge': h(c)}
-    require(all(k in q for k in ('op', 'app_id', 'compose_hash', 'allow')), 'request needs op, app_id, compose_hash and allow')
+    require(all(k in q for k in ('op', 'app_id', 'compose_hash')), 'request needs op, app_id and compose_hash')
     require(q['op'] in ('get_key', 'evidence', 'info'), 'unknown op')
     compose_hash = b32(q['compose_hash'])
-    allowed(q['app_id'], q['compose_hash'], q['allow'])
     if session['compose'] is None:
-        admit(q, compose_hash, session)
+        try:
+            admit(q, compose_hash, session)
+        except (ValueError, KeyError) as e:
+            raise ValueError(f'runner_not_admitted: {e}')
     require(session['compose'] == compose_hash, 'connection admitted for another compose')
     root, signer, statement, fields = release(q['app_id'], q['compose_hash'], q.get('epoch'))
     if q['op'] == 'get_key':
@@ -151,11 +155,11 @@ class Handler(socketserver.StreamRequestHandler):
         for line in self.rfile:
             try:
                 reply = handle(json.loads(line), session)
-            except (ValueError, KeyError) as e:
+            except (ValueError, KeyError, Invalid) as e:
                 reply = {'error': str(e)}
             self.wfile.write(json.dumps({**reply, 'v': 1}, sort_keys=True).encode() + b'\n')
 
 
-print(f'sdk-node: scope {args.scope[:10]}... epochs {sorted(KEYS)}; listening 127.0.0.1:{args.port}', file=sys.stderr, flush=True)
+print(f'sdk-node: scope {args.scope[:10]}... group keys for epochs {sorted(KEYS)}; listening 127.0.0.1:{args.port}', file=sys.stderr, flush=True)
 socketserver.ThreadingTCPServer.allow_reuse_address = True
 socketserver.ThreadingTCPServer(('127.0.0.1', args.port), Handler).serve_forever()

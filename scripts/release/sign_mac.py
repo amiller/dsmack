@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Sign an existing unsigned build. Developer ID mode also notarizes and staples it."""
+"""Sign an existing unsigned build (build_mac.py: Node.app, or Runner.app with --runner). Developer ID mode also
+notarizes and staples it. The runner is signed under the node's App ID with the node's entitlements plus
+com.apple.security.virtualization; its M_runner does not depend on the signer."""
 import argparse
 import datetime
 import hashlib
@@ -8,7 +10,7 @@ from pathlib import Path
 import plistlib
 import subprocess
 from verify_signed_payload import verify
-from build_mac import entitlements
+from build_mac import entitlements, runner_entitlements
 
 
 def run(*args):
@@ -59,8 +61,10 @@ def main():
             p.error('Developer ID mode requires a Developer ID Application identity and --notary-profile')
     elif not args.identity.startswith('Apple Development:'):
         p.error('Development mode requires an Apple Development identity')
-    original = args.build.resolve() / 'Node.app'
     manifest = json.loads((args.build / 'build-manifest.json').read_text())
+    runner = manifest['flavor'] == 'runner'
+    name, executable = ('Runner.app', 'Contents/MacOS/runner') if runner else ('Node.app', 'Contents/MacOS/node')
+    original = args.build.resolve() / name
     files = {str(f.relative_to(original)): hashlib.sha256(f.read_bytes()).hexdigest()
              for f in original.rglob('*') if f.is_file()}
     if files != manifest['files']:
@@ -70,9 +74,11 @@ def main():
     # The measurement pins every non-identity entitlement, so every signer uses the template.
     if ent != plistlib.loads(entitlements(args.team, manifest['bundle_id']).encode()):
         raise SystemExit('Profile entitlements differ from node/mac/Entitlements.template.plist')
+    if runner:
+        ent = plistlib.loads(runner_entitlements(args.team, manifest['bundle_id']).encode())
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    app = out / 'Node.app'
+    app = out / name
     run('ditto', original, app)
     (app / 'Contents/embedded.provisionprofile').write_bytes(args.profile.read_bytes())
     ent_path = out / 'entitlements.plist'
@@ -84,10 +90,9 @@ def main():
         command.extend(['--keychain', args.keychain])
     run(*command, app)
     run('codesign', '--verify', '--strict', '--verbose=2', app)
-    payload = verify((original / 'Contents/MacOS/node').read_bytes(),
-                     (app / 'Contents/MacOS/node').read_bytes())
+    payload = verify((original / executable).read_bytes(), (app / executable).read_bytes())
     for relative, expected in manifest['files'].items():
-        if relative != 'Contents/MacOS/node' and hashlib.sha256((app / relative).read_bytes()).hexdigest() != expected:
+        if relative != executable and hashlib.sha256((app / relative).read_bytes()).hexdigest() != expected:
             raise SystemExit('Signing changed an original app resource: ' + relative)
     (out / 'payload-verification.json').write_text(json.dumps(payload, indent=2) + '\n')
     detail = subprocess.check_output(['codesign', '-d', '--verbose=4', str(app)], stderr=subprocess.STDOUT)
@@ -108,7 +113,8 @@ def main():
         run('codesign', '--verify', '--strict', app)
         run('spctl', '--assess', '--type', 'execute', '--verbose=2', app)
         submission.unlink()
-    archive = out / ('Node-macOS-arm64.zip' if args.channel == 'developer-id' else 'Node-development-private.zip')
+    stem = name.removesuffix('.app')
+    archive = out / (f'{stem}-macOS-arm64.zip' if args.channel == 'developer-id' else f'{stem}-development-private.zip')
     run('ditto', '-c', '-k', '--keepParent', app, archive)
     (out / 'SHA256SUMS').write_text(hashlib.sha256(archive.read_bytes()).hexdigest() + '  ' + archive.name + '\n')
     (out / 'unsigned-build-manifest.json').write_text(json.dumps(manifest, indent=2, sort_keys=True) + '\n')

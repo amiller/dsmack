@@ -3,10 +3,11 @@ hosts without Virtualization.framework: boots one compose against a node's sdkPo
 holding one admitted connection, and serves the design's JSON-lines API on a unix socket that a guest mounts as
 /var/run/dsmack.sock. The real runner is Swift and serves it over vsock.
 
-compose_hash = sha256(exact compose bytes); app_id is the compose's top-level "app_id". --allow is the sponsor's
-allow record for (app_id, compose_hash) as JSON {scope, until, signature}. Runner evidence is test-only synthetic App
-Attest (--fixture, --enrollment; runner/kms/synthetic_attest.py); --no-evidence sends none. If the node refuses,
-this exits non-zero before creating the socket: the guest gets nothing.
+compose_hash = sha256(exact compose bytes); app_id is the compose's top-level "app_id". Runner evidence is test-only
+synthetic App Attest (--fixture, --enrollment; runner/kms/synthetic_attest.py); --no-evidence sends none. Every release
+is checked on chain (--rpc, --registry: the group-key registry): G must be the committed sharedKeys(scope) of the
+statement's key epoch. If the node refuses or the check fails, this exits non-zero before creating the socket: the
+guest gets nothing. get_key without epoch asks the node each time, so it follows the node's current epoch.
 
 Ops: get_key {path, purpose, epoch?} -> {key, public_key, chain}; evidence {report_data} -> bundle; info.
 `sign` is not served (slice 2).
@@ -19,7 +20,7 @@ sys.path[:0] = [str(HERE.parents[1] / 'sdk/python'), str(HERE)]
 import dsmack_sdk as sdk
 from dsmack_sdk import b
 from dsmack_sdk.node import NodeSession, pub
-from dsmack_sdk.verify import public_key, scalar
+from dsmack_sdk.verify import Invalid, group_on_chain, public_key, require, rpc, scalar
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
@@ -28,11 +29,13 @@ from synthetic_attest import SyntheticRunner
 p = argparse.ArgumentParser()
 p.add_argument('--compose', type=Path, required=True)
 p.add_argument('--node', required=True, help='127.0.0.1:PORT')
-p.add_argument('--allow', type=Path, required=True)
+p.add_argument('--rpc', required=True)
+p.add_argument('--registry', required=True)
 p.add_argument('--fixture', type=Path, required=True)
 p.add_argument('--enrollment', default='good')
 p.add_argument('--code', help="send this fixture code entry instead of the enrollment's (a CodeDirectory that is not the attested one)")
 p.add_argument('--no-evidence', action='store_true')
+p.add_argument('--admission-domain', default=sdk.RUNNER_DOMAIN, help="test only: sign admission in another domain (runner.local/attest's mac-compose-assert/1)")
 p.add_argument('--socket', type=Path, required=True)
 args = p.parse_args()
 
@@ -46,7 +49,7 @@ compose_bytes = args.compose.read_bytes()
 COMPOSE_HASH = hashlib.sha256(compose_bytes).hexdigest()
 APP_ID = json.loads(compose_bytes)['app_id']
 RUNNER = SyntheticRunner(args.fixture, args.enrollment, args.code)
-node = NodeSession(args.node, APP_ID, COMPOSE_HASH, json.loads(args.allow.read_text()), None if args.no_evidence else RUNNER.attest)
+node = NodeSession(args.node, APP_ID, COMPOSE_HASH, None if args.no_evidence else lambda data: RUNNER.attest(data, args.admission_domain))
 lock = threading.Lock()
 ROOTS = {}
 
@@ -54,6 +57,8 @@ ROOTS = {}
 def boot(epoch=None):
     with lock:
         root, r = node.release(epoch)
+    require(r['registry'].lower() == args.registry.lower() and r['chain_id'] == int(rpc(args.rpc, 'eth_chainId', []), 16), 'release names another chain or registry')
+    group_on_chain(args.rpc, args.registry, r['scope'], r['key_epoch'], r['group_public'], r['block'])
     signer = ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())
     ROOTS[r['key_epoch']] = (root, signer, {'signer': r['group_public'], 'message': r['statement'], 'signature': r['group_signature']})
     return r['key_epoch']
@@ -66,9 +71,9 @@ except Exception as e:
 
 
 def get_key(req):
-    e = req.get('epoch', EPOCH)
-    if e not in ROOTS:
-        boot(e)
+    e = req.get('epoch')
+    if e is None or e not in ROOTS:
+        e = boot(e)
     root, signer, statement = ROOTS[e]
     key = sdk.leaf(root, req['path'], req['purpose'])
     pk = public_key(req['purpose'], key)
@@ -96,7 +101,7 @@ def evidence(req):
 def info(req):
     with lock:
         r = node.request('info')
-    return {**{k: r[k] for k in ('app_id', 'compose_hash', 'scope', 'key_epoch', 'chain_id', 'registry', 'block', 'group_public', 'member', 'M')},
+    return {**{k: r[k] for k in ('app_id', 'compose_hash', 'scope', 'key_epoch', 'chain_id', 'registry', 'app_registry', 'block', 'group_public', 'member', 'M')},
             'cdhash': RUNNER.cdhash, 'sdk': r['sdk']}
 
 
@@ -111,7 +116,7 @@ class Handler(socketserver.StreamRequestHandler):
                 if req.get('v') != 1 or req.get('op') not in OPS:
                     raise ValueError('unknown_version_or_op')
                 reply = {'v': 1, **OPS[req['op']](req)}
-            except (ValueError, KeyError, sdk.DsmackError) as e:
+            except (ValueError, KeyError, sdk.DsmackError, Invalid) as e:
                 reply = {'v': 1, 'error': f'{type(e).__name__}: {e}'}
             self.wfile.write(json.dumps(reply).encode() + b'\n')
 

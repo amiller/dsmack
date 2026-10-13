@@ -8,11 +8,12 @@ loopback, forwarded here; stand-in runners (runner/kms/sdk_runner.py) run here. 
 state stays inside --remote.
 --runner-dir names a Mac runner/ checkout holding build/, build-other/ and build-modified/ from runner/sign.sh
 (build-other signed with BUNDLE_VERSION=2: same code and M_runner, another CDHash; build-modified with MODIFIED=1: another
-M_runner). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with build/measurement.txt compiled in
-(`SDK_RUNNERS=$(cat runner/build/measurement.txt) node/tests/seed_build.sh`): the configs carry no sdkRunners and no
-anchor (Apple's root is compiled in), and every runner boot is a signed runner on the Mac with fresh App Attest, booting
+M_runner). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with build/measurement.txt compiled in,
+built with -D SDK_TEST_NETWORK so its SDK may read this disposable chain instead of the compiled release network
+(`NODE_FLAGS='-D SDK_TEST_NETWORK' SDK_RUNNERS=$(cat runner/build/measurement.txt) node/tests/seed_build.sh`): the configs
+carry no sdkRunners and no anchor (Apple's root is compiled in), and every runner boot is a signed runner on the Mac with fresh App Attest, booting
 --oci (the coupon image) in a VM (node/tests/sdk_real_runner.py)."""
-import argparse, atexit, hashlib, json, os, secrets, subprocess, sys, time
+import argparse, atexit, hashlib, json, os, subprocess, sys, time
 from pathlib import Path
 from web3 import Web3
 
@@ -108,7 +109,6 @@ composes['coupon'] = coupon
 fixture = out / 'runner-fixture.json'
 note(fixture=run(sys.executable, 'node/tests/sdk_runner_fixture.py', fixture,
                  *[f'--compose={n}={hashlib.sha256(p.read_bytes()).hexdigest()}' for n, p in composes.items()]).strip())
-sponsor_seed = secrets.token_hex(32)  # stand-in runners still send allow records; these nodes ignore them
 stamp = Path(R).name[-8:]
 names = {'A': f'sdk{stamp}-a', 'B': f'sdk{stamp}-b'}
 cfg = {n: {'rpc': rpc, 'registry': deploy['DemoV1'], 'chainId': 31337, 'category': deploy['macCategory'], 'protocolVersion': 2,
@@ -157,7 +157,7 @@ try:
         listening = wait(n, lambda e: e['event'] == 'sdk listening', 'sdk listening')
         assert not runner or listening['runnerMeasurements'] == ['0x' + runner['m_runner']], listening  # the compiled-in M_runner
     e2e = {'rpc': rpc, 'chain_id': 31337, 'registry': deploy['DemoV1'], 'demo': deploy['DemoV1'], 'app_registry': app_registry, 'owner_key': KEY,
-           'sponsor_seed': sponsor_seed, 'fixture': str(fixture), 'composes': {n: str(p) for n, p in composes.items()},
+           'fixture': str(fixture), 'composes': {n: str(p) for n, p in composes.items()},
            'nodes': {n: f'127.0.0.1:{p}' for n, p in zip('AB', args.sdk_ports)}, **({'runner': runner} if runner else {})}
     (out / 'e2e.json').write_text(json.dumps(e2e))
     r = subprocess.run([sys.executable, '-m', 'pytest', '-v', str(ROOT / 'sdk/test_sdk.py')], text=True, capture_output=True, cwd=ROOT,

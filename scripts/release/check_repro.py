@@ -9,11 +9,13 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
+RUNNER_BUILD_ROOT = Path('/private/tmp/dsmack-runner-build')  # build_mac.py's
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gui', action='store_true')
+    parser.add_argument('--runner', action='store_true', help='Compare two unsigned runner builds instead (build_mac.py --runner)')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--sdk-runner', action='append', default=[])
     args = parser.parse_args()
@@ -26,13 +28,15 @@ def main():
             # A local clone handles ordinary checkouts and Git worktrees alike.
             # Overlay current build inputs so uncommitted edits are measured too.
             subprocess.run(['git', 'clone', '--quiet', '--no-hardlinks', str(ROOT), str(tree)], check=True)
-            for item in ('node/shared', 'node/mac', 'scripts/release'):
+            for item in ('node/shared', 'node/mac', 'scripts/release', 'runner'):
                 shutil.copytree(ROOT / item, tree / item,
                                 dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns('build', '__pycache__', 'entitlements.plist'))
+                                ignore=shutil.ignore_patterns('build', 'build-*', '.build', 'bin', '__pycache__', 'entitlements.plist'))
             build = dest / name
+            if args.runner:  # each runner build starts from an empty build root: no dependency products shared
+                shutil.rmtree(RUNNER_BUILD_ROOT, ignore_errors=True)
             subprocess.run([sys.executable, str(tree / 'scripts/release/build_mac.py'),
-                            '--out', str(build), *(['--gui'] if args.gui else []),
+                            '--out', str(build), *(['--gui'] if args.gui else []), *(['--runner'] if args.runner else []),
                             *[x for c in args.sdk_runner for x in ('--sdk-runner', c)]], check=True)
             manifests.append(json.loads((build / 'build-manifest.json').read_text()))
     same = manifests[0]['files'] == manifests[1]['files']

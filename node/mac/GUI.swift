@@ -486,6 +486,8 @@ final class ParticipantApp: NSObject, NSApplicationDelegate, NSWindowDelegate {
             config["persistentIdentity"]=true
             // Listing waits for the recorded consent below, never the CLI default.
             config["publicDirectory"]=false
+            // The release network names sdkPort; a build with no runner measurement compiled in serves no SDK.
+            if compiledSDKRunnerMeasurements.isEmpty {config["sdkPort"]=nil}
             let cfg=try Config(config)
             try need(!cfg.peers.isEmpty,"missing faucet peer")
             emit("configured",["network":ReleaseNetwork.name,"chainId":cfg.chainId,"registry":cfg.registry,"participant":cfg.name])

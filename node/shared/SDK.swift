@@ -5,13 +5,16 @@ import Darwin
 /// dsmack-sdk v1, node side (planning dsmack-sdk-design §2-3): per-app roots derived from the group key G,
 /// served to the runner as JSON lines. The "dsmack-sdk/..." strings are frozen: changing one changes every app key.
 enum SDK {
-    static let runnerDomain="dsmack-sdk-runner/1",challengeSeconds:UInt64=60,maxEnrollmentAge:Int64=12*3600
+    /// The runner signs admission in its own App Attest domain, which runner.local/attest (mac-compose-assert/1, any egress.sock
+    /// caller) and the guest evidence op (dsmack-sdk-assert/1) cannot produce.
+    static let runnerDomain="dsmack-sdk-runner/1",challengeSeconds:UInt64=60,maxEnrollmentAge:Int64=12*3600,maxConnections=32
     static let p256Order=[UInt8](try! unhex("ffffffff00000000ffffffffffffffffbce6faada7179e84f3b9cac2fc632551"))
 
-    static func appRoot(_ group: P256.Signing.PrivateKey,chainId: UInt64,registry: String,scope: Data,keyEpoch: UInt64,appId: Data) throws -> SymmetricKey {
+    /// The app is (appRegistry, app_id): another AppRegistry naming the same app_id derives another root.
+    static func appRoot(_ group: P256.Signing.PrivateKey,chainId: UInt64,registry: String,appRegistry: String,scope: Data,keyEpoch: UInt64,appId: Data) throws -> SymmetricKey {
         try need(scope.count==32 && appId.count==32,"scope and app_id are 32 bytes")
         return HKDF<SHA256>.deriveKey(inputKeyMaterial:SymmetricKey(data:group.rawRepresentation),
-            salt:word(chainId)+(try addressWord(registry))+scope+word(keyEpoch)+appId,info:Data("dsmack-sdk/v1/app".utf8),outputByteCount:32)
+            salt:[word(chainId),try addressWord(registry),try addressWord(appRegistry),scope,word(keyEpoch),appId].reduce(Data(),+),info:Data("dsmack-sdk/v1/app".utf8),outputByteCount:32)
     }
     /// The app's P-256 key (app_pub): HKDF(app_root, info "dsmack-sdk/v1/app-pub") reduced mod n.
     static func appSigner(_ root: SymmetricKey) throws -> P256.Signing.PrivateKey {
@@ -28,10 +31,11 @@ enum SDK {
         return Data(b)
     }
     /// G signs this per release: chain link 1 of get_key and the core of evidence.
-    static func statement(chainId: UInt64,registry: String,scope: Data,keyEpoch: UInt64,appId: Data,composeHash: Data,
+    static func statement(chainId: UInt64,registry: String,appRegistry: String,scope: Data,keyEpoch: UInt64,appId: Data,composeHash: Data,
                           block: UInt64,measurement: Data,appPub: Data) throws -> Data {
         try need([scope,appId,composeHash,measurement].allSatisfy{$0.count==32} && appPub.count==65,"statement field widths")
-        return Data("dsmack-sdk/app/1".utf8)+word(chainId)+(try addressWord(registry))+scope+word(keyEpoch)+appId+composeHash+word(block)+measurement+appPub
+        let context:[Data]=[Data("dsmack-sdk/app/1".utf8),word(chainId),try addressWord(registry),try addressWord(appRegistry),scope,word(keyEpoch),appId]
+        return (context+[composeHash,word(block),measurement,appPub]).reduce(Data(),+)
     }
     /// AppRegistry's apps(appId) and composes(appId, composeHash), both read at `block`.
     struct Entry {let block:UInt64,admin:Data,scope:Data,from:UInt64,until:UInt64}
@@ -45,7 +49,7 @@ enum SDK {
     }
 
     /// JSON lines on 127.0.0.1 (the loopback channel the runner already uses for its KMS; no socket file).
-    /// Returns the bound port; port 0 picks one.
+    /// Returns the bound port; port 0 picks one. At most SDK.maxConnections at once; further connections are closed.
     static func listen(port: UInt16,_ reply: @escaping (Data,inout SDKSession)->Data) throws -> UInt16 {
         let fd=socket(AF_INET,SOCK_STREAM,0);try need(fd>=0,"sdk socket")
         var one:Int32=1;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,socklen_t(4))
@@ -53,10 +57,14 @@ enum SDK {
         var size=socklen_t(MemoryLayout<sockaddr_in>.size)
         let bound=withUnsafeMutablePointer(to:&a){$0.withMemoryRebound(to:sockaddr.self,capacity:1){bind(fd,$0,size)==0 && Darwin.listen(fd,16)==0 && getsockname(fd,$0,&size)==0}}
         guard bound else {let e=String(cString:strerror(errno));close(fd);throw DemoError.invalid("sdk listen 127.0.0.1:\(port): \(e)")}
+        let open=NSLock();var count=0
         Thread.detachNewThread {
             while true {
                 let c=accept(fd,nil,nil)
-                if c>=0 {Thread.detachNewThread {serve(c,reply)}}
+                guard c>=0 else {continue}
+                let room=open.withLock{() -> Bool in guard count<SDK.maxConnections else {return false};count+=1;return true}
+                guard room else {close(c);continue}
+                Thread.detachNewThread {serve(c,reply);open.withLock{count-=1}}
             }
         }
         return UInt16(bigEndian:a.sin_port)
@@ -83,17 +91,18 @@ enum SDK {
 struct SDKSession {var challenge:(value:Data,issued:UInt64)?;var compose:Data?}
 
 /// challenge, get_key, evidence and info. Each key op names the runner's app_id and compose_hash; the node reads
-/// AppRegistry at the current block for the app's scope and the compose's window, and the G-signed statement names that
-/// block. get_key returns the app root sealed to eph_pub, never leaf keys.
+/// AppRegistry at the current block for the app's scope and the compose's window (only after the connection's runner is
+/// admitted, so unadmitted callers cause no RPC reads), and the G-signed statement names that block and the AppRegistry.
+/// get_key returns the app root sealed to eph_pub, never leaf keys.
 /// Runner admission (the RunnerGate pattern of the native authority): the first key op on a connection carries
 /// runner_evidence, the runner's /attest object, whose assertion covers
 /// {"compose_hash","data":"dsmack-sdk-runner/1|<challenge>|<sha256 of the request without runner_evidence, JSON
-/// sorted keys, no spaces>","domain":"mac-compose-assert/1"} for the challenge this connection was issued at most 60 s
+/// sorted keys, no spaces>","domain":"dsmack-sdk-runner/1"} (never runner.local/attest's mac-compose-assert/1) for the challenge this connection was issued at most 60 s
 /// before. runner_evidence also carries the runner's own code measurement inputs `code` {cd, page0, ent, L, S}: the
 /// attested and asserted CDHash must be SHA-256(cd), the rpId the App ID its entitlements name, and its signer-independent
 /// measurement M_runner (CodeMeasurement, the node's own M definition) one in `runners`. So any team's signing of an
 /// admitted runner build is admitted, and nothing else. Enrollment and assertion must name the request's compose_hash;
-/// the connection then serves only that compose. Without it every key op is refused.
+/// the connection then serves only that compose. Without it every key op is refused with runner_not_admitted.
 struct SDKService {
     let chainId: UInt64,registry: String,appRegistry: String,measurement: Data
     /// Admitted runner measurements M_runner.
@@ -122,9 +131,13 @@ struct SDKService {
         var epoch:UInt64?
         if let e=q["epoch"] {guard let n=e as? Int,n>=0 else {throw DemoError.invalid("epoch")};epoch=UInt64(n)}
         guard ["get_key","evidence","info"].contains(op) else {throw DemoError.invalid("unknown op")}
-        let entry=try appTable(appId,composeHash),scope=try SDK.allowedScope(entry)
-        if session.compose==nil {try admit(q,composeHash,&session)}
+        if session.compose==nil {
+            do {try admit(q,composeHash,&session)}
+            catch DemoError.invalid(let reason) {throw DemoError.invalid("runner_not_admitted: \(reason)")}
+            catch {throw DemoError.invalid("runner_not_admitted: \(error)")}
+        }
         try need(session.compose==composeHash,"connection admitted for another compose")
+        let entry=try appTable(appId,composeHash),scope=try SDK.allowedScope(entry)
         let r=try release(appId,composeHash,scope,entry.block,epoch)
         switch op {
         case "get_key":
@@ -169,7 +182,7 @@ struct SDKService {
                   (-60...SDK.maxEnrollmentAge).contains(Int64(at)-Int64(enrolledAt)) else {throw DemoError.invalid("runner enrollment is not this compose or is stale")}
             let a=try verifyAssertion(try unb64(assertion),clientData:assertedData,publicKey:enrolled.publicKey,previousCounter:0,cdhashes:[codeHash],appID:appID)
             guard a.cdhash != nil,a.cdhash==enrolled.cdhash,let body=try JSONSerialization.jsonObject(with:assertedData) as? [String:Any],
-                  Set(body.keys)==["compose_hash","data","domain"],body["domain"] as? String=="mac-compose-assert/1",body["compose_hash"] as? String==compose,
+                  Set(body.keys)==["compose_hash","data","domain"],body["domain"] as? String==SDK.runnerDomain,body["compose_hash"] as? String==compose,
                   body["data"] as? String==SDK.runnerDomain+"|"+hex(issued.value)+"|"+hex(requestHash) else {throw DemoError.invalid("runner assertion is not over this challenge and request")}
         } catch let reject as AppAttestReject {throw DemoError.invalid("runner evidence: \(reject.reason)")}
         session.compose=composeHash
@@ -177,9 +190,9 @@ struct SDKService {
     func release(_ appId: Data,_ composeHash: Data,_ scope: Data,_ b: UInt64,_ epoch: UInt64?) throws
         -> (root:SymmetricKey,signer:P256.Signing.PrivateKey,statement:Data,fields:[String:Any]) {
         let g=try group(scope,epoch)
-        let root=try SDK.appRoot(g.key,chainId:chainId,registry:registry,scope:scope,keyEpoch:g.epoch,appId:appId)
+        let root=try SDK.appRoot(g.key,chainId:chainId,registry:registry,appRegistry:appRegistry,scope:scope,keyEpoch:g.epoch,appId:appId)
         let signer=try SDK.appSigner(root),pub=signer.publicKey.x963Representation
-        let statement=try SDK.statement(chainId:chainId,registry:registry,scope:scope,keyEpoch:g.epoch,appId:appId,composeHash:composeHash,block:b,measurement:measurement,appPub:pub)
+        let statement=try SDK.statement(chainId:chainId,registry:registry,appRegistry:appRegistry,scope:scope,keyEpoch:g.epoch,appId:appId,composeHash:composeHash,block:b,measurement:measurement,appPub:pub)
         let signature=try g.key.signature(for:statement)
         return (root,signer,statement,["app_id":hex(appId),"compose_hash":hex(composeHash),"scope":hex(scope),"key_epoch":g.epoch,"chain_id":chainId,
             "registry":registry,"app_registry":appRegistry,"block":b,"M":hex(measurement),"app_pub":hex(pub),"statement":hex(statement),

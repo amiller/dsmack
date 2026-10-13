@@ -27,7 +27,7 @@ class SyntheticRunner:
         sig = self.key.sign(hashlib.sha256(auth + hashlib.sha256(client).digest()).digest(), ec.ECDSA(hashes.SHA256()))
         return b'\xa2\x69signature' + cbor_bytes(sig) + b'\x71authenticatorData' + cbor_bytes(auth)
 
-    def attest(self, data, domain='mac-compose-assert/1'):
+    def attest(self, data, domain='dsmack-sdk-runner/1'):
         client = json.dumps({'compose_hash': self.compose_hash, 'data': data, 'domain': domain}, sort_keys=True, separators=(',', ':')).encode()
         return {'type': 'macrunner', 'keyId': self.e['key_id'], 'attestation': self.e['attestation'], 'bootClientData': self.e['boot_client_data'],
                 'assertion': base64.b64encode(self.assertion(client)).decode(), 'assertClientData': base64.b64encode(client).decode(), 'code': self.code}

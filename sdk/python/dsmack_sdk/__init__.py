@@ -3,9 +3,9 @@
 Wire (planning: dsmack-sdk design §2): JSON lines, one reply per request, {"v":1,"op":...}; a refusal is
 {"v":1,"error":...}. The guest asks its runner on /var/run/dsmack.sock (Client); the runner asks its node on
 loopback TCP (node.NodeSession). Byte encodings match node/shared/SDK.swift, every integer and address an ABI word:
-chain_id, key_epoch, block and until u256 BE (32), registry address left-padded to 32, scope, app_id, compose_hash
-and M bytes32, app_pub P-256 uncompressed (65), lp(x) = u32 BE length ‖ x. Hex on the wire may carry 0x.
-P-256 signatures are ECDSA over SHA-256 of the message, raw r‖s (64); allow records are Ed25519 (64).
+chain_id, key_epoch and block u256 BE (32), registry and app_registry addresses left-padded to 32, scope, app_id,
+compose_hash and M bytes32, app_pub P-256 uncompressed (65), lp(x) = u32 BE length ‖ x. Hex on the wire may carry 0x.
+P-256 signatures are ECDSA over SHA-256 of the message, raw r‖s (64).
 """
 import hashlib, hmac, json, socket
 
@@ -51,13 +51,13 @@ def lp(x):
     return len(x).to_bytes(4, 'big') + x
 
 
-def context(chain_id, registry, scope, key_epoch, app_id):
-    return word(chain_id) + address_word(registry) + b32(scope) + word(key_epoch) + b32(app_id)
+def context(chain_id, registry, app_registry, scope, key_epoch, app_id):
+    return word(chain_id) + address_word(registry) + address_word(app_registry) + b32(scope) + word(key_epoch) + b32(app_id)
 
 
-def app_root(group_scalar, chain_id, registry, scope, key_epoch, app_id):
-    """In the node: G's scalar to the app root; nothing node-specific enters."""
-    return hkdf(group_scalar, context(chain_id, registry, scope, key_epoch, app_id), b'dsmack-sdk/v1/app')
+def app_root(group_scalar, chain_id, registry, app_registry, scope, key_epoch, app_id):
+    """In the node: G's scalar to the app root; nothing node-specific enters. The app is (app_registry, app_id)."""
+    return hkdf(group_scalar, context(chain_id, registry, app_registry, scope, key_epoch, app_id), b'dsmack-sdk/v1/app')
 
 
 def app_signer(root):
@@ -81,9 +81,9 @@ def leaf(root, path, purpose):
     return hkdf(root, b'', b'dsmack-sdk/v1/key' + lp(path.encode()) + lp(purpose.encode()))
 
 
-def app_statement(chain_id, registry, scope, key_epoch, app_id, compose_hash, block, m, app_pub):
+def app_statement(chain_id, registry, app_registry, scope, key_epoch, app_id, compose_hash, block, m, app_pub):
     """Chain link 1, signed by G."""
-    return b'dsmack-sdk/app/1' + context(chain_id, registry, scope, key_epoch, app_id) + b32(compose_hash) + word(block) + b32(m) + b(app_pub)
+    return b'dsmack-sdk/app/1' + context(chain_id, registry, app_registry, scope, key_epoch, app_id) + b32(compose_hash) + word(block) + b32(m) + b(app_pub)
 
 
 def key_statement(path, purpose, public_key):
@@ -95,18 +95,14 @@ def evidence_statement(report_data):
     return b'dsmack-sdk/evidence/1' + report_data
 
 
-def allow_message(chain_id, registry, app_id, compose_hash, scope, until):
-    """Interim allow record, signed (Ed25519) by the sponsor key compiled into the node."""
-    return b'dsmack-sdk/allow/1' + word(chain_id) + address_word(registry) + b32(app_id) + b32(compose_hash) + b32(scope) + word(until)
-
-
 def canonical(obj):
     """Swift JSONSerialization [.sortedKeys, .withoutEscapingSlashes] for the node's request objects."""
     return json.dumps(obj, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
 
 
 def runner_data(challenge, request):
-    """What the runner's App Attest assertion covers for one node request (runner_evidence removed)."""
+    """The data of the runner's admission assertion, {compose_hash, data, domain: RUNNER_DOMAIN}, for one node request
+    (runner_evidence removed). runner.local/attest cannot mint this domain."""
     return f'{RUNNER_DOMAIN}|0x{b(challenge).hex()}|0x{hashlib.sha256(canonical(request)).hexdigest()}'
 
 

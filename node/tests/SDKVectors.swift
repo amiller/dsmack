@@ -1,7 +1,7 @@
 import Foundation
 import CryptoKit
 
-// dsmack-sdk node side: app_root vectors, AppRegistry allow check, runner admission, statement, epochs and the loopback
+// dsmack-sdk node side: app_root vectors, AppRegistry allow check and pin (B2), runner admission (B1), statement, epochs and the loopback
 // server. Fixed group scalars, no RPC or Keychain: the AppRegistry read is an in-memory table at a chosen block. Compile with every node/shared source.
 // Three builds: -D SDK_TEST_TRUST (runner measurements from config); release mode with node/shared/SDKRunners.swift naming
 // the fixture runner's M_runner (`--sdk-runners-file`, see .github/workflows/mac-build.yml); release mode with the empty committed list,
@@ -18,7 +18,8 @@ import CryptoKit
         let chainId:UInt64=84532,registry="0xd4b33c83576a6049d29c6b849ec73491e52781a0",scope=zero32
         let b=Data(repeating:0,count:31)
         let g1=try P256.Signing.PrivateKey(rawRepresentation:b+[0x11]),g2=try P256.Signing.PrivateKey(rawRepresentation:b+[0x22])
-        let appRegistry="0x9a676e781a523b5d0c0e43731313a708cb607508",admin=Data(repeating:0xad,count:20)
+        // ReleaseNetwork's AppRegistry, which a release-mode node compiles in; otherAppRegistry is an operator's own deployment.
+        let appRegistry="0xa4d26dedf4d086216a0e2cfbc7bda49918f5c5c3",otherAppRegistry="0x9a676e781a523b5d0c0e43731313a708cb607508",admin=Data(repeating:0xad,count:20)
         let fx=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[1]))) as! [String:Any]
         try need(fx["synthetic_only"] as? Bool==true,"fixture must be synthetic")
         let now=UInt64(fx["now"] as! Int),anchor=Data(base64Encoded:fx["synthetic_root"] as! String)!,runner=try bytes32(fx["runner_m"] as! String),modifiedM=fx["modified_m"] as! String
@@ -28,19 +29,21 @@ import CryptoKit
         let c1=try bytes32(fx["compose_sha256"] as! String),c1b=zero32,c3=Data(repeating:0xc3,count:32)
         let m=Data(repeating:0x4d,count:32)
 
-        let rootX2=try SDK.appRoot(g2,chainId:chainId,registry:registry,scope:scope,keyEpoch:2,appId:appX).withUnsafeBytes{Data($0)}
+        let rootX2=try SDK.appRoot(g2,chainId:chainId,registry:registry,appRegistry:appRegistry,scope:scope,keyEpoch:2,appId:appX).withUnsafeBytes{Data($0)}
         print("vector app_root(g2, epoch 2, app X) \(hex(rootX2))")
+        let otherRoot=try SDK.appRoot(g2,chainId:chainId,registry:registry,appRegistry:otherAppRegistry,scope:scope,keyEpoch:2,appId:appX).withUnsafeBytes{Data($0)}
+        try check(otherRoot != rootX2,"B2: the same app_id under another AppRegistry derives another app_root")
         try check(hex(rootX2)==vectorX2,"pinned app_root vector")
         try check(hex(try SDK.appSigner(SymmetricKey(data:rootX2)).publicKey.x963Representation)==vectorAppPubX2,"pinned app_pub vector")
 
         #if SDK_TEST_TRUST
-        let trust:[String:Any]=["sdkRunners":[hex(runner)],"sdkTestAnchor":fx["synthetic_root"]!]
+        let trust:[String:Any]=["sdkRunners":[hex(runner)],"sdkTestAnchor":fx["synthetic_root"]!,"appRegistry":appRegistry]
         #else
-        let trust:[String:Any]=[:]
+        let trust:[String:Any]=[:]  // runners, Apple's root and the SDK network (ReleaseNetwork) are compiled in
         #endif
+        let release:[String:Any]=["rpc":"https://sepolia.base.org","registry":registry,"chainId":Int(chainId),"category":hex(zero32),"relay":"http://127.0.0.1:1","protocolVersion":2]
         func node(_ name:String) throws -> Node {
-            try Node(Config(["rpc":"http://127.0.0.1:1","registry":registry,"chainId":Int(chainId),"category":hex(zero32),"relay":"http://127.0.0.1:1",
-                             "name":name,"protocolVersion":2,"sdkPort":1,"appRegistry":appRegistry].merging(trust){$1}),log:{_,_ in})
+            try Node(Config(release.merging(["name":name,"sdkPort":1]){$1}.merging(trust){$1}),log:{_,_ in})
         }
         let base:[String:Any]=["rpc":"http://127.0.0.1:1","registry":registry,"chainId":1,"category":hex(zero32),"relay":"http://127.0.0.1:1","name":"x"]
         func configRefused(_ extra:[String:Any],_ expected:String,_ label:String) throws {
@@ -61,10 +64,25 @@ import CryptoKit
             return
         }
         #endif
-        try configRefused(["sdkPort":1].merging(trust){$1},"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")
         let a=try node("a"),bNode=try node("b")
-        #if !SDK_TEST_TRUST
+        #if SDK_TEST_TRUST
+        var noRegistry=trust;noRegistry["appRegistry"]=nil
+        try configRefused(["sdkPort":1].merging(noRegistry){$1},"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")
+        #else
         try check(a.cfg.sdkRunners==[runner],"release build: runner measurements are the compiled-in list")
+        try check(a.cfg.appRegistry?.lowercased()==appRegistry && (ReleaseNetwork.settings?["appRegistry"] as? String)?.lowercased()==appRegistry,
+                  "B2 release build: the SDK's AppRegistry is ReleaseNetwork's, compiled in")
+        let pinnedRefusal="appRegistry is compiled into the node (ReleaseNetwork, inside M); a config address needs an SDK_TEST_NETWORK build"
+        do {_=try Config(release.merging(["name":"evil","sdkPort":1,"appRegistry":otherAppRegistry]){$1});throw DemoError.invalid("accepted")}
+        catch DemoError.invalid(let e) {try check(e==pinnedRefusal,"B2 release build: a config appRegistry naming the operator's own AppRegistry is refused")}
+        do {_=try Config(release.merging(["name":"evil","appRegistry":otherAppRegistry]){$1});throw DemoError.invalid("accepted")}
+        catch DemoError.invalid(let e) {try check(e==pinnedRefusal,"B2 release build: a config appRegistry is refused without sdkPort too")}
+        try check(try Config(release.merging(["name":"same","sdkPort":1,"appRegistry":appRegistry.uppercased().replacingOccurrences(of:"0X",with:"0x")]){$1}).appRegistry?.lowercased()==appRegistry,
+                  "release build: a config appRegistry equal to the compiled one is accepted")
+        for (field,value) in [("rpc","http://127.0.0.1:8545") as (String,Any),("registry","0x"+String(repeating:"11",count:20)),("chainId",31337)] {
+            do {_=try Config(release.merging(["name":"evil","sdkPort":1,field:value]){$1});throw DemoError.invalid("accepted")}
+            catch DemoError.invalid(let e) {try check(e=="the SDK serves only the compiled release network (rpc, chainId, registry)","B2 release build: SDK with an operator \(field) refused")}
+        }
         #endif
         a.hold(scope,g1,epoch:1);a.hold(scope,g2,epoch:2);bNode.hold(scope,g2,epoch:2)
         try check(a.previous[scope]?.epoch==1 && a.cfg.sdkPort==1,"bump keeps the previous epoch's key")
@@ -73,7 +91,7 @@ import CryptoKit
         let open:(UInt64,UInt64)=(0,UInt64.max)
         var windows=[appX+c1:open,appY+c1:open,appX+c1b:open,appS+c1:open]
         func service(_ n:Node,runners:[Data]?=nil,at:UInt64?=nil,block:UInt64=1234) -> SDKService {
-            var s=n.sdkService(appRegistry:appRegistry,measurement:m,runners:runners ?? n.cfg.sdkRunners,anchor:anchor);s.now={at ?? now}
+            var s=n.sdkService(appRegistry:n.cfg.appRegistry!,measurement:m,runners:runners ?? n.cfg.sdkRunners,anchor:anchor);s.now={at ?? now}
             s.appTable={app,compose in let w=windows[app+compose] ?? (0,0)
                 return SDK.Entry(block:block,admin:apps[app]==nil ? Data(repeating:0,count:20):admin,scope:apps[app] ?? zero32,from:w.0,until:w.1)}
             return s
@@ -87,10 +105,10 @@ import CryptoKit
         func canonical(_ o:[String:Any]) throws -> Data {try JSONSerialization.data(withJSONObject:o,options:[.sortedKeys,.withoutEscapingSlashes])}
         func cborBytes(_ d:Data) -> Data {d.count<24 ? Data([0x40+UInt8(d.count)])+d : d.count<256 ? Data([0x58,UInt8(d.count)])+d : Data([0x59,UInt8(d.count>>8),UInt8(d.count&0xff)])+d}
         // What the runner would send: its /attest object over "dsmack-sdk-runner/1|challenge|sha256(request)".
-        func runnerEvidence(_ name:String,_ challenge:Data,_ request:[String:Any],code:String?=nil) throws -> [String:Any] {
+        func runnerEvidence(_ name:String,_ challenge:Data,_ request:[String:Any],code:String?=nil,domain:String=SDK.runnerDomain) throws -> [String:Any] {
             let e=enrollments[name]!,leaf=try P256.Signing.PrivateKey(rawRepresentation:unhex(e["leaf_scalar_synthetic"] as! String))
             let boot=try JSONSerialization.jsonObject(with:Data(base64Encoded:e["boot_client_data"] as! String)!) as! [String:Any]
-            let client=try canonical(["compose_hash":boot["compose_hash"]!,"domain":"mac-compose-assert/1",
+            let client=try canonical(["compose_hash":boot["compose_hash"]!,"domain":domain,
                                       "data":SDK.runnerDomain+"|"+hex(challenge)+"|"+hex(Data(SHA256.hash(data:try canonical(request))))])
             let auth=try unhex(e["assert_prefix"] as! String)+[0,0,0,1]+unhex(e["assert_ext"] as! String)
             let sig=try leaf.signature(for:sha(auth+sha(client))).derRepresentation
@@ -100,11 +118,11 @@ import CryptoKit
                     "code":(fx["code"] as! [String:Any])[code ?? e["code"] as! String]!]
         }
         // runner: nil sends no evidence; otherwise ask this connection for a challenge and attach that enrollment's evidence.
-        func send(_ s:SDKService,_ session:inout SDKSession,_ q:[String:Any],runner name:String?=nil,code:String?=nil,alter:((inout [String:Any])->Void)?=nil) throws -> [String:Any] {
+        func send(_ s:SDKService,_ session:inout SDKSession,_ q:[String:Any],runner name:String?=nil,code:String?=nil,domain:String=SDK.runnerDomain,alter:((inout [String:Any])->Void)?=nil) throws -> [String:Any] {
             var full=q
             if let name {
                 let challenge=try unhex(try call(s,["v":1,"op":"challenge"],&session)["challenge"] as! String)
-                full["runner_evidence"]=try runnerEvidence(name,challenge,q,code:code)
+                full["runner_evidence"]=try runnerEvidence(name,challenge,q,code:code,domain:domain)
                 alter?(&full)
             }
             return try call(s,full,&session)
@@ -138,6 +156,11 @@ import CryptoKit
         let team=try getKey(sa,&sTeam,appX,c1,runner:"other_team")
         try check(team.root==rootX2 && sTeam.compose==c1 && (enrollments["other_team"]!["cdhash"] as! String) != (enrollments["good"]!["cdhash"] as! String),
                   "another team's signing of the admitted runner (own App ID and CDHash, same M_runner) admitted, same app_root: \(team.reply["error"] ?? "ok")")
+        // B1: runner.local/attest wraps any egress.sock caller's data in mac-compose-assert/1, and the guest's evidence op in
+        // dsmack-sdk-assert/1. Neither is admission, even over the right challenge and request with the runner's own CodeDirectory.
+        try refused(try send(sa,&s1,q,runner:"good",domain:"mac-compose-assert/1"),"runner_not_admitted: runner assertion is not over this challenge and request",
+                    "B1: an assertion runner.local/attest mints (mac-compose-assert/1) is not admission")
+        try refused(try send(sa,&s1,q,runner:"good",domain:"dsmack-sdk-assert/1"),"runner_not_admitted","B1: a guest evidence assertion (dsmack-sdk-assert/1) is not admission")
         try refused(try send(sa,&s1,q,runner:"stale"),"not this compose or is stale","enrollment older than 12 h")
         try refused(try send(sa,&s1,q,runner:"wrong_compose"),"not this compose or is stale","runner booted another compose")
         try refused(try send(sa,&s1,q,runner:"good"){$0["epoch"]=2},"not over this challenge and request","request altered after the runner signed it")
@@ -157,11 +180,11 @@ import CryptoKit
         let ax2=try getKey(sa,&szA,appX,c1b,runner:"wrong_compose")
         try check(ax2.root==ax.root && ax2.reply["app_pub"] as? String==ax.reply["app_pub"] as? String && ax2.reply["statement"] as? String != ax.reply["statement"] as? String,
                   "different compose_hash under the same app_id: same key, statement names the compose")
-        try check(ax.reply["block"] as? Int==1234 && ax.reply["app_registry"] as? String==appRegistry,"statement names the block the AppRegistry was read at")
+        try check(ax.reply["block"] as? Int==1234 && (ax.reply["app_registry"] as? String)?.lowercased()==appRegistry,"statement names the block and the AppRegistry it was read from")
         var fresh3=SDKSession()
-        try refused(try getKey(sa,&fresh3,appX,c3,runner:"good").reply,"compose not allowed under app_id at block 1234","unlisted compose, before runner admission")
+        try refused(try getKey(sa,&fresh3,appX,c3,runner:"good").reply,"runner_not_admitted: runner enrollment is not this compose","a runner not booting the requested compose is refused before any AppRegistry read")
         try check(fresh3.compose==nil,"unlisted compose admits no connection")
-        try refused(try getKey(sa,&sxA,appX,c3).reply,"compose not allowed under app_id","unlisted compose on an admitted connection")
+        try refused(try getKey(sa,&sxA,appX,c3).reply,"connection admitted for another compose","unlisted compose on a connection admitted for another")
         try refused(try getKey(sa,&sxA,appZ,c1).reply,"app_id not in AppRegistry at block 1234","app not created")
         windows[appX+c1]=(0,1234)
         try refused(try getKey(sa,&sxA,appX,c1).reply,"compose window closed at block 1234, read at 1234","window closed at the read block, on an admitted connection")
@@ -178,7 +201,7 @@ import CryptoKit
         try refused(try getKey(sa,&sxA,appS,c1).reply,"no group key held for scope 0x0101","scope comes from the table: an app in a scope this node lacks")
 
         let a1=try getKey(sa,&sxA,appX,c1,epoch:1)
-        let rootX1=try SDK.appRoot(g1,chainId:chainId,registry:registry,scope:scope,keyEpoch:1,appId:appX).withUnsafeBytes{Data($0)}
+        let rootX1=try SDK.appRoot(g1,chainId:chainId,registry:registry,appRegistry:appRegistry,scope:scope,keyEpoch:1,appId:appX).withUnsafeBytes{Data($0)}
         try check(a1.root==rootX1 && a1.root != ax.root && a1.reply["key_epoch"] as? Int==1,"get_key(epoch=prev) after a bump returns the old epoch's root")
         try refused(try getKey(sa,&sxA,appX,c1,epoch:3).reply,"key epoch 3 not held","future epoch")
         try refused(try getKey(sa,&sxA,appX,c1,epoch:0).reply,"key epoch 0 not held","older than previous epoch")
@@ -187,8 +210,8 @@ import CryptoKit
         for (name,r) in [("epoch 2",ax.reply),("epoch 1",a1.reply)] {
             let st=try unhex(r["statement"] as! String),sig=try P256.Signing.ECDSASignature(rawRepresentation:unhex(r["group_signature"] as! String))
             let e=UInt64(r["key_epoch"] as! Int),g=e==2 ? g2:g1
-            let rebuilt=try SDK.statement(chainId:chainId,registry:registry,scope:scope,keyEpoch:e,appId:appX,composeHash:c1,block:1234,measurement:m,appPub:unhex(r["app_pub"] as! String))
-            try check(st==rebuilt && r["group_public"] as? String==hex(g.publicKey.x963Representation),"\(name) statement encodes (app_id, app_pub, compose_hash, block, epoch, M)")
+            let rebuilt=try SDK.statement(chainId:chainId,registry:registry,appRegistry:appRegistry,scope:scope,keyEpoch:e,appId:appX,composeHash:c1,block:1234,measurement:m,appPub:unhex(r["app_pub"] as! String))
+            try check(st==rebuilt && r["group_public"] as? String==hex(g.publicKey.x963Representation),"\(name) statement encodes (AppRegistry, app_id, app_pub, compose_hash, block, epoch, M)")
             try check(g.publicKey.isValidSignature(sig,for:st),"\(name) statement verifies against the group public key")
             try check(!(e==2 ? g1:g2).publicKey.isValidSignature(sig,for:st) && !g.publicKey.isValidSignature(sig,for:st+[0]),"\(name) statement fails under the other key or altered")
         }
@@ -250,6 +273,6 @@ import CryptoKit
         print("SDKVectors passed: \(passed) checks")
     }
     /// The same vectors are pinned in sdk/test_sdk.py test_vectors_match_swift (Python dsmack_sdk).
-    static let vectorX2="0xff7581dad655737c4a35ef4192a3f5897bfdf54ea7c70570b8c185a4230fab59"
-    static let vectorAppPubX2="0x0499a9357634ed27c08281b0b7eae22d69f20bfdf4df82b4a56e20ba8d6ce4914becc54035cd9c3112e69b314bdf9d5f7f0692877e1efbc3a38c565ef9ddd237fb"
+    static let vectorX2="0xda78017f89ce06c6205664157e1e3fa384a4b1d8e62cfa8c33746e10556c7c6a"
+    static let vectorAppPubX2="0x047a0ed31182cc27b524756cee7c136ca159ad7d8d38cc6ca6f8ebc8b5454464925eeb9117c01f764b3ef4540483cb3956fb3071e4bbbd07c1cebc87e8279a98e7"
 }

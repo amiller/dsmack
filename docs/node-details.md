@@ -158,10 +158,15 @@ records signature and stapled-ticket checks, not a first open on another Mac.
 `AppRegistry` is deployed at `0xa4d26deDf4d086216a0E2cFbc7bdA49918f5C5c3` on chain 84532,
 owner `0xe45C80da8A992447E9Da6d2d82Fe4b6Fa2d48C61`. The coupon app
 `keccak256("dsmack-coupon-v1")` = `0x25e69b5ec66f7453e69abfcf0e4ec54e35643db48be80fa9f96c464010d8429f`
-is created with scope 0 and no admitted compose hash. A node serving `sdkPort` names it in config
-as `appRegistry` (required with `sdkPort`; without it the node refuses to start the SDK). Each key
-op reads `apps(app_id)` and `composes(app_id, compose_hash)` at the current block; the G-signed
-statement names that block, so a verifier re-reads the window there.
+is created with scope 0 and no admitted compose hash (`apps/coupon-sdk/app-compose.json` names it).
+The address is compiled into release builds (`ReleaseNetwork` in `node/mac/NetworkConfig.swift`, inside M):
+a release-mode node serving `sdkPort` reads this AppRegistry and no other, refuses a config `appRegistry`
+that differs, and refuses `sdkPort` unless its rpc, chainId and registry are the compiled ones; only
+`-D SDK_TEST_TRUST` or `-D SDK_TEST_NETWORK` test builds take `appRegistry` from config. Each key op,
+after the runner is admitted, reads `apps(app_id)` and `composes(app_id, compose_hash)` at the current
+block; the G-signed statement names that block and the AppRegistry address (also in the app-root salt),
+so a verifier re-reads the window in exactly that contract with `eth_call` at that block (not
+`isAllowed` at latest).
 
 The runner measurements (M_runner, the node's own M definition applied to the runner) the SDK admits
 are compiled into the node, inside its measurement M

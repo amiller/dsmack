@@ -21,7 +21,9 @@ struct Config {
     /// Runner measurements M_runner admitted to the SDK port; non-empty with sdkPort. compiledSDKRunnerMeasurements (inside
     /// M); only an SDK_TEST_TRUST build takes them from config sdkRunners.
     let sdkRunners: [Data]
-    /// AppRegistry address the SDK reads compose windows from; required with sdkPort.
+    /// AppRegistry address the SDK reads compose windows from, set exactly when sdkPort is. Compiled in
+    /// (ReleaseNetwork.settings["appRegistry"], inside M) with the rpc, chainId and registry it belongs to, which the config
+    /// must then equal; only an SDK_TEST_TRUST or SDK_TEST_NETWORK build takes the SDK's network from config.
     let appRegistry: String?
     #if SDK_TEST_TRUST
     /// Test builds only (-D SDK_TEST_TRUST, never a release): the App Attest root that synthetic runner fixtures use,
@@ -63,9 +65,22 @@ struct Config {
         sdkRunners=sdkPort==nil ? []:try compiledSDKRunnerMeasurements.map(bytes32)
         try need(sdkPort==nil || !sdkRunners.isEmpty,"sdkPort needs a runner measurement compiled into the node (build_mac.py --sdk-runner)")
         #endif
+        #if SDK_TEST_TRUST || SDK_TEST_NETWORK
         appRegistry=d["appRegistry"] as? String
         try need((sdkPort==nil)==(appRegistry==nil),"sdkPort and appRegistry go together")
         if let appRegistry {_=try addressWord(appRegistry)}
+        #else
+        let fixed=ReleaseNetwork.settings,pinned=fixed?["appRegistry"] as? String
+        try need(d["appRegistry"]==nil || (d["appRegistry"] as? String)?.lowercased()==pinned?.lowercased(),
+                 "appRegistry is compiled into the node (ReleaseNetwork, inside M); a config address needs an SDK_TEST_NETWORK build")
+        if sdkPort != nil {
+            guard let fixed,let pinned else {throw DemoError.invalid("sdkPort needs an AppRegistry compiled into ReleaseNetwork")}
+            try need(rpc==fixed["rpc"] as? String && registry.lowercased()==(fixed["registry"] as? String)?.lowercased() && chainId==fixed["chainId"] as? Int,
+                     "the SDK serves only the compiled release network (rpc, chainId, registry)")
+            _=try addressWord(pinned)
+        }
+        appRegistry=sdkPort==nil ? nil:pinned
+        #endif
         #if SDK_TEST_TRUST
         guard let anchor=(d["sdkTestAnchor"] as? String).flatMap({Data(base64Encoded:$0)}) else {throw DemoError.invalid("test build needs sdkTestAnchor")}
         sdkTestAnchor=anchor
@@ -82,8 +97,7 @@ struct Config {
                 && chainId==fixed["chainId"] as? Int && category.lowercased()==(fixed["category"] as? String)?.lowercased()
                 && relay==fixed["relay"] as? String && protocolVersion==fixed["protocolVersion"] as? Int
                 && badges?.lowercased()==(fixed["badges"] as? String)?.lowercased()
-                && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased()
-                && appRegistry?.lowercased()==(fixed["appRegistry"] as? String)?.lowercased(),"release network override rejected")
+                && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased(),"release network override rejected")
         }
         #endif
     }

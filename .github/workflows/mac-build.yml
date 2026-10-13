@@ -1,10 +1,10 @@
 name: Mac unsigned build and reproducibility
 on:
   pull_request:
-    paths: ['node/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'runner/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
   push:
     branches: [main, 'release/**']
-    paths: ['node/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
+    paths: ['node/**', 'runner/**', 'scripts/release/**', 'scripts/cd_args.py', 'scripts/macho_pages.py', 'scripts/cd_layout.py', '.github/workflows/mac-build.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -37,7 +37,7 @@ jobs:
         run: node/tests/sdk_vectors.sh build/sdk-vectors
       - name: Verify measured enroll payload and directory heartbeat encoding
         run: |
-          xcrun swiftc -framework DeviceCheck node/shared/*.swift node/tests/MeasuredEnrollTests.swift -o build/measured-enroll-tests
+          xcrun swiftc -framework DeviceCheck node/shared/*.swift node/mac/NetworkConfig.swift node/tests/MeasuredEnrollTests.swift -o build/measured-enroll-tests
           build/measured-enroll-tests
           build/measured-enroll-tests --unsigned
           cp build/measured-enroll-tests build/measured-enroll-signed
@@ -50,9 +50,38 @@ jobs:
           path: build/repro/
           retention-days: 14
           if-no-files-found: error
-  measure-two-teams:
+  runner-measure:
     runs-on: xcode-27
-    timeout-minutes: 20
+    timeout-minutes: 90
+    outputs:
+      m_runner: ${{ steps.measure.outputs.m_runner }}
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - name: Two unsigned runner builds from two checkout paths are identical
+        run: python3 scripts/release/check_repro.py --runner --out build/runner-repro
+      - name: Modified runner (negative control)
+        run: python3 scripts/release/build_mac.py --runner --modified --out build/runner-modified
+      - name: One M_runner for two throwaway teams, another for the modified runner
+        id: measure
+        run: |
+          runner/measure_two_teams.sh build/runner-repro/short/Runner.app build/runner-modified/Runner.app build/runner-measure
+          echo "m_runner=$(cat build/runner-measure/m_runner.txt)" >> "$GITHUB_OUTPUT"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: runner-measure
+          path: |
+            build/runner-repro/reproducibility.json
+            build/runner-repro/short/build-manifest.json
+            build/runner-measure/summary.txt
+            build/runner-measure/m_runner.txt
+          retention-days: 14
+          if-no-files-found: error
+  measure-two-teams:
+    needs: runner-measure
+    runs-on: xcode-27
+    timeout-minutes: 40
     outputs:
       m_honest_a: ${{ steps.measure.outputs.m_honest_a }}
       m_honest_b: ${{ steps.measure.outputs.m_honest_b }}
@@ -64,14 +93,23 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
-      - name: One measurement for two teams, another for a modified build
+      - name: One measurement for two teams, another for a modified build (the runner's real M_runner compiled in)
         id: measure
+        env:
+          RUNNER_M: ${{ needs.runner-measure.outputs.m_runner }}
         run: |
           scripts/release/measure_two_teams.sh build/measure
           tee -a "$GITHUB_OUTPUT" < build/measure/vectors/outputs.txt
+      - name: The same for the GUI participant (the release flavor)
+        env:
+          RUNNER_M: ${{ needs.runner-measure.outputs.m_runner }}
+          GUI: '1'
+        run: scripts/release/measure_two_teams.sh build/measure-gui
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: measure-two-teams
-          path: build/measure/vectors/
+          path: |
+            build/measure/vectors/
+            build/measure-gui/vectors/
           retention-days: 14
           if-no-files-found: error

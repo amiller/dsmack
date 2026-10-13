@@ -4,8 +4,9 @@ The prototype runs a digest-pinned compose workload through Apple's
 Containerization 0.33.4 and Virtualization.framework. Its guest has no network
 device. A Unix socket at `/run/egress.sock` reaches the host proxy, which applies
 egress policy, originates pinned TLS and signs receipts. App keys come from a
-Dsmack node's SDK port (`--sdk-node`): the runner proves its CDHash and compose
-with App Attest, receives the app root and serves the guest `/var/run/dsmack.sock`
+Dsmack node's SDK port (`--sdk-node`): the runner proves its measurement and compose
+with App Attest (domain `dsmack-sdk-runner/1`, which `runner.local/attest` never signs), receives the app
+root, checks the group key on chain (`--chain-rpc`, `--registry`) and serves the guest `/var/run/dsmack.sock`
 ([protocol](../docs/protocols/runner.md#dsmack-sdk-keys-from-the-node---sdk-node)).
 The stand-in KMS (`--dev-kms`) is DEV-ONLY. The host can read app keys; App
 Attest establishes identity and binding.
@@ -33,6 +34,9 @@ base/output directory and a deliberately configured KMS. Kernel acquisition,
 Apple signing and hardware acceptance require their own qualification; this
 repository does not include the old lab's image store or credentials.
 
+The release runner is built unsigned and reproducibly by
+`scripts/release/build_mac.py --runner` (checked from two checkout paths by
+`scripts/release/check_repro.py --runner`) and signed with `sign_mac.py`, as the node is.
 `sign.sh` and the hardware scripts in `test/` retain lab-specific signing and
 host assumptions. Review and adapt their configuration in your authorized Mac
 environment before use. They are not a portable one-command installation.

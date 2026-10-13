@@ -5,8 +5,10 @@ import Foundation
 
 // dsmack-sdk v1, runner side (planning: dsmack-sdk design §1-3; node side node/shared/SDK.swift; Python stand-in
 // runner/kms/sdk_runner.py). The runner holds one admitted connection to its node's loopback sdkPort: it asks for a
-// challenge, sends get_key with runner_evidence (an App Attest assertion over "dsmack-sdk-runner/1|0x<challenge>|0x<sha256
-// of the canonical request>") and opens the app root sealed to its one-time eph_pub. It then serves the guest JSON lines
+// challenge, sends get_key with runner_evidence (an App Attest assertion over {compose_hash, data: "dsmack-sdk-runner/1|0x
+// <challenge>|0x<sha256 of the canonical request>", domain: "dsmack-sdk-runner/1"}, a domain runner.local/attest never
+// signs) and opens the app root sealed to its one-time eph_pub. Every release is checked on chain: G must be the group-key
+// registry's committed sharedKeys(scope) for the statement's key epoch (GroupCheck). It then serves the guest JSON lines
 // on /var/run/dsmack.sock: get_key (leaf derivation and chain link 2 here), evidence and info (from the node). That socket
 // exists only inside the VM: the guest agent relays it to a vsock port this process listens on; no host path exists.
 
@@ -62,11 +64,11 @@ enum SDKv1 {
         Data("dsmack-sdk/key/1".utf8) + lp(Data(path.utf8)) + lp(Data(purpose.utf8)) + lp(pub)
     }
     static func appStatement(_ r: [String: Any], appId: Data, composeHash: Data, appPub: Data) throws -> Data {
-        guard let chain = r["chain_id"] as? UInt64, let registry = r["registry"] as? String, let scope = r["scope"] as? String,
+        guard let chain = r["chain_id"] as? UInt64, let registry = r["registry"] as? String, let appRegistry = r["app_registry"] as? String, let scope = r["scope"] as? String,
               let epoch = r["key_epoch"] as? UInt64, let block = r["block"] as? UInt64, let m = r["M"] as? String else { throw Fail("node release fields") }
-        let address = try unhex(registry)
-        guard address.count == 20 else { throw Fail("registry address width") }
-        let context: [Data] = [word(chain), Data(count: 12), address, try unhex(scope), word(epoch), appId]
+        let address = try unhex(registry), apps = try unhex(appRegistry)
+        guard address.count == 20, apps.count == 20 else { throw Fail("registry address width") }
+        let context: [Data] = [word(chain), Data(count: 12), address, Data(count: 12), apps, try unhex(scope), word(epoch), appId]
         let rest: [Data] = [composeHash, word(block), try unhex(m), appPub]
         return ([Data("dsmack-sdk/app/1".utf8)] + context + rest).reduce(Data(), +)
     }
@@ -149,6 +151,64 @@ enum K1 {
     }
 }
 
+// G (the statement's group_public) is the group-key registry's committed sharedKeys(scope) while the statement's key epoch
+// was current: at the statement's block for the epoch current there, else at the block before KeyEpochStarted(scope,
+// epoch + 1). The RPC and registry are this runner's own (--chain-rpc, --registry), not the node's reply. Same check:
+// sdk/python/dsmack_sdk/verify.py group_on_chain.
+struct GroupCheck {
+    static let keyEpochs = "0xd71779d9", sharedKeys = "0xd5b7abaf"
+    static let keyEpochStarted = "0x143519224fe404fde2f926e45a8cd8de4da43c648680d13caadff828449c7ad0"  // KeyEpochStarted(bytes32,uint64)
+    let rpc: URL, registry: String
+
+    func call(_ method: String, _ params: [Any]) throws -> Any {
+        var req = URLRequest(url: rpc)
+        req.httpMethod = "POST"
+        req.setValue("application/json", forHTTPHeaderField: "content-type")
+        req.httpBody = try JSONSerialization.data(withJSONObject: ["jsonrpc": "2.0", "id": 1, "method": method, "params": params])
+        let done = DispatchSemaphore(value: 0)
+        nonisolated(unsafe) var reply: (Data?, Error?)
+        URLSession.shared.dataTask(with: req) { d, _, e in reply = (d, e); done.signal() }.resume()
+        done.wait()
+        guard let d = reply.0 else { throw Fail("RPC \(method): \(reply.1.map { "\($0)" } ?? "no reply")") }
+        let r = try object(d, "RPC reply")
+        if let e = r["error"] { throw Fail("RPC \(method) error \(e)") }
+        guard let v = r["result"] else { throw Fail("RPC \(method): no result") }
+        return v
+    }
+    func quantity(_ s: Any?) throws -> UInt64 {
+        guard let s = s as? String, s.hasPrefix("0x"), let n = UInt64(s.dropFirst(2), radix: 16) else { throw Fail("RPC quantity \(s ?? "nil")") }
+        return n
+    }
+    func read(_ selector: String, _ scope: Data, at block: UInt64) throws -> Data {
+        guard let s = try call("eth_call", [["to": registry, "data": selector + hex(scope)], "0x" + String(block, radix: 16)]) as? String else { throw Fail("eth_call result") }
+        return try unhex(s)
+    }
+    func small(_ w: Data) throws -> UInt64 {
+        guard w.count == 32, w.prefix(24).allSatisfy({ $0 == 0 }) else { throw Fail("not a small ABI word") }
+        return w.suffix(8).reduce(0) { $0 << 8 | UInt64($1) }
+    }
+    func verify(_ r: [String: Any], group: Data) throws {
+        guard let chain = r["chain_id"] as? UInt64, let reg = r["registry"] as? String, let s = r["scope"] as? String,
+              let epoch = r["key_epoch"] as? UInt64, let block = r["block"] as? UInt64 else { throw Fail("node release fields") }
+        guard reg.lowercased() == registry.lowercased(), try quantity(try call("eth_chainId", [])) == chain else {
+            throw Fail("release names chain \(chain) registry \(reg), not this runner's --chain-rpc and --registry \(registry)")
+        }
+        let scope = try unhex(s)
+        var at = block
+        if try small(try read(Self.keyEpochs, scope, at: block)) != epoch {
+            let filter: [String: Any] = ["address": registry, "topics": [Self.keyEpochStarted, "0x" + hex(scope)], "fromBlock": "0x0", "toBlock": "0x" + String(block, radix: 16)]
+            guard let logs = try call("eth_getLogs", [filter]) as? [[String: Any]] else { throw Fail("eth_getLogs result") }
+            let ends = try logs.filter { try small(try unhex($0["data"] as? String ?? "")) == epoch + 1 }.map { try quantity($0["blockNumber"]) }
+            guard ends.count == 1 else { throw Fail("key epoch \(epoch) did not end before block \(block)") }
+            at = ends[0] - 1
+        }
+        let k = try read(Self.sharedKeys, scope, at: at)
+        guard try small(try read(Self.keyEpochs, scope, at: at)) == epoch, k.count == 128, k[127] == 1, Data([4]) + k.prefix(64) == group else {
+            throw Fail("group key is not sharedKeys(scope) for key epoch \(epoch) at block \(at)")
+        }
+    }
+}
+
 // One JSON-lines connection to the node's loopback sdkPort, serialized.
 final class NodeLink: @unchecked Sendable {
     let fd: Int32, lock = NSLock()
@@ -188,13 +248,13 @@ final class NodeLink: @unchecked Sendable {
 
 // The app as this runner serves it: its admitted node connection, released roots by epoch, and the guest ops.
 final class SDKApp: @unchecked Sendable {
-    let node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String, code: [String: Any]?
+    let node: NodeLink, guest: Guest, chain: GroupCheck, appId: String, composeHash: String, cdhash: String, code: [String: Any]?
     let lock = NSLock()
     var roots: [UInt64: (root: SymmetricKey, signer: P256.Signing.PrivateKey, statement: [String: Any])] = [:]
-    var epoch: UInt64 = 0
+    var epoch: UInt64 = 0  // the boot release's, for the log
 
-    init(node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String, code: [String: Any]?) {
-        (self.node, self.guest, self.appId, self.composeHash, self.cdhash, self.code) = (node, guest, appId, composeHash, cdhash, code)
+    init(node: NodeLink, guest: Guest, chain: GroupCheck, appId: String, composeHash: String, cdhash: String, code: [String: Any]?) {
+        (self.node, self.guest, self.chain, self.appId, self.composeHash, self.cdhash, self.code) = (node, guest, chain, appId, composeHash, cdhash, code)
     }
 
     func request(_ op: String, _ fields: [String: Any] = [:]) -> [String: Any] {
@@ -205,8 +265,10 @@ final class SDKApp: @unchecked Sendable {
     func boot(challenge: String, eph: P256.KeyAgreement.PrivateKey) async throws {
         var q = request("get_key", ["eph_pub": hex(eph.publicKey.x963Representation)])
         let data = "dsmack-sdk-runner/1|0x\(hex(try unhex(challenge)))|0x\(sha256hex(try canonical(q)))"
+        // Signed in the admission domain, never through attest() (mac-compose-assert/1, which any egress.sock caller can get).
         // With --attest the evidence also carries this executable's measurement inputs (selfCode): the node admits by M_runner.
-        q["runner_evidence"] = try await guest.attest(data).merging(code.map { ["code": $0] } ?? [:]) { $1 }
+        let admission = try canonical(["compose_hash": composeHash, "data": data, "domain": "dsmack-sdk-runner/1"])
+        q["runner_evidence"] = try await guest.evidence(admission).merging(code.map { ["code": $0] } ?? [:]) { $1 }
         epoch = try open(try node.call(q), eph)
     }
 
@@ -226,17 +288,21 @@ final class SDKApp: @unchecked Sendable {
         guard try P256.Signing.PublicKey(x963Representation: try unhex(g)).isValidSignature(P256.Signing.ECDSASignature(rawRepresentation: try unhex(gs)), for: statement) else {
             throw Fail("statement is not signed by the group key")
         }
+        try chain.verify(r, group: try unhex(g))
         lock.withLock { roots[e] = (root, signer, ["signer": g, "message": s, "signature": gs]) }
         return e
     }
 
+    // Without epoch: a fresh release of the node's current epoch (the node may have bumped since boot). With epoch: that
+    // epoch's root, released once and then cached.
     func getKey(_ q: [String: Any]) throws -> [String: Any] {
         guard let path = q["path"] as? String, let purpose = q["purpose"] as? String else { throw Fail("get_key needs path and purpose") }
-        var e = epoch
-        if let x = q["epoch"] { guard let n = x as? UInt64 else { throw Fail("epoch") }; e = n }
-        if lock.withLock({ roots[e] }) == nil {
+        var asked: UInt64?
+        if let x = q["epoch"] { guard let n = x as? UInt64 else { throw Fail("epoch") }; asked = n }
+        var e = asked ?? 0
+        if asked == nil || lock.withLock({ roots[e] }) == nil {
             let eph = P256.KeyAgreement.PrivateKey()
-            _ = try open(try node.call(request("get_key", ["eph_pub": hex(eph.publicKey.x963Representation), "epoch": e])), eph)
+            e = try open(try node.call(request("get_key", ["eph_pub": hex(eph.publicKey.x963Representation)].merging(asked.map { ["epoch": $0] } ?? [:]) { $1 })), eph)
         }
         let r = lock.withLock { roots[e]! }
         let (key, pub) = try SDKv1.material(try SDKv1.tag(purpose), SDKv1.leaf(r.root, path, purpose))
@@ -259,7 +325,7 @@ final class SDKApp: @unchecked Sendable {
 
     func info() throws -> [String: Any] {
         let r = try node.call(request("info"))
-        return r.filter { ["app_id", "compose_hash", "scope", "key_epoch", "chain_id", "registry", "block", "group_public", "member", "M", "sdk"].contains($0.key) }
+        return r.filter { ["app_id", "compose_hash", "scope", "key_epoch", "chain_id", "registry", "app_registry", "block", "group_public", "member", "M", "sdk"].contains($0.key) }
             .merging(["cdhash": cdhash]) { $1 }
     }
 

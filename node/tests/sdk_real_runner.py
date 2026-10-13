@@ -9,7 +9,7 @@ port> on the Mac, forwarded here, each led by sha256 of the runner's boot client
 side reads the same clientData.bin from the run directory, so every tunnel reaches the boot it came from, and serves a
 local unix socket per boot: each client connection takes one tunnel, and the guest pipes it to /var/run/dsmack.sock.
 A refused boot exits before the VM starts; its error is the runner log."""
-import hashlib, json, queue, re, secrets, socket, subprocess, threading, time
+import base64, hashlib, json, queue, re, secrets, socket, subprocess, sys, threading, time
 from pathlib import Path
 
 BRIDGE = r'''
@@ -69,7 +69,7 @@ def pipe(a, b):
 
 class RealRunners:
     def __init__(self, cfg, local):
-        self.r, self.local = cfg['runner'], Path(local)
+        self.r, self.local, self.rpc, self.registry = cfg['runner'], Path(local), cfg['rpc'], cfg['registry']
         self.tunnels, self.lock, self.rd_of = {}, threading.Lock(), {}
         self.listener = socket.create_server(('127.0.0.1', self.r['bridge_port']))
         threading.Thread(target=self.accept, daemon=True).start()
@@ -110,7 +110,7 @@ class RealRunners:
         self.ssh(f"mkdir -p {rd}/base && ln -s {self.r['kernel']} {rd}/base/vmlinux-arm64 && cat > {rd}/app-compose.json", input=Path(compose).read_text())
         app = self.r['apps'][variant]
         self.ssh(f"nohup sh -c 'open -n -W --stdout {rd}/runner.stdout --stderr {rd}/runner.log {app} --args run "
-                 f"--compose {rd}/app-compose.json --sdk-node {node} --out {rd}/out --base {rd}/base "
+                 f"--compose {rd}/app-compose.json --sdk-node {node} --chain-rpc {self.rpc} --registry {self.registry} --out {rd}/out --base {rd}/base "
                  f"--oci-archive {self.r['oci']} {'--attest' if attest else '--no-attest'}; touch {rd}/exited' > /dev/null 2>&1 &")
         return rd
 
@@ -151,6 +151,20 @@ class RealRunners:
             assert time.time() < deadline, f'{rd} still running'
             time.sleep(2)
         return self.ssh(f'cat {rd}/out/guest_stdout.txt'), self.log(rd)
+
+    def host_attest(self, rd, data):
+        """What any host process gets from a running runner: POST runner.local/attest over the run's egress.sock."""
+        return json.loads(self.ssh(f"curl -sf --unix-socket {rd}/out/egress.sock -X POST -H 'content-type: application/json' "
+                                   f"--data-binary @- http://runner.local/attest", input=json.dumps({'data': data})))
+
+    def runner_code(self, variant):
+        """The runner executable's measurement inputs, read from its file on the Mac as anyone can."""
+        sys.path[:0] = [str(Path(__file__).resolve().parents[2] / 'scripts/release')]
+        from measure import inputs
+        local = self.local / f'runner-{variant}-{secrets.token_hex(3)}'
+        subprocess.run(['scp', f"{self.r['host']}:{self.r['apps'][variant]}/Contents/MacOS/runner", str(local)], check=True, capture_output=True)
+        i = inputs(str(local))
+        return {k: base64.b64encode(i[k]).decode() if k in ('cd', 'page0', 'ent') else i[k] for k in ('cd', 'page0', 'ent', 'L', 'S')}
 
     def close(self):
         self.listener.close()

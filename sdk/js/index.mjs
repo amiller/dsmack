@@ -10,11 +10,14 @@ const lp = (b) => Buffer.concat([Buffer.from([0, 0, 0, 0].map((_, i) => (b.lengt
 const hex = (h) => Buffer.from(h.replace(/^0x/, ''), 'hex');
 const u = (n, bytes) => hex(BigInt(n).toString(16).padStart(bytes * 2, '0'));
 
-export function context(chainId, registry, scope, keyEpoch, appId) {
-  return Buffer.concat([u(chainId, 32), Buffer.alloc(12), hex(registry), hex(scope), u(keyEpoch, 32), hex(appId)]);
+const sized = (h, n, what) => { const b = hex(h); if (b.length !== n) throw new Error(`${what} width`); return b; };
+const address = (a) => Buffer.concat([Buffer.alloc(12), sized(a, 20, 'address')]);
+
+export function context(chainId, registry, appRegistry, scope, keyEpoch, appId) {
+  return Buffer.concat([u(chainId, 32), address(registry), address(appRegistry), sized(scope, 32, 'scope'), u(keyEpoch, 32), sized(appId, 32, 'app_id')]);
 }
-export const appRoot = (groupScalar, chainId, registry, scope, keyEpoch, appId) =>
-  hkdf(groupScalar, context(chainId, registry, scope, keyEpoch, appId), Buffer.from('dsmack-sdk/v1/app'));
+export const appRoot = (groupScalar, chainId, registry, appRegistry, scope, keyEpoch, appId) =>
+  hkdf(groupScalar, context(chainId, registry, appRegistry, scope, keyEpoch, appId), Buffer.from('dsmack-sdk/v1/app'));
 export function leaf(root, path, purpose) {
   const [tag, ...rest] = purpose.split(':');
   if (!rest.length || !TAGS.includes(tag)) throw new Error(`purpose must start with one of ${TAGS.map((t) => t + ':').join(', ')}`);

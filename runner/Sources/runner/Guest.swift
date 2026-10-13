@@ -39,7 +39,8 @@ final class Guest: @unchecked Sendable {
     }
 
     // An assertion over sha256(assertClientData) under the current enrollment. A task boot passes its own clientData
-    // (domain mac-compose-task-boot/1), which /attest cannot produce: /attest always wraps the data in mac-compose-assert/1.
+    // (domain mac-compose-task-boot/1) and the SDK boot its node admission (dsmack-sdk-runner/1), which /attest cannot
+    // produce: /attest always wraps the data in mac-compose-assert/1.
     func evidence(_ assertClientData: Data) async throws -> [String: Any] {
         guard lock.withLock({ enrollment }) != nil else {
             return ["type": "dev", "bootClientData": devClientData.base64EncodedString(), "assertClientData": assertClientData.base64EncodedString()]

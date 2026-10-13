@@ -58,9 +58,11 @@ whoever signed it.</p>
 directory that does not exist yet:</p>
 <pre><code class="language-sh">python3 scripts/release/build_mac.py --gui --out build/mine \
   --team ABCDE12345 --bundle-id com.example.node \
-  --version 0.2.0 --build-number 5
+  --version 0.3.0 --build-number 6 \
+  --sdk-runner 6c8e8ef4f55f717c4073048ce8307cc086c2ae113bb5401e1bc642742c08b60e
 </code></pre>
-<p>Use your own Team ID and bundle ID, and the release's version and build number.
+<p>Use your own Team ID and bundle ID, and the release's version, build number and
+<code>--sdk-runner</code> value (the M_runner its notes list as compiled in).
 Omit <code>--gui</code> for the command-line node. Besides the unsigned <code>Node.app</code>, the
 build writes <code>build/mine/entitlements.plist</code> from
 <a href="https://github.com/amiller/dsmack/blob/main/node/mac/Entitlements.template.plist">node/mac/Entitlements.template.plist</a>.
@@ -81,8 +83,8 @@ else: an extra entitlement changes M.</p>
   --one build/mine-signed/Node.app/Contents/MacOS/node
 </code></pre>
 <p>This prints your M and your CDHash. Compare M with the one admitted for that
-release; the <a href="https://github.com/amiller/dsmack/releases/tag/node-v0.2.0">0.2.0 release notes</a>
-list <code>0xf8c1da8e…f8fb58</code> for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
+release; the <a href="https://github.com/amiller/dsmack/releases/tag/node-v0.3.0">0.3.0 release notes</a>
+list <code>0xe361800e…b09cf4</code> for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
 different flavor (<code>--gui</code> or not), or a change to the entitlements.</p>
 <h2>Try it without an Apple account</h2>
 <pre><code class="language-sh">scripts/release/measure_two_teams.sh build/two-teams
@@ -96,8 +98,8 @@ certificates live in a temporary keychain inside the output directory and are
 deleted when the script ends. Self-signed copies cannot use App Attest, so this
 only checks the measurement. The same check runs on every change to the Mac
 code in the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
-<a href="https://github.com/amiller/dsmack/actions/runs/38295216891/job/114964549520">here is the run</a>
-for the 0.2.0 source commit <code>e72641c</code>.</p>
+<a href="https://github.com/amiller/dsmack/actions/runs/38381216545">here is the run</a>
+for the 0.3.0 source commit <code>ad3855f</code>.</p>
 <section></section>
 </main>
 <footer>

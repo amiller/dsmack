@@ -11,8 +11,8 @@ The website is [amiller.github.io/dsmack](https://amiller.github.io/dsmack/).
 
 ## Join the network
 
-**[Download Dsmack Node 0.2.0](https://github.com/amiller/dsmack/releases/download/node-v0.2.0/DsmackNode-0.2.0.zip)**
-· SHA-256 `955b1655a8b2f3d7a6997aae3cc799fce47a68b053cabb2f2517f35d3d3d611f`
+**[Download Dsmack Node 0.3.0](https://github.com/amiller/dsmack/releases/download/node-v0.3.0/DsmackNode-0.3.0.zip)**
+· SHA-256 `dd59b06b8bfbb6142e4d01bbbea67b3205a881ea9d3614c5d12a23ee00b2675b`
 
 You need an Apple silicon Mac on macOS 27 with Full Security and System
 Integrity Protection on. You do not need
@@ -57,8 +57,8 @@ The network admits builds by their code measurement M, which leaves out who
 signed them. [Build the Mac app under your own team](docs/build.md) has the
 steps. On every change to the Mac code, CI builds the node under two made-up
 teams and checks that both get the same M while a modified build does not;
-[here is that run](https://github.com/amiller/dsmack/actions/runs/38295216891/job/114964549520)
-for the 0.2.0 source.
+[here is that run](https://github.com/amiller/dsmack/actions/runs/38381216545)
+for the 0.3.0 source.
 
 ## What the network is and is not
 

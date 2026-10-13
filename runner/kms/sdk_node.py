@@ -1,6 +1,7 @@
 """Stand-in Dsmack node for the dsmack-sdk port, for hosts without a signed Mac node: the wire and checks of
 node/shared/SDK.swift SDKService (challenge, get_key, evidence, info; sponsor allow records; runner admission by
-App Attest evidence through verifier/core.py; previous epoch kept). Test group keys (--group-key EPOCH=PATH, a P-256
+App Attest evidence through verifier/core.py and the runner's measurement M_runner from its attested CodeDirectory;
+previous epoch kept). Test group keys (--group-key EPOCH=PATH, a P-256
 scalar as 64 hex, mode 0600, never logged) replace the node's held G; the highest epoch is current, the next lower
 one is the held previous epoch. --anchor is the fixture's synthetic root, never Apple's. The block is the chain's.
 """
@@ -8,7 +9,8 @@ import argparse, base64, hashlib, json, os, socketserver, sys, time, urllib.requ
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT / 'sdk/python'), str(ROOT)]
+sys.path[:0] = [str(ROOT / 'sdk/python'), str(ROOT), str(ROOT / 'scripts/release')]
+from measure import app_identifier, measure
 import dsmack_sdk as sdk
 from dsmack_sdk import b, b32
 from dsmack_sdk.node import pub
@@ -28,7 +30,7 @@ p.add_argument('--chain-id', type=int, required=True)
 p.add_argument('--scope', required=True, help='bytes32 hex this node holds G for')
 p.add_argument('--sponsor', required=True, help='Ed25519 public key (hex) that signs allow records')
 p.add_argument('--anchor', required=True, help='App Attest root, base64 DER (a synthetic fixture root)')
-p.add_argument('--runner', action='append', required=True, help='admitted runner CDHash hex')
+p.add_argument('--runner', action='append', required=True, help='admitted runner measurement M_runner, hex')
 p.add_argument('--member', required=True)
 p.add_argument('--m', required=True, help='node measurement M, bytes32 hex')
 p.add_argument('--checked-tx', required=True)
@@ -41,8 +43,7 @@ for spec in args.group_key:
 CURRENT = max(KEYS)
 SPONSOR = ed25519.Ed25519PublicKey.from_public_bytes(b(args.sponsor))
 ROOT_PEM = b'-----BEGIN CERTIFICATE-----\n' + base64.encodebytes(base64.b64decode(args.anchor)) + b'-----END CERTIFICATE-----\n'
-POLICY = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(3,),
-                cdhashes=tuple(b32(c) for c in args.runner), require_macos_acl=True)
+RUNNERS = {b32(m) for m in args.runner}
 h = lambda x: '0x' + x.hex()
 
 
@@ -80,11 +81,21 @@ def admit(q, compose_hash, session):
     request = {k: v for k, v in q.items() if k != 'runner_evidence'}
     try:
         boot, asserted = base64.b64decode(e['bootClientData']), base64.b64decode(e['assertClientData'])
-        enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], boot, POLICY, ROOT_PEM)
+        code = {k: base64.b64decode(v) if k in ('cd', 'page0', 'ent') else v for k, v in e['code'].items()}
+        require(set(code) == {'cd', 'page0', 'ent', 'L', 'S'}, 'code measurement fields')
+        cdhash = hashlib.sha256(code['cd']).digest()
+        policy = Policy(app_identifier(code['ent']), environment='production', categories=(3,), cdhashes=(cdhash,), require_macos_acl=True)
+        try:
+            enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], boot, policy, ROOT_PEM)
+        except Reject as r:
+            require(str(r) != 'cdhash_policy_failed', 'runner CodeDirectory is not the attested CDHash')
+            raise
+        runner_m = measure(**code)
+        require(runner_m in RUNNERS, f'runner measurement 0x{runner_m.hex()} not admitted')
         bd = json.loads(boot)
         require(bd['domain'] in ('mac-compose-boot/1', 'mac-compose-enroll/1') and bd['attested'] is True and bd['compose_hash'] == compose_hash.hex()
                 and -60 <= time.time() - bd['enrolled_at'] <= 12 * 3600, 'runner enrollment is not this compose or is stale')
-        verify_assertion(base64.b64decode(e['assertion']), asserted, enrolled['public_key'], 0, POLICY)
+        verify_assertion(base64.b64decode(e['assertion']), asserted, enrolled['public_key'], 0, policy)
         body = json.loads(asserted)
         require(set(body) == {'compose_hash', 'data', 'domain'} and body['domain'] == 'mac-compose-assert/1' and body['compose_hash'] == compose_hash.hex()
                 and body['data'] == sdk.runner_data(issued[0], request), 'runner assertion is not over this challenge and request')

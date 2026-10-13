@@ -41,6 +41,21 @@ def entitlements(ent):
         p = pe
     return e
 
+def app_identifier(ent):
+    """The App ID the entitlements name (com.apple.application-identifier, else application-identifier): App Attest's rpId."""
+    _, body, end, _ = der(ent, 0, len(ent), 0x70)
+    _, p, dend, _ = der(ent, der(ent, body, end, 0x02)[2], end, 0xb0)
+    found = {}
+    while p < dend:
+        _, pb, pe, _ = der(ent, p, dend, 0x30)
+        _, kb, ke, _ = der(ent, pb, pe, 0x0c)
+        _, vb, ve, t = der(ent, ke, pe)
+        if t == 0x0c: found[ent[kb:ke]] = ent[vb:ve].decode()
+        p = pe
+    app = found.get(b"com.apple.application-identifier", found.get(b"application-identifier"))
+    need(app is not None, "entitlements name no application identifier")
+    return app
+
 def measure(cd, page0, ent, L, S):
     need(len(cd) >= 0x60 and be32(cd, 0) == 0xfade0c02 and be32(cd, 4) == len(cd) and be32(cd, 8) == 0x20500, "blob")
     need(cd[0x24] == 32 and cd[0x25] == 2 and cd[0x27] == 14 and be32(cd, 0x2c) == 0 and be32(cd, 0x18) == 7, "layout")

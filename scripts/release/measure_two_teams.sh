@@ -26,7 +26,7 @@ security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k throwaway 
 git clone --quiet --no-hardlinks "$ROOT" "$OUT/src/a"
 git clone --quiet --no-hardlinks "$ROOT" "$OUT/src/b-checkout-at-a-deliberately-different-length-path"
 build() { python3 "$1/scripts/release/build_mac.py" --out "$OUT/build/$2" --team "$3" --bundle-id "$4" "${@:5}" >/dev/null; }
-# Every build compiles in one runner CDHash; other-runner differs only in that compiled-in CDHash, so it must move M.
+# Every build compiles in one runner measurement; other-runner differs only in that compiled-in M_runner, so it must move M.
 R1=$(printf 'a%.0s' {1..64}); R2=$(printf 'b%.0s' {1..64})
 build "$OUT/src/a" honest-a TEAMAAAAAA org.example.alpha.node --sdk-runner "$R1"
 build "$OUT/src/b-checkout-at-a-deliberately-different-length-path" honest-b TEAMBBBBBB net.example.beta.peer --sdk-runner "$R1"

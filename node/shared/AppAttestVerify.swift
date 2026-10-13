@@ -156,12 +156,13 @@ func verifyChain(_ chain: CBOR?, at: Date?, anchor: Data) throws -> (leaf: SecCe
 }
 
 // core.py authenticator(); cdhashes empty means report without policy check. Attested credential data is parsed only
-// for an attestation (Apple's legacy assertions keep AT=1 without it).
-func authenticator(_ auth: Data?, cdhashes: [Data], attestation: Bool) throws -> (counter: UInt32, credential: Data?, cose: CBOR?, cdhash: Data?) {
+// for an attestation (Apple's legacy assertions keep AT=1 without it). appID is the rpId: ours by default; an
+// open-admission caller passes the App ID the attested code's own entitlements name (CodeMeasurement.appIdentifier).
+func authenticator(_ auth: Data?, cdhashes: [Data], attestation: Bool, appID: String = AppAttestProfile.appID) throws -> (counter: UInt32, credential: Data?, cose: CBOR?, cdhash: Data?) {
     guard let auth else { throw AppAttestReject(reason: "short_authenticator") }
     let d = [UInt8](auth)
     try require(d.count >= 37, "short_authenticator")
-    try require(Data(d[0..<32]) == sha(Data(AppAttestProfile.appID.utf8)), "wrong_app_id")
+    try require(Data(d[0..<32]) == sha(Data(appID.utf8)), "wrong_app_id")
     let flags = d[32], counter = d[33..<37].reduce(UInt32(0)) { $0 << 8 | UInt32($1) }
     try require(flags & 0x3e == 0, "unsupported_authenticator_flags")
     var offset = 37, cose: CBOR?
@@ -214,14 +215,15 @@ func unb64(_ text: String) throws -> Data {
 
 // Returns the Apple-attested current CDHash and attested public key of the process that produced `raw`.
 // `anchor` is the Apple root in production (AppAttestAdmission); only the self-test passes its synthetic root.
-func verifyAttestation(_ raw: Data, keyID: String, challenge: Data, cdhashes: [Data], at: Date?, anchor: Data) throws -> (cdhash: Data?, publicKey: Data) {
+func verifyAttestation(_ raw: Data, keyID: String, challenge: Data, cdhashes: [Data], at: Date?, anchor: Data,
+                       appID: String = AppAttestProfile.appID) throws -> (cdhash: Data?, publicKey: Data) {
     let obj = try cborDecode(raw)
     try require(obj["fmt"] == .text("apple-appattest"), "wrong_attestation_format")
     guard let statement = obj["attStmt"], case .map = statement else { throw AppAttestReject(reason: "missing_attestation_statement") }
     try require((statement["receipt"]?.data?.count ?? 0) > 0, "missing_receipt")
     let (leaf, extensions) = try verifyChain(statement["x5c"], at: at, anchor: anchor)
     let auth = obj["authData"]?.data
-    let (_, credential, cose, cdhash) = try authenticator(auth, cdhashes: cdhashes, attestation: true)
+    let (_, credential, cose, cdhash) = try authenticator(auth, cdhashes: cdhashes, attestation: true, appID: appID)
     let kid = try unb64(keyID)
     try require(kid.count == 32 && credential! == kid, "credential_id_mismatch")
     guard let key = SecCertificateCopyKey(leaf),
@@ -243,11 +245,12 @@ func verifyAttestation(_ raw: Data, keyID: String, challenge: Data, cdhashes: [D
 
 // core.py verify_assertion: an assertion by the attested key `publicKey` (X9.63) over SHA256(clientData), its counter
 // above `previousCounter`. Returns the counter and the asserted CDHash.
-func verifyAssertion(_ raw: Data, clientData: Data, publicKey: Data, previousCounter: UInt32, cdhashes: [Data]) throws -> (counter: UInt32, cdhash: Data?) {
+func verifyAssertion(_ raw: Data, clientData: Data, publicKey: Data, previousCounter: UInt32, cdhashes: [Data],
+                     appID: String = AppAttestProfile.appID) throws -> (counter: UInt32, cdhash: Data?) {
     let obj = try cborDecode(raw)
     guard case .map = obj else { throw AppAttestReject(reason: "invalid_assertion") }
     guard let signature = obj["signature"]?.data else { throw AppAttestReject(reason: "missing_signature") }
-    let auth = obj["authenticatorData"]?.data, a = try authenticator(auth, cdhashes: cdhashes, attestation: false)
+    let auth = obj["authenticatorData"]?.data, a = try authenticator(auth, cdhashes: cdhashes, attestation: false, appID: appID)
     try require(a.counter > previousCounter, "counter_replay")
     guard let key = try? P256.Signing.PublicKey(x963Representation: publicKey),
           let sig = try? P256.Signing.ECDSASignature(derRepresentation: signature),

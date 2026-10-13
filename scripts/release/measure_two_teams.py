@@ -46,7 +46,7 @@ def main():
     if len({ha['cdhash'], hb['cdhash'], mod['cdhash']}) != 3:
         raise SystemExit('Expected three different CDHashes')
     if 'other-runner' in result and result['other-runner']['M'] == ha['M']:
-        raise SystemExit('Expected the compiled-in SDK runner CDHash to change M')
+        raise SystemExit('Expected the compiled-in SDK runner measurement to change M')
     print('measure-two-teams: pass')
 
 

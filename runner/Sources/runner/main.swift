@@ -149,6 +149,36 @@ func selfCDHash() throws -> String {
     return hex(h)
 }
 
+// This executable's measurement inputs {cd, page0, ent (DER entitlements body), L, S}, base64 and offsets, as the node's
+// CodeMeasurement reads them (node/shared/Measure.swift): the node checks SHA-256(cd) against the attested CDHash and
+// admits the runner by the signer-independent M of these. The CodeDirectory must be the running code's.
+func selfCode(cdhash: String) throws -> [String: Any] {
+    guard let url = Bundle.main.executableURL else { throw Fail("executable URL") }
+    let b = [UInt8](try Data(contentsOf: url))
+    let le = { (o: Int) in b[o ..< o + 4].reversed().reduce(0) { $0 << 8 | Int($1) } }, be = { (x: [UInt8], o: Int) in x[o ..< o + 4].reduce(0) { $0 << 8 | Int($1) } }
+    guard b.count >= 32, le(0) == 0xfeedfacf, le(4) == 0x0100000c else { throw Fail("not an arm64 Mach-O") }
+    var p = 32, L: Int?, S: Int?
+    for _ in 0 ..< le(16) {
+        if le(p) == 0x19, Array(b[p + 8 ..< p + 24]) == Array("__LINKEDIT".utf8) + [UInt8](repeating: 0, count: 6) { L = p }
+        if le(p) == 0x1d { S = p }
+        p += le(p + 4)
+    }
+    guard let L, let S else { throw Fail("no __LINKEDIT or code signature load command") }
+    let sb = Array(b[le(S + 8) ..< le(S + 8) + le(S + 12)])
+    guard be(sb, 0) == 0xfade0cc0 else { throw Fail("no code signature superblob") }
+    var blobs: [Int: [UInt8]] = [:]
+    for i in 0 ..< be(sb, 8) { let o = be(sb, 16 + 8 * i); blobs[be(sb, 12 + 8 * i)] = Array(sb[o ..< o + be(sb, o + 4)]) }
+    guard let cd = blobs[0], let ent = blobs[7], be(ent, 0) == 0xfade7172 else { throw Fail("no CodeDirectory or DER entitlements") }
+    guard sha256hex(Data(cd)) == cdhash else { throw Fail("executable CodeDirectory is not the running code's") }
+    return ["cd": Data(cd).base64EncodedString(), "page0": Data(b[0 ..< 16384]).base64EncodedString(), "ent": Data(ent[8...]).base64EncodedString(), "L": L, "S": S]
+}
+
+#if MODIFIED
+let variant = "modified"  // negative control (runner/sign.sh with MODIFIED=1): other code, another M_runner, never admitted
+#else
+let variant = "honest"
+#endif
+
 let args = Array(CommandLine.arguments.dropFirst())
 func opt(_ name: String) throws -> String {
     guard let i = args.firstIndex(of: name), i + 1 < args.count else { throw Fail("missing \(name) <value>") }
@@ -200,7 +230,7 @@ func run() async throws {
         guard !app.isEmpty else { throw Fail("--app needs a non-empty app id") }
         log("DEV-ONLY: --dev-kms. Key material from the stand-in KMS, not a node.")
     }
-    log("compose_hash \(compose.hash), cdhash \(measured), app \(app)")
+    log("compose_hash \(compose.hash), cdhash \(measured), app \(app), build \(variant)")
     let quoteHelper = try compose.egress.allow.contains { $0.provider_quote != nil } ? {
         let h = QuoteHelper(node: URL(fileURLWithPath: try opt("--node")), script: URL(fileURLWithPath: try opt("--quote-helper")), out: out)
         try h.check()
@@ -240,7 +270,7 @@ func run() async throws {
     let guest: Guest, apiKey: String, sdk: SDKApp?
     if let node {
         guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: nil, boot: boot, bootClientData: clientData)
-        let s = SDKApp(node: node, guest: guest, appId: app, composeHash: compose.hash, cdhash: measured)
+        let s = SDKApp(node: node, guest: guest, appId: app, composeHash: compose.hash, cdhash: measured, code: attest ? try selfCode(cdhash: measured) : nil)
         // The challenge was also the enrollment nonce; releaseKey (eph_pub in clientData) receives the boot release.
         try await s.boot(challenge: nonce, eph: releaseKey)
         log("app root for key epoch \(s.epoch) released by node \(try opt("--sdk-node")) (held in memory only)")

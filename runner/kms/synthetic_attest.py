@@ -1,7 +1,8 @@
 """Test-only runner App Attest evidence from a synthetic fixture (node/tests/sdk_runner_fixture.json or one written
 by node/tests/sdk_runner_fixture.py); never Apple evidence. Each enrollment carries its leaf scalar, so assertions
 over any data can be signed the way the runner's /attest does: authenticatorData = assert_prefix ‖ counter ‖
-assert_ext, signature = ECDSA-SHA256 over sha256(auth ‖ sha256(client_data)), CBOR {signature, authenticatorData}."""
+assert_ext (the enrollment's), signature = ECDSA-SHA256 over sha256(auth ‖ sha256(client_data)), CBOR {signature,
+authenticatorData}. The evidence carries the enrollment's runner code measurement inputs (`code`), or `code` instead."""
 import base64, hashlib, json
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -12,20 +13,21 @@ def cbor_bytes(d):
 
 
 class SyntheticRunner:
-    def __init__(self, fixture, enrollment):
+    def __init__(self, fixture, enrollment, code=None):
         self.fx = json.loads(open(fixture).read())
         assert self.fx['synthetic_only'] is True, 'fixture must be synthetic'
         self.e = self.fx['enrollments'][enrollment]
         self.key = ec.derive_private_key(int(self.e['leaf_scalar_synthetic'], 16), ec.SECP256R1())
         self.compose_hash = json.loads(base64.b64decode(self.e['boot_client_data']))['compose_hash']
-        self.cdhash = self.fx['cdhash']
+        self.cdhash = self.e['cdhash']
+        self.code = self.fx['code'][code or self.e['code']]
 
     def assertion(self, client, counter=1):
-        auth = bytes.fromhex(self.fx['assert_prefix']) + counter.to_bytes(4, 'big') + bytes.fromhex(self.fx['assert_ext'])
+        auth = bytes.fromhex(self.e['assert_prefix']) + counter.to_bytes(4, 'big') + bytes.fromhex(self.e['assert_ext'])
         sig = self.key.sign(hashlib.sha256(auth + hashlib.sha256(client).digest()).digest(), ec.ECDSA(hashes.SHA256()))
         return b'\xa2\x69signature' + cbor_bytes(sig) + b'\x71authenticatorData' + cbor_bytes(auth)
 
     def attest(self, data, domain='mac-compose-assert/1'):
         client = json.dumps({'compose_hash': self.compose_hash, 'data': data, 'domain': domain}, sort_keys=True, separators=(',', ':')).encode()
         return {'type': 'macrunner', 'keyId': self.e['key_id'], 'attestation': self.e['attestation'], 'bootClientData': self.e['boot_client_data'],
-                'assertion': base64.b64encode(self.assertion(client)).decode(), 'assertClientData': base64.b64encode(client).decode()}
+                'assertion': base64.b64encode(self.assertion(client)).decode(), 'assertClientData': base64.b64encode(client).decode(), 'code': self.code}

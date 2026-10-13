@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Build the Mac peer without credentials; record exact inputs and unsigned outputs.
---sdk-runner compiles a signed runner's CDHash (runner/sign.sh <out>/cdhash.txt) into the node in place of the empty
-node/shared/SDKRunners.swift, so M covers which runner may take app roots. Sign the runner first."""
+--sdk-runner compiles a runner's measurement M_runner (runner/sign.sh <out>/measurement.txt, scripts/release/measure.py
+of the runner executable) into the node in place of the empty node/shared/SDKRunners.swift, so M covers which runner
+code may take app roots, whoever signs it. Sign and measure the runner first."""
 import argparse
 import hashlib
 import json
@@ -30,9 +31,9 @@ def digest(path):
 
 def sdk_runners_source(cdhashes):
     if not all(re.fullmatch(r'[0-9a-f]{64}', c) for c in cdhashes):
-        raise SystemExit('--sdk-runner takes a full SHA-256 CDHash, 64 lowercase hex')
+        raise SystemExit('--sdk-runner takes a runner measurement M_runner, 64 lowercase hex')
     committed = (ROOT / 'node/shared/SDKRunners.swift').read_text()
-    return committed.replace('let compiledSDKRunners: [String] = []', f'let compiledSDKRunners: [String] = {json.dumps(cdhashes)}')
+    return committed.replace('let compiledSDKRunnerMeasurements: [String] = []', f'let compiledSDKRunnerMeasurements: [String] = {json.dumps(cdhashes)}')
 
 
 def entitlements(team, bundle_id):
@@ -51,8 +52,8 @@ def main():
     parser.add_argument('--modified', action='store_true', help='Negative control: build the MODIFIED variant')
     parser.add_argument('--version', default='0.3.0')
     parser.add_argument('--build-number', default='6')
-    parser.add_argument('--sdk-runner', action='append', default=[], metavar='CDHASH',
-                        help='Admit this signed runner to the SDK port (compiled in; without it the SDK stays off)')
+    parser.add_argument('--sdk-runner', action='append', default=[], metavar='M_RUNNER',
+                        help='Admit runners of this measurement to the SDK port (compiled in; without it the SDK stays off)')
     args = parser.parse_args()
     lock = json.loads((ROOT / 'node/mac/toolchain.json').read_text())
     actual = {'xcode': output('xcodebuild', '-version'),

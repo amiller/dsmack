@@ -89,10 +89,14 @@ struct SDKSession {var challenge:(value:Data,issued:UInt64)?;var compose:Data?}
 /// runner_evidence, the runner's /attest object, whose assertion covers
 /// {"compose_hash","data":"dsmack-sdk-runner/1|<challenge>|<sha256 of the request without runner_evidence, JSON
 /// sorted keys, no spaces>","domain":"mac-compose-assert/1"} for the challenge this connection was issued at most 60 s
-/// before. Enrollment and assertion must name a CDHash in `runners` and the request's compose_hash; the connection then
-/// serves only that compose. Without it every key op is refused.
+/// before. runner_evidence also carries the runner's own code measurement inputs `code` {cd, page0, ent, L, S}: the
+/// attested and asserted CDHash must be SHA-256(cd), the rpId the App ID its entitlements name, and its signer-independent
+/// measurement M_runner (CodeMeasurement, the node's own M definition) one in `runners`. So any team's signing of an
+/// admitted runner build is admitted, and nothing else. Enrollment and assertion must name the request's compose_hash;
+/// the connection then serves only that compose. Without it every key op is refused.
 struct SDKService {
     let chainId: UInt64,registry: String,appRegistry: String,measurement: Data
+    /// Admitted runner measurements M_runner.
     let runners: [Data],anchor: Data
     let checkIn: () throws -> (member:Data,tx:String)
     let group: (Data,UInt64?) throws -> (epoch:UInt64,key:P256.Signing.PrivateKey)
@@ -146,19 +150,24 @@ struct SDKService {
         session.challenge=nil
         let at=now(),compose=String(hex(composeHash).dropFirst(2))
         try need(at<=issued.issued+SDK.challengeSeconds,"challenge expired")
-        guard Set(e.keys)==["type","keyId","attestation","bootClientData","assertion","assertClientData"],e["type"] as? String=="macrunner",
+        guard Set(e.keys)==["type","keyId","attestation","bootClientData","assertion","assertClientData","code"],e["type"] as? String=="macrunner",
+              let codeFields=e["code"] as? [String:Any],
               let keyID=e["keyId"] as? String,let attestation=e["attestation"] as? String,let boot=e["bootClientData"] as? String,
               let assertion=e["assertion"] as? String,let asserted=e["assertClientData"] as? String else {throw DemoError.invalid("runner evidence fields")}
         var request=q;request["runner_evidence"]=nil
         let requestHash=Data(SHA256.hash(data:try JSONSerialization.data(withJSONObject:request,options:[.sortedKeys,.withoutEscapingSlashes])))
         do {
             let bootData=try unb64(boot),assertedData=try unb64(asserted)
-            let enrolled=try verifyAttestation(try unb64(attestation),keyID:keyID,challenge:bootData,cdhashes:runners,at:Date(timeIntervalSince1970:TimeInterval(at)),anchor:anchor)
+            let code=try CodeMeasurement.fields(codeFields),codeHash=Data(CodeMeasurement.sha(code.cd)),appID=try code.appIdentifier()
+            let enrolled=try verifyAttestation(try unb64(attestation),keyID:keyID,challenge:bootData,cdhashes:[],at:Date(timeIntervalSince1970:TimeInterval(at)),anchor:anchor,appID:appID)
+            try need(enrolled.cdhash==codeHash,"runner CodeDirectory is not the attested CDHash")
+            let runnerM=try code.value()
+            try need(runners.contains(runnerM),"runner measurement \(hex(runnerM)) not admitted")
             guard let b=try JSONSerialization.jsonObject(with:bootData) as? [String:Any],["mac-compose-boot/1","mac-compose-enroll/1"].contains(b["domain"] as? String),
                   (b["attested"] as? NSNumber).map({CFGetTypeID($0)==CFBooleanGetTypeID() && $0.boolValue})==true,
                   b["compose_hash"] as? String==compose,let enrolledAt=b["enrolled_at"] as? Int,
                   (-60...SDK.maxEnrollmentAge).contains(Int64(at)-Int64(enrolledAt)) else {throw DemoError.invalid("runner enrollment is not this compose or is stale")}
-            let a=try verifyAssertion(try unb64(assertion),clientData:assertedData,publicKey:enrolled.publicKey,previousCounter:0,cdhashes:runners)
+            let a=try verifyAssertion(try unb64(assertion),clientData:assertedData,publicKey:enrolled.publicKey,previousCounter:0,cdhashes:[codeHash],appID:appID)
             guard a.cdhash != nil,a.cdhash==enrolled.cdhash,let body=try JSONSerialization.jsonObject(with:assertedData) as? [String:Any],
                   Set(body.keys)==["compose_hash","data","domain"],body["domain"] as? String=="mac-compose-assert/1",body["compose_hash"] as? String==compose,
                   body["data"] as? String==SDK.runnerDomain+"|"+hex(issued.value)+"|"+hex(requestHash) else {throw DemoError.invalid("runner assertion is not over this challenge and request")}
@@ -206,6 +215,6 @@ extension Node {
         let service=sdkService(appRegistry:appRegistry,measurement:m,runners:cfg.sdkRunners)
         #endif
         sdkBound=try SDK.listen(port:port,service.reply)
-        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)","appRegistry":appRegistry,"runners":cfg.sdkRunners.map(hex)])
+        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)","appRegistry":appRegistry,"runnerMeasurements":cfg.sdkRunners.map(hex)])
     }
 }

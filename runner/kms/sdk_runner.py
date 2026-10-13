@@ -31,6 +31,7 @@ p.add_argument('--node', required=True, help='127.0.0.1:PORT')
 p.add_argument('--allow', type=Path, required=True)
 p.add_argument('--fixture', type=Path, required=True)
 p.add_argument('--enrollment', default='good')
+p.add_argument('--code', help="send this fixture code entry instead of the enrollment's (a CodeDirectory that is not the attested one)")
 p.add_argument('--no-evidence', action='store_true')
 p.add_argument('--socket', type=Path, required=True)
 args = p.parse_args()
@@ -44,7 +45,7 @@ def sign(key, message):
 compose_bytes = args.compose.read_bytes()
 COMPOSE_HASH = hashlib.sha256(compose_bytes).hexdigest()
 APP_ID = json.loads(compose_bytes)['app_id']
-RUNNER = SyntheticRunner(args.fixture, args.enrollment)
+RUNNER = SyntheticRunner(args.fixture, args.enrollment, args.code)
 node = NodeSession(args.node, APP_ID, COMPOSE_HASH, json.loads(args.allow.read_text()), None if args.no_evidence else RUNNER.attest)
 lock = threading.Lock()
 ROOTS = {}

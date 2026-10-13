@@ -18,8 +18,8 @@ struct Config {
     let publicDirectory: Bool; let label: String
     /// Loopback port for the dsmack-sdk JSON-line server (SDK.swift); nil serves nothing.
     let sdkPort: UInt16?
-    /// Runner CDHashes (full SHA-256) admitted to the SDK port; non-empty with sdkPort. compiledSDKRunners (inside M);
-    /// only an SDK_TEST_TRUST build takes them from config sdkRunners.
+    /// Runner measurements M_runner admitted to the SDK port; non-empty with sdkPort. compiledSDKRunnerMeasurements (inside
+    /// M); only an SDK_TEST_TRUST build takes them from config sdkRunners.
     let sdkRunners: [Data]
     /// AppRegistry address the SDK reads compose windows from; required with sdkPort.
     let appRegistry: String?
@@ -60,8 +60,8 @@ struct Config {
         try need((sdkPort==nil)==sdkRunners.isEmpty && (d["sdkRunners"]==nil || d["sdkRunners"] is [String]),"sdkPort and a non-empty sdkRunners list go together")
         #else
         try need(d["sdkRunners"]==nil,"sdkRunners is compiled into the node (inside M); a config list needs an SDK_TEST_TRUST build")
-        sdkRunners=sdkPort==nil ? []:try compiledSDKRunners.map(bytes32)
-        try need(sdkPort==nil || !sdkRunners.isEmpty,"sdkPort needs a runner CDHash compiled into the node (build_mac.py --sdk-runner)")
+        sdkRunners=sdkPort==nil ? []:try compiledSDKRunnerMeasurements.map(bytes32)
+        try need(sdkPort==nil || !sdkRunners.isEmpty,"sdkPort needs a runner measurement compiled into the node (build_mac.py --sdk-runner)")
         #endif
         appRegistry=d["appRegistry"] as? String
         try need((sdkPort==nil)==(appRegistry==nil),"sdkPort and appRegistry go together")

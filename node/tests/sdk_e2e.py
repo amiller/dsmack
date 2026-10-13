@@ -6,12 +6,12 @@ node A seeds (bootstraps G), node B participates and imports G from A through th
 leave B running: it re-acquires the new key from A and keeps serving the previous epoch. Both serve sdkPort on Mac
 loopback, forwarded here; stand-in runners (runner/kms/sdk_runner.py) run here. Every config, plist, log and enrollment
 state stays inside --remote.
---runner-dir names a Mac runner/ checkout holding build/ and build-other/ from runner/sign.sh (the second signed with
-BUNDLE_VERSION=2: same code, another CDHash). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with
-build/cdhash.txt compiled in (`SDK_RUNNERS=$(cat runner/build/cdhash.txt) node/tests/seed_build.sh`): the configs carry
-no sdkRunners and no anchor (Apple's root is compiled in), and every runner boot is that signed runner on the Mac with
-fresh App Attest, booting --oci (the coupon image) in a VM (node/tests/sdk_real_runner.py); build-other is the runner
-with a wrong CDHash."""
+--runner-dir names a Mac runner/ checkout holding build/, build-other/ and build-modified/ from runner/sign.sh
+(build-other signed with BUNDLE_VERSION=2: same code and M_runner, another CDHash; build-modified with MODIFIED=1: another
+M_runner). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with build/measurement.txt compiled in
+(`SDK_RUNNERS=$(cat runner/build/measurement.txt) node/tests/seed_build.sh`): the configs carry no sdkRunners and no
+anchor (Apple's root is compiled in), and every runner boot is a signed runner on the Mac with fresh App Attest, booting
+--oci (the coupon image) in a VM (node/tests/sdk_real_runner.py)."""
 import argparse, atexit, hashlib, json, os, secrets, subprocess, sys, time
 from pathlib import Path
 from web3 import Web3
@@ -113,23 +113,25 @@ stamp = Path(R).name[-8:]
 names = {'A': f'sdk{stamp}-a', 'B': f'sdk{stamp}-b'}
 cfg = {n: {'rpc': rpc, 'registry': deploy['DemoV1'], 'chainId': 31337, 'category': deploy['macCategory'], 'protocolVersion': 2,
            'relay': f'http://127.0.0.1:{args.relay_port}', 'name': names[n], 'persistentIdentity': True, 'publicDirectory': False,
-           'sdkPort': port, 'sdkRunners': ['0x' + '5a' * 32], 'appRegistry': app_registry,
+           'sdkPort': port, 'sdkRunners': ['0x' + json.loads(fixture.read_text())['runner_m']], 'appRegistry': app_registry,
            'sdkTestAnchor': json.loads(fixture.read_text())['synthetic_root']} for n, port in zip('AB', args.sdk_ports)}
 cfg['B']['peer'] = names['A']
 runner = None
 if args.runner_dir:
     rd = args.runner_dir
     cdhash, other = (ssh(f'cat {rd}/{b}/cdhash.txt').strip() for b in ('build', 'build-other'))
-    assert cdhash != other
+    m_runner, m_other, m_modified = (ssh(f'cat {rd}/{b}/measurement.txt').strip() for b in ('build', 'build-other', 'build-modified'))
+    assert cdhash != other and m_runner == m_other != m_modified, (cdhash, other, m_runner, m_other, m_modified)
     compiled = ssh(f'cat {R}/build/sdk-runners.txt').split()
-    assert compiled == [cdhash], f'build/ must be a release-mode node with only {cdhash} compiled in, has {compiled}'
+    assert compiled == [m_runner], f'build/ must be a release-mode node with only M_runner {m_runner} compiled in, has {compiled}'
     subprocess.run(['scp', str(args.oci), f'{args.host}:{R}/{args.oci.name}'], check=True)
     runner = {'host': args.host, 'remote': f'{R}/runs', 'kernel': args.kernel, 'oci': f'{R}/{args.oci.name}', 'bridge_port': args.bridge_port,
-              'apps': {'good': f'{rd}/build/Runner.app', 'wrong_cdhash': f'{rd}/build-other/Runner.app'}, 'cdhash': cdhash, 'other_cdhash': other}
+              'apps': {'good': f'{rd}/build/Runner.app', 'resigned': f'{rd}/build-other/Runner.app', 'modified': f'{rd}/build-modified/Runner.app'},
+              'cdhash': cdhash, 'other_cdhash': other, 'm_runner': m_runner, 'm_modified': m_modified}
     for c in cfg.values():  # the release-mode node takes runners from its compiled list and Apple's root from its code
         del c['sdkRunners'], c['sdkTestAnchor']
-    # Refusal: the same release-mode node binary given a config-only runner list (the other runner) does not start.
-    refuse = {**cfg['A'], 'sdkRunners': ['0x' + other], 'name': names['A'] + '-refuse'}
+    # Refusal: the same release-mode node binary given a config-only runner list (the modified runner's M) does not start.
+    refuse = {**cfg['A'], 'sdkRunners': ['0x' + m_modified], 'name': names['A'] + '-refuse'}
     ssh(f'cat > {R}/refuse-config-runners.json', input=json.dumps(refuse))
     r = subprocess.run(['ssh', args.host, f'{R}/build/Node.app/Contents/MacOS/node {R}/refuse-config-runners.json seed'], text=True, capture_output=True)
     (out / 'refusal-config-runners.txt').write_text(f'exit {r.returncode}\n{r.stdout}{r.stderr}')
@@ -153,7 +155,7 @@ try:
     wait('B', lambda e: e['event'] == 'participating', 'imported G and participating')
     for n in 'AB':
         listening = wait(n, lambda e: e['event'] == 'sdk listening', 'sdk listening')
-        assert not runner or listening['runners'] == ['0x' + runner['cdhash']], listening  # the compiled-in runner
+        assert not runner or listening['runnerMeasurements'] == ['0x' + runner['m_runner']], listening  # the compiled-in M_runner
     e2e = {'rpc': rpc, 'chain_id': 31337, 'registry': deploy['DemoV1'], 'demo': deploy['DemoV1'], 'app_registry': app_registry, 'owner_key': KEY,
            'sponsor_seed': sponsor_seed, 'fixture': str(fixture), 'composes': {n: str(p) for n, p in composes.items()},
            'nodes': {n: f'127.0.0.1:{p}' for n, p in zip('AB', args.sdk_ports)}, **({'runner': runner} if runner else {})}

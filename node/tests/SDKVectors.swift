@@ -3,11 +3,11 @@ import CryptoKit
 
 // dsmack-sdk node side: app_root vectors, AppRegistry allow check, runner admission, statement, epochs and the loopback
 // server. Fixed group scalars, no RPC or Keychain: the AppRegistry read is an in-memory table at a chosen block. Compile with every node/shared source.
-// Three builds: -D SDK_TEST_TRUST (runner CDHashes from config); release mode with node/shared/SDKRunners.swift naming the
-// fixture runner 5a..5a (`--sdk-runners-file`, see .github/workflows/mac-build.yml); release mode with the empty committed list,
+// Three builds: -D SDK_TEST_TRUST (runner measurements from config); release mode with node/shared/SDKRunners.swift naming
+// the fixture runner's M_runner (`--sdk-runners-file`, see .github/workflows/mac-build.yml); release mode with the empty committed list,
 // which only checks that the SDK refuses to start.
-// usage: SDKVectors node/tests/sdk_runner_fixture.json  (test-only synthetic App Attest evidence, never Apple's:
-// Tests/ops/runner_fixture.json of work/native-core-ledger-20261012 aa80468, its root, CDHash 5a..5a and leaf scalars)
+// usage: SDKVectors node/tests/sdk_runner_fixture.json  (test-only synthetic App Attest evidence, never Apple's, over real
+// CodeDirectories from contracts/fixtures/resign; node/tests/sdk_runner_fixture.py)
 @main struct SDKVectors {
     static func main() throws {
         var passed=0
@@ -21,7 +21,7 @@ import CryptoKit
         let appRegistry="0x9a676e781a523b5d0c0e43731313a708cb607508",admin=Data(repeating:0xad,count:20)
         let fx=try JSONSerialization.jsonObject(with:Data(contentsOf:URL(fileURLWithPath:CommandLine.arguments[1]))) as! [String:Any]
         try need(fx["synthetic_only"] as? Bool==true,"fixture must be synthetic")
-        let now=UInt64(fx["now"] as! Int),anchor=Data(base64Encoded:fx["synthetic_root"] as! String)!,runner=try bytes32(fx["cdhash"] as! String)
+        let now=UInt64(fx["now"] as! Int),anchor=Data(base64Encoded:fx["synthetic_root"] as! String)!,runner=try bytes32(fx["runner_m"] as! String),modifiedM=fx["modified_m"] as! String
         let enrollments=fx["enrollments"] as! [String:[String:Any]]
         let appX=Data(repeating:0xa1,count:32),appY=Data(repeating:0xa2,count:32),appS=Data(repeating:0xa5,count:32),appZ=Data(repeating:0xa9,count:32)
         // c1 and c1b are the composes the synthetic runner enrollments "good" and "wrong_compose" attest.
@@ -54,8 +54,8 @@ import CryptoKit
                           "release build: config-only sdkRunners refused")
         try configRefused(["sdkRunners":[hex(runner)]],"sdkRunners is compiled into the node (inside M); a config list needs an SDK_TEST_TRUST build",
                           "release build: config sdkRunners refused without sdkPort too")
-        if compiledSDKRunners.isEmpty {
-            try configRefused(["sdkPort":1,"appRegistry":appRegistry],"sdkPort needs a runner CDHash compiled into the node (build_mac.py --sdk-runner)",
+        if compiledSDKRunnerMeasurements.isEmpty {
+            try configRefused(["sdkPort":1,"appRegistry":appRegistry],"sdkPort needs a runner measurement compiled into the node (build_mac.py --sdk-runner)",
                               "release build with no compiled runner: sdkPort refused")
             print("SDKVectors passed: \(passed) checks (no compiled runner: SDK refusals only)")
             return
@@ -64,7 +64,7 @@ import CryptoKit
         try configRefused(["sdkPort":1].merging(trust){$1},"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")
         let a=try node("a"),bNode=try node("b")
         #if !SDK_TEST_TRUST
-        try check(a.cfg.sdkRunners==[runner],"release build: runner CDHashes are the compiled-in list")
+        try check(a.cfg.sdkRunners==[runner],"release build: runner measurements are the compiled-in list")
         #endif
         a.hold(scope,g1,epoch:1);a.hold(scope,g2,epoch:2);bNode.hold(scope,g2,epoch:2)
         try check(a.previous[scope]?.epoch==1 && a.cfg.sdkPort==1,"bump keeps the previous epoch's key")
@@ -87,23 +87,24 @@ import CryptoKit
         func canonical(_ o:[String:Any]) throws -> Data {try JSONSerialization.data(withJSONObject:o,options:[.sortedKeys,.withoutEscapingSlashes])}
         func cborBytes(_ d:Data) -> Data {d.count<24 ? Data([0x40+UInt8(d.count)])+d : d.count<256 ? Data([0x58,UInt8(d.count)])+d : Data([0x59,UInt8(d.count>>8),UInt8(d.count&0xff)])+d}
         // What the runner would send: its /attest object over "dsmack-sdk-runner/1|challenge|sha256(request)".
-        func runnerEvidence(_ name:String,_ challenge:Data,_ request:[String:Any]) throws -> [String:Any] {
+        func runnerEvidence(_ name:String,_ challenge:Data,_ request:[String:Any],code:String?=nil) throws -> [String:Any] {
             let e=enrollments[name]!,leaf=try P256.Signing.PrivateKey(rawRepresentation:unhex(e["leaf_scalar_synthetic"] as! String))
             let boot=try JSONSerialization.jsonObject(with:Data(base64Encoded:e["boot_client_data"] as! String)!) as! [String:Any]
             let client=try canonical(["compose_hash":boot["compose_hash"]!,"domain":"mac-compose-assert/1",
                                       "data":SDK.runnerDomain+"|"+hex(challenge)+"|"+hex(Data(SHA256.hash(data:try canonical(request))))])
-            let auth=try unhex(fx["assert_prefix"] as! String)+[0,0,0,1]+unhex(fx["assert_ext"] as! String)
+            let auth=try unhex(e["assert_prefix"] as! String)+[0,0,0,1]+unhex(e["assert_ext"] as! String)
             let sig=try leaf.signature(for:sha(auth+sha(client))).derRepresentation
             let assertion=Data([0xa2,0x69])+Data("signature".utf8)+cborBytes(sig)+[0x71]+Data("authenticatorData".utf8)+cborBytes(auth)
             return ["type":"macrunner","keyId":e["key_id"]!,"attestation":e["attestation"]!,"bootClientData":e["boot_client_data"]!,
-                    "assertion":assertion.base64EncodedString(),"assertClientData":client.base64EncodedString()]
+                    "assertion":assertion.base64EncodedString(),"assertClientData":client.base64EncodedString(),
+                    "code":(fx["code"] as! [String:Any])[code ?? e["code"] as! String]!]
         }
         // runner: nil sends no evidence; otherwise ask this connection for a challenge and attach that enrollment's evidence.
-        func send(_ s:SDKService,_ session:inout SDKSession,_ q:[String:Any],runner name:String?=nil,alter:((inout [String:Any])->Void)?=nil) throws -> [String:Any] {
+        func send(_ s:SDKService,_ session:inout SDKSession,_ q:[String:Any],runner name:String?=nil,code:String?=nil,alter:((inout [String:Any])->Void)?=nil) throws -> [String:Any] {
             var full=q
             if let name {
                 let challenge=try unhex(try call(s,["v":1,"op":"challenge"],&session)["challenge"] as! String)
-                full["runner_evidence"]=try runnerEvidence(name,challenge,q)
+                full["runner_evidence"]=try runnerEvidence(name,challenge,q,code:code)
                 alter?(&full)
             }
             return try call(s,full,&session)
@@ -129,8 +130,14 @@ import CryptoKit
         var fresh=SDKSession(),q=plainQuery;q["op"]="info";q["runner_evidence"]=try runnerEvidence("good",Data(repeating:9,count:32),plainQuery)
         try refused(try call(sa,q,&fresh),"needs a challenge on this connection","evidence without a challenge issued to this connection")
         var s1=SDKSession();q=plainQuery;q["op"]="info"
-        try refused(try send(sa,&s1,q,runner:"wrong_cdhash"),"runner evidence: cdhash_policy_failed","runner CDHash outside the attested policy")
-        try refused(try send(service(a,runners:[Data(repeating:0x5b,count:32)]),&s1,q,runner:"good"),"runner evidence: cdhash_policy_failed","runner CDHash not in the configured set")
+        try refused(try send(sa,&s1,q,runner:"modified"),"runner measurement 0x\(modifiedM) not admitted","modified runner (another M_runner) refused")
+        try refused(try send(service(a,runners:[try bytes32(modifiedM)]),&s1,q,runner:"good"),"not admitted","runner whose M_runner is not in the admitted set refused")
+        try refused(try send(sa,&s1,q,runner:"good",code:"resigned"),"runner CodeDirectory is not the attested CDHash",
+                    "CodeDirectory that is not the attested one (same M, another CDHash) refused")
+        var sTeam=SDKSession()
+        let teamReply=try send(sa,&sTeam,q,runner:"other_team")
+        try check(teamReply["error"]==nil && sTeam.compose==c1 && (enrollments["other_team"]!["cdhash"] as! String) != (enrollments["good"]!["cdhash"] as! String),
+                  "another team's signing of the admitted runner (own App ID and CDHash, same M_runner) admitted")
         try refused(try send(sa,&s1,q,runner:"stale"),"not this compose or is stale","enrollment older than 12 h")
         try refused(try send(sa,&s1,q,runner:"wrong_compose"),"not this compose or is stale","runner booted another compose")
         try refused(try send(sa,&s1,q,runner:"good"){$0["epoch"]=2},"not over this challenge and request","request altered after the runner signed it")

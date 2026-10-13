@@ -109,7 +109,7 @@ def standin(d):
         port = int(cfg['nodes'][name].split(':')[1])
         nodes[name] = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_node.py', '--port', str(port), *[f'--group-key={e}={k}' for e, k in keys],
                                         '--rpc', rpc, '--registry', cfg['registry'], '--chain-id', '31337', '--scope', SCOPE, '--sponsor', sponsor_pub,
-                                        '--anchor', anchor, '--runner', '5a' * 32, '--member', '0x' + '00' * 32, '--m', '0x' + '4d' * 32,
+                                        '--anchor', anchor, '--runner', json.loads(fx.read_text())['runner_m'], '--member', '0x' + '00' * 32, '--m', '0x' + '4d' * 32,
                                         '--checked-tx', 'standin'], stderr=open(d / f'node-{name}.log', 'a'))
         procs.append(nodes[name])
         wait(lambda: listening(port))
@@ -160,8 +160,8 @@ def net(tmp_path_factory):
             allow_path = d / f'allow-custom-{secrets.token_hex(3)}.json'
             allow_path.write_text(json.dumps(record_))
         if real:
-            assert enrollment in (None, name, 'wrong_cdhash'), 'a real runner enrolls only for the compose it boots'
-            path, err, _ = real.boot(cfg['nodes'][node], cfg['composes'][name], 'wrong_cdhash' if enrollment == 'wrong_cdhash' else 'good',
+            assert enrollment in (None, name, 'resigned', 'modified'), 'a real runner enrolls only for the compose it boots'
+            path, err, _ = real.boot(cfg['nodes'][node], cfg['composes'][name], enrollment if enrollment in ('resigned', 'modified') else 'good',
                                      attest='--no-evidence' not in extra)
             return (sdk.Client(str(path)), None, path) if path else (None, err, sock)
         p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', cfg['composes'][name], '--node', cfg['nodes'][node],
@@ -205,7 +205,7 @@ def test_fixture_evidence_verifies():
     request = {'v': 1, 'op': 'info', 'app_id': '0x' + X, 'compose_hash': '0x' + fx['compose_sha256'], 'allow': {'scope': '0x' + SCOPE, 'until': 1, 'signature': '0x'}}
     data = sdk.runner_data('0x' + '09' * 32, request)
     e = runner.attest(data)
-    policy = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(3,), cdhashes=(b(fx['cdhash']),), require_macos_acl=True)
+    policy = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(3,), cdhashes=(b(fx['enrollments']['good']['cdhash']),), require_macos_acl=True)
     pem = b'-----BEGIN CERTIFICATE-----\n' + base64.encodebytes(base64.b64decode(fx['synthetic_root'])) + b'-----END CERTIFICATE-----\n'
     enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], base64.b64decode(e['bootClientData']), policy, pem, fx['now'])
     verify_assertion(base64.b64decode(e['assertion']), base64.b64decode(e['assertClientData']), enrolled['public_key'], 0, policy)
@@ -264,14 +264,37 @@ def test_no_evidence_runner_refused(net):
     client, err, sock = net['boot']('A', 'C1', extra=['--no-evidence'])
     # The real runner's --no-attest still sends evidence, of type "dev"; the stand-in sends none.
     assert client is None and ('runner evidence fields' if net['real'] else 'runner evidence required') in err and not sock.exists()
-    client, err2, _ = net['boot']('A', 'C1', enrollment='wrong_cdhash')
-    assert client is None and 'cdhash_policy_failed' in err2
-    out = {'no_evidence': err, 'runner_cdhash_not_admitted': err2, 'socket_created': False}
+    out = {'no_evidence': err, 'socket_created': False}
     if not net['real']:  # an honest runner cannot enroll for a compose other than the one it boots
         client, err3, _ = net['boot']('A', 'C1', enrollment='C2')
         assert client is None and 'not this compose' in err3
         out['enrollment_for_other_compose'] = err3
     record('4-no-evidence-refused', out)
+
+
+def test_runner_admitted_by_measurement(net):
+    """Runners are admitted by M_runner of their attested CodeDirectory, not by CDHash: another signing of the admitted
+    runner (stand-in: another team's App ID and CDHash; real: the same binary re-signed, build-other) is admitted and
+    derives the same key; a modified runner is refused; (stand-in) a CodeDirectory that is not the attested one is refused."""
+    good, err, _ = net['boot']('A', 'C1')
+    assert good, err
+    _, key = demo_key(good)
+    other, err, _ = net['boot']('A', 'C1', enrollment='resigned' if net['real'] else 'C1@other_team')
+    assert other, err
+    _, other_key = demo_key(other)
+    assert other_key['public_key'] == key['public_key']
+    out = {'other_signing_public_key': other_key['public_key'], 'public_key': key['public_key']}
+    if net['real']:
+        assert other.info()['cdhash'] == net['runner']['other_cdhash'] != good.info()['cdhash'] == net['runner']['cdhash']
+        out.update(cdhash=net['runner']['cdhash'], other_cdhash=net['runner']['other_cdhash'], m_runner=net['runner']['m_runner'])
+    client, err, _ = net['boot']('A', 'C1', enrollment='modified' if net['real'] else 'C1@modified')
+    assert client is None and 'not admitted' in err and 'runner measurement 0x' in err, err
+    out['modified_refused'] = err
+    if not net['real']:
+        client, err, _ = net['boot']('A', 'C1', extra=['--code', 'resigned'])
+        assert client is None and 'runner CodeDirectory is not the attested CDHash' in err, err
+        out['codedirectory_not_attested_refused'] = err
+    record('10-runner-by-measurement', out)
 
 
 def test_js_twin(net):

@@ -200,7 +200,7 @@ compose with `auth_header` or `nearai` rules is refused at start.
    `--attest` the boot App Attest key is attested over that clientData, whose `eph_pub` is the release key.
 2. Its first request is `get_key` with `eph_pub` and `runner_evidence`: its `/attest` object for
    `data = "dsmack-sdk-runner/1|0x<challenge>|0x<sha256 of the canonical request without runner_evidence>"`. The node
-   checks the CDHash against its runner list (below), the enrollment's compose_hash and age, the assertion and the challenge's
+   checks the runner's measurement (below), the enrollment's compose_hash and age, the assertion and the challenge's
    age, then seals the app root to `eph_pub`. The runner opens it and checks that `app_pub` derives from it, that the
    statement names this app_id and compose_hash, and that the group key signed it. A refusal exits the runner before the
    guest socket exists; `--no-attest` evidence (`"type":"dev"`) is always refused.
@@ -219,19 +219,29 @@ No host path reaches the app's keys: the operator's processes cannot open a Virt
 holds no socket but `egress.sock`. That socket (runner.local, egress) is still host-side, and the runner process, its
 memory and the VM's memory remain readable to the Mac's owner (see Apps below and the SDK design).
 
-**Runner CDHash pins.** A node admits runners by full SHA-256 CDHash, compiled into the node so its measurement M
-covers them: `node/shared/SDKRunners.swift` holds an empty `compiledSDKRunners`, which leaves the SDK off. The release
-signing pass signs the runner first (`runner/sign.sh` writes `<out>/cdhash.txt`), then builds the node with
-`scripts/release/build_mac.py --sdk-runner $(cat <out>/cdhash.txt)`, which compiles a generated copy of that file
+**Runner admission by measurement.** A node admits runners by M_runner, the signer-independent measurement of the
+runner executable, defined exactly as the node's own M (`node/shared/Measure.swift`,
+`scripts/release/measure.py`), so any Apple team's signing of an admitted runner build is admitted and its own App ID
+and CDHash do not matter. With `--attest` the runner adds `code` to its `runner_evidence`: its own `{cd, page0, ent, L,
+S}` (base64, offsets), read from its executable and checked against its running CDHash. The node requires the attested
+and asserted CDHash to be SHA-256(cd) ("runner CodeDirectory is not the attested CDHash" otherwise), takes the App
+Attest rpId to check from the App ID those entitlements name, computes M_runner and requires it in its admitted list
+("runner measurement 0x… not admitted" otherwise).
+
+The admitted list is compiled into the node, so the node's M covers it: `node/shared/SDKRunners.swift` holds an empty
+`compiledSDKRunnerMeasurements`, which leaves the SDK off. The release signing pass signs the runner first
+(`runner/sign.sh` writes `<out>/cdhash.txt` and `<out>/measurement.txt`), then builds the node with
+`scripts/release/build_mac.py --sdk-runner $(cat <out>/measurement.txt)`, which compiles a generated copy of that file
 (recorded in `build-manifest.json` as `sdk_runners`, and in the GUI's `dsmack-release.json`), and only then signs and
-measures the node. A new runner build is a new CDHash, hence a new node M and a new window. A release-mode node refuses
-a config that names `sdkRunners` ("sdkRunners is compiled into the node (inside M); a config list needs an
-SDK_TEST_TRUST build"), and refuses `sdkPort` when its compiled list is empty. Only `-D SDK_TEST_TRUST` test builds,
-never admitted, take `sdkRunners` (and the App Attest root) from config. `scripts/release/measure_two_teams.sh` builds
-one node with another compiled runner CDHash and requires a different M. Dev builds compile their runner the same way
-(`SDK_RUNNERS=$(cat runner/build/cdhash.txt) node/tests/seed_build.sh`, node/tests/sdk_e2e.py `--runner-dir`).
-`BUNDLE_VERSION=2 runner/sign.sh build-other` signs the same binary with another CDHash, for refusal tests. The CDHash
-covers the signing Team ID, so another team rebuilding the node to our M admits only our signed runner.
+measures the node. New runner code is a new M_runner, hence a new node M and a new window; a re-signing is neither. A
+release-mode node refuses a config that names `sdkRunners` ("sdkRunners is compiled into the node (inside M); a config
+list needs an SDK_TEST_TRUST build") and refuses `sdkPort` when its compiled list is empty. Only `-D SDK_TEST_TRUST`
+test builds, never admitted, take `sdkRunners` (runner measurements) and the App Attest root from config.
+`scripts/release/measure_two_teams.sh` builds one node with another compiled M_runner and requires a different M;
+`runner/measure_two_teams.sh` signs one runner under two throwaway teams and requires one M_runner, and another for
+`MODIFIED=1 runner/sign.sh`. Dev builds compile their runner the same way (`SDK_RUNNERS=$(cat
+runner/build/measurement.txt) node/tests/seed_build.sh`, node/tests/sdk_e2e.py `--runner-dir`).
+`BUNDLE_VERSION=2 runner/sign.sh build-other` re-signs the same code with another CDHash and the same M_runner.
 
 `--dev-kms URL` is the earlier path, DEV-ONLY: the stand-in KMS `runner/kms/kms.py` releases `{api_key, app,
 app_key}` and the guest uses `runner.local/key`.

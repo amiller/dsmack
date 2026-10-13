@@ -188,13 +188,13 @@ final class NodeLink: @unchecked Sendable {
 
 // The app as this runner serves it: its admitted node connection, released roots by epoch, and the guest ops.
 final class SDKApp: @unchecked Sendable {
-    let node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String
+    let node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String, code: [String: Any]?
     let lock = NSLock()
     var roots: [UInt64: (root: SymmetricKey, signer: P256.Signing.PrivateKey, statement: [String: Any])] = [:]
     var epoch: UInt64 = 0
 
-    init(node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String) {
-        (self.node, self.guest, self.appId, self.composeHash, self.cdhash) = (node, guest, appId, composeHash, cdhash)
+    init(node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String, code: [String: Any]?) {
+        (self.node, self.guest, self.appId, self.composeHash, self.cdhash, self.code) = (node, guest, appId, composeHash, cdhash, code)
     }
 
     func request(_ op: String, _ fields: [String: Any] = [:]) -> [String: Any] {
@@ -205,7 +205,8 @@ final class SDKApp: @unchecked Sendable {
     func boot(challenge: String, eph: P256.KeyAgreement.PrivateKey) async throws {
         var q = request("get_key", ["eph_pub": hex(eph.publicKey.x963Representation)])
         let data = "dsmack-sdk-runner/1|0x\(hex(try unhex(challenge)))|0x\(sha256hex(try canonical(q)))"
-        q["runner_evidence"] = try await guest.attest(data)
+        // With --attest the evidence also carries this executable's measurement inputs (selfCode): the node admits by M_runner.
+        q["runner_evidence"] = try await guest.attest(data).merging(code.map { ["code": $0] } ?? [:]) { $1 }
         epoch = try open(try node.call(q), eph)
     }
 

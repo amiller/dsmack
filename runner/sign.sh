@@ -1,13 +1,15 @@
 #!/bin/bash
 # Signed build for App Attest (mini). KEYCHAIN_PW (dsmack keychain password) unlocks the keychain when set.
-# Writes <out>/Runner.app and <out>/cdhash.txt (full sha256 CDHash: the node's sdkRunners entry, the dev KMS allowlist
-# entry). usage: sign.sh [out (default build)]; BUNDLE_VERSION (default 1) only changes Info.plist, hence the CDHash.
+# Writes <out>/Runner.app, <out>/cdhash.txt (full sha256 CDHash: the dev KMS allowlist entry) and <out>/measurement.txt
+# (M_runner, scripts/release/measure.py: what the node compiles in, build_mac.py --sdk-runner). usage: sign.sh [out (default
+# build)]; BUNDLE_VERSION (default 1) only changes Info.plist, hence the CDHash and not M_runner; MODIFIED=1 builds the
+# negative-control variant (other code, another M_runner).
 set -euo pipefail
 cd "$(dirname "$0")"
 KC="$HOME/Library/Keychains/dsmack.keychain-db"
 out="$PWD/${1:-build}"; app="$out/Runner.app"
 [ -z "${KEYCHAIN_PW:-}" ] || security unlock-keychain -p "$KEYCHAIN_PW" "$KC"
-swift build -c release
+swift build -c release ${MODIFIED:+-Xswiftc -DMODIFIED}
 # App Attest omits the CDHash extension unless the binary says minos/sdk 27.
 bv=$(otool -l .build/release/runner | awk '/LC_BUILD_VERSION/{f=1} f&&/minos|sdk/{print $1, $2} /ntools/{f=0}')
 echo "$bv"
@@ -39,4 +41,6 @@ codesign -d --entitlements - --xml "$app" > "$out/entitlements-signed.plist"
 grep -E "CandidateCDHashFull sha256=|VersionMin=|VersionSDK=|flags=|Authority=Apple Dev|TeamIdentifier=" "$out/codesign.txt"
 sed -n 's/^CandidateCDHashFull sha256=//p' "$out/codesign.txt" > "$out/cdhash.txt"
 grep -qE '^[0-9a-f]{64}$' "$out/cdhash.txt" || { echo "sign.sh: no full sha256 CDHash in codesign output" >&2; exit 1; }
+python3 ../scripts/release/measure.py "$app/Contents/MacOS/runner" | python3 -c 'import json,sys; print(json.load(sys.stdin)["M"][2:])' > "$out/measurement.txt"
 echo "CDHASH $(cat "$out/cdhash.txt")"
+echo "M_RUNNER $(cat "$out/measurement.txt")"

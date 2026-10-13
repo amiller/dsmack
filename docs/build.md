@@ -41,10 +41,12 @@ directory that does not exist yet:
 ```sh
 python3 scripts/release/build_mac.py --gui --out build/mine \
   --team ABCDE12345 --bundle-id com.example.node \
-  --version 0.2.0 --build-number 5
+  --version 0.3.0 --build-number 6 \
+  --sdk-runner 6c8e8ef4f55f717c4073048ce8307cc086c2ae113bb5401e1bc642742c08b60e
 ```
 
-Use your own Team ID and bundle ID, and the release's version and build number.
+Use your own Team ID and bundle ID, and the release's version, build number and
+`--sdk-runner` value (the M_runner its notes list as compiled in).
 Omit `--gui` for the command-line node. Besides the unsigned `Node.app`, the
 build writes `build/mine/entitlements.plist` from
 [node/mac/Entitlements.template.plist](../node/mac/Entitlements.template.plist).
@@ -73,8 +75,8 @@ python3 scripts/release/measure_two_teams.py \
 ```
 
 This prints your M and your CDHash. Compare M with the one admitted for that
-release; the [0.2.0 release notes](https://github.com/amiller/dsmack/releases/tag/node-v0.2.0)
-list `0xf8c1da8e…f8fb58` for the app. If it does not match, the usual causes
+release; the [0.3.0 release notes](https://github.com/amiller/dsmack/releases/tag/node-v0.3.0)
+list `0xe361800e…b09cf4` for the app. If it does not match, the usual causes
 are a different commit, a different toolchain, a different flavor (`--gui` or
 not), or a change to the entitlements.
 
@@ -93,5 +95,5 @@ certificates live in a temporary keychain inside the output directory and are
 deleted when the script ends. Self-signed copies cannot use App Attest, so this
 only checks the measurement. The same check runs on every change to the Mac
 code in the [Mac build workflow](../.github/workflows/mac-build.yml);
-[here is the run](https://github.com/amiller/dsmack/actions/runs/38295216891/job/114964549520)
-for the 0.2.0 source commit `e72641c`.
+[here is the run](https://github.com/amiller/dsmack/actions/runs/38381216545)
+for the 0.3.0 source commit `ad3855f`.

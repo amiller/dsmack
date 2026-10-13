@@ -4,10 +4,10 @@ You need an Apple silicon Mac on macOS 27 with Full Security and System
 Integrity Protection enabled. You do not need Xcode, an Apple Developer
 account, a wallet or gas.
 
-1. Download [`DsmackNode-0.2.0.zip`](https://github.com/amiller/dsmack/releases/download/node-v0.2.0/DsmackNode-0.2.0.zip)
+1. Download [`DsmackNode-0.3.0.zip`](https://github.com/amiller/dsmack/releases/download/node-v0.3.0/DsmackNode-0.3.0.zip)
    from the [latest release](https://github.com/amiller/dsmack/releases/latest)
    and extract it. Its SHA-256 is
-   `955b1655a8b2f3d7a6997aae3cc799fce47a68b053cabb2f2517f35d3d3d611f`.
+   `dd59b06b8bfbb6142e4d01bbbea67b3205a881ea9d3614c5d12a23ee00b2675b`.
 
    <img src="assets/step-download.png" width="180" alt="A Mac mini">
 

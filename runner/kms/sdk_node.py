@@ -83,7 +83,7 @@ def admit(q, compose_hash, session):
         code = {k: base64.b64decode(v) if k in ('cd', 'page0', 'ent') else v for k, v in e['code'].items()}
         require(set(code) == {'cd', 'page0', 'ent', 'L', 'S'}, 'code measurement fields')
         cdhash = hashlib.sha256(code['cd']).digest()
-        policy = Policy(app_identifier(code['ent']), environment='production', categories=(3,), cdhashes=(cdhash,), require_macos_acl=True)
+        policy = Policy(app_identifier(code['ent']), environment='production', categories=(6,), cdhashes=(cdhash,), require_macos_acl=True)
         try:
             enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], boot, policy, ROOT_PEM)
         except Reject as r:

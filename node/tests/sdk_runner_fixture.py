@@ -1,5 +1,6 @@
 """Test-only synthetic runner App Attest enrollments for the dsmack-sdk runner admission, in the schema of
-sdk_runner_fixture.json (aa80468's Tests/ops/runner_fixture.py profile: production AAGUID, category 3, macOS ACL).
+sdk_runner_fixture.json (aa80468's Tests/ops/runner_fixture.py profile: production AAGUID, macOS ACL) with App Attest category 6, a Developer ID
+runner; dev_signed is category 3, an Apple Development runner, which only test builds admit.
 Runners are admitted by measurement M_runner, so each enrollment attests a real CodeDirectory from
 contracts/fixtures/resign (`code`, the evidence's {cd, page0, ent, L, S}): honest (node-honest, team DC9JH5DRMY),
 other_team (node-synthetic-team: TESTTEAM01's App ID and CDHash, same M), modified (node-modified, another M), and
@@ -64,11 +65,11 @@ inter = cert(name('Synthetic Test App Attest CA'), root.subject, inter_key, root
 COMPOSE = hashlib.sha256(b'synthetic coupon runner app-compose.json').hexdigest()
 
 
-def ext(cdhash):
-    return {'apple_cd_hash_type_01': b'\x02', 'apple_cd_hash_hash_01': cdhash, 'apple_validation_category_01': b'\x03\0\0\0'}
+def ext(cdhash, category):
+    return {'apple_cd_hash_type_01': b'\x02', 'apple_cd_hash_hash_01': cdhash, 'apple_validation_category_01': bytes([category, 0, 0, 0])}
 
 
-def enrollment(code='honest', compose=COMPOSE, enrolled_at=a.now - 600):
+def enrollment(code='honest', compose=COMPOSE, enrolled_at=a.now - 600, category=6):
     cdhash, app_id = sha(CODE[code]['cd']), app_identifier(CODE[code]['ent'])
     key = ec.generate_private_key(ec.SECP256R1())
     client = json.dumps({'app': 'coupon-runner', 'attested': True, 'compose_hash': compose, 'domain': 'mac-compose-boot/1',
@@ -76,24 +77,24 @@ def enrollment(code='honest', compose=COMPOSE, enrolled_at=a.now - 600):
     point = key.public_key().public_bytes(serialization.Encoding.X962, serialization.PublicFormat.UncompressedPoint)
     kid = sha(point)
     auth = (sha(app_id.encode()) + bytes([0xc0]) + bytes(4) + b'appattest' + bytes(7) + (32).to_bytes(2, 'big') + kid
-            + cbor({1: 2, 3: -7, -1: 1, -2: point[1:33], -3: point[33:]}) + cbor({**ext(cdhash), 'apple_bundle_version_01': '1'}))
+            + cbor({1: 2, 3: -7, -1: 1, -2: point[1:33], -3: point[33:]}) + cbor({**ext(cdhash, category), 'apple_bundle_version_01': '1'}))
     leaf = cert(name('synthetic leaf'), inter.subject, key, inter_key, False, Y(2026), Y(2040),
                 [x509.UnrecognizedExtension(x509.ObjectIdentifier('1.2.840.113635.100.8.2'), b'\x30\x24\xa1\x22\x04\x20' + sha(auth + sha(client))),
                  x509.UnrecognizedExtension(x509.ObjectIdentifier('1.2.840.113635.100.8.6'), ACL)])
     raw = cbor({'fmt': 'apple-appattest', 'attStmt': {'x5c': [der(leaf), der(inter)], 'receipt': b'synthetic-receipt'}, 'authData': auth})
     try:
-        policy = Policy(app_id, environment='production', categories=(3,), cdhashes=(cdhash,), require_macos_acl=True)
+        policy = Policy(app_id, environment='production', categories=(6,), cdhashes=(cdhash,), require_macos_acl=True)
         verify_attestation(raw, b64(kid), client, policy, root.public_bytes(serialization.Encoding.PEM), a.now)
         verdict = 'accept'
     except ValueError as e:
         verdict = str(e)
     return {'key_id': b64(kid), 'attestation': b64(raw), 'boot_client_data': b64(client), 'core_verdict': verdict,
             'leaf_scalar_synthetic': key.private_numbers().private_value.to_bytes(32, 'big').hex(), 'code': code, 'cdhash': cdhash.hex(),
-            'assert_prefix': (sha(app_id.encode()) + bytes([0x80])).hex(), 'assert_ext': cbor(ext(cdhash)).hex()}
+            'assert_prefix': (sha(app_id.encode()) + bytes([0x80])).hex(), 'assert_ext': cbor(ext(cdhash, category)).hex()}
 
 
 enrollments = {'good': enrollment(), 'other_team': enrollment('other_team'), 'modified': enrollment('modified'), 'wrong_compose': enrollment(compose='00' * 32),
-               'stale': enrollment(enrolled_at=a.now - 13 * 3600)}
+               'stale': enrollment(enrolled_at=a.now - 13 * 3600), 'dev_signed': enrollment(category=3)}
 for c in a.compose:
     n, h = c.split('=')
     enrollments[n] = enrollment(compose=h)

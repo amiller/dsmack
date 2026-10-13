@@ -152,6 +152,14 @@ import CryptoKit
         try refused(try send(service(a,runners:[try bytes32(modifiedM)]),&s1,q,runner:"good"),"not admitted","runner whose M_runner is not in the admitted set refused")
         try refused(try send(sa,&s1,q,runner:"good",code:"resigned"),"runner CodeDirectory is not the attested CDHash",
                     "CodeDirectory that is not the attested one (same M, another CDHash) refused")
+        var sDev=SDKSession()
+        #if SDK_TEST_TRUST
+        _=try getKey(sa,&sDev,appX,c1,runner:"dev_signed")
+        try check(sDev.compose==c1,"test build: an Apple Development runner (App Attest category 3) is admitted")
+        #else
+        try refused(try send(sa,&sDev,q,runner:"dev_signed"),"runner_not_admitted: runner evidence: category_policy_failed",
+                    "release build: an Apple Development runner (App Attest category 3) is refused")
+        #endif
         var sTeam=SDKSession()
         let team=try getKey(sa,&sTeam,appX,c1,runner:"other_team")
         try check(team.root==rootX2 && sTeam.compose==c1 && (enrollments["other_team"]!["cdhash"] as! String) != (enrollments["good"]!["cdhash"] as! String),
@@ -171,7 +179,7 @@ import CryptoKit
         try check(s1.compose==nil && plain.compose==nil,"no refused connection is admitted")
 
         let ax=try getKey(sa,&sxA,appX,c1,runner:"good"),bx=try getKey(sb,&sxB,appX,c1,runner:"good")
-        try check(sxA.compose==c1,"runner admitted for its compose on this connection")
+        try check(sxA.compose==c1,"Developer ID runner (App Attest category 6) admitted for its compose on this connection")
         try check(ax.root != nil && ax.root==bx.root && ax.root==rootX2,"two nodes with the same group key derive the same app_root")
         try check(ax.reply["app_pub"] as? String==bx.reply["app_pub"] as? String && ax.reply["key_epoch"] as? Int==2,"same app_pub on both nodes, current epoch 2")
         let ay=try getKey(sa,&sxA,appY,c1)

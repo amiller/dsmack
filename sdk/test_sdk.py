@@ -242,7 +242,7 @@ def test_fixture_evidence_verifies():
     request = {'v': 1, 'op': 'info', 'app_id': '0x' + X, 'compose_hash': '0x' + fx['compose_sha256']}
     data = sdk.runner_data('0x' + '09' * 32, request)
     e = runner.attest(data)
-    policy = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(3,), cdhashes=(b(fx['enrollments']['good']['cdhash']),), require_macos_acl=True)
+    policy = Policy('DC9JH5DRMY.dev.dsmack.provider', environment='production', categories=(6,), cdhashes=(b(fx['enrollments']['good']['cdhash']),), require_macos_acl=True)
     pem = b'-----BEGIN CERTIFICATE-----\n' + base64.encodebytes(base64.b64decode(fx['synthetic_root'])) + b'-----END CERTIFICATE-----\n'
     enrolled = verify_attestation(base64.b64decode(e['attestation']), e['keyId'], base64.b64decode(e['bootClientData']), policy, pem, fx['now'])
     verify_assertion(base64.b64decode(e['assertion']), base64.b64decode(e['assertClientData']), enrolled['public_key'], 0, policy)

@@ -12,7 +12,13 @@ func sha(_ d: Data) -> Data { Data(SHA256.hash(data: d)) }
 enum AppAttestProfile {
     static let appID = "DC9JH5DRMY.dev.dsmack.provider"
     static let aaguid = Data("appattest".utf8) + Data(count: 7)  // production environment
-    static let categories = [3]
+    // App Attest validation category of the attested code's signing: 6 is Developer ID (the release runner), 3 is Apple
+    // Development, accepted only by test builds (synthetic fixtures, sign.sh development runners in sdk_e2e.py).
+    #if SDK_TEST_TRUST || SDK_TEST_NETWORK
+    static let categories = [3, 6]
+    #else
+    static let categories = [6]
+    #endif
     static let rootSHA256 = "1cb9823ba28ba6ad2d33a006941de2ae4f513ef1d4e831b9f7e0fa7b6242c932"
     static let rootDER = Data(base64Encoded: """
     MIICITCCAaegAwIBAgIQC/O+DvHN0uD7jG5yH2IXmDAKBggqhkjOPQQDAzBSMSYwJAYDVQQDDB1BcHBsZSBBcHAgQXR0ZXN0YXRpb24gUm9vdCBDQTETMBEGA1UECgwK\

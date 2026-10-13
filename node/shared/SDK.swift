@@ -72,7 +72,7 @@ enum SDK {
                 guard out.withUnsafeBytes({write(c,$0.baseAddress,$0.count)})==out.count else {return}
                 continue
             }
-            guard buffer.count<65536 else {return}
+            guard buffer.count<1<<20 else {return}  // a first key op carries the runner's CodeDirectory (about 150 KB base64 for a 54 MB runner)
             let n=read(c,&chunk,chunk.count);guard n>0 else {return}
             buffer.append(contentsOf:chunk[0..<n])
         }

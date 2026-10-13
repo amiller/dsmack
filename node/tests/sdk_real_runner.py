@@ -70,6 +70,7 @@ def pipe(a, b):
 class RealRunners:
     def __init__(self, cfg, local):
         self.r, self.local, self.rpc, self.registry = cfg['runner'], Path(local), cfg['rpc'], cfg['registry']
+        self.chain_id, self.app_registry = cfg['chain_id'], cfg['app_registry']
         self.tunnels, self.lock, self.rd_of = {}, threading.Lock(), {}
         self.listener = socket.create_server(('127.0.0.1', self.r['bridge_port']))
         threading.Thread(target=self.accept, daemon=True).start()
@@ -110,7 +111,7 @@ class RealRunners:
         self.ssh(f"mkdir -p {rd}/base && ln -s {self.r['kernel']} {rd}/base/vmlinux-arm64 && cat > {rd}/app-compose.json", input=Path(compose).read_text())
         app = self.r['apps'][variant]
         self.ssh(f"nohup sh -c 'open -n -W --stdout {rd}/runner.stdout --stderr {rd}/runner.log {app} --args run "
-                 f"--compose {rd}/app-compose.json --sdk-node {node} --chain-rpc {self.rpc} --registry {self.registry} --out {rd}/out --base {rd}/base "
+                 f"--compose {rd}/app-compose.json --sdk-node {node} --chain-rpc {self.rpc} --chain-id {self.chain_id} --registry {self.registry} --app-registry {self.app_registry} --out {rd}/out --base {rd}/base "
                  f"--oci-archive {self.r['oci']} {'--attest' if attest else '--no-attest'}; touch {rd}/exited' > /dev/null 2>&1 &")
         return rd
 

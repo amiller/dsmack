@@ -4,9 +4,9 @@
 of the runner executable) into the node in place of the empty node/shared/SDKRunners.swift, so M covers which runner
 code may take app roots, whoever signs it. Sign and measure the runner first.
 --runner builds the compose runner (runner/, SwiftPM) instead, unsigned, as reproducibly as the node: the same toolchain
-lock, a fresh copy of the sources at the fixed path RUNNER_BUILD_ROOT (Swift -O still embeds the length of each unmapped
-source path in its escaping-closure checks, so the build path must be the same for every builder), remapped to /src, no
-ad hoc signature, no debug map, fixed locale, timezone and archive dates.
+lock, the sources copied into the fixed path RUNNER_BUILD_ROOT, emptied first (Swift -O still embeds the length of each
+unmapped source path in its escaping-closure checks, so the build path must be the same for every builder), remapped to
+/src, no ad hoc signature, no debug map, fixed locale, timezone and archive dates.
 sign_mac.py signs either app (the runner with runner_entitlements: the node's template plus virtualization)."""
 import argparse
 import hashlib
@@ -64,16 +64,21 @@ RUNNER_INPUTS = ['runner/Package.swift', 'runner/Package.resolved', *sorted(str(
 
 def build_runner(args, actual, dest):
     """Runner.app with the unsigned SwiftPM release executable; returns the manifest record."""
+    # /private/tmp is world-writable: every build starts from an empty root this user creates (mode 0700), so no other
+    # user's files or earlier build products enter the runner. A root another user owns fails rmtree or mkdir.
+    if RUNNER_BUILD_ROOT.exists():
+        shutil.rmtree(RUNNER_BUILD_ROOT)
+    RUNNER_BUILD_ROOT.mkdir(mode=0o700)
+    if RUNNER_BUILD_ROOT.stat().st_uid != os.getuid():
+        raise SystemExit(f'{RUNNER_BUILD_ROOT} is not this user\'s')
     work = RUNNER_BUILD_ROOT / 'runner'
-    # Fresh sources with fresh mtimes each time; .build (resolved dependencies, their products) is kept between builds.
-    for old in ('Sources', 'Package.swift', 'Package.resolved'):
-        shutil.rmtree(work / old) if (work / old).is_dir() else (work / old).unlink(missing_ok=True)
-    work.mkdir(parents=True, exist_ok=True)
+    work.mkdir()
     for p in RUNNER_INPUTS:
         (work / Path(p).relative_to('runner')).parent.mkdir(parents=True, exist_ok=True)
         shutil.copyfile(ROOT / p, work / Path(p).relative_to('runner'))
     flags = ['-c', 'release', '-Xswiftc', '-file-prefix-map', '-Xswiftc', f'{RUNNER_BUILD_ROOT}=/src', '-Xcc', f'-ffile-prefix-map={RUNNER_BUILD_ROOT}=/src',
-             '-Xlinker', '-no_adhoc_codesign', '-Xlinker', '-S', *(['-Xswiftc', '-DMODIFIED'] if args.modified else [])]
+             '-Xlinker', '-no_adhoc_codesign', '-Xlinker', '-S', *(['-Xswiftc', '-DMODIFIED'] if args.modified else []),
+             *(['-Xswiftc', '-DSDK_TEST_NETWORK'] if args.sdk_test_network else [])]
     env = {**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC', 'ZERO_AR_DATE': '1'}
     subprocess.run(['xcrun', 'swift', 'build', *flags], cwd=work, check=True, env=env)
     built = Path(subprocess.check_output(['xcrun', 'swift', 'build', *flags, '--show-bin-path'], cwd=work, text=True, env=env).strip()) / 'runner'
@@ -93,7 +98,7 @@ def build_runner(args, actual, dest):
     inputs = RUNNER_INPUTS + ['scripts/release/build_mac.py', 'node/mac/toolchain.json', 'node/mac/Entitlements.template.plist']
     return {'schema': 1, 'kind': 'unsigned-build', 'flavor': 'runner', 'toolchain': actual, 'source_commit': output('git', 'rev-parse', 'HEAD'),
             'dirty_build_inputs': bool(output('git', 'status', '--porcelain', '--untracked-files=normal', '--', *inputs)),
-            'inputs': {p: digest(ROOT / p) for p in inputs}, 'modified': args.modified,
+            'inputs': {p: digest(ROOT / p) for p in inputs}, 'modified': args.modified, 'sdk_test_network': args.sdk_test_network,
             'build_root': str(RUNNER_BUILD_ROOT), 'compiler_flags': flags, 'bundle_id': args.bundle_id, 'team': args.team,
             'version': args.version, 'build_number': args.build_number,
             'files': {str(p.relative_to(app)): digest(p) for p in sorted(app.rglob('*')) if p.is_file()}}
@@ -103,6 +108,8 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--gui', action='store_true', help='Build the persistent menu-bar participant')
     parser.add_argument('--runner', action='store_true', help='Build the compose runner (Runner.app) instead of the node')
+    parser.add_argument('--sdk-test-network', action='store_true',
+                        help='Runner only, never a release: -D SDK_TEST_NETWORK, the network from the command line (sdk_e2e.py)')
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--bundle-id', default='dev.dsmack.provider')
     parser.add_argument('--team', help='Also write entitlements.plist for this Apple Team ID beside Node.app')
@@ -122,9 +129,11 @@ def main():
             raise SystemExit(f'Toolchain mismatch for {key}: {actual[key]!r}; expected {lock[key]!r}')
     dest = args.out.resolve()
     dest.mkdir(parents=True, exist_ok=False)
+    if args.runner and (args.gui or args.sdk_runner):
+        raise SystemExit('--runner builds the runner alone: no --gui or --sdk-runner')
+    if args.sdk_test_network and not args.runner:
+        raise SystemExit('--sdk-test-network is for --runner; test nodes build with node/tests/seed_build.sh')
     if args.runner:
-        if args.gui or args.sdk_runner:
-            raise SystemExit('--runner builds the runner alone: no --gui or --sdk-runner')
         record = build_runner(args, actual, dest)
         (dest / 'build-manifest.json').write_text(json.dumps(record, indent=2, sort_keys=True) + '\n')
         print(json.dumps(record['files'], indent=2))

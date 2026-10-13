@@ -191,7 +191,7 @@ workload has started, so the marker is a mount over the volume rather than a fil
 
 ### dsmack-sdk keys from the node (`--sdk-node`)
 
-`runner run --sdk-node 127.0.0.1:PORT --chain-rpc URL --registry ADDRESS` takes key material from a Dsmack node's loopback `sdkPort`
+`runner run --sdk-node 127.0.0.1:PORT` takes key material from a Dsmack node's loopback `sdkPort`
 (node/shared/SDK.swift) instead of a KMS. The app id is the compose's top-level `app_id` (64 hex; `--app` is refused);
 the node reads the compose's window under it from `AppRegistry`. There is no provider API key on this path, so a
 compose with `auth_header` or `nearai` rules is refused at start.
@@ -202,15 +202,21 @@ compose with `auth_header` or `nearai` rules is refused at start.
    `{"compose_hash", "data": "dsmack-sdk-runner/1|0x<challenge>|0x<sha256 of the canonical request without
    runner_evidence>", "domain": "dsmack-sdk-runner/1"}`, with the enrollment, in the shape of the `/attest` object.
    `runner.local/attest` never signs that domain: it wraps any caller's data in `mac-compose-assert/1`, and any host
-   process can reach it over `egress.sock`, so its output is not admission. The node admits the runner first and
+   process can reach it over `egress.sock`, so its output is not admission. A connection not admitted within 60 s of
+   accept is closed, idle or not, and the port holds at most 32 connections. The node admits the runner first and
    refuses anything else with `runner_not_admitted: <reason>`, before any AppRegistry read: the runner's measurement
    (below), the enrollment's compose_hash and age, the assertion's domain and data, and the challenge's age. Only then
    does it read the compose's window and seal the app root to `eph_pub`. The runner opens it and checks that `app_pub`
    derives from it, that the statement names this app_id and compose_hash, that the group key signed it, and that the
-   group key is the committed `sharedKeys(scope)` of the statement's key epoch on `--registry`, read through
-   `--chain-rpc` at the statement's block (or, for the previous epoch, at the block before `KeyEpochStarted(scope,
-   epoch + 1)`), with the reply's chain id and registry equal to those. A refusal exits the runner before the guest
-   socket exists; `--no-attest` evidence (`"type":"dev"`) is always refused.
+   reply names the runner's network: `RunnerNetwork` (runner/Sources/runner/GroupCheck.swift, inside M_runner, equal to
+   the node's `ReleaseNetwork`: RPC, chain id, group-key registry, AppRegistry). Only an `SDK_TEST_NETWORK` runner build
+   (`build_mac.py --runner --sdk-test-network`, never a release) takes them from `--chain-rpc`, `--chain-id`,
+   `--registry` and `--app-registry`; a release runner refuses those flags. The statement's key epoch must be the
+   registry's current `keyEpochs(scope)`, or the one before it only for an explicit `get_key(epoch=prev)`, and the group
+   key its committed `sharedKeys(scope)`: read at the statement's block, or for the previous epoch at its last block,
+   found by bisecting `keyEpochs(scope)` over past blocks with `eth_call` (sepolia.base.org caps `eth_getLogs` at 200
+   blocks and calls at 25 a second; the runner paces itself to 20). A refusal exits the runner before the guest socket
+   exists; `--no-attest` evidence (`"type":"dev"`) is always refused.
 3. The runner serves JSON lines on the guest's `/var/run/dsmack.sock`, which exists only inside the VM. After the VM
    starts and before the workload does, the runner listens on vsock port `0x0d5d0001` (Virtualization's socket device;
    the listener lives in the runner process) and asks the guest agent (vminitd `ProxyVsock`, direction into) to listen on

@@ -49,8 +49,10 @@ enum SDK {
     }
 
     /// JSON lines on 127.0.0.1 (the loopback channel the runner already uses for its KMS; no socket file).
-    /// Returns the bound port; port 0 picks one. At most SDK.maxConnections at once; further connections are closed.
-    static func listen(port: UInt16,_ reply: @escaping (Data,inout SDKSession)->Data) throws -> UInt16 {
+    /// Returns the bound port; port 0 picks one. At most SDK.maxConnections at once; further connections are closed. A
+    /// connection whose runner is not admitted within SDK.challengeSeconds of accept is closed (idle or not), so idle local
+    /// clients cannot hold the slots runner boots need; an admitted connection is a runner's and stays open while it lives.
+    static func listen(port: UInt16,admitWithin: Double=Double(SDK.challengeSeconds),_ reply: @escaping (Data,inout SDKSession)->Data) throws -> UInt16 {
         let fd=socket(AF_INET,SOCK_STREAM,0);try need(fd>=0,"sdk socket")
         var one:Int32=1;setsockopt(fd,SOL_SOCKET,SO_REUSEADDR,&one,socklen_t(4))
         var a=sockaddr_in();a.sin_family=sa_family_t(AF_INET);a.sin_port=port.bigEndian;a.sin_addr.s_addr=inet_addr("127.0.0.1")
@@ -64,15 +66,17 @@ enum SDK {
                 guard c>=0 else {continue}
                 let room=open.withLock{() -> Bool in guard count<SDK.maxConnections else {return false};count+=1;return true}
                 guard room else {close(c);continue}
-                Thread.detachNewThread {serve(c,reply);open.withLock{count-=1}}
+                Thread.detachNewThread {serve(c,reply,admitWithin:admitWithin);open.withLock{count-=1}}
             }
         }
         return UInt16(bigEndian:a.sin_port)
     }
-    static func serve(_ c: Int32,_ reply: (Data,inout SDKSession)->Data) {
+    static func serve(_ c: Int32,_ reply: (Data,inout SDKSession)->Data,admitWithin: Double=Double(SDK.challengeSeconds)) {
         defer {close(c)}
         var session=SDKSession()
         var one:Int32=1;setsockopt(c,SOL_SOCKET,SO_NOSIGPIPE,&one,socklen_t(4))
+        var send=timeval(tv_sec:10,tv_usec:0);setsockopt(c,SOL_SOCKET,SO_SNDTIMEO,&send,socklen_t(MemoryLayout<timeval>.size))  // a client that never reads
+        let deadline=Date().addingTimeInterval(admitWithin)
         var buffer=Data(),chunk=[UInt8](repeating:0,count:4096)
         while true {
             if let newline=buffer.firstIndex(of:10) {
@@ -81,6 +85,11 @@ enum SDK {
                 continue
             }
             guard buffer.count<1<<20 else {return}  // a first key op carries the runner's CodeDirectory (about 150 KB base64 for a 54 MB runner)
+            if session.compose==nil {  // not admitted: wait for input only until the deadline
+                let left=deadline.timeIntervalSinceNow
+                var p=pollfd(fd:c,events:Int16(POLLIN),revents:0)
+                guard left>0,poll(&p,1,Int32(left*1000)+1)>0 else {return}
+            }
             let n=read(c,&chunk,chunk.count);guard n>0 else {return}
             buffer.append(contentsOf:chunk[0..<n])
         }

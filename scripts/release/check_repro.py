@@ -9,7 +9,6 @@ import sys
 import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
-RUNNER_BUILD_ROOT = Path('/private/tmp/dsmack-runner-build')  # build_mac.py's
 
 
 def main():
@@ -33,8 +32,6 @@ def main():
                                 dirs_exist_ok=True,
                                 ignore=shutil.ignore_patterns('build', 'build-*', '.build', 'bin', '__pycache__', 'entitlements.plist'))
             build = dest / name
-            if args.runner:  # each runner build starts from an empty build root: no dependency products shared
-                shutil.rmtree(RUNNER_BUILD_ROOT, ignore_errors=True)
             subprocess.run([sys.executable, str(tree / 'scripts/release/build_mac.py'),
                             '--out', str(build), *(['--gui'] if args.gui else []), *(['--runner'] if args.runner else []),
                             *[x for c in args.sdk_runner for x in ('--sdk-runner', c)]], check=True)

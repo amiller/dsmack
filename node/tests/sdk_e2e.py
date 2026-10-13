@@ -6,9 +6,9 @@ node A seeds (bootstraps G), node B participates and imports G from A through th
 leave B running: it re-acquires the new key from A and keeps serving the previous epoch. Both serve sdkPort on Mac
 loopback, forwarded here; stand-in runners (runner/kms/sdk_runner.py) run here. Every config, plist, log and enrollment
 state stays inside --remote.
---runner-dir names a Mac runner/ checkout holding build/, build-other/ and build-modified/ from runner/sign.sh
-(build-other signed with BUNDLE_VERSION=2: same code and M_runner, another CDHash; build-modified with MODIFIED=1: another
-M_runner). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with build/measurement.txt compiled in,
+--runner-dir names a Mac runner/ checkout holding build/, build-other/ and build-modified/ from SDK_TEST_NETWORK=1
+runner/sign.sh (test runners that take this chain from the command line; build-other signed with BUNDLE_VERSION=2: same
+code and M_runner, another CDHash; build-modified with MODIFIED=1: another M_runner). Then build/ must instead be a release-mode node (no SDK_TEST_TRUST) with build/measurement.txt compiled in,
 built with -D SDK_TEST_NETWORK so its SDK may read this disposable chain instead of the compiled release network
 (`NODE_FLAGS='-D SDK_TEST_NETWORK' SDK_RUNNERS=$(cat runner/build/measurement.txt) node/tests/seed_build.sh`): the configs
 carry no sdkRunners and no anchor (Apple's root is compiled in), and every runner boot is a signed runner on the Mac with fresh App Attest, booting

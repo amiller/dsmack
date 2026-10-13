@@ -28,6 +28,7 @@ SCOPE_Z = '01' * 32   # app Z's table scope; no node holds a key for it
 OUT = Path(os.environ['SDK_EVIDENCE_DIR']) if 'SDK_EVIDENCE_DIR' in os.environ else None
 FIXTURE = ROOT / 'node/tests/sdk_runner_fixture.json'
 RELEASE_APP_REGISTRY = '0xa4d26dedf4d086216a0e2cfbc7bda49918f5c5c3'   # node/mac/NetworkConfig.swift appRegistry
+RELEASE_RPC, RELEASE_REGISTRY = 'https://sepolia.base.org', '0xd4B33C83576a6049d29c6B849ec73491e52781a0'   # and its rpc, registry
 
 
 def record(name, obj):
@@ -153,7 +154,7 @@ def net(tmp_path_factory):
                                      attest='--no-evidence' not in extra)
             return (sdk.Client(str(path)), None, path) if path else (None, err, sock)
         p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', cfg['composes'][name], '--node', cfg['nodes'][node],
-                              '--rpc', cfg['rpc'], '--registry', cfg['registry'], '--fixture', cfg['fixture'], '--enrollment', enrollment or name, '--socket', sock, *extra],
+                              '--rpc', cfg['rpc'], '--registry', cfg['registry'], '--app-registry', cfg['app_registry'], '--fixture', cfg['fixture'], '--enrollment', enrollment or name, '--socket', sock, *extra],
                              stderr=subprocess.PIPE, text=True)
         procs.append(p)
         wait(lambda: sock.exists() or p.poll() is not None, 300)
@@ -175,7 +176,7 @@ def demo_key(client, net, epoch=None, group_public=None):
     group = group_public or info['group_public']
     st = verify.statement_fields(verify.key_reply(reply, 'demo', 'ed25519:demo', group))
     assert st['key_epoch'] == reply['key_epoch'] and st['registry'] == net['registry'].lower() and st['app_registry'] == net['app_registry'].lower()
-    verify.group_on_chain(net['rpc'], net['registry'], st['scope'], st['key_epoch'], group, st['block'])
+    verify.group_on_chain(net['rpc'], net['registry'], st['scope'], st['key_epoch'], group, st['block'], previous=epoch is not None)
     return info, reply
 
 
@@ -189,6 +190,48 @@ def test_vectors_match_swift():
     assert pub(ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())) == APP_PUB_X2
     assert sdk.leaf(root, 'near-account', 'ed25519:near-account').hex() == LEAF_X2
     record('0-vectors', {'app_root_x2': root.hex(), 'app_pub_x2': APP_PUB_X2, 'leaf_x2_near_account': LEAF_X2})
+
+
+@pytest.mark.skipif('SDK_LIVE_BASE_SEPOLIA' not in os.environ, reason='read-only check against the release RPC; set SDK_LIVE_BASE_SEPOLIA=1')
+def test_previous_epoch_on_base_sepolia():
+    """The previous-epoch group-key check against the release network, read only. sepolia.base.org caps eth_getLogs at
+    200 blocks, so the check bisects keyEpochs(scope) instead. The previous epoch's last block found that way is
+    cross-checked by the KeyEpochStarted(scope, prev + 1) log in the block after it (a one-block log range)."""
+    u, r = RELEASE_RPC, RELEASE_REGISTRY
+    latest = int(verify.rpc(u, 'eth_blockNumber', []), 16)
+    now = verify.key_epoch_at(u, r, SCOPE, latest)
+    assert now >= 2, now
+    shared = lambda at: b(verify.rpc(u, 'eth_call', [{'to': r, 'data': verify.SHARED_KEYS + SCOPE}, hex(at)]))
+    g_now = '04' + shared(latest)[:64].hex()
+    assert verify.group_on_chain(u, r, SCOPE, now, g_now, latest) == latest
+    end = verify.epoch_end(u, r, SCOPE, now - 1, latest)
+    assert verify.key_epoch_at(u, r, SCOPE, end) == now - 1 and verify.key_epoch_at(u, r, SCOPE, end + 1) == now
+    started = verify.rpc(u, 'eth_getLogs', [{'address': r, 'topics': ['0x143519224fe404fde2f926e45a8cd8de4da43c648680d13caadff828449c7ad0', '0x' + SCOPE],
+                                             'fromBlock': hex(end + 1), 'toBlock': hex(end + 1)}])
+    assert [int(l['data'], 16) for l in started] == [now], started
+    k = shared(end)
+    assert k[127] == 1
+    g_prev = '04' + k[:64].hex()
+    assert verify.group_on_chain(u, r, SCOPE, now - 1, g_prev, latest, previous=True) == end
+    with pytest.raises(verify.Invalid, match='is not the current key epoch'):
+        verify.group_on_chain(u, r, SCOPE, now - 1, g_prev, latest)
+    with pytest.raises(verify.Invalid, match='group key is not sharedKeys'):
+        verify.group_on_chain(u, r, SCOPE, now - 1, g_now, latest, previous=True)
+    if now >= 3:
+        with pytest.raises(verify.Invalid, match='is not the current key epoch'):
+            verify.group_on_chain(u, r, SCOPE, now - 2, g_prev, latest, previous=True)
+    record('12-previous-epoch-base-sepolia', {'rpc': u, 'registry': r, 'latest': latest, 'key_epoch': now, 'previous_epoch_last_block': end,
+                                              'group_public_now': g_now, 'group_public_previous': g_prev})
+
+
+def test_runner_network_is_release_network():
+    """The runner's compiled network (RunnerNetwork, inside M_runner) is the node's ReleaseNetwork."""
+    import re
+    node = json.loads(re.search(r'#"""\s*(\{.*?\})\s*"""#', (ROOT / 'node/mac/NetworkConfig.swift').read_text(), re.S).group(1))
+    runner = dict(re.findall(r'(rpc|registry|appRegistry) = "([^"]+)"', (ROOT / 'runner/Sources/runner/GroupCheck.swift').read_text()))
+    chain = int(re.search(r'chainId: UInt64 = (\d+)', (ROOT / 'runner/Sources/runner/GroupCheck.swift').read_text()).group(1))
+    assert runner == {k: node[k] for k in ('rpc', 'registry', 'appRegistry')} and chain == node['chainId'], (runner, chain)
+    assert (RELEASE_RPC, RELEASE_REGISTRY, RELEASE_APP_REGISTRY) == (node['rpc'], node['registry'], node['appRegistry'].lower())
 
 
 def test_fixture_evidence_verifies():

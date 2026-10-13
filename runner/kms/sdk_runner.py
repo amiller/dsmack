@@ -5,8 +5,8 @@ holding one admitted connection, and serves the design's JSON-lines API on a uni
 
 compose_hash = sha256(exact compose bytes); app_id is the compose's top-level "app_id". Runner evidence is test-only
 synthetic App Attest (--fixture, --enrollment; runner/kms/synthetic_attest.py); --no-evidence sends none. Every release
-is checked on chain (--rpc, --registry: the group-key registry): G must be the committed sharedKeys(scope) of the
-statement's key epoch. If the node refuses or the check fails, this exits non-zero before creating the socket: the
+is checked on chain (--rpc, --registry: the group-key registry, --app-registry): G must be the committed sharedKeys(scope)
+of the registry's current key epoch (or the previous one, asked for explicitly). If the node refuses or the check fails, this exits non-zero before creating the socket: the
 guest gets nothing. get_key without epoch asks the node each time, so it follows the node's current epoch.
 
 Ops: get_key {path, purpose, epoch?} -> {key, public_key, chain}; evidence {report_data} -> bundle; info.
@@ -31,6 +31,7 @@ p.add_argument('--compose', type=Path, required=True)
 p.add_argument('--node', required=True, help='127.0.0.1:PORT')
 p.add_argument('--rpc', required=True)
 p.add_argument('--registry', required=True)
+p.add_argument('--app-registry', required=True)
 p.add_argument('--fixture', type=Path, required=True)
 p.add_argument('--enrollment', default='good')
 p.add_argument('--code', help="send this fixture code entry instead of the enrollment's (a CodeDirectory that is not the attested one)")
@@ -57,8 +58,9 @@ ROOTS = {}
 def boot(epoch=None):
     with lock:
         root, r = node.release(epoch)
-    require(r['registry'].lower() == args.registry.lower() and r['chain_id'] == int(rpc(args.rpc, 'eth_chainId', []), 16), 'release names another chain or registry')
-    group_on_chain(args.rpc, args.registry, r['scope'], r['key_epoch'], r['group_public'], r['block'])
+    require(r['registry'].lower() == args.registry.lower() and r['app_registry'].lower() == args.app_registry.lower()
+            and r['chain_id'] == int(rpc(args.rpc, 'eth_chainId', []), 16), 'release names another chain, registry or AppRegistry')
+    group_on_chain(args.rpc, args.registry, r['scope'], r['key_epoch'], r['group_public'], r['block'], previous=epoch is not None)
     signer = ec.derive_private_key(sdk.app_signer(root), ec.SECP256R1())
     ROOTS[r['key_epoch']] = (root, signer, {'signer': r['group_public'], 'message': r['statement'], 'signature': r['group_signature']})
     return r['key_epoch']

@@ -208,6 +208,17 @@ func run() async throws {
     // Key material: the node's SDK port (--sdk-node), or DEV-ONLY the stand-in KMS runner/kms/kms.py (--dev-kms).
     let sdkMode = args.contains("--sdk-node")
     guard sdkMode != args.contains("--dev-kms") else { throw Fail("pass exactly one of --sdk-node 127.0.0.1:PORT and --dev-kms http://127.0.0.1:PORT") }
+    // The chain the runner checks the node's group key on: compiled in (RunnerNetwork, inside M_runner).
+    #if SDK_TEST_NETWORK
+    guard let testRPC = URL(string: try opt("--chain-rpc")), let testChain = UInt64(try opt("--chain-id")) else { throw Fail("--chain-rpc URL --chain-id N") }
+    let groupCheck = GroupCheck(rpc: testRPC, chainId: testChain, registry: try opt("--registry"), appRegistry: try opt("--app-registry"))
+    log("DEV-ONLY: SDK_TEST_NETWORK build: group key checked on \(testRPC) registry \(groupCheck.registry), not the compiled release network")
+    #else
+    guard !["--chain-rpc", "--chain-id", "--registry", "--app-registry"].contains(where: { args.contains($0) }) else {
+        throw Fail("the runner's network is compiled in (RunnerNetwork, inside M_runner); a command-line network needs an SDK_TEST_NETWORK build")
+    }
+    let groupCheck = GroupCheck(rpc: URL(string: RunnerNetwork.rpc)!, chainId: RunnerNetwork.chainId, registry: RunnerNetwork.registry, appRegistry: RunnerNetwork.appRegistry)
+    #endif
     guard !FileManager.default.fileExists(atPath: out.path) else { throw Fail("--out \(out.path) already exists") }
     try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
     func save(_ name: String, _ d: Data) throws { try d.write(to: out.appendingPathComponent(name)) }
@@ -270,9 +281,7 @@ func run() async throws {
     let guest: Guest, apiKey: String, sdk: SDKApp?
     if let node {
         guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: nil, boot: boot, bootClientData: clientData)
-        guard let rpc = URL(string: try opt("--chain-rpc")) else { throw Fail("--chain-rpc must be a URL") }
-        let chain = GroupCheck(rpc: rpc, registry: try opt("--registry"))
-        let s = SDKApp(node: node, guest: guest, chain: chain, appId: app, composeHash: compose.hash, cdhash: measured, code: attest ? try selfCode(cdhash: measured) : nil)
+        let s = SDKApp(node: node, guest: guest, chain: groupCheck, appId: app, composeHash: compose.hash, cdhash: measured, code: attest ? try selfCode(cdhash: measured) : nil)
         // The challenge was also the enrollment nonce; releaseKey (eph_pub in clientData) receives the boot release.
         try await s.boot(challenge: nonce, eph: releaseKey)
         log("app root for key epoch \(s.epoch) released by node \(try opt("--sdk-node")) (held in memory only)")
@@ -400,7 +409,7 @@ do {
     switch args.first {
     case "check" where args.count == 2: print(try loadCompose(args[1]).hash)
     case "run": try await run()
-    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --out DIR --base DIR (--sdk-node 127.0.0.1:PORT --chain-rpc URL --registry GROUP_KEY_REGISTRY | --dev-kms http://127.0.0.1:PORT --app APP) (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
+    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --out DIR --base DIR (--sdk-node 127.0.0.1:PORT [SDK_TEST_NETWORK builds: --chain-rpc URL --chain-id N --registry ADDR --app-registry ADDR] | --dev-kms http://127.0.0.1:PORT --app APP) (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
     }
 } catch {
     log("error: \(error)")

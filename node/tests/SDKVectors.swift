@@ -243,8 +243,8 @@ import CryptoKit
         try check(try SDK.reduceP256(Data(repeating:0xff,count:32))==unhex("0x00000000ffffffff00000000000000004319055258e8617b0c46353d039cdaae"),"p256 reduction subtracts n once")
         do {_=try SDK.reduceP256(Data(SDK.p256Order));throw DemoError.invalid("zero scalar accepted")} catch DemoError.invalid(let e) {try check(e=="derived scalar is zero","zero scalar refused")}
 
-        let port=try SDK.listen(port:0,sb.reply)
-        func connectLoopback() throws -> Int32 {
+        let port=try SDK.listen(port:0,sb.reply),shortPort=try SDK.listen(port:0,admitWithin:2,sb.reply)
+        func connectLoopback(_ port:UInt16=port) throws -> Int32 {
             let fd=socket(AF_INET,SOCK_STREAM,0)
             var addr=sockaddr_in();addr.sin_family=sa_family_t(AF_INET);addr.sin_port=port.bigEndian;addr.sin_addr.s_addr=inet_addr("127.0.0.1")
             try need(withUnsafePointer(to:&addr){$0.withMemoryRebound(to:sockaddr.self,capacity:1){connect(fd,$0,socklen_t(MemoryLayout<sockaddr_in>.size))}}==0,"connect")
@@ -270,6 +270,24 @@ import CryptoKit
         close(fd)
         try check(lines.allSatisfy{$0["sealed"] != nil && $0["app_pub"] as? String==ax.reply["app_pub"] as? String},
                   "loopback server: challenge, admitted get_key, then get_key on the admitted connection")
+        // N4: idle local clients fill every slot; they are closed at the admission deadline (2 s here, 60 s in the node),
+        // a runner then boots, and its admitted connection outlives the deadline.
+        func closedByServer(_ fd:Int32) -> Bool {var b:UInt8=0;return read(fd,&b,1)==0}
+        let idle=try (0..<SDK.maxConnections).map{_ in try connectLoopback(shortPort)}
+        Thread.sleep(forTimeInterval:0.3)
+        let extra=try connectLoopback(shortPort)
+        try check(closedByServer(extra),"SDK port: a connection beyond \(SDK.maxConnections) is closed at once")
+        close(extra)
+        Thread.sleep(forTimeInterval:2.5)
+        try check(idle.allSatisfy(closedByServer),"SDK port: \(SDK.maxConnections) idle unadmitted connections are closed at the admission deadline")
+        idle.forEach{close($0)}
+        let afterIdle=try connectLoopback(shortPort)
+        let c2=try unhex(try exchange(afterIdle,["v":1,"op":"challenge"])["challenge"] as! String)
+        var boot=getQ;boot["runner_evidence"]=try runnerEvidence("good",c2,getQ)
+        try check(try exchange(afterIdle,boot)["sealed"] != nil,"SDK port: after the idle ones are closed, a runner boots")
+        Thread.sleep(forTimeInterval:2.5)
+        try check(try exchange(afterIdle,getQ)["sealed"] != nil,"SDK port: an admitted connection stays open past the admission deadline")
+        close(afterIdle)
         print("SDKVectors passed: \(passed) checks")
     }
     /// The same vectors are pinned in sdk/test_sdk.py test_vectors_match_swift (Python dsmack_sdk).

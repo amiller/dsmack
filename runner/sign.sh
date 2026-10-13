@@ -8,7 +8,8 @@
 # PROFILE (default ~/dsmack-signing/embedded.provisionprofile), TEAM (default DC9JH5DRMY), CHANNEL development (default) or
 # developer-id with NOTARY_PROFILE: the release runner is Developer ID-signed and notarized like the node (or exported with
 # export_mac_xcode.py --app <out>/Runner.app). BUNDLE_VERSION (default 1) only changes Info.plist, hence the CDHash and
-# not M_runner; MODIFIED=1 builds the negative-control variant (other code, another M_runner).
+# not M_runner; MODIFIED=1 builds the negative-control variant (other code, another M_runner). SDK_TEST_NETWORK=1 builds a
+# test runner (never a release) that takes its chain from the command line (node/tests/sdk_e2e.py).
 set -euo pipefail
 cd "$(dirname "$0")"
 KC="$HOME/Library/Keychains/dsmack.keychain-db"
@@ -16,7 +17,7 @@ out="$PWD/${1:-build}"
 [ -z "${KEYCHAIN_PW:-}" ] || security unlock-keychain -p "$KEYCHAIN_PW" "$KC"
 rm -rf "$out"
 python3 ../scripts/release/build_mac.py --runner --out "$out/unsigned" --version 1.0 --build-number "${BUNDLE_VERSION:-1}" \
-  ${MODIFIED:+--modified} > /dev/null
+  ${MODIFIED:+--modified} ${SDK_TEST_NETWORK:+--sdk-test-network} > /dev/null
 python3 ../scripts/release/sign_mac.py --build "$out/unsigned" --out "$out/signed" --keychain "$KC" \
   --profile "${PROFILE:-$HOME/dsmack-signing/embedded.provisionprofile}" --team "${TEAM:-DC9JH5DRMY}" \
   --identity "${IDENTITY:-Apple Development: Andrew Miller (QJUJ9F2UE4)}" --channel "${CHANNEL:-development}" \

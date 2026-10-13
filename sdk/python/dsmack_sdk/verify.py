@@ -1,7 +1,7 @@
 """Verifies get_key replies and evidence bundles offline against G (needs `cryptography`), and (group_on_chain) that
 G is the registry's committed sharedKeys(scope) for the statement's key epoch. That compose_hash is allowed under app_id
 at block is the verifier's own AppRegistry read."""
-import json, urllib.request
+import json, time, urllib.request
 from cryptography.exceptions import InvalidSignature
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec, ed25519
@@ -84,30 +84,50 @@ def evidence(bundle, report_data, group_public):
 
 
 KEY_EPOCHS, SHARED_KEYS = '0xd71779d9', '0xd5b7abaf'   # keyEpochs(bytes32), sharedKeys(bytes32) selectors
-KEY_EPOCH_STARTED = '0x143519224fe404fde2f926e45a8cd8de4da43c648680d13caadff828449c7ad0'  # KeyEpochStarted(bytes32,uint64)
 
 
 def rpc(url, method, params):
+    time.sleep(0.05)   # at most 20 calls a second: sepolia.base.org refuses more than 25 (code -32007)
     req = urllib.request.Request(url, json.dumps({'jsonrpc': '2.0', 'id': 1, 'method': method, 'params': params}).encode(),
-                                 {'content-type': 'application/json'})
+                                 {'content-type': 'application/json', 'user-agent': 'dsmack-sdk'})  # sepolia.base.org refuses urllib's
     r = json.loads(urllib.request.urlopen(req, timeout=30).read())
     require('error' not in r, f'RPC error {r.get("error")}')
     return r['result']
 
 
-def group_on_chain(url, registry, scope, key_epoch, group_public, block):
-    """G (group_public) is the registry's committed sharedKeys(scope) while key_epoch was current: at `block` for the
-    epoch current there, else at the block before KeyEpochStarted(scope, key_epoch + 1)."""
-    call = lambda sel, at: b(rpc(url, 'eth_call', [{'to': registry, 'data': sel + b(scope).hex()}, hex(at)]))
-    at = block
-    if int.from_bytes(call(KEY_EPOCHS, block), 'big') != key_epoch:
-        logs = rpc(url, 'eth_getLogs', [{'address': registry, 'topics': [KEY_EPOCH_STARTED, '0x' + b(scope).hex()], 'fromBlock': '0x0', 'toBlock': hex(block)}])
-        ends = [int(l['blockNumber'], 16) for l in logs if int(l['data'], 16) == key_epoch + 1]
-        require(len(ends) == 1, f'key epoch {key_epoch} did not end before block {block}')
-        at = ends[0] - 1
-    k = call(SHARED_KEYS, at)
-    require(int.from_bytes(call(KEY_EPOCHS, at), 'big') == key_epoch and len(k) == 128 and k[127] == 1
-            and b'\x04' + k[:64] == b(group_public), f'group key is not sharedKeys(scope) for key epoch {key_epoch} at block {at}')
+def key_epoch_at(url, registry, scope, at):
+    r = b(rpc(url, 'eth_call', [{'to': registry, 'data': KEY_EPOCHS + b(scope).hex()}, at if at == 'latest' else hex(at)]))
+    return int.from_bytes(r, 'big') if r else 0   # empty: no registry code yet at that block, so no epoch started
 
 
-__all__ = ['group_on_chain', 'statement_fields', 'key_reply', 'evidence', 'public_key', 'p256_verify', 'InvalidSignature', 'Invalid']
+def epoch_end(url, registry, scope, key_epoch, block):
+    """The last block of key_epoch, which had ended by `block`: galloping back and bisecting keyEpochs(scope) over block
+    numbers (eth_call at past blocks; no log ranges, which public RPCs cap at a few hundred blocks)."""
+    epoch = lambda at: key_epoch_at(url, registry, scope, at)
+    require(epoch(block) > key_epoch, f'key epoch {key_epoch} had not ended at block {block}')
+    hi, step, lo = block, 1, block - 1      # epoch(hi) > key_epoch throughout
+    while lo > 0 and epoch(lo) > key_epoch:
+        hi, step = lo, step * 2
+        lo = max(hi - step, 0)
+    while hi - lo > 1:
+        mid = (lo + hi) // 2
+        lo, hi = (lo, mid) if epoch(mid) > key_epoch else (mid, hi)
+    return lo
+
+
+def group_on_chain(url, registry, scope, key_epoch, group_public, block, previous=False):
+    """G (group_public) is the registry's committed sharedKeys(scope) for key_epoch, and key_epoch is the registry's
+    current epoch now, or, with previous=True (an explicit get_key(epoch=prev) during the rotation), the one directly
+    before it. G is read at `block` if key_epoch was current there, else at key_epoch's last block (epoch_end).
+    Returns the block G was read at."""
+    now = key_epoch_at(url, registry, scope, 'latest')
+    require(key_epoch == now or (previous and key_epoch == now - 1),
+            f'key epoch {key_epoch} is not the current key epoch {now}' + (' or the one before it' if previous else ''))
+    at = block if key_epoch_at(url, registry, scope, block) == key_epoch else epoch_end(url, registry, scope, key_epoch, block)
+    k = b(rpc(url, 'eth_call', [{'to': registry, 'data': SHARED_KEYS + b(scope).hex()}, hex(at)]))
+    require(key_epoch_at(url, registry, scope, at) == key_epoch and len(k) == 128 and k[127] == 1 and b'\x04' + k[:64] == b(group_public),
+            f'group key is not sharedKeys(scope) for key epoch {key_epoch} at block {at}')
+    return at
+
+
+__all__ = ['group_on_chain', 'epoch_end', 'key_epoch_at', 'statement_fields', 'key_reply', 'evidence', 'public_key', 'p256_verify', 'InvalidSignature', 'Invalid']

@@ -77,7 +77,7 @@ try:
         sockdir.mkdir(exist_ok=True)
         (sockdir / 'dsmack.sock').unlink(missing_ok=True)
         procs.append(subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', compose, '--node', f'127.0.0.1:{port}',
-                                       '--rpc', RPC, '--registry', demo, '--fixture', fixture, '--enrollment', 'coupon', '--socket', 'dsmack.sock'],
+                                       '--rpc', RPC, '--registry', demo, '--app-registry', reg, '--fixture', fixture, '--enrollment', 'coupon', '--socket', 'dsmack.sock'],
                                       cwd=sockdir, stderr=open(OUT / f'runner-{name}.log', 'w')))
         wait(lambda: (sockdir / 'dsmack.sock').exists())
         socks[name] = sockdir / 'dsmack.sock'

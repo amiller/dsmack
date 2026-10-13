@@ -17,7 +17,7 @@ else
   flag=HONEST; [ "$variant" = modified ] && flag=MODIFIED
   mkdir -p "$app/Contents/MacOS"
   xcrun swiftc -O -sdk "$(xcrun --show-sdk-path)" -target arm64-apple-macos27.0 -framework DeviceCheck -D $flag \
-    ../shared/Protocol.swift ../shared/NativeDirectory.swift ../shared/PersonalAccount.swift ../shared/BadgeClaim.swift ../shared/Upgrade.swift ../shared/Chain.swift ../shared/NativeAttestation.swift ../shared/Node.swift ../shared/Measure.swift main.swift -o "$app/Contents/MacOS/node"
+    ../shared/Protocol.swift ../shared/NativeDirectory.swift ../shared/PersonalAccount.swift ../shared/BadgeClaim.swift ../shared/Upgrade.swift ../shared/Chain.swift ../shared/NativeAttestation.swift ../shared/Node.swift ../shared/SDK.swift ../shared/SDKRunners.swift ../shared/AppAttestVerify.swift ../shared/Measure.swift NetworkConfig.swift main.swift -o "$app/Contents/MacOS/node"
   cp "$HOME/dsmack-signing/embedded.provisionprofile" "$app/Contents/embedded.provisionprofile"
   cp Info.plist "$app/Contents/Info.plist"
   sign --timestamp=none

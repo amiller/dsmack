@@ -1,11 +1,19 @@
 #!/bin/bash
 # Mac side of the seed resilience test: signed Node.app and SeedSealTests.app (same team and
 # Keychain group, different CDHashes), an ad hoc unentitled copy of the test, and cd-args.json.
-# usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID
+# usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID; optional NODE_FLAGS for
+# Node.app only (sdk_e2e.py: -D SDK_TEST_TRUST, or -D SDK_TEST_NETWORK for a release-mode SDK on a test chain), optional SDK_RUNNERS (space-separated runner measurements M_runner compiled into every
+# build here, as scripts/release/build_mac.py --sdk-runner does; written to <out>/sdk-runners.txt)
 set -euo pipefail
 out=$(cd "${1:?out dir}" && pwd); src=$(cd "$(dirname "$0")/.." && pwd)
-shared=(Protocol Measure NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node)
-shared=("${shared[@]/#/$src/shared/}"); shared=("${shared[@]/%/.swift}")
+shared=(Protocol Measure NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node SDK AppAttestVerify)
+shared=("${shared[@]/#/$src/shared/}"); shared=("${shared[@]/%/.swift}"); shared+=("$src/mac/NetworkConfig.swift")
+runners=$(for c in ${SDK_RUNNERS:-}; do [[ $c =~ ^[0-9a-f]{64}$ ]] || { echo "SDK_RUNNERS: $c is not 64 hex" >&2; exit 1; }; printf '"%s",' "$c"; done)
+mkdir -p "$out/sdk-runners"
+sed "s/^let compiledSDKRunnerMeasurements: \[String\] = \[\]$/let compiledSDKRunnerMeasurements: [String] = [${runners%,}]/" "$src/shared/SDKRunners.swift" > "$out/sdk-runners/SDKRunners.swift"
+grep -qF "let compiledSDKRunnerMeasurements: [String] = [${runners%,}]" "$out/sdk-runners/SDKRunners.swift" || { echo "seed_build.sh: SDKRunners.swift substitution failed" >&2; exit 1; }
+echo "${SDK_RUNNERS:-}" > "$out/sdk-runners.txt"
+shared+=("$out/sdk-runners/SDKRunners.swift")
 cat > "$out/entitlements.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -25,7 +33,7 @@ bundle() { # name executable sources...
     --generate-entitlement-der --timestamp=none "$app"
   codesign --verify --strict "$app"
 }
-bundle Node node -D HONEST "${shared[@]}" "$src/mac/main.swift"
+bundle Node node -D HONEST ${NODE_FLAGS:-} "${shared[@]}" "$src/mac/main.swift"
 bundle SeedSealTests test "${shared[@]}" "$src/tests/SeedSealTests.swift"
 cp "$out/SeedSealTests.app/Contents/MacOS/test" "$out/seal-test-adhoc"
 codesign --force --sign - "$out/seal-test-adhoc"

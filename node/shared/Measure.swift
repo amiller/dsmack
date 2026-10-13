@@ -66,6 +66,28 @@ struct CodeMeasurement {
         return Data(Self.sha(c))
     }
 
+    /// From enrollFields (base64 cd, page0, ent; integers L, S), as a runner sends its own.
+    static func fields(_ f: [String:Any]) throws -> CodeMeasurement {
+        guard Set(f.keys)==["cd","page0","ent","L","S"],let cd=f["cd"] as? String,let page0=f["page0"] as? String,let ent=f["ent"] as? String,
+              let L=f["L"] as? Int,let S=f["S"] as? Int,let c=Data(base64Encoded:cd),let p=Data(base64Encoded:page0),let e=Data(base64Encoded:ent)
+        else {throw DemoError.invalid("code measurement fields")}
+        return CodeMeasurement(cd:[UInt8](c),page0:[UInt8](p),ent:[UInt8](e),L:L,S:S)
+    }
+
+    /// The App ID the entitlements name (com.apple.application-identifier, else application-identifier): App Attest's
+    /// rpId for this code. The entitlements blob is sealed by the CodeDirectory (value() checks that slot).
+    func appIdentifier() throws -> String {
+        let outer=try Self.der(ent,0,ent.count,0x70),version=try Self.der(ent,outer.body,outer.end,0x02),dict=try Self.der(ent,version.end,outer.end,0xb0)
+        var found:[String:String]=[:],p=dict.body
+        while p<dict.end {
+            let pair=try Self.der(ent,p,dict.end,0x30),key=try Self.der(ent,pair.body,pair.end,0x0c),value=try Self.der(ent,key.end,pair.end,nil)
+            if ent[value.start]==0x0c {found[String(decoding:ent[key.body..<key.end],as:UTF8.self)]=String(decoding:ent[value.body..<value.end],as:UTF8.self)}
+            p=pair.end
+        }
+        guard let id=found["com.apple.application-identifier"] ?? found["application-identifier"] else {throw DemoError.invalid("entitlements name no application identifier")}
+        return id
+    }
+
     /// Each dictionary pair as 0x01 || DER(pair), identity keys as 0x00 || DER(key), in blob order.
     func shape() throws -> [UInt8] {
         let outer=try Self.der(ent,0,ent.count,0x70),version=try Self.der(ent,outer.body,outer.end,0x02)

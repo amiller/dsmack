@@ -62,8 +62,9 @@ See the [peer interface](runner-peer.md). The guest reaches all of these on `/ru
   only; the out dir gets `clientData.bin` (the boot clientData) and nothing else from App Attest. A failed
   re-enrollment exits the runner. `--no-attest` answers `{"type":"dev",…}`. Verifiers: `verify/macrunner.mjs`
   (uses the vendored App Attest verifier) and `kms/verify_attest.py`.
-- `POST http://runner.local/key {"path"}`: `HKDF-SHA256(app_key, info "mac-compose-get-key/1|<path>")`, where the KMS
-  derives `app_key` from its master secret and the app the build is admitted to (see [Apps](#apps-keys-and-volumes-by-app-id)).
+- `POST http://runner.local/key {"path"}`, `--dev-kms` only: `HKDF-SHA256(app_key, info "mac-compose-get-key/1|<path>")`,
+  where the stand-in KMS derives `app_key` from its master secret and the app the build is admitted to (see
+  [Apps](#apps-keys-and-volumes-by-app-id)). With `--sdk-node` it answers 404; keys come from `/var/run/dsmack.sock`.
 - `CONNECT host:port`: a raw TCP tunnel, only to an `egress.tcp` entry; anything else gets 403. curl's
   `--unix-socket` ignores `-x`/`-p`, so the test drives it from node in the abalone peer image.
 - `GET http://runner.local/provider-quote?host=H`: the exact report bytes behind that host's `provider_quote_sha256`
@@ -188,6 +189,93 @@ and file-mounts it, with option `ro`, at `<target>/.abalone-persistent`. The pee
 directory is a persistent volume. ContainerizationEXT4 cannot edit an existing image and `exec` works only after the
 workload has started, so the marker is a mount over the volume rather than a file inside it.
 
+### dsmack-sdk keys from the node (`--sdk-node`)
+
+`runner run --sdk-node 127.0.0.1:PORT` takes key material from a Dsmack node's loopback `sdkPort`
+(node/shared/SDK.swift) instead of a KMS. The app id is the compose's top-level `app_id` (64 hex; `--app` is refused);
+the node reads the compose's window under it from `AppRegistry`. There is no provider API key on this path, so a
+compose with `auth_header` or `nearai` rules is refused at start.
+
+1. The runner connects once and asks `{"v":1,"op":"challenge"}`. The challenge is the boot clientData `nonce`; with
+   `--attest` the boot App Attest key is attested over that clientData, whose `eph_pub` is the release key.
+2. Its first request is `get_key` with `eph_pub` and `runner_evidence`: an App Attest assertion over
+   `{"compose_hash", "data": "dsmack-sdk-runner/1|0x<challenge>|0x<sha256 of the canonical request without
+   runner_evidence>", "domain": "dsmack-sdk-runner/1"}`, with the enrollment, in the shape of the `/attest` object.
+   `runner.local/attest` never signs that domain: it wraps any caller's data in `mac-compose-assert/1`, and any host
+   process can reach it over `egress.sock`, so its output is not admission. A connection not admitted within 60 s of
+   accept is closed, idle or not, and the port holds at most 32 connections. The node admits the runner first and
+   refuses anything else with `runner_not_admitted: <reason>`, before any AppRegistry read: the runner's measurement
+   (below), the enrollment's compose_hash and age, the assertion's domain and data, and the challenge's age. Only then
+   does it read the compose's window and seal the app root to `eph_pub`. The runner opens it and checks that `app_pub`
+   derives from it, that the statement names this app_id and compose_hash, that the group key signed it, and that the
+   reply names the runner's network: `RunnerNetwork` (runner/Sources/runner/GroupCheck.swift, inside M_runner, equal to
+   the node's `ReleaseNetwork`: RPC, chain id, group-key registry, AppRegistry). Only an `SDK_TEST_NETWORK` runner build
+   (`build_mac.py --runner --sdk-test-network`, never a release) takes them from `--chain-rpc`, `--chain-id`,
+   `--registry` and `--app-registry`; a release runner refuses those flags. The statement's key epoch must be the
+   registry's current `keyEpochs(scope)`, or the one before it only for an explicit `get_key(epoch=prev)`, and the group
+   key its committed `sharedKeys(scope)`: read at the statement's block, or for the previous epoch at its last block,
+   found by bisecting `keyEpochs(scope)` over past blocks with `eth_call` (sepolia.base.org caps `eth_getLogs` at 200
+   blocks and calls at 25 a second; the runner paces itself to 20). A refusal exits the runner before the guest socket
+   exists; `--no-attest` evidence (`"type":"dev"`) is always refused.
+3. The runner serves JSON lines on the guest's `/var/run/dsmack.sock`, which exists only inside the VM. After the VM
+   starts and before the workload does, the runner listens on vsock port `0x0d5d0001` (Virtualization's socket device;
+   the listener lives in the runner process) and asks the guest agent (vminitd `ProxyVsock`, direction into) to listen on
+   `/run/dsmack-sdk/dsmack.sock` in the VM and dial that port per connection; the container bind-mounts it at
+   `/var/run/dsmack.sock`. Containerization's `UnixSocketConfiguration` is not used for it, since its host end connects
+   to a host socket file. Ops:
+   `get_key {path, purpose, epoch?}` (leaf derivation, the public key for the `ed25519:`, `secp256k1:`, `p256:` tag and
+   chain link 2 here; without `epoch` each call is a fresh release of the node's current epoch, so it follows a bump;
+   an explicit epoch is released once and cached), `evidence {report_data}`
+   (the node's statement and app signature plus this runner's assertion in domain `dsmack-sdk-assert/1`) and `info`,
+   byte-compatible with the stand-in `runner/kms/sdk_runner.py`, so `sdk/python/dsmack_sdk` works unchanged.
+
+No host path reaches the app's keys: the operator's processes cannot open a Virtualization vsock, the run directory
+holds no socket but `egress.sock`, and what `egress.sock` offers (`runner.local/attest` assertions in
+`mac-compose-assert/1`) is refused as admission (sdk/test_sdk.py `test_attest_assertion_is_not_admission` runs exactly
+that from the host). That socket (runner.local, egress) is still host-side, and the runner process, its
+memory and the VM's memory remain readable to the Mac's owner (see Apps below and the SDK design).
+
+**Runner admission by measurement.** A node admits runners by M_runner, the signer-independent measurement of the
+runner executable, defined exactly as the node's own M (`node/shared/Measure.swift`,
+`scripts/release/measure.py`), so any Apple team's signing of an admitted runner build is admitted and its own App ID
+and CDHash do not matter. With `--attest` the runner adds `code` to its `runner_evidence`: its own `{cd, page0, ent, L,
+S}` (base64, offsets), read from its executable and checked against its running CDHash. The node requires the attested
+and asserted CDHash to be SHA-256(cd) ("runner CodeDirectory is not the attested CDHash" otherwise), takes the App
+Attest rpId to check from the App ID those entitlements name, computes M_runner and requires it in its admitted list
+("runner measurement 0x… not admitted" otherwise).
+
+The admitted list is compiled into the node, so the node's M covers it: `node/shared/SDKRunners.swift` holds an empty
+`compiledSDKRunnerMeasurements`, which leaves the SDK off. The release signing pass signs the runner first
+(`runner/sign.sh`: `scripts/release/build_mac.py --runner`, the unsigned runner built as reproducibly as the node, then
+`sign_mac.py` under the node's App ID with the node's entitlements plus virtualization; `CHANNEL=developer-id` with a
+Developer ID identity and `NOTARY_PROFILE` for the release runner, or `export_mac_xcode.py --app <out>/Runner.app`;
+it writes `<out>/cdhash.txt` and `<out>/measurement.txt`), then builds the node with
+`scripts/release/build_mac.py --sdk-runner $(cat <out>/measurement.txt)`, which compiles a generated copy of that file
+(recorded in `build-manifest.json` as `sdk_runners`, and in the GUI's `dsmack-release.json`), and only then signs and
+measures the node. New runner code is a new M_runner, hence a new node M and a new window; a re-signing is neither. A
+release-mode node refuses a config that names `sdkRunners` ("sdkRunners is compiled into the node (inside M); a config
+list needs an SDK_TEST_TRUST build") and refuses `sdkPort` when its compiled list is empty. Only `-D SDK_TEST_TRUST`
+test builds, never admitted, take `sdkRunners` (runner measurements) and the App Attest root from config.
+The SDK's network is compiled in too: `ReleaseNetwork` (node/mac/NetworkConfig.swift, inside M) names the
+`appRegistry` with the `rpc`, `chainId` and `registry` it belongs to. A release-mode node refuses a config
+`appRegistry` other than that one, and refuses `sdkPort` unless the config's rpc, chainId and registry are the compiled
+ones; only `-D SDK_TEST_TRUST` or `-D SDK_TEST_NETWORK` builds read the SDK's network from config. The derivation salt
+and the G-signed statement both carry the AppRegistry address, so an app is (AppRegistry, app_id): an operator's own
+AppRegistry naming a victim's app_id derives another root. The RPC is still one endpoint trusted through the system
+trust store; that stays a mainnet gap. The GUI serves the SDK on `ReleaseNetwork`'s `sdkPort` when its build has a
+runner measurement compiled in.
+CI (.github/workflows/mac-build.yml) builds the runner twice from two checkout paths and compares bytes
+(`check_repro.py --runner`), runs `runner/measure_two_teams.sh` on that build and a `--modified` one (one M_runner for
+two throwaway teams, another for the modified code), then builds the node with that real M_runner compiled in
+(`RUNNER_M=… scripts/release/measure_two_teams.sh`, CLI and `GUI=1`), so its M is the release M; it also builds one node
+with another compiled M_runner and requires a different M. Dev builds compile their runner the same way (`SDK_RUNNERS=$(cat
+runner/build/measurement.txt) NODE_FLAGS='-D SDK_TEST_NETWORK' node/tests/seed_build.sh`, node/tests/sdk_e2e.py
+`--runner-dir`).
+`BUNDLE_VERSION=2 runner/sign.sh build-other` re-signs the same code with another CDHash and the same M_runner.
+
+`--dev-kms URL` is the earlier path, DEV-ONLY: the stand-in KMS `runner/kms/kms.py` releases `{api_key, app,
+app_key}` and the guest uses `runner.local/key`.
+
 ### Apps: keys and volumes by app id
 
 As in dstack, keys belong to an app, not to a build. An app is a name with a set of admitted builds, each a
@@ -198,7 +286,7 @@ An upgrade is admitting the new build under the same app: its `/key` values (Pee
 the old build's. Retiring a build is removing it from `--allow`; the KMS refuses its next `/release`, and the volume
 lock covers a retired build still running.
 
-The runner takes `--app APP` (required) and puts it in the boot clientData; the KMS refuses a build admitted to another
+With `--dev-kms` the runner takes `--app APP` (required) and puts it in the boot clientData; the KMS refuses a build admitted to another
 app (`build_not_in_requested_app`) and the runner refuses a parcel naming another app. `verify_receipts.py` and
 `verify_attest.py` print the app. Clients keep admitting builds by (cdhash, compose_hash); the app is evidence for
 receipt readers, not something they need to check.

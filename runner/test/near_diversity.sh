@@ -30,9 +30,9 @@ fi
 $PY kms/kms.py --state "$RUNS/kms-state" --port 8798 "${ALLOW[@]}" --keys-file "$KEYS" --provider nearai ${LABEL[@]+"${LABEL[@]}"} > "$RUNS/kms.log" 2>&1 & KPID=$!
 sleep 1
 if [ "$MODE" = --attest ]; then
-  open -n -W --stderr "$RUNS/runner.log" "$PWD/build/Runner.app" --args run --base "$BASE" --kms http://127.0.0.1:8798 --out "$RUNS/out" --compose "$RUNS/app-compose.json" --attest
+  open -n -W --stderr "$RUNS/runner.log" "$PWD/build/Runner.app" --args run --base "$BASE" --dev-kms http://127.0.0.1:8798 --out "$RUNS/out" --compose "$RUNS/app-compose.json" --attest
 else
-  bin/runner run --base "$BASE" --kms http://127.0.0.1:8798 --out "$RUNS/out" --compose "$RUNS/app-compose.json" --no-attest 2> "$RUNS/runner.log"
+  bin/runner run --base "$BASE" --dev-kms http://127.0.0.1:8798 --out "$RUNS/out" --compose "$RUNS/app-compose.json" --no-attest 2> "$RUNS/runner.log"
 fi
 kill $KPID
 rm -rf "../store/containers/$(cat "$RUNS/out/container_id.txt")"

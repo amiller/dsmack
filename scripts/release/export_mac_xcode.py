@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Export/notarize a signed Mac candidate using Xcode's saved account or API key.
+"""Export/notarize a signed Mac candidate (Node.app, or Runner.app from runner/sign.sh) using Xcode's saved account or API key.
 
 This uses Apple's managed distribution signing, so a local Developer ID private
 key is not required. The explicit App ID/capability must already exist.
@@ -29,7 +29,7 @@ def main():
         raise SystemExit('Input must already be signed under the requested team')
     out = args.out.resolve()
     out.mkdir(parents=True, exist_ok=False)
-    archive = out / 'Node.xcarchive'
+    archive = out / (app.stem + '.xcarchive')
     products = archive / 'Products/Applications'
     products.mkdir(parents=True)
     subprocess.run(['ditto', str(app), str(products / app.name)], check=True)
@@ -38,7 +38,7 @@ def main():
                   'SigningIdentity': identity.group(1), 'Team': args.team, 'Architectures': ['arm64']}
     for key in ('CFBundleIdentifier', 'CFBundleShortVersionString', 'CFBundleVersion'):
         properties[key] = bundle[key]
-    metadata = {'ArchiveVersion': 2, 'Name': 'Node', 'SchemeName': 'Node',
+    metadata = {'ArchiveVersion': 2, 'Name': app.stem, 'SchemeName': app.stem,
                 'CreationDate': datetime.datetime.now(datetime.timezone.utc), 'ApplicationProperties': properties}
     (archive / 'Info.plist').write_bytes(plistlib.dumps(metadata))
     options = out / 'export-options.plist'

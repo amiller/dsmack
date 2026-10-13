@@ -16,6 +16,9 @@ let kernelSHA256 = "67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af
 // vminit 0.33.4, version-matched to the Containerization library (0.26.5 cannot bind-mount relayed sockets).
 let initfsReference = "ghcr.io/apple/containerization/vminit@sha256:4551a4627a8575ee625e139fa8a1fbdc5b09f06d03c8dc2c3863dcd2e33e98af"
 let guestSocket = "/run/egress.sock"
+// Where vminitd creates the guest end of the dsmack-sdk socket, outside the container rootfs, and the host vsock port it
+// dials (Containerization allocates its own relay ports from 0x1000_0000 up).
+let sdkGuestStaging = "/run/dsmack-sdk/dsmack.sock", sdkVsockPort: UInt32 = 0x0d5d_0001
 
 struct Onchain: Codable, Equatable { let rpc: String; let apps: [String] }
 struct ProviderQuote: Codable, Equatable { let kind, attestation_url: String; let compose_hashes: [String]?; let onchain: Onchain?; let model: String? }
@@ -103,7 +106,7 @@ func parseCompose(_ bytes: Data) throws -> Compose {
 
 let kmsSession = URLSession(configuration: { let c = URLSessionConfiguration.ephemeral; c.connectionProxyDictionary = [:]; return c }())
 func kmsCall(_ url: String, _ body: [String: Any]?) async throws -> [String: Any] {
-    guard let u = URL(string: url), u.scheme == "http", u.host == "127.0.0.1" else { throw Fail("--kms must be http://127.0.0.1:<port> (prototype: plaintext localhost only)") }
+    guard let u = URL(string: url), u.scheme == "http", u.host == "127.0.0.1" else { throw Fail("--dev-kms must be http://127.0.0.1:<port> (prototype: plaintext localhost only)") }
     var req = URLRequest(url: u)
     if let body { req.httpMethod = "POST"; req.httpBody = try JSONSerialization.data(withJSONObject: body) }
     let (data, resp) = try await kmsSession.data(for: req)
@@ -146,6 +149,36 @@ func selfCDHash() throws -> String {
     return hex(h)
 }
 
+// This executable's measurement inputs {cd, page0, ent (DER entitlements body), L, S}, base64 and offsets, as the node's
+// CodeMeasurement reads them (node/shared/Measure.swift): the node checks SHA-256(cd) against the attested CDHash and
+// admits the runner by the signer-independent M of these. The CodeDirectory must be the running code's.
+func selfCode(cdhash: String) throws -> [String: Any] {
+    guard let url = Bundle.main.executableURL else { throw Fail("executable URL") }
+    let b = [UInt8](try Data(contentsOf: url))
+    let le = { (o: Int) in b[o ..< o + 4].reversed().reduce(0) { $0 << 8 | Int($1) } }, be = { (x: [UInt8], o: Int) in x[o ..< o + 4].reduce(0) { $0 << 8 | Int($1) } }
+    guard b.count >= 32, le(0) == 0xfeedfacf, le(4) == 0x0100000c else { throw Fail("not an arm64 Mach-O") }
+    var p = 32, L: Int?, S: Int?
+    for _ in 0 ..< le(16) {
+        if le(p) == 0x19, Array(b[p + 8 ..< p + 24]) == Array("__LINKEDIT".utf8) + [UInt8](repeating: 0, count: 6) { L = p }
+        if le(p) == 0x1d { S = p }
+        p += le(p + 4)
+    }
+    guard let L, let S else { throw Fail("no __LINKEDIT or code signature load command") }
+    let sb = Array(b[le(S + 8) ..< le(S + 8) + le(S + 12)])
+    guard be(sb, 0) == 0xfade0cc0 else { throw Fail("no code signature superblob") }
+    var blobs: [Int: [UInt8]] = [:]
+    for i in 0 ..< be(sb, 8) { let o = be(sb, 16 + 8 * i); blobs[be(sb, 12 + 8 * i)] = Array(sb[o ..< o + be(sb, o + 4)]) }
+    guard let cd = blobs[0], let ent = blobs[7], be(ent, 0) == 0xfade7172 else { throw Fail("no CodeDirectory or DER entitlements") }
+    guard sha256hex(Data(cd)) == cdhash else { throw Fail("executable CodeDirectory is not the running code's") }
+    return ["cd": Data(cd).base64EncodedString(), "page0": Data(b[0 ..< 16384]).base64EncodedString(), "ent": Data(ent[8...]).base64EncodedString(), "L": L, "S": S]
+}
+
+#if MODIFIED
+let variant = "modified"  // negative control (runner/sign.sh with MODIFIED=1): other code, another M_runner, never admitted
+#else
+let variant = "honest"
+#endif
+
 let args = Array(CommandLine.arguments.dropFirst())
 func opt(_ name: String) throws -> String {
     guard let i = args.firstIndex(of: name), i + 1 < args.count else { throw Fail("missing \(name) <value>") }
@@ -171,7 +204,21 @@ func run() async throws {
         bootDelayMs = n
     }
     let compose = try loadCompose(try opt("--compose"))
-    let out = URL(fileURLWithPath: try opt("--out")), base = URL(fileURLWithPath: try opt("--base")), kms = try opt("--kms")
+    let out = URL(fileURLWithPath: try opt("--out")), base = URL(fileURLWithPath: try opt("--base"))
+    // Key material: the node's SDK port (--sdk-node), or DEV-ONLY the stand-in KMS runner/kms/kms.py (--dev-kms).
+    let sdkMode = args.contains("--sdk-node")
+    guard sdkMode != args.contains("--dev-kms") else { throw Fail("pass exactly one of --sdk-node 127.0.0.1:PORT and --dev-kms http://127.0.0.1:PORT") }
+    // The chain the runner checks the node's group key on: compiled in (RunnerNetwork, inside M_runner).
+    #if SDK_TEST_NETWORK
+    guard let testRPC = URL(string: try opt("--chain-rpc")), let testChain = UInt64(try opt("--chain-id")) else { throw Fail("--chain-rpc URL --chain-id N") }
+    let groupCheck = GroupCheck(rpc: testRPC, chainId: testChain, registry: try opt("--registry"), appRegistry: try opt("--app-registry"))
+    log("DEV-ONLY: SDK_TEST_NETWORK build: group key checked on \(testRPC) registry \(groupCheck.registry), not the compiled release network")
+    #else
+    guard !["--chain-rpc", "--chain-id", "--registry", "--app-registry"].contains(where: { args.contains($0) }) else {
+        throw Fail("the runner's network is compiled in (RunnerNetwork, inside M_runner); a command-line network needs an SDK_TEST_NETWORK build")
+    }
+    let groupCheck = GroupCheck(rpc: URL(string: RunnerNetwork.rpc)!, chainId: RunnerNetwork.chainId, registry: RunnerNetwork.registry, appRegistry: RunnerNetwork.appRegistry)
+    #endif
     guard !FileManager.default.fileExists(atPath: out.path) else { throw Fail("--out \(out.path) already exists") }
     try FileManager.default.createDirectory(at: out, withIntermediateDirectories: true)
     func save(_ name: String, _ d: Data) throws { try d.write(to: out.appendingPathComponent(name)) }
@@ -179,9 +226,22 @@ func run() async throws {
     let kh = sha256hex(try Data(contentsOf: kernel))
     guard kh == kernelSHA256 else { throw Fail("kernel \(kernel.path) sha256 \(kh) != compiled-in \(kernelSHA256)") }
     let measured = attest ? try selfCDHash() : "dev"
-    let app = try opt("--app")
-    guard !app.isEmpty else { throw Fail("--app needs a non-empty app id") }
-    log("compose_hash \(compose.hash), cdhash \(measured), app \(app)")
+    let app: String
+    if sdkMode {
+        guard !args.contains("--app") else { throw Fail("--sdk-node takes the app id from the compose's app_id, not --app") }
+        guard let a = compose.top["app_id"] as? String, a.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else {
+            throw Fail("--sdk-node needs the compose's top-level app_id, 64 lowercase hex")
+        }
+        guard !compose.egress.allow.contains(where: { $0.auth_header != nil || $0.provider_quote?.kind == "nearai" }) else {
+            throw Fail("--sdk-node releases no provider API key; auth_header and nearai rules need --dev-kms")
+        }
+        app = a
+    } else {
+        app = try opt("--app")
+        guard !app.isEmpty else { throw Fail("--app needs a non-empty app id") }
+        log("DEV-ONLY: --dev-kms. Key material from the stand-in KMS, not a node.")
+    }
+    log("compose_hash \(compose.hash), cdhash \(measured), app \(app), build \(variant)")
     let quoteHelper = try compose.egress.allow.contains { $0.provider_quote != nil } ? {
         let h = QuoteHelper(node: URL(fileURLWithPath: try opt("--node")), script: URL(fileURLWithPath: try opt("--quote-helper")), out: out)
         try h.check()
@@ -189,7 +249,15 @@ func run() async throws {
     }() : nil
 
     let receiptKey = P256.Signing.PrivateKey(), releaseKey = P256.KeyAgreement.PrivateKey()
-    guard let nonce = try await kmsCall(kms + "/nonce", nil)["nonce"] as? String else { throw Fail("KMS /nonce reply has no nonce") }
+    let node = sdkMode ? try NodeLink(try opt("--sdk-node")) : nil
+    let nonce: String
+    if let node {
+        guard let c = try node.call(["v": 1, "op": "challenge"])["challenge"] as? String else { throw Fail("node challenge reply has no challenge") }
+        nonce = c
+    } else {
+        guard let n = try await kmsCall(try opt("--dev-kms") + "/nonce", nil)["nonce"] as? String else { throw Fail("KMS /nonce reply has no nonce") }
+        nonce = n
+    }
     let clientData = try canonical([
         "domain": "mac-compose-boot/1", "app": app, "compose_hash": compose.hash, "nonce": nonce, "attested": attest, "enrolled_at": Int(Date().timeIntervalSince1970),
         "receipt_pub": hex(receiptKey.publicKey.x963Representation), "eph_pub": hex(releaseKey.publicKey.x963Representation),
@@ -208,24 +276,33 @@ func run() async throws {
         release["attestation"] = attestation.base64EncodedString()
         boot = Enrollment(keyId: keyId, attestation: attestation, clientData: clientData)
     } else {
-        log("DEV-ONLY: --no-attest. No App Attest; the key is released by a KMS in --dev-unattested mode.")
+        log("DEV-ONLY: --no-attest. No App Attest: a node refuses this runner; a --dev-kms must run --dev-unattested.")
     }
-    // The KMS seals canonical JSON {"api_key": str, "app": str, "app_key": 64 hex} to eph_pub: ECDH with its one-time key epk,
-    // HKDF-SHA256, AES-256-GCM with AAD sha256(clientData).
-    let parcel = try await kmsCall(kms + "/release", release)
-    guard let epk = (parcel["epk"] as? String).flatMap({ Data(base64Encoded: $0) }),
-          let sealed = (parcel["sealed"] as? String).flatMap({ Data(base64Encoded: $0) }) else { throw Fail("KMS /release reply has no epk/sealed parcel") }
-    let aead = try releaseKey.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: epk))
-        .hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(), sharedInfo: Data("mac-compose-key-release/1".utf8), outputByteCount: 32)
-    let opened = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: aead, authenticating: Data(SHA256.hash(data: clientData)))
-    let secrets = try object(opened, "KMS parcel")
-    guard Set(secrets.keys) == ["api_key", "app", "app_key"], let apiKey = secrets["api_key"] as? String, let ak = secrets["app_key"] as? String,
-          ak.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { throw Fail("KMS parcel must be {\"api_key\": str, \"app\": str, \"app_key\": 64 hex}, got keys \(secrets.keys.sorted())") }
-    guard secrets["app"] as? String == app else { throw Fail("KMS parcel app \(secrets["app"] ?? "nil") != --app \(app)") }
-    let appKey = SymmetricKey(data: Data((0 ..< 32).map { UInt8(ak.dropFirst($0 * 2).prefix(2), radix: 16)! }))
-    log("API key and app key released by KMS (\(apiKey.utf8.count) + 32 bytes, held in memory only)")
-
-    let guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: appKey, boot: boot, bootClientData: clientData)
+    let guest: Guest, apiKey: String, sdk: SDKApp?
+    if let node {
+        guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: nil, boot: boot, bootClientData: clientData)
+        let s = SDKApp(node: node, guest: guest, chain: groupCheck, appId: app, composeHash: compose.hash, cdhash: measured, code: attest ? try selfCode(cdhash: measured) : nil)
+        // The challenge was also the enrollment nonce; releaseKey (eph_pub in clientData) receives the boot release.
+        try await s.boot(challenge: nonce, eph: releaseKey)
+        log("app root for key epoch \(s.epoch) released by node \(try opt("--sdk-node")) (held in memory only)")
+        (apiKey, sdk) = ("", s)
+    } else {
+        // The KMS seals canonical JSON {"api_key": str, "app": str, "app_key": 64 hex} to eph_pub: ECDH with its one-time key epk,
+        // HKDF-SHA256, AES-256-GCM with AAD sha256(clientData).
+        let parcel = try await kmsCall(try opt("--dev-kms") + "/release", release)
+        guard let epk = (parcel["epk"] as? String).flatMap({ Data(base64Encoded: $0) }),
+              let sealed = (parcel["sealed"] as? String).flatMap({ Data(base64Encoded: $0) }) else { throw Fail("KMS /release reply has no epk/sealed parcel") }
+        let aead = try releaseKey.sharedSecretFromKeyAgreement(with: P256.KeyAgreement.PublicKey(x963Representation: epk))
+            .hkdfDerivedSymmetricKey(using: SHA256.self, salt: Data(), sharedInfo: Data("mac-compose-key-release/1".utf8), outputByteCount: 32)
+        let opened = try AES.GCM.open(AES.GCM.SealedBox(combined: sealed), using: aead, authenticating: Data(SHA256.hash(data: clientData)))
+        let secrets = try object(opened, "KMS parcel")
+        guard Set(secrets.keys) == ["api_key", "app", "app_key"], let key = secrets["api_key"] as? String, let ak = secrets["app_key"] as? String,
+              ak.range(of: "^[0-9a-f]{64}$", options: .regularExpression) != nil else { throw Fail("KMS parcel must be {\"api_key\": str, \"app\": str, \"app_key\": 64 hex}, got keys \(secrets.keys.sorted())") }
+        guard secrets["app"] as? String == app else { throw Fail("KMS parcel app \(secrets["app"] ?? "nil") != --app \(app)") }
+        log("API key and app key released by KMS (\(key.utf8.count) + 32 bytes, held in memory only)")
+        guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: SymmetricKey(data: try unhex(ak)), boot: boot, bootClientData: clientData)
+        (apiKey, sdk) = (key, nil)
+    }
     var every = 6 * 3600
     if args.contains("--reenroll-seconds") {
         guard let n = Int(try opt("--reenroll-seconds")), n > 0 else { throw Fail("--reenroll-seconds needs a positive integer") }
@@ -297,9 +374,24 @@ func run() async throws {
         c.mounts += volumeMounts
         c.sockets = [UnixSocketConfiguration(source: hostSocket, destination: URL(fileURLWithPath: guestSocket),
                                              permissions: FilePermissions(rawValue: 0o777))]
+        if sdk != nil { c.mounts.append(Mount.any(type: "none", source: sdkGuestStaging, destination: "/var/run/dsmack.sock", options: ["bind"])) }
         guard c.interfaces.isEmpty else { throw Fail("guest would get a network interface: \(c.interfaces)") }
     }
     try await container.create()
+    // The guest's /var/run/dsmack.sock: vminitd listens on sdkGuestStaging in the VM (bind-mounted into the container) and
+    // dials host vsock port sdkVsockPort per connection, which this process accepts. Containerization's own
+    // UnixSocketConfiguration relay would connect each one to a host socket file instead; there is none here.
+    if let sdk {
+        try await container.withVirtualMachineInstance { vm in
+            sdk.serve(try vm.listen(sdkVsockPort))
+            let agent = try await vm.dialAgent()
+            guard let relay = agent as? SocketRelayAgent else { throw Fail("guest agent cannot relay sockets") }
+            try await relay.relaySocket(port: sdkVsockPort, configuration: UnixSocketConfiguration(
+                source: URL(fileURLWithPath: "/nonexistent"), destination: URL(fileURLWithPath: sdkGuestStaging), permissions: FilePermissions(rawValue: 0o777)))
+            try await agent.close()
+        }
+        log("serving the guest's /var/run/dsmack.sock over vsock port \(sdkVsockPort); no host-side socket")
+    }
     try await container.start()
     let status = try await container.wait()
     try await container.stop()
@@ -317,7 +409,7 @@ do {
     switch args.first {
     case "check" where args.count == 2: print(try loadCompose(args[1]).hash)
     case "run": try await run()
-    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --app APP --out DIR --base DIR --kms http://127.0.0.1:PORT (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
+    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --out DIR --base DIR (--sdk-node 127.0.0.1:PORT [SDK_TEST_NETWORK builds: --chain-rpc URL --chain-id N --registry ADDR --app-registry ADDR] | --dev-kms http://127.0.0.1:PORT --app APP) (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
     }
 } catch {
     log("error: \(error)")

@@ -23,6 +23,7 @@ ap.add_argument('--host', default='mini-mesh'); ap.add_argument('--remote', requ
 ap.add_argument('--rpc-port', type=int, default=18955); ap.add_argument('--relay-port', type=int, default=18956)
 ap.add_argument('--sdk-ports', type=int, nargs=2, default=[18961, 18962])
 ap.add_argument('--runner-dir'); ap.add_argument('--oci', type=Path); ap.add_argument('--kernel')  # Mac paths are absolute
+ap.add_argument('--bridge-port', type=int, default=18970)  # Mac loopback port the test guests tunnel to, forwarded here
 args = ap.parse_args()
 out = args.out.resolve(); out.mkdir(parents=True, exist_ok=False); R = args.remote
 procs = []
@@ -87,6 +88,7 @@ background([sys.executable, str(ROOT / 'node/relay/relay.py'), '--rpc', rpc, '--
             '--settle', '0', '--log', str(out / 'relay.jsonl')], 'relay', env)
 # Forwards go on the shared ssh control master (an `ssh -N` mux client exits at once), cancelled at exit.
 forwards = ['-R', f'{args.rpc_port}:127.0.0.1:{args.rpc_port}', '-R', f'{args.relay_port}:127.0.0.1:{args.relay_port}',
+            *(['-R', f'{args.bridge_port}:127.0.0.1:{args.bridge_port}'] if args.runner_dir else []),
             *[x for p in args.sdk_ports for x in ('-L', f'{p}:127.0.0.1:{p}')]]
 subprocess.run(['ssh', '-O', 'forward', *forwards, args.host], check=True)
 atexit.register(lambda: subprocess.run(['ssh', '-O', 'cancel', *forwards, args.host]))
@@ -101,7 +103,7 @@ import test_sdk
 coupon = ROOT / 'apps/coupon-sdk/app-compose.json'
 vm_image = json.loads(json.loads(coupon.read_text())['docker_compose_file'])['services']['app']['image'] if args.runner_dir else None
 for n, c in test_sdk.COMPOSES.items():
-    composes[n] = out / f'compose-{n}.json'; composes[n].write_bytes(test_sdk.compose(*c, vm_image=vm_image))
+    composes[n] = out / f'compose-{n}.json'; composes[n].write_bytes(test_sdk.compose(*c, vm_image=vm_image, bridge_port=args.bridge_port))
 composes['coupon'] = coupon
 fixture = out / 'runner-fixture.json'
 note(fixture=run(sys.executable, 'node/tests/sdk_runner_fixture.py', fixture,
@@ -116,19 +118,24 @@ cfg = {n: {'rpc': rpc, 'registry': deploy['DemoV1'], 'chainId': 31337, 'category
 cfg['B']['peer'] = names['A']
 runner = None
 if args.runner_dir:
-    from check_evidence import root
-    from cryptography import x509
-    from cryptography.hazmat.primitives.serialization import Encoding
     rd = args.runner_dir
     cdhash, other = (ssh(f'cat {rd}/{b}/cdhash.txt').strip() for b in ('build', 'build-other'))
     assert cdhash != other
+    compiled = ssh(f'cat {R}/build/sdk-runners.txt').split()
+    assert compiled == [cdhash], f'build/ must be a release-mode node with only {cdhash} compiled in, has {compiled}'
     subprocess.run(['scp', str(args.oci), f'{args.host}:{R}/{args.oci.name}'], check=True)
-    runner = {'host': args.host, 'remote': f'{R}/runs', 'kernel': args.kernel, 'oci': f'{R}/{args.oci.name}',
+    runner = {'host': args.host, 'remote': f'{R}/runs', 'kernel': args.kernel, 'oci': f'{R}/{args.oci.name}', 'bridge_port': args.bridge_port,
               'apps': {'good': f'{rd}/build/Runner.app', 'wrong_cdhash': f'{rd}/build-other/Runner.app'}, 'cdhash': cdhash, 'other_cdhash': other}
-    apple = base64.b64encode(x509.load_pem_x509_certificate(root()).public_bytes(Encoding.DER)).decode()
-    for c in cfg.values():
-        c.update(sdkRunners=['0x' + cdhash], sdkTestAnchor=apple)
-    note(runner=runner)
+    for c in cfg.values():  # the release-mode node takes runners from its compiled list and Apple's root from its code
+        del c['sdkRunners'], c['sdkTestAnchor']
+    # Refusal: the same release-mode node binary given a config-only runner list (the other runner) does not start.
+    refuse = {**cfg['A'], 'sdkRunners': ['0x' + other], 'name': names['A'] + '-refuse'}
+    ssh(f'cat > {R}/refuse-config-runners.json', input=json.dumps(refuse))
+    r = subprocess.run(['ssh', args.host, f'{R}/build/Node.app/Contents/MacOS/node {R}/refuse-config-runners.json seed'], text=True, capture_output=True)
+    (out / 'refusal-config-runners.txt').write_text(f'exit {r.returncode}\n{r.stdout}{r.stderr}')
+    assert r.returncode == 1 and 'sdkRunners is compiled into the node (inside M)' in r.stdout, r.stdout + r.stderr
+    note(check='release-mode node refuses config-only sdkRunners', exit=r.returncode, output=r.stdout.strip())
+    note(runner=runner, compiled_runners=compiled)
 ssh(f'rm -rf {R}/home {R}/logs')  # fresh enrollment state for this chain
 for n, role in (('A', 'seed'), ('B', 'participate')):
     agent = {'Label': f'dev.dsmack.test.{names[n]}', 'KeepAlive': False, 'RunAtLoad': True,
@@ -144,7 +151,9 @@ try:
     note(started='A', ready=ssh(f'bash -s -- mac-start {plist("A")} {demo.functions.keyEpochs(bytes(32)).call()}', input=recover).strip())
     ssh(f'launchctl bootstrap gui/$(id -u) {plist("B")}')
     wait('B', lambda e: e['event'] == 'participating', 'imported G and participating')
-    for n in 'AB': wait(n, lambda e: e['event'] == 'sdk listening', 'sdk listening')
+    for n in 'AB':
+        listening = wait(n, lambda e: e['event'] == 'sdk listening', 'sdk listening')
+        assert not runner or listening['runners'] == ['0x' + runner['cdhash']], listening  # the compiled-in runner
     e2e = {'rpc': rpc, 'chain_id': 31337, 'registry': deploy['DemoV1'], 'demo': deploy['DemoV1'], 'app_registry': app_registry, 'owner_key': KEY,
            'sponsor_seed': sponsor_seed, 'fixture': str(fixture), 'composes': {n: str(p) for n, p in composes.items()},
            'nodes': {n: f'127.0.0.1:{p}' for n, p in zip('AB', args.sdk_ports)}, **({'runner': runner} if runner else {})}

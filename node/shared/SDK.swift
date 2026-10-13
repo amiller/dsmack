@@ -206,6 +206,6 @@ extension Node {
         let service=sdkService(appRegistry:appRegistry,measurement:m,runners:cfg.sdkRunners)
         #endif
         sdkBound=try SDK.listen(port:port,service.reply)
-        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)","appRegistry":appRegistry])
+        log("sdk listening",["address":"127.0.0.1:\(sdkBound!)","appRegistry":appRegistry,"runners":cfg.sdkRunners.map(hex)])
     }
 }

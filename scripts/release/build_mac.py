@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-"""Build the Mac peer without credentials; record exact inputs and unsigned outputs."""
+"""Build the Mac peer without credentials; record exact inputs and unsigned outputs.
+--sdk-runner compiles a signed runner's CDHash (runner/sign.sh <out>/cdhash.txt) into the node in place of the empty
+node/shared/SDKRunners.swift, so M covers which runner may take app roots. Sign the runner first."""
 import argparse
 import hashlib
 import json
@@ -13,7 +15,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[2]
 SOURCES = ['node/shared/Protocol.swift', 'node/shared/NativeDirectory.swift', 'node/shared/PersonalAccount.swift', 'node/shared/BadgeClaim.swift', 'node/shared/Upgrade.swift', 'node/shared/Chain.swift',
-           'node/shared/NativeAttestation.swift', 'node/shared/Node.swift', 'node/shared/SDK.swift', 'node/shared/AppAttestVerify.swift', 'node/shared/Measure.swift', 'node/mac/main.swift',
+           'node/shared/NativeAttestation.swift', 'node/shared/Node.swift', 'node/shared/SDK.swift', 'node/shared/SDKRunners.swift', 'node/shared/AppAttestVerify.swift', 'node/shared/Measure.swift', 'node/mac/main.swift',
            'node/mac/GUI.swift', 'node/mac/NetworkConfig.swift', 'node/mac/UpdatePolicy.swift',
            'node/mac/UpdateArchive.swift', 'node/mac/NativeUpdater.swift']
 
@@ -24,6 +26,13 @@ def output(*args):
 
 def digest(path):
     return hashlib.sha256(path.read_bytes()).hexdigest()
+
+
+def sdk_runners_source(cdhashes):
+    if not all(re.fullmatch(r'[0-9a-f]{64}', c) for c in cdhashes):
+        raise SystemExit('--sdk-runner takes a full SHA-256 CDHash, 64 lowercase hex')
+    committed = (ROOT / 'node/shared/SDKRunners.swift').read_text()
+    return committed.replace('let compiledSDKRunners: [String] = []', f'let compiledSDKRunners: [String] = {json.dumps(cdhashes)}')
 
 
 def entitlements(team, bundle_id):
@@ -42,6 +51,8 @@ def main():
     parser.add_argument('--modified', action='store_true', help='Negative control: build the MODIFIED variant')
     parser.add_argument('--version', default='0.3.0')
     parser.add_argument('--build-number', default='6')
+    parser.add_argument('--sdk-runner', action='append', default=[], metavar='CDHASH',
+                        help='Admit this signed runner to the SDK port (compiled in; without it the SDK stays off)')
     args = parser.parse_args()
     lock = json.loads((ROOT / 'node/mac/toolchain.json').read_text())
     actual = {'xcode': output('xcodebuild', '-version'),
@@ -74,7 +85,8 @@ def main():
         # Resource sealing authenticates these pins alongside the executable.
         release_metadata = {'format': 1, 'profile': 'native-v2', 'build': int(args.build_number),
                             'version': args.version, 'sourceCommit': output('git', 'rev-parse', 'HEAD'),
-                            'network': {key: str(network_settings[key]) for key in network_keys}}
+                            'network': {key: str(network_settings[key]) for key in network_keys},
+                            'sdkRunners': args.sdk_runner}
         (resources / 'dsmack-release.json').write_text(json.dumps(release_metadata, sort_keys=True) + '\n')
         for number, source in enumerate(artwork_inputs, 1):
             shutil.copyfile(ROOT / source, resources / f'fold-token-{number}.png')
@@ -87,9 +99,15 @@ def main():
              '-Xlinker', '-no_adhoc_codesign']
     if args.gui:
         flags += ['-D', 'GUI', '-framework', 'AppKit']
-    with tempfile.TemporaryDirectory(prefix='attest-module-cache-') as cache:
+    runners_source = sdk_runners_source(args.sdk_runner)
+    with tempfile.TemporaryDirectory(prefix='attest-module-cache-') as cache, tempfile.TemporaryDirectory(prefix='attest-sdk-runners-') as gen:
+        # The generated file compiles under the committed file's remapped path, so the builder's temp path never matters.
+        generated = Path(gen) / 'SDKRunners.swift'
+        generated.write_text(runners_source)
+        sources = [str(generated) if p == 'node/shared/SDKRunners.swift' else p for p in SOURCES]
         subprocess.run(['xcrun', 'swiftc', '-sdk', sdk, '-module-cache-path', cache,
-                        *flags, *SOURCES, '-o', str(executable)], cwd=ROOT, check=True,
+                        *flags, '-file-prefix-map', f'{gen}=/src/node/shared', '-debug-prefix-map', f'{gen}=/src/node/shared',
+                        *sources, '-o', str(executable)], cwd=ROOT, check=True,
                        env={**os.environ, 'LC_ALL': 'C', 'TZ': 'UTC'})
     if args.team:
         (dest / 'entitlements.plist').write_text(entitlements(args.team, args.bundle_id))
@@ -99,6 +117,7 @@ def main():
               'source_commit': output('git', 'rev-parse', 'HEAD'),
               'dirty_build_inputs': bool(output('git', 'status', '--porcelain', '--untracked-files=normal', '--', *tracked_inputs)),
               'inputs': {p: digest(ROOT / p) for p in tracked_inputs},
+              'sdk_runners': args.sdk_runner, 'compiled_sdk_runners_sha256': hashlib.sha256(runners_source.encode()).hexdigest(),
               'compiler_flags': [v.replace(str(ROOT), '/src') for v in flags],
               'bundle_id': args.bundle_id, 'team': args.team, 'version': args.version, 'build_number': args.build_number,
               'files': {str(p.relative_to(app)): digest(p) for p in sorted(app.rglob('*')) if p.is_file()}}

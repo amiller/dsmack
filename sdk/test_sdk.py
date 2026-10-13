@@ -50,13 +50,17 @@ def listening(port):
         return s.connect_ex(('127.0.0.1', port)) == 0
 
 
-def compose(app_id, name, env, vm_image=None):
-    """vm_image: a bootable image for the real runner, whose guest idles while the test uses its socket."""
+def compose(app_id, name, env, vm_image=None, bridge_port=None):
+    """vm_image: a bootable image for the real runner, whose guest bridges its /var/run/dsmack.sock to the test
+    (node/tests/sdk_real_runner.py) through runner CONNECT tunnels to bridge_port."""
     dc = {'services': {'app': {'image': 'docker.io/library/python@sha256:' + '0' * 64, 'environment': env}}}
     egress = {'allow': []}
     if vm_image:
-        dc['services']['app'].update(image=vm_image, command=['python', '-c', 'import time; time.sleep(900)'])
-        egress.update(max_requests=0, max_tokens=0)
+        sys.path[:0] = [str(ROOT / 'node/tests')]
+        from sdk_real_runner import bridge_compose
+        command, tcp = bridge_compose(bridge_port)
+        dc['services']['app'].update(image=vm_image, command=command)
+        egress.update(max_requests=0, max_tokens=0, tcp=tcp)
     return json.dumps({'app_id': app_id, 'docker_compose_file': json.dumps(dc, sort_keys=True), 'egress': egress,
                        'kms_enabled': True, 'manifest_version': 2, 'name': name, 'runner': 'docker-compose'},
                       sort_keys=True, separators=(',', ':')).encode()
@@ -157,8 +161,8 @@ def net(tmp_path_factory):
             allow_path.write_text(json.dumps(record_))
         if real:
             assert enrollment in (None, name, 'wrong_cdhash'), 'a real runner enrolls only for the compose it boots'
-            path, err, _ = real.boot(cfg['nodes'][node], cfg['composes'][name], json.loads(allow_path.read_text()),
-                                     'wrong_cdhash' if enrollment == 'wrong_cdhash' else 'good', attest='--no-evidence' not in extra)
+            path, err, _ = real.boot(cfg['nodes'][node], cfg['composes'][name], 'wrong_cdhash' if enrollment == 'wrong_cdhash' else 'good',
+                                     attest='--no-evidence' not in extra)
             return (sdk.Client(str(path)), None, path) if path else (None, err, sock)
         p = subprocess.Popen([sys.executable, ROOT / 'runner/kms/sdk_runner.py', '--compose', cfg['composes'][name], '--node', cfg['nodes'][node],
                               '--allow', allow_path, '--fixture', cfg['fixture'], '--enrollment', enrollment or name, '--socket', sock, *extra],
@@ -289,7 +293,7 @@ def test_coupon_account_derive(net):
     send('createApp(bytes32,address,bytes32)', '0x' + app, OWNER, '0x' + SCOPE)
     send('admit(bytes32,bytes32,uint64,uint64)', '0x' + app, '0x' + h, '0', str(2**64 - 1))
     if net['real']:  # the coupon container itself, in the Runner VM, through /var/run/dsmack.sock
-        stdout, log = net['real'].run_to_exit(net['nodes']['A'], net['composes']['coupon'], net['allow'](app, h))
+        stdout, log = net['real'].run_to_exit(net['nodes']['A'], net['composes']['coupon'])
         out = json.loads(stdout.strip().splitlines()[-1])
         assert 'guest exited' in log, log
     else:
@@ -299,6 +303,22 @@ def test_coupon_account_derive(net):
                              env={**os.environ, 'PYTHONPATH': str(ROOT / 'sdk/python'), 'DSMACK_SOCKET': str(sock), 'NEAR_RPC': 'unused-by-account'}))
     assert out['chain_verified'] and b(out['compose_hash']) == b(h) and len(out['account_id']) == 64
     record('6-coupon-account', out)
+
+
+def test_no_host_socket(net):
+    """The real runner's guest socket has no host path: the run directory holds egress.sock and no other socket, and the
+    runner process holds no named unix socket but egress.sock, while the guest still gets keys (through its own bridge)."""
+    if not net['real']:
+        pytest.skip('the stand-in runner serves a host unix socket by design')
+    c, err, sock = net['boot']('A', 'C1')
+    assert c, err
+    _, r = demo_key(c)
+    rd = net['real'].rd_of[str(sock)]
+    seen = net['real'].host_sockets(rd)
+    assert [Path(f).name for f in seen['socket_files']] == ['egress.sock'], seen
+    named = [n for n in seen['runner_unix_sockets'] if '/' in n]
+    assert seen['runner_pid'] and all(n.endswith('/out/egress.sock') for n in named) and not any('dsmack' in n for n in seen['runner_unix_sockets']), seen
+    record('9-no-host-socket', {**seen, 'run_dir': rd, 'guest_public_key': r['public_key']})
 
 
 @pytest.mark.skipif('SDK_E2E' not in os.environ, reason='stand-in nodes check allow records, not AppRegistry')

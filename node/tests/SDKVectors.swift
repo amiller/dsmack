@@ -3,6 +3,9 @@ import CryptoKit
 
 // dsmack-sdk node side: app_root vectors, AppRegistry allow check, runner admission, statement, epochs and the loopback
 // server. Fixed group scalars, no RPC or Keychain: the AppRegistry read is an in-memory table at a chosen block. Compile with every node/shared source.
+// Three builds: -D SDK_TEST_TRUST (runner CDHashes from config); release mode with node/shared/SDKRunners.swift naming the
+// fixture runner 5a..5a (`--sdk-runners-file`, see .github/workflows/mac-build.yml); release mode with the empty committed list,
+// which only checks that the SDK refuses to start.
 // usage: SDKVectors node/tests/sdk_runner_fixture.json  (test-only synthetic App Attest evidence, never Apple's:
 // Tests/ops/runner_fixture.json of work/native-core-ledger-20261012 aa80468, its root, CDHash 5a..5a and leaf scalars)
 @main struct SDKVectors {
@@ -30,17 +33,39 @@ import CryptoKit
         try check(hex(rootX2)==vectorX2,"pinned app_root vector")
         try check(hex(try SDK.appSigner(SymmetricKey(data:rootX2)).publicKey.x963Representation)==vectorAppPubX2,"pinned app_pub vector")
 
+        #if SDK_TEST_TRUST
+        let trust:[String:Any]=["sdkRunners":[hex(runner)],"sdkTestAnchor":fx["synthetic_root"]!]
+        #else
+        let trust:[String:Any]=[:]
+        #endif
         func node(_ name:String) throws -> Node {
             try Node(Config(["rpc":"http://127.0.0.1:1","registry":registry,"chainId":Int(chainId),"category":hex(zero32),"relay":"http://127.0.0.1:1",
-                             "name":name,"protocolVersion":2,"sdkPort":1,"sdkRunners":[hex(runner)],"appRegistry":appRegistry]),log:{_,_ in})
+                             "name":name,"protocolVersion":2,"sdkPort":1,"appRegistry":appRegistry].merging(trust){$1}),log:{_,_ in})
         }
         let base:[String:Any]=["rpc":"http://127.0.0.1:1","registry":registry,"chainId":1,"category":hex(zero32),"relay":"http://127.0.0.1:1","name":"x"]
-        for (extra,expected,label) in [(["sdkPort":1,"appRegistry":appRegistry],"sdkPort and a non-empty sdkRunners list go together","sdkPort without runner CDHashes refused"),
-                                        (["sdkPort":1,"sdkRunners":[hex(runner)]],"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")] as [([String:Any],String,String)] {
+        func configRefused(_ extra:[String:Any],_ expected:String,_ label:String) throws {
             do {_=try Config(base.merging(extra){$1});throw DemoError.invalid("accepted")}
             catch DemoError.invalid(let e) {try check(e==expected,label)}
         }
+        #if SDK_TEST_TRUST
+        try configRefused(["sdkPort":1,"appRegistry":appRegistry,"sdkTestAnchor":trust["sdkTestAnchor"]!],"sdkPort and a non-empty sdkRunners list go together","test build: sdkPort without config runner CDHashes refused")
+        #else
+        try configRefused(["sdkPort":1,"appRegistry":appRegistry,"sdkRunners":[hex(runner)]],"sdkRunners is compiled into the node (inside M); a config list needs an SDK_TEST_TRUST build",
+                          "release build: config-only sdkRunners refused")
+        try configRefused(["sdkRunners":[hex(runner)]],"sdkRunners is compiled into the node (inside M); a config list needs an SDK_TEST_TRUST build",
+                          "release build: config sdkRunners refused without sdkPort too")
+        if compiledSDKRunners.isEmpty {
+            try configRefused(["sdkPort":1,"appRegistry":appRegistry],"sdkPort needs a runner CDHash compiled into the node (build_mac.py --sdk-runner)",
+                              "release build with no compiled runner: sdkPort refused")
+            print("SDKVectors passed: \(passed) checks (no compiled runner: SDK refusals only)")
+            return
+        }
+        #endif
+        try configRefused(["sdkPort":1].merging(trust){$1},"sdkPort and appRegistry go together","sdkPort without an AppRegistry address refused: no SDK without the on-chain table")
         let a=try node("a"),bNode=try node("b")
+        #if !SDK_TEST_TRUST
+        try check(a.cfg.sdkRunners==[runner],"release build: runner CDHashes are the compiled-in list")
+        #endif
         a.hold(scope,g1,epoch:1);a.hold(scope,g2,epoch:2);bNode.hold(scope,g2,epoch:2)
         try check(a.previous[scope]?.epoch==1 && a.cfg.sdkPort==1,"bump keeps the previous epoch's key")
         // The AppRegistry table: apps(appId) {admin, scope} and composes(appId, composeHash) {from, until}, read at `block`.

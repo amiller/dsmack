@@ -20,14 +20,14 @@ def main():
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--one', metavar='EXECUTABLE', help='print the measurement and CDHash of one signed executable')
     p.add_argument('--out', type=Path, help='directory for one JSON vector per build')
-    p.add_argument('builds', nargs='*', metavar='NAME=EXECUTABLE', help='honest-a, honest-b, modified')
+    p.add_argument('builds', nargs='*', metavar='NAME=EXECUTABLE', help='honest-a, honest-b, modified[, other-runner]')
     a = p.parse_args()
     if a.one:
         vector = cd_args(a.one)
         print('M      ' + measure_args(vector) + '\nCDHash ' + vector['cdhash'])
         return
-    if not a.out or len(a.builds) != 3:
-        p.error('--out and three NAME=EXECUTABLE builds are required')
+    if not a.out or len(a.builds) not in (3, 4):
+        p.error('--out and three or four NAME=EXECUTABLE builds are required')
     a.out.mkdir(parents=True, exist_ok=True)
     result = {}
     for spec in a.builds:
@@ -45,6 +45,8 @@ def main():
         raise SystemExit('Expected M(honest-a) == M(honest-b) != M(modified)')
     if len({ha['cdhash'], hb['cdhash'], mod['cdhash']}) != 3:
         raise SystemExit('Expected three different CDHashes')
+    if 'other-runner' in result and result['other-runner']['M'] == ha['M']:
+        raise SystemExit('Expected the compiled-in SDK runner CDHash to change M')
     print('measure-two-teams: pass')
 
 

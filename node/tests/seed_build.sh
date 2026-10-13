@@ -2,11 +2,17 @@
 # Mac side of the seed resilience test: signed Node.app and SeedSealTests.app (same team and
 # Keychain group, different CDHashes), an ad hoc unentitled copy of the test, and cd-args.json.
 # usage: seed_build.sh <out>   env: KEYCHAIN (unlocked), IDENTITY, PROFILE, TEAM, BUNDLE_ID; optional NODE_FLAGS for
-# Node.app only (sdk_e2e.py: -D SDK_TEST_TRUST)
+# Node.app only (sdk_e2e.py: -D SDK_TEST_TRUST), optional SDK_RUNNERS (space-separated runner CDHashes compiled into every
+# build here, as scripts/release/build_mac.py --sdk-runner does; written to <out>/sdk-runners.txt)
 set -euo pipefail
 out=$(cd "${1:?out dir}" && pwd); src=$(cd "$(dirname "$0")/.." && pwd)
 shared=(Protocol Measure NativeDirectory PersonalAccount BadgeClaim Upgrade Chain NativeAttestation Node SDK AppAttestVerify)
 shared=("${shared[@]/#/$src/shared/}"); shared=("${shared[@]/%/.swift}")
+runners=$(for c in ${SDK_RUNNERS:-}; do [[ $c =~ ^[0-9a-f]{64}$ ]] || { echo "SDK_RUNNERS: $c is not 64 hex" >&2; exit 1; }; printf '"%s",' "$c"; done)
+mkdir -p "$out/sdk-runners"
+sed "s/^let compiledSDKRunners: \[String\] = \[\]$/let compiledSDKRunners: [String] = [${runners%,}]/" "$src/shared/SDKRunners.swift" > "$out/sdk-runners/SDKRunners.swift"
+echo "${SDK_RUNNERS:-}" > "$out/sdk-runners.txt"
+shared+=("$out/sdk-runners/SDKRunners.swift")
 cat > "$out/entitlements.plist" <<EOF
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">

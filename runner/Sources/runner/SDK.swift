@@ -1,3 +1,4 @@
+import Containerization
 import CryptoKit
 import Darwin
 import Foundation
@@ -6,7 +7,8 @@ import Foundation
 // runner/kms/sdk_runner.py). The runner holds one admitted connection to its node's loopback sdkPort: it asks for a
 // challenge, sends get_key with runner_evidence (an App Attest assertion over "dsmack-sdk-runner/1|0x<challenge>|0x<sha256
 // of the canonical request>") and opens the app root sealed to its one-time eph_pub. It then serves the guest JSON lines
-// on /var/run/dsmack.sock: get_key (leaf derivation and chain link 2 here), evidence and info (from the node).
+// on /var/run/dsmack.sock: get_key (leaf derivation and chain link 2 here), evidence and info (from the node). That socket
+// exists only inside the VM: the guest agent relays it to a vsock port this process listens on; no host path exists.
 
 func unhex(_ s: String) throws -> Data {
     let h = Array((s.hasPrefix("0x") ? String(s.dropFirst(2)) : s).utf8)
@@ -186,17 +188,17 @@ final class NodeLink: @unchecked Sendable {
 
 // The app as this runner serves it: its admitted node connection, released roots by epoch, and the guest ops.
 final class SDKApp: @unchecked Sendable {
-    let node: NodeLink, guest: Guest, appId: String, composeHash: String, allow: [String: Any], cdhash: String
+    let node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String
     let lock = NSLock()
     var roots: [UInt64: (root: SymmetricKey, signer: P256.Signing.PrivateKey, statement: [String: Any])] = [:]
     var epoch: UInt64 = 0
 
-    init(node: NodeLink, guest: Guest, appId: String, composeHash: String, allow: [String: Any], cdhash: String) {
-        (self.node, self.guest, self.appId, self.composeHash, self.allow, self.cdhash) = (node, guest, appId, composeHash, allow, cdhash)
+    init(node: NodeLink, guest: Guest, appId: String, composeHash: String, cdhash: String) {
+        (self.node, self.guest, self.appId, self.composeHash, self.cdhash) = (node, guest, appId, composeHash, cdhash)
     }
 
     func request(_ op: String, _ fields: [String: Any] = [:]) -> [String: Any] {
-        ["v": 1, "op": op, "app_id": appId, "compose_hash": composeHash, "allow": allow].merging(fields) { $1 }
+        ["v": 1, "op": op, "app_id": appId, "compose_hash": composeHash].merging(fields) { $1 }
     }
 
     // The boot release: the connection's first key op, carrying this runner's App Attest evidence for `challenge`.
@@ -271,23 +273,10 @@ final class SDKApp: @unchecked Sendable {
         return (try! canonical(out)) + Data([10])
     }
 
-    // JSON lines on a host unix socket (0600) that the container relays to the guest's /var/run/dsmack.sock.
-    func serve(_ path: String) throws {
-        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
-        guard fd >= 0 else { throw Fail("socket: \(String(cString: strerror(errno)))") }
-        var a = sockaddr_un()
-        a.sun_family = sa_family_t(AF_UNIX)
-        guard path.utf8.count < MemoryLayout.size(ofValue: a.sun_path) else { throw Fail("socket path too long: \(path)") }
-        withUnsafeMutableBytes(of: &a.sun_path) { $0.copyBytes(from: path.utf8) }
-        let old = umask(0o177)
-        let ok = withUnsafePointer(to: &a) { $0.withMemoryRebound(to: sockaddr.self, capacity: 1) { bind(fd, $0, socklen_t(MemoryLayout<sockaddr_un>.size)) == 0 } }
-        umask(old)
-        guard ok, listen(fd, 16) == 0 else { throw Fail("listen \(path): \(String(cString: strerror(errno)))") }
-        Thread.detachNewThread { [self] in
-            while true {
-                let c = accept(fd, nil, nil)
-                if c >= 0 { Thread.detachNewThread { [self] in connection(c) } }
-            }
+    // One thread per guest connection; each arrives as a vsock stream from the guest agent's relay of /var/run/dsmack.sock.
+    func serve(_ listener: VsockListener) {
+        Task.detached { [self] in
+            for await h in listener { Thread.detachNewThread { [self] in connection(h.fileDescriptor) } }
         }
     }
 

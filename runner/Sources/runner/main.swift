@@ -16,6 +16,9 @@ let kernelSHA256 = "67bac9f416af4cdc9b151e4ba4962d6515e0ad7acc53816761cf964aa6af
 // vminit 0.33.4, version-matched to the Containerization library (0.26.5 cannot bind-mount relayed sockets).
 let initfsReference = "ghcr.io/apple/containerization/vminit@sha256:4551a4627a8575ee625e139fa8a1fbdc5b09f06d03c8dc2c3863dcd2e33e98af"
 let guestSocket = "/run/egress.sock"
+// Where vminitd creates the guest end of the dsmack-sdk socket, outside the container rootfs, and the host vsock port it
+// dials (Containerization allocates its own relay ports from 0x1000_0000 up).
+let sdkGuestStaging = "/run/dsmack-sdk/dsmack.sock", sdkVsockPort: UInt32 = 0x0d5d_0001
 
 struct Onchain: Codable, Equatable { let rpc: String; let apps: [String] }
 struct ProviderQuote: Codable, Equatable { let kind, attestation_url: String; let compose_hashes: [String]?; let onchain: Onchain?; let model: String? }
@@ -237,8 +240,7 @@ func run() async throws {
     let guest: Guest, apiKey: String, sdk: SDKApp?
     if let node {
         guest = Guest(app: app, composeHash: compose.hash, receiptPub: hex(receiptKey.publicKey.x963Representation), appKey: nil, boot: boot, bootClientData: clientData)
-        let allow = try object(try Data(contentsOf: URL(fileURLWithPath: try opt("--sdk-allow"))), "--sdk-allow")
-        let s = SDKApp(node: node, guest: guest, appId: app, composeHash: compose.hash, allow: allow, cdhash: measured)
+        let s = SDKApp(node: node, guest: guest, appId: app, composeHash: compose.hash, cdhash: measured)
         // The challenge was also the enrollment nonce; releaseKey (eph_pub in clientData) receives the boot release.
         try await s.boot(challenge: nonce, eph: releaseKey)
         log("app root for key epoch \(s.epoch) released by node \(try opt("--sdk-node")) (held in memory only)")
@@ -284,11 +286,6 @@ func run() async throws {
     let chain = try Chain(signer: receiptKey, composeHash: compose.hash, file: out.appendingPathComponent("receipts.jsonl"))
     let proxy = Proxy(policy: compose.egress, anchors: anchors, key: apiKey, chain: chain, guest: guest, quoteHelper: quoteHelper, tasks: tasks)
     let server = try await proxy.serve(unixSocket: hostSocket.path)
-    let sdkSocket = out.appendingPathComponent("dsmack.sock")
-    if let sdk {
-        try sdk.serve(sdkSocket.path)
-        log("serving the guest's /var/run/dsmack.sock (host side \(sdkSocket.path))")
-    }
 
     // Fresh initfs per boot: ContainerManager(initfsReference:) silently reuses any existing store/initfs.ext4.
     let initfs = try await store.getInitImage(reference: initfsReference).initBlock(at: out.appendingPathComponent("initfs.ext4"), for: .linuxArm)
@@ -336,10 +333,24 @@ func run() async throws {
         c.mounts += volumeMounts
         c.sockets = [UnixSocketConfiguration(source: hostSocket, destination: URL(fileURLWithPath: guestSocket),
                                              permissions: FilePermissions(rawValue: 0o777))]
-        if sdk != nil { c.sockets.append(UnixSocketConfiguration(source: sdkSocket, destination: URL(fileURLWithPath: "/var/run/dsmack.sock"), permissions: FilePermissions(rawValue: 0o777))) }
+        if sdk != nil { c.mounts.append(Mount.any(type: "none", source: sdkGuestStaging, destination: "/var/run/dsmack.sock", options: ["bind"])) }
         guard c.interfaces.isEmpty else { throw Fail("guest would get a network interface: \(c.interfaces)") }
     }
     try await container.create()
+    // The guest's /var/run/dsmack.sock: vminitd listens on sdkGuestStaging in the VM (bind-mounted into the container) and
+    // dials host vsock port sdkVsockPort per connection, which this process accepts. Containerization's own
+    // UnixSocketConfiguration relay would connect each one to a host socket file instead; there is none here.
+    if let sdk {
+        try await container.withVirtualMachineInstance { vm in
+            sdk.serve(try vm.listen(sdkVsockPort))
+            let agent = try await vm.dialAgent()
+            guard let relay = agent as? SocketRelayAgent else { throw Fail("guest agent cannot relay sockets") }
+            try await relay.relaySocket(port: sdkVsockPort, configuration: UnixSocketConfiguration(
+                source: URL(fileURLWithPath: "/nonexistent"), destination: URL(fileURLWithPath: sdkGuestStaging), permissions: FilePermissions(rawValue: 0o777)))
+            try await agent.close()
+        }
+        log("serving the guest's /var/run/dsmack.sock over vsock port \(sdkVsockPort); no host-side socket")
+    }
     try await container.start()
     let status = try await container.wait()
     try await container.stop()
@@ -357,7 +368,7 @@ do {
     switch args.first {
     case "check" where args.count == 2: print(try loadCompose(args[1]).hash)
     case "run": try await run()
-    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --out DIR --base DIR (--sdk-node 127.0.0.1:PORT --sdk-allow ALLOW.json | --dev-kms http://127.0.0.1:PORT --app APP) (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
+    default: throw Fail("usage: runner check <app-compose.json> | runner run --compose F --out DIR --base DIR (--sdk-node 127.0.0.1:PORT | --dev-kms http://127.0.0.1:PORT --app APP) (--attest | --no-attest) [--dev-test-anchor CA.der] [--oci-archive OCI.tar] [--task-archive OCI.tar ...] [--quote-helper verify/provider_quote.mjs --node NODE] [--reenroll-seconds N (default 21600)] [--dev-task-boot-delay-ms N]")
     }
 } catch {
     log("error: \(error)")

@@ -18,7 +18,8 @@ struct Config {
     let publicDirectory: Bool; let label: String
     /// Loopback port for the dsmack-sdk JSON-line server (SDK.swift); nil serves nothing.
     let sdkPort: UInt16?
-    /// Runner CDHashes (full SHA-256) admitted to the SDK port; required, non-empty, with sdkPort.
+    /// Runner CDHashes (full SHA-256) admitted to the SDK port; non-empty with sdkPort. compiledSDKRunners (inside M);
+    /// only an SDK_TEST_TRUST build takes them from config sdkRunners.
     let sdkRunners: [Data]
     /// AppRegistry address the SDK reads compose windows from; required with sdkPort.
     let appRegistry: String?
@@ -54,8 +55,14 @@ struct Config {
         #endif
         label=d["label"] as? String ?? ""
         if let p=d["sdkPort"] {guard let n=p as? Int,(1...65535).contains(n) else {throw DemoError.invalid("sdkPort must be 1-65535")};sdkPort=UInt16(n)} else {sdkPort=nil}
+        #if SDK_TEST_TRUST
         sdkRunners=try (d["sdkRunners"] as? [String] ?? []).map(bytes32)
         try need((sdkPort==nil)==sdkRunners.isEmpty && (d["sdkRunners"]==nil || d["sdkRunners"] is [String]),"sdkPort and a non-empty sdkRunners list go together")
+        #else
+        try need(d["sdkRunners"]==nil,"sdkRunners is compiled into the node (inside M); a config list needs an SDK_TEST_TRUST build")
+        sdkRunners=sdkPort==nil ? []:try compiledSDKRunners.map(bytes32)
+        try need(sdkPort==nil || !sdkRunners.isEmpty,"sdkPort needs a runner CDHash compiled into the node (build_mac.py --sdk-runner)")
+        #endif
         appRegistry=d["appRegistry"] as? String
         try need((sdkPort==nil)==(appRegistry==nil),"sdkPort and appRegistry go together")
         if let appRegistry {_=try addressWord(appRegistry)}
@@ -76,7 +83,6 @@ struct Config {
                 && relay==fixed["relay"] as? String && protocolVersion==fixed["protocolVersion"] as? Int
                 && badges?.lowercased()==(fixed["badges"] as? String)?.lowercased()
                 && accountFactory?.lowercased()==(fixed["accountFactory"] as? String)?.lowercased()
-                && d["sdkRunners"] as? [String]==fixed["sdkRunners"] as? [String]
                 && appRegistry?.lowercased()==(fixed["appRegistry"] as? String)?.lowercased(),"release network override rejected")
         }
         #endif

@@ -162,3 +162,7 @@ is created with scope 0 and no admitted compose hash. A node serving `sdkPort` n
 as `appRegistry` (required with `sdkPort`; without it the node refuses to start the SDK). Each key
 op reads `apps(app_id)` and `composes(app_id, compose_hash)` at the current block; the G-signed
 statement names that block, so a verifier re-reads the window there.
+
+The runner CDHashes the SDK admits are compiled into the node, inside its measurement M
+(`build_mac.py --sdk-runner`; [runner protocol](protocols/runner.md#dsmack-sdk-keys-from-the-node---sdk-node)).
+A release-mode node refuses a config that lists `sdkRunners`.

@@ -317,7 +317,7 @@ def test_no_host_socket(net):
     seen = net['real'].host_sockets(rd)
     assert [Path(f).name for f in seen['socket_files']] == ['egress.sock'], seen
     named = [n for n in seen['runner_unix_sockets'] if '/' in n]
-    assert seen['runner_pid'] and all(n.endswith('/out/egress.sock') for n in named) and not any('dsmack' in n for n in seen['runner_unix_sockets']), seen
+    assert seen['runner_pid'].isdigit() and named and all(n.endswith('/out/egress.sock') for n in named) and not any(n.endswith('dsmack.sock') for n in seen['runner_unix_sockets']), seen
     record('9-no-host-socket', {**seen, 'run_dir': rd, 'guest_public_key': r['public_key']})
 
 
@@ -359,7 +359,12 @@ def test_previous_epoch_after_bump(net):
     for n in 'AB':
         before_info, before_key = before[n]
         deadline = time.time() + 300
-        while net['real'] and clients[n].info()['key_epoch'] != old + 1:  # through the runner booted before the bump
+        while net['real']:  # the node's epoch, through the runner booted before the bump
+            try:
+                if clients[n].info()['key_epoch'] == old + 1:
+                    break
+            except sdk.DsmackError as e:  # the node holds no group key until it re-acquires one for the new epoch
+                assert 'no group key held' in str(e) and time.time() < deadline, e
             assert time.time() < deadline
             time.sleep(5)
         while True:

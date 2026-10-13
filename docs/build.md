@@ -18,9 +18,10 @@ the program with its signature sizes blanked, and every entitlement except the
 four that name a team or app (`application-identifier`,
 `com.apple.application-identifier`, `com.apple.developer.team-identifier`,
 `keychain-access-groups`). Two builds have the same M only if they run the same
-code with the same permissions. The registry that admits builds by M is not
-deployed yet. Until it is, admission still names one exact build, and a match
-shows only that your build is the same program.
+code with the same permissions. The
+[measurement registry](https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203)
+on Base Sepolia admits builds by M, so a build whose M is admitted can join
+whoever signed it.
 
 ## What you need
 
@@ -40,7 +41,7 @@ directory that does not exist yet:
 ```sh
 python3 scripts/release/build_mac.py --gui --out build/mine \
   --team ABCDE12345 --bundle-id com.example.node \
-  --version 0.1.0 --build-number 3
+  --version 0.2.0 --build-number 5
 ```
 
 Use your own Team ID and bundle ID, and the release's version and build number.
@@ -72,8 +73,10 @@ python3 scripts/release/measure_two_teams.py \
 ```
 
 This prints your M and your CDHash. Compare M with the one admitted for that
-release. If it does not match, the usual causes are a different commit, a different toolchain, a
-different flavor (`--gui` or not), or a change to the entitlements.
+release; the [0.2.0 release notes](https://github.com/amiller/dsmack/releases/tag/node-v0.2.0)
+list `0xf8c1da8e…f8fb58` for the app. If it does not match, the usual causes
+are a different commit, a different toolchain, a different flavor (`--gui` or
+not), or a change to the entitlements.
 
 ## Try it without an Apple account
 
@@ -89,4 +92,6 @@ one M, the modified build has a different M, and all three CDHashes differ. The
 certificates live in a temporary keychain inside the output directory and are
 deleted when the script ends. Self-signed copies cannot use App Attest, so this
 only checks the measurement. The same check runs on every change to the Mac
-code in the [Mac build workflow](../.github/workflows/mac-build.yml).
+code in the [Mac build workflow](../.github/workflows/mac-build.yml);
+[here is the run](https://github.com/amiller/dsmack/actions/runs/38295216891/job/114964549520)
+for the 0.2.0 source commit `e72641c`.

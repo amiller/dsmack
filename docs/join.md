@@ -4,14 +4,24 @@ You need an Apple silicon Mac on macOS 27 with Full Security and System
 Integrity Protection enabled. You do not need Xcode, an Apple Developer
 account, a wallet or gas.
 
-1. Download `Dsmack Node` from the
-   [latest release](https://github.com/amiller/dsmack/releases) and extract the ZIP.
+1. Download [`DsmackNode-0.2.0.zip`](https://github.com/amiller/dsmack/releases/download/node-v0.2.0/DsmackNode-0.2.0.zip)
+   from the [latest release](https://github.com/amiller/dsmack/releases/latest)
+   and extract it. Its SHA-256 is
+   `955b1655a8b2f3d7a6997aae3cc799fce47a68b053cabb2f2517f35d3d3d611f`.
+
+   <img src="assets/step-download.png" width="180" alt="A Mac mini">
+
 2. Open `Dsmack Node` and accept the normal macOS prompt. Do not change
-   Gatekeeper settings to make it open. The app enrolls with App Attest, finds a
-   peer and fetches the shared network key. It says **You’re in.** when it holds
-   the current key epoch.
+   Gatekeeper settings to make it open. The app shows **Connecting.** while it
+   enrolls with App Attest, finds a peer and fetches the shared network key. It
+   says **You’re in.** when it holds the current key epoch.
+
+   <img src="assets/step-open.png" width="480" alt="The Dsmack Node window showing Connected / peer active.">
+
 3. Choose **Share in public node directory…** and find your node on the
    [node dashboard](https://amiller.github.io/dsmack/nodes/).
+
+   <img src="assets/step-map.png" width="560" alt="Dashboard rows: two seeds online at key epoch 2">
 
 Closing the window leaves the node running; **Quit peer** stops it. Reopening
 restores the same account. Keep Application Support and Keychain data when you
@@ -22,7 +32,7 @@ replace the app with a newer release.
 **It never says You’re in.** The app shows which step is waiting. Joining needs
 a live seed or another node that holds the current key, so a seed outage blocks
 new nodes until it recovers. Choose **Share diagnostic report**, read the file,
-and attach it to an [issue](https://github.com/amiller/dsmack/issues). The report
+and attach it to a [join problem](https://github.com/amiller/dsmack/issues/new?template=join-problem.yml). The report
 redacts known secrets and RPC credentials but still contains public account
 identifiers. Do not delete saved identity or Keychain entries to retry; that
 creates a new account instead of fixing the old one.
@@ -43,3 +53,5 @@ Only the first two receipts have Fold artwork; the app shows
 [Node details](node-details.md) covers updates and checking a release before
 you open it. [What the network is and is not](../README.md#what-the-network-is-and-is-not)
 explains what admission proves and what the operators can still do.
+
+If you joined, say so in [I joined](https://github.com/amiller/dsmack/discussions/31).

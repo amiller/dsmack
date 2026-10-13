@@ -135,9 +135,9 @@ import CryptoKit
         try refused(try send(sa,&s1,q,runner:"good",code:"resigned"),"runner CodeDirectory is not the attested CDHash",
                     "CodeDirectory that is not the attested one (same M, another CDHash) refused")
         var sTeam=SDKSession()
-        let teamReply=try send(sa,&sTeam,q,runner:"other_team")
-        try check(teamReply["error"]==nil && sTeam.compose==c1 && (enrollments["other_team"]!["cdhash"] as! String) != (enrollments["good"]!["cdhash"] as! String),
-                  "another team's signing of the admitted runner (own App ID and CDHash, same M_runner) admitted")
+        let team=try getKey(sa,&sTeam,appX,c1,runner:"other_team")
+        try check(team.root==rootX2 && sTeam.compose==c1 && (enrollments["other_team"]!["cdhash"] as! String) != (enrollments["good"]!["cdhash"] as! String),
+                  "another team's signing of the admitted runner (own App ID and CDHash, same M_runner) admitted, same app_root: \(team.reply["error"] ?? "ok")")
         try refused(try send(sa,&s1,q,runner:"stale"),"not this compose or is stale","enrollment older than 12 h")
         try refused(try send(sa,&s1,q,runner:"wrong_compose"),"not this compose or is stale","runner booted another compose")
         try refused(try send(sa,&s1,q,runner:"good"){$0["epoch"]=2},"not over this challenge and request","request altered after the runner signed it")

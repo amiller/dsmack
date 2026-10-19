@@ -1,0 +1,42 @@
+2026-10-10 20:03:27.370 chain_format_probe[33502:29051000] symbols decrypt=1 applePay=1 recrypt=1 cert=1 size=1
+2026-10-10 20:03:27.370 chain_format_probe[33502:29051000] synthetic recipient create: ok
+2026-10-10 20:03:27.371 chain_format_probe[33502:29051000] recipient certificate key matches=1
+2026-10-10 20:03:27.374 chain_format_probe[33502:29051000] recipient fixture encrypt/decrypt control=1
+2026-10-10 20:03:27.374 chain_format_probe[33502:29051000] recipient control: ok
+2026-10-10 20:03:27.375 chain_format_probe[33502:29051000] read-only ACL getter present=1 exact-transcode-constant-exported=0
+2026-10-10 20:03:27.375 chain_format_probe[33502:29051000] variant0 privateKeyUsage=1 ApplePayEnabled=0 ACL={
+    oa = 1;
+    ock = 1;
+    odel = 1;
+    okd = 1;
+    osgn = 1;
+}
+2026-10-10 20:03:27.390 chain_format_probe[33502:29051000] variant0 create: ok
+2026-10-10 20:03:27.390 chain_format_probe[33502:29051000] variant0 decrypt-supported=1
+2026-10-10 20:03:27.391 chain_format_probe[33502:29051000] encrypt public fixture: ok
+2026-10-10 20:03:27.395 chain_format_probe[33502:29051000] variant0 cert0 own-three-cert-chain recrypt: Error Domain=CryptoTokenKit Code=-1 "<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt, AKSError=-536870170}
+2026-10-10 20:03:27.396 chain_format_probe[33502:29051000] AKS decimal=-536870170 hex=0xe00002e6
+2026-10-10 20:03:27.399 chain_format_probe[33502:29051000] variant0 cert1 own-leaf-only recrypt: Error Domain=CryptoTokenKit Code=-1 "<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt, AKSError=-536870170}
+2026-10-10 20:03:27.399 chain_format_probe[33502:29051000] AKS decimal=-536870170 hex=0xe00002e6
+2026-10-10 20:03:27.403 chain_format_probe[33502:29051000] variant0 cert2 chain-leaf-signature-corrupt recrypt: Error Domain=CryptoTokenKit Code=-1 "<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt, AKSError=-536870170}
+2026-10-10 20:03:27.403 chain_format_probe[33502:29051000] AKS decimal=-536870170 hex=0xe00002e6
+2026-10-10 20:03:27.407 chain_format_probe[33502:29051000] variant0 cert3 truncated-DER recrypt: Error Domain=CryptoTokenKit Code=-1 "<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=e712a3ba33c9e1d5>: unable to recrypt, AKSError=-536870170}
+2026-10-10 20:03:27.407 chain_format_probe[33502:29051000] AKS decimal=-536870170 hex=0xe00002e6
+2026-10-10 20:03:27.407 chain_format_probe[33502:29051000] variant1 privateKeyUsage=1 ApplePayEnabled=1 ACL={
+    oa = 1;
+    ock = 1;
+    odel = 1;
+    okd = 1;
+    osgn = 1;
+}
+2026-10-10 20:03:27.411 chain_format_probe[33502:29051000] variant1 create: ok
+2026-10-10 20:03:27.411 chain_format_probe[33502:29051000] variant1 decrypt-supported=1
+2026-10-10 20:03:27.411 chain_format_probe[33502:29051000] encrypt public fixture: ok
+2026-10-10 20:03:27.415 chain_format_probe[33502:29051000] variant1 cert0 own-three-cert-chain recrypt: Error Domain=CryptoTokenKit Code=-3 "<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt, AKSError=-536362986}
+2026-10-10 20:03:27.415 chain_format_probe[33502:29051000] AKS decimal=-536362986 hex=0xe007c016
+2026-10-10 20:03:27.418 chain_format_probe[33502:29051000] variant1 cert1 own-leaf-only recrypt: Error Domain=CryptoTokenKit Code=-3 "<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt, AKSError=-536362986}
+2026-10-10 20:03:27.418 chain_format_probe[33502:29051000] AKS decimal=-536362986 hex=0xe007c016
+2026-10-10 20:03:27.422 chain_format_probe[33502:29051000] variant1 cert2 chain-leaf-signature-corrupt recrypt: Error Domain=CryptoTokenKit Code=-3 "<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt, AKSError=-536362986}
+2026-10-10 20:03:27.422 chain_format_probe[33502:29051000] AKS decimal=-536362986 hex=0xe007c016
+2026-10-10 20:03:27.425 chain_format_probe[33502:29051000] variant1 cert3 truncated-DER recrypt: Error Domain=CryptoTokenKit Code=-3 "<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt" UserInfo={NSDebugDescription=<sepk:p256(u) kid=8aeaef20ceca0a10>: unable to recrypt, AKSError=-536362986}
+2026-10-10 20:03:27.425 chain_format_probe[33502:29051000] AKS decimal=-536362986 hex=0xe007c016

@@ -1,0 +1,62 @@
+{
+  "kernel" : "mailbox_system",
+  "device" : {
+    "unifiedMemory" : true,
+    "family_1007_apple6" : true,
+    "maxThreadgroupThreads" : 1024,
+    "family_1011_apple10" : false,
+    "family_1008_apple7" : true,
+    "family_1009_apple8" : true,
+    "family_1010_apple9" : false,
+    "registryID" : 4294968991,
+    "family_5001_metal3" : true,
+    "name" : "Apple M4 Pro",
+    "family_1012_apple11" : false
+  },
+  "params" : {
+    "seed" : 700,
+    "respond_seconds" : 590,
+    "record_lat" : 0,
+    "chunks" : 1,
+    "trips" : 1000000000,
+    "spin_cap" : 4194304
+  },
+  "totals" : {
+    "cpu_lost_chunks" : 1,
+    "cpu_wrong_val" : 0,
+    "kernel_future_resp" : 0,
+    "trips_done_kernel" : 862715903,
+    "kernel_wrong_echo" : 0,
+    "cap_hits" : 0,
+    "command_buffer_errors" : 0
+  },
+  "tag" : "phaseC_600s",
+  "cpu_mode" : "default",
+  "chunks_arr" : [
+    {
+      "chunk" : 0,
+      "cb_errored" : 0,
+      "cb_error_code" : 0,
+      "kernel_lost_at" : 862715904,
+      "completed_in_bound" : 1,
+      "trips_done" : 862715903,
+      "cpu_lost_wakeup" : 1,
+      "gpu_start_s" : 2372706.2062166668,
+      "cpu_wrong_val" : 0,
+      "gpu_end_s" : 2373296.2230526251,
+      "cpu_lost_at" : 862715904,
+      "seed" : 700,
+      "spin_iters_approx" : 2438816,
+      "cpu_trips_responded" : 862715903,
+      "wall_s" : 590.0192976666666,
+      "kernel_status_name" : "stopped_in_spin",
+      "kernel_status" : 4,
+      "kernel_future_resp" : 0,
+      "cb_status" : "completed",
+      "cb_error_desc" : "",
+      "cb_error_name" : "none",
+      "kernel_wrong_echo" : 0,
+      "gpu_dispatch_s" : 590.01683595823124
+    }
+  ]
+}

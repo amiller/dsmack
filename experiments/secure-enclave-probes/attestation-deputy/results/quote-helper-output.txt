@@ -1,0 +1,6 @@
+provider quote verified: nearai https://provider.example.invalid/unused for provider.example.invalid, report sha256 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+PASS current QuoteHelper sends complete dummy NEAR credential to caller-selected node executable
+PASS valid helper hash unchanged; malicious node bypasses helper execution and returns accepted synthetic report
+provider quote verified: redpill https://provider.example.invalid/unused for provider.example.invalid, report sha256 44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a
+PASS non-NEAR control passes empty stdin
+PASS changed helper hash rejected before subprocess; no network or real credential used

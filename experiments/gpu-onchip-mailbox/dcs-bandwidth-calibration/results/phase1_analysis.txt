@@ -1,0 +1,144 @@
+analyze: 2516480 state rows parsed from results/mac-logs/phase1/dram_watch.csv.gz
+=== Phase 1 analysis ===
+dcs.py: dcs.py
+windows parsed: 160  conditions: ['idle', 'r0', 'r1000', 'r140', 'r280', 'r35', 'r70', 'spin']
+blocks with any window: 20
+AMCC WR events/s over watch: 4111.1 (4040465 events / 982.8 s)
+
+--- AMCC_WR : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20      10.98 ± 0.98       192459.9 ± 22583.2
+r35      20       0.68 ± 0.52        22984.5 ± 20395.3
+r70      20       1.18 ± 0.70        40613.3 ± 26105.4
+r140     20       0.68 ± 0.49        23941.4 ± 20470.3
+r280     20       0.54 ± 0.22        13158.6 ± 6676.5
+r1000    20       1.37 ± 0.69        52323.6 ± 28021.3
+spin     20       0.00 ± 0.00            0.0 ± 0.0
+idle     20       2.33 ± 1.08        87609.3 ± 40694.1
+
+--- PACC_WR : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20    4429.41 ± 10.16    37228293.6 ± 67472.8
+r35      20      45.85 ± 6.26        59745.7 ± 8023.5
+r70      20      54.50 ± 7.38        77577.7 ± 10574.6
+r140     20      83.10 ± 6.10       110139.9 ± 8038.1
+r280     20     185.69 ± 10.50      248377.2 ± 18873.8
+r1000    20     797.95 ± 28.08     1052135.9 ± 38160.0
+spin     20      35.15 ± 6.88        44044.0 ± 8706.9
+idle     20      35.91 ± 7.86        73602.9 ± 20215.0
+
+--- EACC0_WR : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20     671.75 ± 23.40     1157761.4 ± 45638.2
+r35      20      44.04 ± 2.96        57867.3 ± 11196.6
+r70      20      78.13 ± 8.64       105441.8 ± 19161.0
+r140     20     115.59 ± 4.65       138262.0 ± 10990.4
+r280     20     177.78 ± 5.57       208639.7 ± 6865.1
+r1000    20     378.36 ± 18.01      518219.2 ± 34624.2
+spin     20      21.46 ± 1.85        23442.0 ± 2037.1
+idle     20      32.20 ± 4.64        76875.8 ± 23409.1
+
+--- AMCC_RD : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20     103.54 ± 8.38      1657223.4 ± 134159.7
+r35      20       2.02 ± 0.47        32249.9 ± 7544.3
+r70      20       2.38 ± 0.55        38158.0 ± 8849.8
+r140     20       1.49 ± 0.57        23874.0 ± 9069.7
+r280     20       2.66 ± 0.62        42589.8 ± 9991.0
+r1000    20       2.88 ± 0.64        46289.9 ± 10225.6
+spin     20       2.70 ± 0.58        43232.2 ± 9276.0
+idle     20       2.52 ± 0.65        40349.0 ± 10410.6
+
+--- EACC0_RD : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20     717.65 ± 24.32     1967473.2 ± 64014.0
+r35      20     620.73 ± 15.73     1737186.8 ± 57209.7
+r70      20     729.51 ± 65.78     2009576.0 ± 139494.8
+r140     20     671.22 ± 29.45     1798198.3 ± 82495.0
+r280     20     642.14 ± 18.38     1866305.8 ± 79628.4
+r1000    20     686.51 ± 31.57     1876925.6 ± 83357.9
+spin     20     628.36 ± 18.34     1831159.4 ± 71822.6
+idle     20     621.59 ± 27.06     1801948.2 ± 75971.1
+
+--- PACC_RD : per-condition means (window counts n) ---
+cond      n   above_ps mean±SE      excess MB/s mean±SE
+r0       20    4433.59 ± 11.03    40452572.9 ± 82949.4
+r35      20     257.05 ± 34.03      585757.4 ± 89691.7
+r70      20     302.66 ± 34.62      650218.1 ± 90308.3
+r140     20     353.20 ± 29.02      691718.8 ± 73157.0
+r280     20     508.52 ± 34.45      954367.8 ± 93396.4
+r1000    20    1609.60 ± 48.47     2498417.1 ± 148513.1
+spin     20     194.04 ± 29.67      495474.2 ± 82928.2
+idle     20     198.40 ± 41.65      504157.5 ± 114221.8
+
+--- paired detection vs spin (statistic: above-floor samples per wall-second) ---
+
+AMCC_WR:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=9.650 p=0.4272
+r0       20     10.984    0.0001    no
+r35      20      0.680    0.0006    no
+r70      20      1.180    0.0001    no
+r140     20      0.681    0.0001    no
+r280     20      0.540    0.0001    no
+r1000    20      1.372    0.0001    no
+smallest detected rate: none
+
+PACC_WR:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=3618.032 p=0.0001
+r0       20   4394.256    0.0001    YES
+r35      20     10.696    0.1570    no
+r70      20     19.346    0.0639    no
+r140     20     47.947    0.0001    YES
+r280     20    150.532    0.0001    YES
+r1000    20    762.799    0.0001    YES
+smallest detected rate: r0
+
+EACC0_WR:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=2141.450 p=0.0001
+r0       20    650.292    0.0001    YES
+r35      20     22.578    0.0001    YES
+r70      20     56.665    0.0001    YES
+r140     20     94.127    0.0001    YES
+r280     20    156.314    0.0001    YES
+r1000    20    356.898    0.0001    YES
+smallest detected rate: r0
+
+AMCC_RD:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=-2.144 p=0.1697
+r0       20    100.835    0.0001    no
+r35      20     -0.686    0.8297    no
+r70      20     -0.317    0.6542    no
+r140     20     -1.210    0.9432    no
+r280     20     -0.040    0.5234    no
+r1000    20      0.178    0.4267    no
+smallest detected rate: none
+
+EACC0_RD:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=460.844 p=0.7888
+r0       20     89.288    0.0032    no
+r35      20     -7.624    0.6180    no
+r70      20    101.150    0.0620    no
+r140     20     42.866    0.0728    no
+r280     20     13.778    0.3100    no
+r1000    20     58.157    0.0659    no
+smallest detected rate: none
+
+PACC_RD:
+rate   n_pairs  mean diff   perm p     detected(p<0.01 and trend)
+trend test (70->1000, log-rate weights): blocks=20 S=7032.572 p=0.0001
+r0       20   4239.545    0.0001    YES
+r35      20     63.005    0.1107    no
+r70      20    108.618    0.0244    no
+r140     20    159.159    0.0001    YES
+r280     20    314.478    0.0001    YES
+r1000    20   1415.551    0.0001    YES
+smallest detected rate: r0
+
+--- GATE ---
+channels detecting 140 MB/s: ['PACC_WR', 'EACC0_WR']
+GATE PASSED via ['PACC_WR', 'EACC0_WR']

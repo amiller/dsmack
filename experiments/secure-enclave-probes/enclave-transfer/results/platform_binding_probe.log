@@ -1,0 +1,9 @@
+2026-10-11 13:14:29.892 probe[3167:30060024] exact flag symbols OSBound=1 SealedHashesBound=1
+2026-10-11 13:14:29.916 probe[3167:30060024] variant0 flagsRequested=0 created=1 error=(null)
+2026-10-11 13:14:29.916 probe[3167:30060024] variant0 enclaveRoute=1 returnedOSBound=(null) returnedSealedHashesBound=(null)
+2026-10-11 13:14:29.922 probe[3167:30060024] variant0 signVerified=1 error=(null) hardwareFlagEnforcement=unproven
+2026-10-11 13:14:29.924 probe[3167:30060024] variant0 ownSelfAttestationAvailable=0 bytes=0 error=Error Domain=CryptoTokenKit Code=-6 "(null)"
+2026-10-11 13:14:29.928 probe[3167:30060024] variant1 flagsRequested=1 created=1 error=(null)
+2026-10-11 13:14:29.928 probe[3167:30060024] variant1 enclaveRoute=1 returnedOSBound=(null) returnedSealedHashesBound=(null)
+2026-10-11 13:14:29.933 probe[3167:30060024] variant1 signVerified=1 error=(null) hardwareFlagEnforcement=unproven
+2026-10-11 13:14:29.934 probe[3167:30060024] variant1 ownSelfAttestationAvailable=0 bytes=0 error=Error Domain=CryptoTokenKit Code=-6 "(null)"

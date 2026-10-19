@@ -1,0 +1,11 @@
+{
+  "authenticApprovedProbeAssertion": true,
+  "counter": 1,
+  "clientData": {
+    "compose_hash": "synthetic-compose-hash",
+    "data": "{\"account\":\"synthetic.near\",\"amountNanoUsd\":250000000,\"nonce\":\"8ee415ceef652ef68fae7113afba484294fd995af97db8834568fff9e5da9853\",\"operation\":\"issue-inference-key\",\"protocol\":\"dsmack-near-authorize/1\",\"recipient\":\"host-selected-unrelated-process\"}",
+    "domain": "mac-compose-assert/1"
+  },
+  "scope": "source-extracted Guest.handle/evidence in isolated test app; not production runner binary",
+  "hostCaller": "unrelated Python Unix socket client"
+}

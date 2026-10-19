@@ -1,0 +1,6 @@
+serial_sha256_16=<redacted>
+uuid_sha256_16=025d9410e77a6301
+appattest_supported=true
+devicecheck_supported=true
+devicecheck_token_bytes=3506
+appattest_generatekey_error=Error Domain=com.apple.devicecheck.error Code=0 "(null)"

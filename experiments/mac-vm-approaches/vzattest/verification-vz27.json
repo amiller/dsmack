@@ -1,0 +1,44 @@
+{
+  "assert": {
+    "cdhash": "f25f718f9f8b793da5474d6e99d1fd86c8862c7d959ea0c23aedb4e122bc8a02",
+    "clientData": {
+      "challenge": "09e4242f80f0a113cd01ce268812fa405c6900769e992feb104c1e0193a9b6f8",
+      "compose_sha256": "0bfcc6a1a6eba96a8ce6ae71afc57c2e383179d2f18ec3fb74f248e1331f25c9"
+    }
+  },
+  "assertion": {
+    "counter": 1,
+    "signals": {
+      "bundle_version": null,
+      "cdhash": "f25f718f9f8b793da5474d6e99d1fd86c8862c7d959ea0c23aedb4e122bc8a02",
+      "extension_names": [
+        "apple_cd_hash_hash_01",
+        "apple_cd_hash_type_01",
+        "apple_validation_category_01"
+      ],
+      "validation_category": 3
+    }
+  },
+  "attestation": {
+    "public_key": "BDw/pYksDN367UaCwNVC8iy0ax5FnpkP74u+iLD9SZR6jAvfYAJCjYnZa1Phk3zRs6memipSuGuaminF57OkNts=",
+    "receipt_status": "retained_not_validated",
+    "signals": {
+      "bundle_version": null,
+      "cdhash": "f25f718f9f8b793da5474d6e99d1fd86c8862c7d959ea0c23aedb4e122bc8a02",
+      "extension_names": [
+        "apple_cd_hash_hash_01",
+        "apple_cd_hash_type_01",
+        "apple_validation_category_01"
+      ],
+      "validation_category": 3
+    }
+  },
+  "enroll": {
+    "cdhash": "f25f718f9f8b793da5474d6e99d1fd86c8862c7d959ea0c23aedb4e122bc8a02",
+    "clientData": {
+      "challenge": "307609fc2f5cfbed53a7ab2786146a369d905efaab7307db479802836fbeb5a3",
+      "compose_sha256": "0bfcc6a1a6eba96a8ce6ae71afc57c2e383179d2f18ec3fb74f248e1331f25c9"
+    }
+  },
+  "vm_stdout": "Linux vzspike-1791495907 6.12.28 #1 SMP Tue May 20 15:19:05 UTC 2025 aarch64 Linux\n3.16.9\ncompose_sha256=0bfcc6a1a6eba96a8ce6ae71afc57c2e383179d2f18ec3fb74f248e1331f25c9\n"
+}

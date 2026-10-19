@@ -1,0 +1,9 @@
+2026-10-11 13:27:52.975 probe[5717:30077794] exact symbols attestorType=1 provider=1 OSBound=1 SealedHashesBound=1 attest=1
+2026-10-11 13:27:53.100 probe[5717:30077794] own eligible attestor created=1 error=(null)
+2026-10-11 13:27:53.100 probe[5717:30077794] own attestor confirmed requested AKS token=1
+2026-10-11 13:27:53.104 probe[5717:30077794] variant0 target created=1 error=(null)
+2026-10-11 13:27:53.108 probe[5717:30077794] variant0 signatureVerified=1 error=(null)
+2026-10-11 13:27:53.109 probe[5717:30077794] variant0 ownEligibleAttestationAvailable=0 bytes=0 error=Error Domain=CryptoTokenKit Code=-6 "(null)" flagEnforcement=unproven
+2026-10-11 13:27:53.112 probe[5717:30077794] variant1 target created=1 error=(null)
+2026-10-11 13:27:53.117 probe[5717:30077794] variant1 signatureVerified=1 error=(null)
+2026-10-11 13:27:53.117 probe[5717:30077794] variant1 ownEligibleAttestationAvailable=0 bytes=0 error=Error Domain=CryptoTokenKit Code=-6 "(null)" flagEnforcement=unproven

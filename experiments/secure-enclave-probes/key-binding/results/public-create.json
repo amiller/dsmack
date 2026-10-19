@@ -1,0 +1,59 @@
+{
+  "accessPolicy" : "AfterFirstUnlockThisDeviceOnly + privateKeyUsage; no userPresence",
+  "phase" : "create",
+  "publicKeyX963" : "04ed70824fadfa45451975b0a2e8b91913df6d1a8a41afc931cdccb53717e7c71df8f9671c158651265a2ca053cdb0513cb24083d0191d7436bbeff7cc10f50074",
+  "qx" : "ed70824fadfa45451975b0a2e8b91913df6d1a8a41afc931cdccb53717e7c71d",
+  "qy" : "f8f9671c158651265a2ca053cdb0513cb24083d0191d7436bbeff7cc10f50074",
+  "samePersistedPublicKey" : true,
+  "schema" : "dsmack-sep-signer-public-v1",
+  "secureEnclaveAvailable" : true,
+  "signingSemantics" : "ECDSA P-256 over SHA256(exact UTF8 message bytes); CryptoKit Digest overload; no EIP-191 prefix",
+  "vectors" : [
+    {
+      "controls" : {
+        "rejectDoubleHash" : true,
+        "rejectSignatureTamper" : true,
+        "rejectWrongDomain" : true,
+        "rejectWrongKey" : true,
+        "validDERRoundTrip" : true,
+        "validDigest" : true,
+        "validMessageDataOverload" : true
+      },
+      "digestSHA256" : "99d2a9428bc11844ac78cafc83d71a507c776c5ec1100574c6664bbcf7e44126",
+      "domain" : "login.example.invalid",
+      "id" : "login",
+      "messageHex" : "6c6f67696e2e6578616d706c652e696e76616c69642077616e747320796f7520746f207369676e20696e207769746820796f757220457468657265756d206163636f756e743a0a3078313131313131313131313131313131313131313131313131313131313131313131313131313131310a0a53796e74686574696320534550207369676e65722074657374206f6e6c792e0a0a5552493a2068747470733a2f2f6c6f67696e2e6578616d706c652e696e76616c69642f73657373696f6e0a56657273696f6e3a20310a436861696e2049443a2033313333370a4e6f6e63653a2053657050726f626532303236313031310a4973737565642041743a20323032362d31302d31315430303a30303a30305a0a45787069726174696f6e2054696d653a20323039392d30312d30315430303a30303a30305a",
+      "messageUTF8" : "login.example.invalid wants you to sign in with your Ethereum account:\n0x1111111111111111111111111111111111111111\n\nSynthetic SEP signer test only.\n\nURI: https:\/\/login.example.invalid\/session\nVersion: 1\nChain ID: 31337\nNonce: SepProbe20261011\nIssued At: 2026-10-11T00:00:00Z\nExpiration Time: 2099-01-01T00:00:00Z",
+      "r" : "3f632c64a507b16f4255de57b3729190fb1ddfeff1f12c47ab8cc165d8c474a1",
+      "s" : "f78442313e955745538e577dbde75381eb69402e5fdf1f0ae9f9abf3cc3b7b6b",
+      "signatureDER" : "304502203f632c64a507b16f4255de57b3729190fb1ddfeff1f12c47ab8cc165d8c474a1022100f78442313e955745538e577dbde75381eb69402e5fdf1f0ae9f9abf3cc3b7b6b",
+      "signatureRawRS" : "3f632c64a507b16f4255de57b3729190fb1ddfeff1f12c47ab8cc165d8c474a1f78442313e955745538e577dbde75381eb69402e5fdf1f0ae9f9abf3cc3b7b6b",
+      "tamperedSignatureRawRS" : "3f632c64a507b16f4255de57b3729190fb1ddfeff1f12c47ab8cc165d8c474a1f78442313e955745538e577dbde75381eb69402e5fdf1f0ae9f9abf3cc3b7b6a",
+      "wrongDomainDigestSHA256" : "1fb0c3fde85f7c8d6a839c11bb72d446001d6938ccaae7e7a6e190a99d92d060"
+    },
+    {
+      "controls" : {
+        "rejectDoubleHash" : true,
+        "rejectSignatureTamper" : true,
+        "rejectWrongDomain" : true,
+        "rejectWrongKey" : true,
+        "validDERRoundTrip" : true,
+        "validDigest" : true,
+        "validMessageDataOverload" : true
+      },
+      "digestSHA256" : "9b505979b2f978738b4d1d994fbd04266981f7035955288d71f4762d1d0ebddf",
+      "domain" : "auction.example.invalid",
+      "id" : "bounded-session-fixture",
+      "messageHex" : "53796e7468657469632073657373696f6e206772616e7420666978747572652076310a446f6d61696e3a2061756374696f6e2e6578616d706c652e696e76616c69640a436861696e3a2033313333370a57616c6c65743a203078313131313131313131313131313131313131313131313131313131313131313131313131313131310a53657373696f6e207075626c6963206b65793a2073796e7468657469632d73657373696f6e2d6b65792d303030310a53636f70653a2061756374696f6e3a7375626d69742d6269640a4d6178696d756d2073796e7468657469632076616c75653a203130300a457870697265733a20323032362d31302d31315430303a30353a30305a0a4e6f6e63653a2053657373696f6e50726f62653230323631303131",
+      "messageUTF8" : "Synthetic session grant fixture v1\nDomain: auction.example.invalid\nChain: 31337\nWallet: 0x1111111111111111111111111111111111111111\nSession public key: synthetic-session-key-0001\nScope: auction:submit-bid\nMaximum synthetic value: 100\nExpires: 2026-10-11T00:05:00Z\nNonce: SessionProbe20261011",
+      "r" : "d75123c10f97f57e2c56533fcdb22419527cc90dd1ccad86964a069a1ce344d0",
+      "s" : "7c4f8c4ffad30af91ad7d2d07e248105f5e0d5cc12e1bb466eb0e439466d7bd0",
+      "signatureDER" : "3045022100d75123c10f97f57e2c56533fcdb22419527cc90dd1ccad86964a069a1ce344d002207c4f8c4ffad30af91ad7d2d07e248105f5e0d5cc12e1bb466eb0e439466d7bd0",
+      "signatureRawRS" : "d75123c10f97f57e2c56533fcdb22419527cc90dd1ccad86964a069a1ce344d07c4f8c4ffad30af91ad7d2d07e248105f5e0d5cc12e1bb466eb0e439466d7bd0",
+      "tamperedSignatureRawRS" : "d75123c10f97f57e2c56533fcdb22419527cc90dd1ccad86964a069a1ce344d07c4f8c4ffad30af91ad7d2d07e248105f5e0d5cc12e1bb466eb0e439466d7bd1",
+      "wrongDomainDigestSHA256" : "4aae0d20b26a9f6a1f3c1f86d89f56cb188f13dba084bfe9da2ca48fb63f0df0"
+    }
+  ],
+  "wrongPublicQx" : "f3ca0d3e4b727a6d93a8b6dff998baee6edfa69ae0fff574e59d72ef88e54fa5",
+  "wrongPublicQy" : "55451451a6764a6e940afbdc6317388a6466c95e9536895279fe43aea9486bd5"
+}

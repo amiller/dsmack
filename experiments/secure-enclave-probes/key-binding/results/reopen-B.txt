@@ -1,0 +1,2 @@
+callerVariant=B
+phase=reopen vectors=2 controls=pass samePersistedPublicKey=true

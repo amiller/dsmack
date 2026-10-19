@@ -1,0 +1,19 @@
+contracts/out/
+contracts/cache/
+contracts/broadcast/
+__pycache__/
+.venv/
+build/
+DerivedData/
+*.pid
+
+
+
+
+# Private development runtime outputs (planning remains versioned)
+local-data/
+.env
+.env.*
+!.env.example
+node_modules/
+.DS_Store

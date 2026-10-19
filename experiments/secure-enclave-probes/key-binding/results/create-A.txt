@@ -1,0 +1,2 @@
+callerVariant=A
+phase=create vectors=2 controls=pass samePersistedPublicKey=true

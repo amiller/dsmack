@@ -1,0 +1,4 @@
+services:
+  app:
+    image: docker.io/library/alpine:3.16
+    command: ["/bin/sh", "-c", "uname -a"]

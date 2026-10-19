@@ -1,0 +1,20 @@
+probe_mode=full
+os_version=27.0.0
+keys=fresh temporary NONPERSISTENT SecKeyCreateRandomKey pairs; no keychain use
+seckey_keyexchange_returns=CFData
+seckey_keyexchange_derived_bytes_host_readable_count=32
+seckey_keyexchange_both_sides_equal=true
+seckey_keyexchange_both_sides_equal_expectation_passed=true
+seckey_ecies_encrypted_bytes=133
+seckey_ecies_decrypt_roundtrip=true
+seckey_ecies_decrypt_roundtrip_expectation_passed=true
+seckey_ecies_decrypt_returns=CFData plaintext in host process memory
+seckey_ecies_plaintext_host_readable_count=52
+seckey_ecies_tampered_decrypt_fails=true
+seckey_ecies_tampered_decrypt_fails_expectation_passed=true
+seckey_ecies_wrong_recipient_decrypt_fails=true
+seckey_ecies_wrong_recipient_decrypt_fails_expectation_passed=true
+seckey_keys_persisted=false (in-memory SecKeyRef only, released at exit)
+verdict=PASS
+
+command_exit=0

@@ -1,0 +1,85 @@
+EXCH block=0 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1087989.6 dev_iters=22000000 dispatch_s=3.644 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5001 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=0 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089531.0 dev_iters=22000000 dispatch_s=3.643 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5002 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=0 cond=a rc=0 trips_per_s=1084852.7 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=0 cond=b rc=0 exchanges_per_s=1088523.2 dev_iters=22000000 dispatch_s=3.646 cb_err=0
+EXCH block=1 cond=b rc=0 exchanges_per_s=1087956.1 dev_iters=22000000 dispatch_s=3.643 cb_err=0
+EXCH block=1 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089005.2 dev_iters=22000000 dispatch_s=3.649 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5006 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=1 cond=a rc=0 trips_per_s=1092955.2 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=1 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089222.2 dev_iters=22000000 dispatch_s=3.647 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5008 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=2 cond=b rc=0 exchanges_per_s=1087807.0 dev_iters=22000000 dispatch_s=3.634 cb_err=0
+EXCH block=2 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089183.1 dev_iters=22000000 dispatch_s=3.648 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5010 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=2 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1088803.8 dev_iters=22000000 dispatch_s=3.643 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5011 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=2 cond=a rc=0 trips_per_s=1091179.1 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=3 cond=a rc=0 trips_per_s=1097881.6 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=3 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089235.0 dev_iters=22000000 dispatch_s=3.640 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5014 bytes=350000000 wall_s=5.000003 achieved_mbps=70.000
+EXCH block=3 cond=b rc=0 exchanges_per_s=1088330.4 dev_iters=22000000 dispatch_s=3.640 cb_err=0
+EXCH block=3 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088832.2 dev_iters=22000000 dispatch_s=3.650 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5016 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+IDLE block=3
+EXCH block=4 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1088756.1 dev_iters=22000000 dispatch_s=3.651 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5017 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=4 cond=a rc=0 trips_per_s=1092908.3 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=4 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089164.4 dev_iters=22000000 dispatch_s=3.653 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5019 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=4 cond=b rc=0 exchanges_per_s=1087702.5 dev_iters=22000000 dispatch_s=3.647 cb_err=0
+EXCH block=5 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089580.9 dev_iters=22000000 dispatch_s=3.649 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5021 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=5 cond=a rc=0 trips_per_s=1092333.9 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=5 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1088974.6 dev_iters=22000000 dispatch_s=3.649 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5023 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=5 cond=b rc=0 exchanges_per_s=1087945.9 dev_iters=22000000 dispatch_s=3.640 cb_err=0
+EXCH block=6 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089209.2 dev_iters=22000000 dispatch_s=3.647 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5025 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=6 cond=b rc=0 exchanges_per_s=1088203.9 dev_iters=22000000 dispatch_s=3.648 cb_err=0
+EXCH block=6 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089410.3 dev_iters=22000000 dispatch_s=3.651 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5027 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=6 cond=a rc=0 trips_per_s=1089656.4 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=7 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089198.1 dev_iters=22000000 dispatch_s=3.648 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5029 bytes=350000000 wall_s=5.000003 achieved_mbps=70.000
+EXCH block=7 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088315.6 dev_iters=22000000 dispatch_s=3.652 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5030 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=7 cond=b rc=0 exchanges_per_s=1087944.9 dev_iters=22000000 dispatch_s=3.640 cb_err=0
+EXCH block=7 cond=a rc=0 trips_per_s=1104746.6 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+IDLE block=7
+EXCH block=8 cond=a rc=0 trips_per_s=1092522.0 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=8 cond=b rc=0 exchanges_per_s=1087924.5 dev_iters=22000000 dispatch_s=3.644 cb_err=0
+EXCH block=8 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089443.4 dev_iters=22000000 dispatch_s=3.641 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5035 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=8 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089239.9 dev_iters=22000000 dispatch_s=3.649 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5036 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=9 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089379.6 dev_iters=22000000 dispatch_s=3.643 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5037 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=9 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089224.0 dev_iters=22000000 dispatch_s=3.648 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5038 bytes=350000000 wall_s=5.000005 achieved_mbps=70.000
+EXCH block=9 cond=a rc=0 trips_per_s=1086603.3 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=9 cond=b rc=0 exchanges_per_s=1087815.2 dev_iters=22000000 dispatch_s=3.637 cb_err=0
+EXCH block=10 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088926.7 dev_iters=22000000 dispatch_s=3.638 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5041 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=10 cond=b rc=0 exchanges_per_s=1088011.1 dev_iters=22000000 dispatch_s=3.642 cb_err=0
+EXCH block=10 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089095.7 dev_iters=22000000 dispatch_s=3.647 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5043 bytes=350000000 wall_s=5.000005 achieved_mbps=70.000
+EXCH block=10 cond=a rc=0 trips_per_s=1097379.7 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=11 cond=b rc=0 exchanges_per_s=1087835.0 dev_iters=22000000 dispatch_s=3.646 cb_err=0
+EXCH block=11 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089325.2 dev_iters=22000000 dispatch_s=3.648 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5046 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=11 cond=a rc=0 trips_per_s=1118055.3 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=11 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089587.6 dev_iters=22000000 dispatch_s=3.652 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5048 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+IDLE block=11
+EXCH block=12 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1088867.4 dev_iters=22000000 dispatch_s=3.646 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5049 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=12 cond=a rc=0 trips_per_s=1102031.1 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=12 cond=b rc=0 exchanges_per_s=1088200.8 dev_iters=22000000 dispatch_s=3.645 cb_err=0
+EXCH block=12 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089727.6 dev_iters=22000000 dispatch_s=3.637 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5052 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=13 cond=b rc=0 exchanges_per_s=1088048.2 dev_iters=22000000 dispatch_s=3.654 cb_err=0
+EXCH block=13 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089232.0 dev_iters=22000000 dispatch_s=3.639 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5054 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=13 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1088864.2 dev_iters=22000000 dispatch_s=3.647 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5055 bytes=350000000 wall_s=5.000002 achieved_mbps=70.000
+EXCH block=13 cond=a rc=0 trips_per_s=1097465.7 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=14 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088795.2 dev_iters=22000000 dispatch_s=3.639 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5057 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=14 cond=a rc=0 trips_per_s=1117847.0 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=14 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089212.8 dev_iters=22000000 dispatch_s=3.640 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5059 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=14 cond=b rc=0 exchanges_per_s=1088059.1 dev_iters=22000000 dispatch_s=3.652 cb_err=0
+EXCH block=15 cond=b rc=0 exchanges_per_s=1087909.3 dev_iters=22000000 dispatch_s=3.638 cb_err=0
+EXCH block=15 cond=a rc=0 trips_per_s=1107654.0 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=15 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089021.2 dev_iters=22000000 dispatch_s=3.642 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5063 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=15 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089240.2 dev_iters=22000000 dispatch_s=3.654 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5064 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+IDLE block=15
+EXCH block=16 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089098.0 dev_iters=22000000 dispatch_s=3.651 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5065 bytes=350000000 wall_s=5.000001 achieved_mbps=70.000
+EXCH block=16 cond=b rc=0 exchanges_per_s=1088192.8 dev_iters=22000000 dispatch_s=3.643 cb_err=0
+EXCH block=16 cond=a rc=0 trips_per_s=1087613.0 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=16 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088682.1 dev_iters=22000000 dispatch_s=3.643 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5068 bytes=700000000 wall_s=5.000000 achieved_mbps=140.000
+EXCH block=17 cond=a rc=0 trips_per_s=1105521.3 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=17 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1089209.8 dev_iters=22000000 dispatch_s=3.638 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5070 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=17 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089128.2 dev_iters=22000000 dispatch_s=3.647 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5071 bytes=350000000 wall_s=5.000003 achieved_mbps=70.000
+EXCH block=17 cond=b rc=0 exchanges_per_s=1088371.6 dev_iters=22000000 dispatch_s=3.639 cb_err=0
+EXCH block=18 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089073.3 dev_iters=22000000 dispatch_s=3.653 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5073 bytes=350000000 wall_s=5.000003 achieved_mbps=70.000
+EXCH block=18 cond=a rc=0 trips_per_s=1103531.3 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=18 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088681.3 dev_iters=22000000 dispatch_s=3.652 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5075 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=18 cond=b rc=0 exchanges_per_s=1088112.0 dev_iters=22000000 dispatch_s=3.651 cb_err=0
+EXCH block=19 cond=c70 rc=0 inj_rc=0 exchanges_per_s=1089472.2 dev_iters=22000000 dispatch_s=3.642 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=70.0 nonce=5077 bytes=350000000 wall_s=5.000000 achieved_mbps=70.000
+EXCH block=19 cond=c140 rc=0 inj_rc=0 exchanges_per_s=1088959.3 dev_iters=22000000 dispatch_s=3.645 cb_err=0 INJECT mode=write buf_mib=1024 seconds=5.000 rate_req=140.0 nonce=5078 bytes=700000000 wall_s=5.000001 achieved_mbps=140.000
+EXCH block=19 cond=a rc=0 trips_per_s=1105172.5 wrong_hash=0 final_ok=1 kernel_status=done cb_err=0
+EXCH block=19 cond=b rc=0 exchanges_per_s=1087876.1 dev_iters=22000000 dispatch_s=3.648 cb_err=0
+IDLE block=19

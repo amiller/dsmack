@@ -1,0 +1,5 @@
+POST /attest HTTP/1.1
+Host: runner.local
+Content-Length: 279
+
+{"data":"{\"account\":\"synthetic.near\",\"amountNanoUsd\":250000000,\"nonce\":\"8ee415ceef652ef68fae7113afba484294fd995af97db8834568fff9e5da9853\",\"operation\":\"issue-inference-key\",\"protocol\":\"dsmack-near-authorize/1\",\"recipient\":\"host-selected-unrelated-process\"}"}

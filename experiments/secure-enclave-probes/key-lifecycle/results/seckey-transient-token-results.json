@@ -1,0 +1,17 @@
+{
+  "case": "/tmp/dsmack-sep-lifecycle-20261011/token-914891fd7898",
+  "records": [
+    {
+      "mode": "transient",
+      "exit": 0,
+      "stdout": "pid=2721\ncreation_operation_verified=true\nprivate_external_export_supported=false\nattributes_key_names=[\"accc\", \"bsiz\", \"class\", \"decr\", \"drve\", \"encr\", \"esiz\", \"extr\", \"kcls\", \"klbl\", \"modi\", \"next\", \"perm\", \"priv\", \"sign\", \"tkid\", \"toid\", \"type\", \"vrfy\", \"wrap\"]\ncaptured_token_attributes_bytes=648\npersistent_ref_status=-25300\nlookup_status=-25300\ntransient_lookup_absent=true\n",
+      "stderr": ""
+    },
+    {
+      "mode": "tokenrestore",
+      "exit": 0,
+      "stdout": "pid=2736\ncopied_token_attributes_reconstruct=true\ncopied_token_post_exit_operation_verified=true\n",
+      "stderr": ""
+    }
+  ]
+}

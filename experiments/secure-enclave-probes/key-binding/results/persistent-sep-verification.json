@@ -1,0 +1,11 @@
+{
+  "samePersistentSEPKeySignedByBoth": true,
+  "independentSignaturesVerified": 2,
+  "honestCDHash": "06991879d85b1f8df885a8557efd19430e8f80060309754bbe5209ba795ae5ff",
+  "modifiedCDHash": "d424d227ded78390a75b0dcb396c6838ebc670aab389a09ce0978409e27e29a0",
+  "legacyCombinedACL": {
+    "combinedLegacyAndSEPAccessControlCreated": false,
+    "error": "Error Domain=NSOSStatusErrorDomain Code=-50 \"failed to add key to keychain: <SecKeyRef:('com.apple.setoken') 0x1011661e0>\" (paramErr: error in user parameter list) UserInfo={numberOfErrorsDeep=0, NSDescription=failed to add key to keychain: <SecKeyRef:('com.apple.setoken') 0x1011661e0>}",
+    "legacyAccessCreateStatus": 0
+  }
+}

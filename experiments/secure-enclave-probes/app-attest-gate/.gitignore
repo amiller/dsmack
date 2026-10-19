@@ -1,0 +1,4 @@
+build/
+active/
+captures/
+*.keyId.txt

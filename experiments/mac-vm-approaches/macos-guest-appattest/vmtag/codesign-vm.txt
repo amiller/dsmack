@@ -1,0 +1,5 @@
+Identifier=dev.dsmack.provider
+CodeDirectory v=20500 size=543 flags=0x10000(runtime) hashes=6+7 location=embedded
+CandidateCDHashFull sha256=5948685b637a8fd93230c496a0393f470101ec931886fe86b8e070c2a36c389a
+CDHash=5948685b637a8fd93230c496a0393f470101ec93
+TeamIdentifier=DC9JH5DRMY

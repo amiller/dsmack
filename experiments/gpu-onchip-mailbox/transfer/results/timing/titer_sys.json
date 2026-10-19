@@ -1,0 +1,1 @@
+POLL {"kernel":"sys_poll","spin_cap":4194304,"iters":4194304,"gpu_dispatch_s":1.060765,"t_iter_ns":252.906,"cb_errored":0,"kernel_status":"running","desc":""}

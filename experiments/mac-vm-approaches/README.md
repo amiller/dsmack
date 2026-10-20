@@ -14,8 +14,12 @@ hash (`vzattest/`, 2026-10-08). The one trap was that App Attest leaves the CDHa
 out when the binary targets the macOS 26 SDK; macOS 27 for both min OS and SDK works. The
 production runner (`../../runner/`) builds on that: a no-NIC guest per compose or per task,
 egress only through a host proxy that holds the key, and receipts chained to the attested
-boot. What the VM gives is code identity and isolation from the workload. It does not give
-confidentiality from the Mac's owner: guest memory is host memory. A signed app run inside
+boot. What the VM gives is code identity and isolation from the workload. Guest memory lives
+in the runner's Virtualization host process; App Attest's key policy requires Full Security
+and SIP, under which no other process, root included, can attach to the runner or read its
+memory, so the owner acting through software cannot read the guest. Physical memory probing,
+kernel exploits, and today's plaintext volumes and kernel/initfs files on the host remain
+outside that. A signed app run inside
 a macOS guest VM cannot use App Attest at all (`macos-guest-appattest/`).
 
 ## Guides
@@ -135,8 +139,12 @@ compose_sha256=0bfcc6a1a6eba96a8ce6ae71afc57c2e383179d2f18ec3fb74f248e1331f25c9
 
 ## Limits
 
-- Code identity only. Nothing here shows confidentiality from the Mac's owner; guest and
-  proxy memory are host memory, and the SIP-off behaviour of App Attest is untested.
+- Confidentiality against the owner rests on App Attest's Full Security and SIP policy:
+  guest and proxy memory sit in the runner's host process, which no other process, root
+  included, can attach to on an intact macOS. It does not cover physical memory probing,
+  kernel exploits, or the plaintext volumes and pre-boot kernel/initfs files on the host
+  (fixable with encrypted volumes and verity). The SIP-off behaviour of App Attest is
+  untested.
 - The spike's kernel is an unpinned file and its initfs is fetched by tag. The runner pins
   both; the spike does not.
 - The spike was run once per build on one machine. Whether min OS or SDK triggers the missing

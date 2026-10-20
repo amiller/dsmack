@@ -4,10 +4,11 @@ dsmack runs a measured workload on a Mac that someone else owns, and produces
 evidence a smart contract can check: which program ran, which workload it
 booted, and what that workload sent and received over the network. It follows
 [dstack](https://github.com/Dstack-TEE/dstack), which does the same with Intel
-TDX virtual machines. The difference is the root of trust. dstack relies on CPU
-memory encryption; dsmack relies on Apple's App Attest and an intact macOS, which
-makes it weaker against the machine's owner and much easier to get hold of. Any
-Apple silicon Mac will do.
+TDX virtual machines. The difference is the root of trust. dstack relies on
+hardware memory encryption, which also resists physical memory attacks; dsmack
+relies on Apple's App Attest and an intact macOS, which protects against the
+machine's owner acting through software but not against physical memory probing,
+and is much easier to get hold of. Any Apple silicon Mac will do.
 
 This README is the whole argument. It starts from the problem, adds one
 mechanism at a time, says which file implements each one, and ends with what the
@@ -136,17 +137,21 @@ check the runner's code hash and the assertion.
   memory. Someone probing the memory bus can read the workload's data. Research
   on keeping small computations in GPU on-chip state is in
   [`experiments/gpu-onchip-mailbox`](experiments/gpu-onchip-mailbox/).
-- **The owner reading the VM's disk.** Volumes are files on the host, and the
-  kernel and init filesystem sit on the host between being hashed and booted.
+- **The owner reading the VM's disk (current gap).** Volumes are plaintext
+  files on the host, and the kernel and init filesystem sit on the host between
+  being hashed and booted. Encrypted app volumes and verity, as dstack uses,
+  close this.
 - **A kernel exploit.** It defeats the premise of Step 1 on that machine.
 - **A Mac without SIP.** App Attest's key policy is meant to exclude it; that
   exclusion is Apple's to enforce, not this code's.
 - **What the workload does with its own inputs.** dsmack says which program ran.
   Whether that program is correct is the application's business.
 
-dsmack gives integrity of code identity, not confidentiality from the owner.
-Applications that need confidentiality should treat the Mac's owner as able to
-read their data.
+Within those limits dsmack gives confidentiality as well as code integrity
+against an owner acting through software. On an intact, attested macOS no other
+process, root included, can attach to the runner or read its memory, and the
+guest VM's memory lives in the runner's Virtualization host process, inside the
+same trusted base.
 
 ## Layers
 

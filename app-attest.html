@@ -235,16 +235,39 @@ main.aa .eyebrow { margin: 0; }
     <li><code>auth flags</code>: flags are <code>0x40</code>, without the ED bit, although an extensions map follows.</li>
     <li><code>missing extension</code>: no <code>apple_cd_hash_*</code> entries. This one is our CDHash policy, which Apple doesn't require.</li>
   </ul>
-  <p>The first two look like errors in Apple's sample.</p>
+  <p>The first two look like errors in Apple's sample. Others have reported them in <a href="https://developer.apple.com/forums/thread/842509">Apple developer forums thread 842509</a>, along with a wrong public key hash in the guide's text and a bundle version shown as "1.0" that is "1" in the data.</p>
+</section>
+
+<section>
+  <h2>Other verifiers on the same captures</h2>
+  <p>We ran three open-source App Attest verifiers on our five captures (three Mac, one iPhone, one Developer ID Mac), with each library's clock set inside the leaf's three-day validity window. None accepts current macOS 27 or iOS 27 output as published.</p>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Library</th><th>Attestations</th><th>Assertions</th><th>Why</th></tr></thead>
+    <tbody>
+      <tr><td><a href="https://github.com/webauthn4j/webauthn4j">webauthn4j-appattest</a> 0.31.11 (Java)</td><td>all 5 accepted</td><td>all rejected</td><td>Apple sets the AT flag on assertions without credential data, and the parser underflows reading it.</td></tr>
+      <tr><td><a href="https://github.com/takimoto3/app-attest">takimoto3/app-attest</a> v1.4.2 (Go)</td><td>all rejected</td><td>all rejected</td><td><code>unknown key: apple_cd_hash_hash_01</code>. Chain, nonce, key id and the Mac aclBlob all pass before that.</td></tr>
+      <tr><td><a href="https://github.com/bas-d/appattest">bas-d/appattest</a> (Go, last commit 2022)</td><td>all rejected</td><td>Go panic</td><td>Rejects the extension map after the COSE key; slice bounds panic on assertions.</td></tr>
+    </tbody>
+  </table></div>
+  <p>With two diagnostic workarounds (clearing AT on a parse copy for webauthn4j; an 8-line patch adding the two CDHash keys to takimoto3), both libraries accept every capture our contract accepts and agree with it on chain, nonce, key id, credentialId, RP ID hash, AAGUID, counter and signature. They are looser in four places: neither re-checks the CDHash on assertions, so assertions from a modified build pass; neither compares the authData key with the certificate key; neither stops accepting assertions when the leaf expires; and webauthn4j checks no ACL, category or CDHash. takimoto3 checks the Mac aclBlob (same value as ours) only through an unexported function, and reports the category without enforcing it.</p>
+</section>
+
+<section>
+  <h2>One intermediate, many samples</h2>
+  <p>Apple's PKI pages list the App Attestation root but no intermediate. We decoded about 60 distinct real attestations published in GitHub repos, from August 2020 to October 2026, iOS 14.0 to 27.2 and macOS 27.0 and 27.0.1, development and production. Every one is issued by <strong>Apple App Attestation CA 1</strong>, serial <code>09bac5e1…0854</code>, including Apple's own 2026 sample. A search for "App Attestation CA 2" finds nothing. CA 1 expires on 13 March 2030 and Apple has said nothing about a successor. Leaf certificates used to be valid for 9 to 12 months and have been valid for 3 days since late 2025, so a successor would have to appear before leaves start outliving CA 1. The contract handles that with one more <code>endorseIntermediate</code> transaction.</p>
+  <p>The receipt has its own chain: Application Attestation Fraud Receipt Signing (valid about 13 months) → Apple Application Integration CA 5 - G1 → Apple Root CA - G3. The contracts don't use it.</p>
+  <p>Public macOS attestations: <a href="https://github.com/arkavo-org/authnz-rs/blob/HEAD/tests/fixtures/appattest/attestation.json">arkavo-org/authnz-rs</a> (27.0, category 3), <a href="https://github.com/hellas-ai/hellas/blob/HEAD/crates/attestation/tests/fixtures/real-app-attest.json">hellas-ai/hellas</a> (27.0 beta, category 6 with CDHash, one assertion), <a href="https://github.com/Augustas11/macprovider/blob/HEAD/phase4-coordinator/internal/appattest/testdata/macos27-studio-2026-10-04.json">Augustas11/macprovider</a> (27.0.1, no extensions, two assertions) and <a href="https://github.com/amiller/abalone/blob/HEAD/tests/fixtures/bundle/recorded-runner/attest.json">amiller/abalone</a> (27.0, category 3 with CDHash). iOS 27 samples are in <a href="https://github.com/webauthn4j/webauthn4j/issues/1497">webauthn4j issue 1497</a>, <a href="https://github.com/webauthn4j/webauthn4j/blob/HEAD/webauthn4j-appattest/src/test/resources/apple-app-attest/ios27-sample-attestation-object.b64url">webauthn4j's test resources</a>, <a href="https://github.com/glincker/theauth/blob/HEAD/packages/core/tests/fixtures/apple-app-attest.json">glincker/theauth</a> and <a href="https://github.com/procivis/one-core/blob/HEAD/lib/one-core/src/service/managed_instance/app_integrity/ios.rs">procivis/one-core</a>. Older iOS fixture sets with assertions are in <a href="https://github.com/veehaitch/devicecheck-appattest/tree/HEAD/src/test/resources">veehaitch/devicecheck-appattest</a>, <a href="https://github.com/iansampson/AppAttest/blob/HEAD/Tests/AppAttestTests/TestData.swift">iansampson/AppAttest</a>, <a href="https://github.com/TheDhejavu/appattest-rs/blob/HEAD/src/attestation.rs">appattest-rs</a> and <a href="https://github.com/a-sit-plus/warden-supreme/blob/HEAD/serverside/makoto/src/test/kotlin/IosAssertionTest.kt">warden-supreme</a>.</p>
+  <p>Shapes seen in those samples that a strict parser has to decide about: the ED flag is <code>0x40</code> in Apple's sample and in the macOS 27.0.1 sample but <code>0xc0</code> elsewhere; iOS 27 assertions set AT with no credential data (99 bytes); and the macOS 27.0.1 sample has no extensions even though its app opts in to the CDHash. Our contract requires ED and the CDHash, so it would reject the last one.</p>
 </section>
 
 <section>
   <h2>Open questions</h2>
   <ul class="plain">
-    <li>What validation category 5 means. The iOS 27.2 beta iPhone capture carries it.</li>
-    <li>The meaning of the 8.7 sub-tags beyond their literal strings, and which one is the marketing OS version. The live capture shows "27.0", "26A428" and "26.1.428.0.0,0".</li>
-    <li>Whether to enforce <code>apple_bundle_version_01</code> on assertions, as Apple advises.</li>
-    <li>How the contracts compare with webauthn4j-appattest and takimoto3/app-attest, running each on the same captures.</li>
+    <li>Does macOS 27.0.1 still put the CDHash in authData? The one public 27.0.1 sample has none. Our captures are 27.0.</li>
+    <li>The 8.7 sub-tags. Apple names 8.7 only as DeviceAttestationDeviceOSInformation, in xnu's CoreTrust header. Reverse engineering gives [1400] OS version, [1403] build, [1026] platform and [1029] build variant ("Beta", "Internal"); [1104], [1401] and [1418]–[1420] are unconfirmed.</li>
+    <li>8.5 (DeviceAttestationKeyUsageProperties): [1204] is the App ID; [4] is 10 on every iOS sample and 13 on every Mac; the rest are unknown.</li>
+    <li>Whether to enforce <code>apple_bundle_version_01</code> on assertions. Apple says to verify it and gives no comparison rule; every sample carries "1", Xcode's default CFBundleVersion. Mac captures don't carry it.</li>
+    <li>Whether to require 8.7. One reverse-engineering report says the device chooses which extensions go into the leaf.</li>
     <li>A Developer ID build (category 6) needs its own adapter.</li>
   </ul>
 </section>
@@ -318,8 +341,9 @@ const REF = [
   ["Leaf basicConstraints / keyUsage", "3000 / 030204f0", "pinned", "Both critical"],
   ["Leaf signature algorithm", "300a06082a8648ce3d040302 (ecdsa-with-SHA256)", "pinned", "P-384 key signs sha256(TBS); only root → intermediate uses SHA-384"],
   ["Leaf SPKI algorithm", "301306072a8648ce3d020106082a8648ce3d030107 (P-256)", "pinned", "Key must be 65-byte uncompressed"],
-  ["OID 1.2.840.113635.100.8.5", "App ID under tag [1204] (bf8934), plus fields not yet decoded", "unverified", "Present in leaves, not checked"],
-  ["OID 1.2.840.113635.100.8.7", "Live capture: \"27.0\", \"1.0.248\", \"26A428\", \"26.1.428.0.0,0\", \"macosx\"", "unverified", "Present in leaves, not checked; tag meanings not confirmed"],
+  ["OID 1.2.840.113635.100.8.5 (KeyUsageProperties)", "App ID under tag [1204] (bf8934); [4] = 13 on Mac, 10 on iOS", "unverified", "Name from xnu CoreTrust header; present in leaves, not checked"],
+  ["OID 1.2.840.113635.100.8.7 (DeviceOSInformation)", "Live capture: [1400] \"27.0\", [1403] \"26A428\", [1026] \"macosx\", [1401] \"1.0.248\", [1418] \"26.1.428.0.0,0\"", "unverified", "Name from xnu CoreTrust header; [1400]/[1403]/[1026] meanings from reverse engineering; not checked"],
+  ["Receipt signer chain", "Application Attestation Fraud Receipt Signing → Apple Application Integration CA 5 - G1 → Apple Root CA - G3", "apple", "Decoded from Apple's 2026 sample; not used on chain"],
   ["Authenticator data"],
   ["AAGUID appattest (production)", "61707061747465737400000000000000", "pinned", "Deployed adapters; all captures"],
   ["AAGUID appattestdevelop", "617070617474657374646576656c6f70", "apple", "No capture uses it"],
@@ -327,7 +351,8 @@ const REF = [
   ["Extension keys", "apple_cd_hash_hash_01, apple_cd_hash_type_01, apple_validation_category_01, apple_bundle_version_01", "capture", "Closed set; first three required, type must be 02 (SHA-256)"],
   ["Validation category 3", "03000000 (Apple Development)", "pinned", "Deployed adapters; Mac captures"],
   ["Validation category 6", "06000000 (Developer ID)", "apple", "Needs its own adapter"],
-  ["Validation category 5", "05000000", "unverified", "iPhone capture, iOS 27.2 beta; meaning unknown"],
+  ["Validation category 5", "05000000 (Enterprise or ad-hoc distribution)", "apple", "Our iPhone capture: a Team Ad Hoc build installed over the air"],
+  ["Validation categories 1, 2, 4", "01000000 OS executable · 02000000 TestFlight · 04000000 App Store", "apple", "Apple's table on the validation page; 0 invalid, 7–9 system, 10 other"],
   ["App identity"],
   ["App ID", "DC9JH5DRMY.dev.dsmack.provider", "capture", "Team DC9JH5DRMY, bundle id dev.dsmack.provider; one App ID for all builds"],
   ["appHash (RP ID hash)", "0x90a07dc69293aa64c279caed89cfebd3fde0ad92b510f752ed45ba829157fff6", "pinned", "sha256 of the App ID; V1 and ZKV1 pin it"],

@@ -22,14 +22,21 @@ creation with `--from` the deployer when comparing code hashes.
 
 ## Approving a runner build
 
-`setBuild` replaces the approved build; CDHashes registered under the previous
-build stop resolving. From a signed `Runner.app` on the Mac:
+`setBuild` with a different build replaces the approved build. CDHashes
+registered under the previous build stop resolving, and because the adapter
+calls `admit` on every assertion, keys already enrolled under them stop
+verifying too. (Calling `setBuild` again with the same build keeps `buildId`, so nothing changes.)
+`measure` does not check that the two offsets point at `__LINKEDIT` and
+`LC_CODE_SIGNATURE`, and wrong offsets would mask other page-0 bytes, so pass
+the `cd_args.py` output verbatim. From a signed `Runner.app` on the Mac
+(`lipo -thin arm64` a universal binary first):
 
 ```sh
 python3 contracts/cd_args.py Runner.app/Contents/MacOS/runner > build.json
-cast send $CDS 'setBuild(bytes,bytes,bytes,uint256,uint256)' <cd> <page0> <ent> <linkeditCmd> <codeSigCmd>  # owner only
-cast send $CDS 'registerBuild(bytes,bytes,bytes)' <cd> <page0> <ent>
-cast call $CDS 'rpIdHash(bytes32)(bytes32)' <cdhash>   # must equal sha256(application-identifier)
+b(){ python3 -c "import json,sys;print(json.load(open('build.json'))[sys.argv[1]])" $1; }
+cast send $CDS 'setBuild(bytes,bytes,bytes,uint256,uint256)' $(b cd) $(b page0) $(b ent) $(b linkeditCmd) $(b codeSigCmd)  # owner only
+cast send $CDS 'registerBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent)
+cast call $CDS 'rpIdHash(bytes32)(bytes32)' $(b cdhash)   # must equal sha256(application-identifier)
 ```
 
 `registerBuild` is open to anyone; it only admits copies whose code, masked
@@ -38,7 +45,7 @@ page 0, CodeDirectory header and entitlement shape match the approved build.
 ## Base Sepolia (chain 84532), 2026-10-21
 
 Deployer and owner `0x97883cb4B2f21530277F86490d8881654E36E6aA`. Code hashes
-match simulated creation at block 48416348; both are source-verified on Basescan.
+match simulated creation at block 48416348 (after both deployments); both are source-verified on Basescan.
 
 | Contract | Address | Tx | Gas | Runtime keccak256 |
 |---|---|---|---:|---|

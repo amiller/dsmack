@@ -1,0 +1,22 @@
+"""Signed thin arm64 Mach-O -> CDRegistry.setBuild/registerBuild arguments (JSON on stdout)."""
+import hashlib, json, struct, sys
+def args(path):
+    b = open(path, "rb").read()
+    assert struct.unpack_from("<I", b)[0] == 0xfeedfacf, "thin 64-bit Mach-O"
+    off, linkedit, codesig = 32, None, None
+    for _ in range(struct.unpack_from("<I", b, 16)[0]):
+        cmd, sz = struct.unpack_from("<II", b, off)
+        if cmd == 0x19 and b[off + 8:off + 18] == b"__LINKEDIT": linkedit = off
+        if cmd == 0x1d: codesig = off
+        off += sz
+    dataoff, datasize = struct.unpack_from("<II", b, codesig + 8)
+    sb = b[dataoff:dataoff + datasize]; blobs = {}
+    for i in range(struct.unpack_from(">I", sb, 8)[0]):
+        t, o = struct.unpack_from(">II", sb, 12 + 8 * i)
+        magic, length = struct.unpack_from(">II", sb, o)
+        blobs.setdefault(t, (magic, sb[o:o + length]))
+    magic, cd = blobs[0]; assert magic == 0xfade0c02, "CodeDirectory"
+    ent = next((blob[8:] for m, blob in blobs.values() if m == 0xfade7172), b"")
+    return {"cdhash": "0x" + hashlib.sha256(cd).hexdigest(), "cd": "0x" + cd.hex(), "page0": "0x" + b[:16384].hex(),
+            "ent": "0x" + ent.hex(), "linkeditCmd": linkedit, "codeSigCmd": codesig}
+if __name__ == "__main__": json.dump(args(sys.argv[1]), sys.stdout, indent=1)

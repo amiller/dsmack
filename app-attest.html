@@ -263,7 +263,7 @@ main.aa .eyebrow { margin: 0; }
 <section>
   <h2>Open questions</h2>
   <ul class="plain">
-    <li>Does macOS 27.0.1 still put the CDHash in authData? The one public 27.0.1 sample has none. Our captures are 27.0.</li>
+    <li>Does macOS 27.0.1 still put the CDHash in authData? The one public 27.0.1 sample has no extensions at all, not even the category. Its app declares the opt-in entitlement as the string <code>"CDhash"</code>, where ours uses the array <code>["CDhash"]</code>, so the entitlement may be the cause rather than the OS. Our captures are 27.0.</li>
     <li>The 8.7 sub-tags. Apple names 8.7 only as DeviceAttestationDeviceOSInformation, in xnu's CoreTrust header. Reverse engineering gives [1400] OS version, [1403] build, [1026] platform and [1029] build variant ("Beta", "Internal"); [1104], [1401] and [1418]–[1420] are unconfirmed.</li>
     <li>8.5 (DeviceAttestationKeyUsageProperties): [1204] is the App ID; [4] is 10 on every iOS sample and 13 on every Mac; the rest are unknown.</li>
     <li>Whether to enforce <code>apple_bundle_version_01</code> on assertions. Apple says to verify it and gives no comparison rule; every sample carries "1", Xcode's default CFBundleVersion. Mac captures don't carry it.</li>

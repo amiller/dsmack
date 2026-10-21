@@ -151,17 +151,45 @@ do not continue past a failed check.
 
 ## Base Sepolia (chain 84532), 2026-10-21
 
-Deployer `0x97883cb4B2f21530277F86490d8881654E36E6aA`. All checks above passed at
-block 48411314. Adapters are not deployed yet.
+Deployer `0x97883cb4B2f21530277F86490d8881654E36E6aA`. All checks above passed
+(AppleEndorsements, library, verifier at block 48411314; adapters at 48414947).
+All five contracts are source-verified on Basescan from the full-build standard
+JSON input (`forge build --force --build-info`).
 
 | Contract | Address | Tx | Gas | Runtime keccak256 |
 |---|---|---|---:|---|
 | AppleEndorsements | `0xb3263f9b42f42d0f8ccabb7014b2ee189580dd81` | `0x432f2e7e503100951abf97e22325b15ca41d066f90bae498dfa0259b4c8d6f95` | 3,764,330 | `0x2adc383e4a8a9cb9f369baa61e342e1331a3e52f24778411a14ff54d985f474d` |
 | ZKTranscriptLib | `0x36c670e2388f97db69d682dc9032d4bf174dc159` | `0xc207a3d8c301a474176b66d8c820623063ddf7fa5b0f3534c2afb14c5578a1bc` | 1,331,348 | `0x2783da3155c8f95168709d19798575e75c54d6d93df0b7d08e92723715a505ef` |
 | HonkVerifier | `0x33c3b28e4e6cd8252ab109285ed63506cd0b4751` | `0x992979098ce9015495d721a17f3401c9db5b7e24786de228928bb0f2e0671d6a` | 5,181,137 | `0x9bbf72e480a201b6b5599419065bcef406c7c0158ea7f27a0a9a30767274a9a3` |
+| MacAppAttestV1 | `0xdebe397150d0ea1ef8d028092e86f84a63561b9e` | `0x62c32086c98564138e624c736f16021e7a4dd92247f2d4c8e028373fac6ebb61` | 4,412,022 | `0x2ba9b789f94cd2a5a841939da5519c3e256f03f5a0f0aead2cb4b134c5805608` |
+| MacAppAttestZKV1 | `0x90bf709de047740806e5fd13f794b4ff230bb310` | `0x447b54457b7997ed693d3cbbbcfd44f2a553124b28e926e3829f3c007a21ea6e` | 5,034,780 | `0x49c8445f097fcbed706d97e16b283112a5c25a2915735f7358b55b2603949dbd` |
 
 `endorseIntermediate(fixtures/apple-intermediate.der)` used 15,141,525 gas in
 `0xfe26b371ef135394bb534e353c0eecfcc04d1246bab86b05eb7f90c4a7591cd5`, entry id
 `0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90`. Its 1.2x
 gas estimate exceeds Base's 2^24 per-transaction cap; send it with
 `--gas-limit 16000000`.
+
+Adapter policy: registry is the deployer; appHash
+`0x90a07dc69293aa64c279caed89cfebd3fde0ad92b510f752ed45ba829157fff6`
+(sha256 of `DC9JH5DRMY.dev.dsmack.provider`); CDHash
+`0x67dfc08f0eca771ae2787870ab3bffc7dfb39a7fac4db6b0c087e58c2f488d70` (the
+Apple Development probe build of the `real-apple`/`fresh-apple` captures);
+aaguid `appattest`; category 3; ios false.
+
+### Live run
+
+A fresh capture on a Mac mini (macOS 27.0, 26A428), saved as
+[fixtures/live-apple.json](contracts/fixtures/live-apple.json). One attestation,
+enrolled in both adapters, and two assertions (`a1`, `a2`).
+
+| Step | Tx | Gas |
+|---|---|---:|
+| `enroll` on MacAppAttestV1 | `0x0c1692afa0b7279a6be702e4dd7aec99dea7d954d3ab3890fcad8052b1e71f6a` | 14,245,575 |
+| `enrollLeafProof` on MacAppAttestZKV1 | `0x347021500ce09fb9683046de2405e216b047bd77397532a1f5fc5bdc1a7956f2` | 4,498,881 |
+| `verify` `a1` on MacAppAttestV1 | `0x7a0604361b3447f32da4d06ac2109a4880bad718c36632dcf8aa31b4347fd636` | 186,290 |
+| `verify` `a2` on MacAppAttestZKV1 | `0x58f9baa54d175463e33616196ad2273a57f8e2927330523fe123f01fcbb74adf` | 186,312 |
+
+Key id `0x617beba02959792e93de977dbfed9774adac02fcdff204329d3031a812bb1a62`.
+The leaf proof was made on a 12-core Linux box with the pinned VK: 13.9 s,
+2.97 GB peak. Replaying `a1` reverts with `assertion replay`.

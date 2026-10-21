@@ -1,12 +1,14 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
+import {AppleEndorsements} from "attest/AppleEndorsements.sol";
+import {EndorsementFixture as EF} from "attest-test/EndorsementFixture.sol";
 import {Test} from "forge-std/Test.sol";
 import {AppleAttestRegistryV1} from "../src/AppleAttestRegistryV1.sol";
-import {AppleAuthData} from "../src/AppleAuthData.sol";
+import {AppleAuthData} from "attest/AppleAuthData.sol";
 import {CDRegistry} from "../src/CDRegistry.sol";
-import {P256Verifier} from "./P256Verifier.sol";
+import {P256Verifier} from "attest-test/P256Verifier.sol";
 contract Lookup is AppleAttestRegistryV1 {
-    constructor(CDRegistry cds_,bytes16 aaguid_) AppleAttestRegistryV1(msg.sender,cds_,aaguid_,3,false){}
+    constructor(CDRegistry cds_,bytes16 aaguid_) AppleAttestRegistryV1(new AppleEndorsements(),msg.sender,cds_,aaguid_,3,false){}
     function check(bytes memory auth) external view {(,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory);admit(cdhash,rp);}
 }
 contract AppleAttestRegistryV1Test is Test {
@@ -20,23 +22,23 @@ contract AppleAttestRegistryV1Test is Test {
         string memory b=vm.readFile(build);bytes memory cd=vm.parseJsonBytes(b,".cd");bytes memory page0=vm.parseJsonBytes(b,".page0");bytes memory ent=vm.parseJsonBytes(b,".ent");
         cds=new CDRegistry();cds.setBuild(cd,page0,ent,vm.parseJsonUint(b,".linkeditCmd"),vm.parseJsonUint(b,".codeSigCmd"));
         if(register)assertEq(cds.registerBuild(cd,page0,ent),vm.parseJsonBytes32(fixture,".cdhash"));
-        adapter=new AppleAttestRegistryV1(address(this),cds,aaguid,category,ios);
+        adapter=new AppleAttestRegistryV1(new AppleEndorsements(),address(this),cds,aaguid,category,ios);adapter.endorsements().endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/apple-intermediate.der"));
     }
-    function mac(bool register) internal {vm.warp(1789588800);load("fixtures/fresh-apple.json","fixtures/cd-args-probe-macos.json",3,false,register);}
-    function iphone(bool register) internal {vm.warp(1790200000);load("fixtures/iphone-apple.json","fixtures/resign/iphone-honest.json",5,true,register);}
+    function mac(bool register) internal {vm.warp(1789588800);load("../app-attest/contracts/fixtures/fresh-apple.json","fixtures/cd-args-probe-macos.json",3,false,register);}
+    function iphone(bool register) internal {vm.warp(1790200000);load("../app-attest/contracts/fixtures/iphone-apple.json","fixtures/resign/iphone-honest.json",5,true,register);}
     function assertion(string memory name) internal view returns(bytes32 context,bytes memory proof){
         context=sha256(vm.parseJsonBytes(fixture,string.concat(".",name,".context")));
         proof=abi.encode(kid,vm.parseJsonBytes(fixture,string.concat(".",name,".auth")),uint256(vm.parseJsonBytes32(fixture,string.concat(".",name,".r"))),uint256(vm.parseJsonBytes32(fixture,string.concat(".",name,".s"))));
     }
     function test_MacEnrollAndAssertThroughRegistry() public {
-        mac(true);assertEq(adapter.enroll(cert,auth,clientData),kid);
+        mac(true);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);
         (bytes32 context,bytes memory proof)=assertion("assert");assertEq(adapter.verify(context,proof),kid);
         (context,proof)=assertion("modified");vm.expectRevert("build not admitted");adapter.verify(context,proof);
         (context,proof)=assertion("restored");assertEq(adapter.verify(context,proof),kid);
         (,,,uint32 count,)=adapter.keys(kid);assertEq(count,3);
     }
     function test_ReceiptEvidenceRequiresSuccessfulFreshAssertion() public {
-        mac(true);adapter.enroll(cert,auth,clientData);
+        mac(true);adapter.enroll(cert,auth,clientData,EF.id());
         (bytes32 recorded,,,,)=adapter.assertionEvidence(kid);assertEq(recorded,0);
         (bytes32 context,bytes memory proof)=assertion("assert");
         adapter.verify(context,proof);
@@ -54,27 +56,27 @@ contract AppleAttestRegistryV1Test is Test {
         (recorded,,,,counter)=adapter.assertionEvidence(kid);
         assertEq(recorded,context);assertEq(counter,3);
     }
-    function test_MacUnregisteredBuildRejected() public {mac(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData);}
+    function test_MacUnregisteredBuildRejected() public {mac(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData,EF.id());}
     function test_IPhoneEnrollAndAssertThroughRegistry() public {
-        iphone(true);assertEq(adapter.enroll(cert,auth,clientData),kid);
+        iphone(true);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);
         (bytes32 context,bytes memory proof)=assertion("assert");assertEq(adapter.verify(context,proof),kid);
         (context,proof)=assertion("modified");vm.expectRevert("build not admitted");adapter.verify(context,proof);
     }
     function test_IPhoneUnderMacProfileRejected() public {
-        iphone(true);AppleAttestRegistryV1 m=new AppleAttestRegistryV1(address(this),cds,aaguid,5,false);
-        vm.expectRevert("key ACL");m.enroll(cert,auth,clientData);
+        iphone(true);AppleAttestRegistryV1 m=new AppleAttestRegistryV1(new AppleEndorsements(),address(this),cds,aaguid,5,false);m.endorsements().endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/apple-intermediate.der"));
+        vm.expectRevert("key ACL");m.enroll(cert,auth,clientData,EF.id());
     }
-    function test_IPhoneUnregisteredBuildRejected() public {iphone(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData);}
+    function test_IPhoneUnregisteredBuildRejected() public {iphone(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData,EF.id());}
     function developerID(uint32 category) internal {
         string memory f=vm.readFile("fixtures/developer-id-apple.json");
         vm.warp(vm.parseJsonUint(f,".capturedAt"));
         load("fixtures/developer-id-apple.json","fixtures/cd-args-developer-id.json",category,false,true);
     }
     function test_DeveloperIDEnrollmentThroughRegistry() public {
-        developerID(6);assertEq(adapter.enroll(cert,auth,clientData),kid);
+        developerID(6);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);
     }
     function test_DeveloperIDNotAcceptedAsDevelopmentSigning() public {
-        developerID(3);vm.expectRevert("validation category");adapter.enroll(cert,auth,clientData);
+        developerID(3);vm.expectRevert("validation category");adapter.enroll(cert,auth,clientData,EF.id());
     }
     function test_ReleaseDevelopmentAndDeveloperIDShareCodeBaseline() public {
         developerID(6);

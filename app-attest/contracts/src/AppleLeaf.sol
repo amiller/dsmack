@@ -19,7 +19,7 @@ library AppleLeaf {
         require(keccak256(D.encoded(cert,n))==keccak256(hex"a003020102"),"certificate version");
         n=D.expect(cert,n.end,tbs.end,2);D.integer(cert,n,20);
         n=D.expect(cert,n.end,tbs.end,0x30);require(keccak256(D.encoded(cert,n))==keccak256(D.encoded(cert,alg)),"inner signature algorithm");
-        n=D.expect(cert,n.end,tbs.end,0x30);require(keccak256(D.encoded(cert,n))==issuerHash,"issuer name");
+        n=D.expect(cert,n.end,tbs.end,0x30);require(sha256(D.encoded(cert,n))==issuerHash,"issuer name");
         n=D.expect(cert,n.end,tbs.end,0x30);
         D.Node memory before=D.expect(cert,n.body,n.end,0x17);D.Node memory after_=D.expect(cert,before.end,n.end,0x17);
         require(after_.end==n.end,"validity trailing");result.expires=D.utc(cert,after_);

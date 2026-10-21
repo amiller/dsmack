@@ -10,10 +10,25 @@ DerivedData/
 
 
 
-# Private development runtime outputs (planning remains versioned)
+# Private development runtime outputs
 local-data/
 .env
 .env.*
 !.env.example
 node_modules/
 .DS_Store
+
+tools/parser-tests/
+tools/attest-test-root/
+tools/attest-build/
+
+# Local tool binaries and populated caches
+/tools/bin
+/tools/foundry
+/tools/nargo
+/tools/home
+/tools/bb-home
+
+app-attest/contracts/broadcast/
+/results/
+contracts/results/

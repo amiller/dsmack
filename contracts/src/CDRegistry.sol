@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
-import {StrictDER} from "./StrictDER.sol";
+import {StrictDER} from "attest/StrictDER.sol";
 
 /// Admits re-signed copies of one approved Mach-O, by any signer. Pinned (behavior):
 /// - code slots 1..n and codeLimit;

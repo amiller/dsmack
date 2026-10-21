@@ -1,15 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
+import {AppleEndorsements} from "./AppleEndorsements.sol";
 import {P384} from "./P384.sol";
 import {AppleLeaf} from "./AppleLeaf.sol";
 import {AppleAuthData} from "./AppleAuthData.sol";
 
-/// Direct certificate/assertion verification against the fixed Apple App
-/// Attestation CA 1 key, whose root endorsement is in the deployment manifest.
+/// Direct certificate/assertion verification with root-endorsed intermediates.
 /// Supported profiles: macOS 27 and iOS 27, P256 keys, SHA256 CDHash, exact
 /// per-platform key ACL (leaf OID 1.2.840.113635.100.8.6) pinned at deployment.
 /// Subclasses decide which (CDHash, RP ID hash) pairs are admitted.
 abstract contract AppleAttest {
+    AppleEndorsements public immutable endorsements;
+    // openssl x509 -in trust/apple-app-attestation-root.pem -noout -enddate: 2045-03-15 UTC.
+    uint64 public constant ROOT_NOT_AFTER=2373148800;
     address public immutable registry;
     bytes16 public immutable aaguid;
     uint32 public immutable validationCategory;
@@ -25,30 +28,34 @@ abstract contract AppleAttest {
     mapping(bytes32=>AssertionEvidence) public assertionEvidence;
     event Enrolled(bytes32 indexed keyId,uint64 expires);
     event Asserted(bytes32 indexed keyId,uint32 counter,bytes32 context);
-    constructor(address registry_,bytes16 aaguid_,uint32 category_,bool ios_){
+    constructor(AppleEndorsements endorsements_,address registry_,bytes16 aaguid_,uint32 category_,bool ios_){
         require(registry_!=address(0),"empty policy");
+        require(address(endorsements_).code.length!=0,"empty endorsements");endorsements=endorsements_;
         registry=registry_;aaguid=aaguid_;validationCategory=category_;keyACL=ios_?IOS_ACL:MAC_ACL;
     }
     function admit(bytes32 cdhash,bytes32 rp) internal view virtual;
-    function enroll(bytes calldata cert,bytes calldata auth,bytes calldata clientData) external returns(bytes32 kid){
-        require(clientData.length<=2048 && block.timestamp<=1899590400,"anchor expiry/client data");
-        AppleLeaf.Parsed memory leaf=AppleLeaf.parse(cert,0x7d3811d00e402fdff4a937cc5cadf0ad852fb779bdcacb69f996cb599c1c61dd,sha256(abi.encodePacked(auth,sha256(clientData))),keyACL);
+    function enroll(bytes calldata cert,bytes calldata auth,bytes calldata clientData,bytes32 id) external returns(bytes32 kid){
+        require(clientData.length<=2048 && block.timestamp<=ROOT_NOT_AFTER,"anchor expiry/client data");
+        AppleEndorsements.Intermediate memory ca=endorsements.get(id);
+        require(ca.notAfter!=0 && block.timestamp>=ca.notBefore && block.timestamp<=ca.notAfter,"intermediate validity");
+        AppleLeaf.Parsed memory leaf=AppleLeaf.parse(cert,ca.subject,sha256(abi.encodePacked(auth,sha256(clientData))),keyACL);
         bytes32 cdhash;bytes32 rp;(,kid,cdhash,rp)=AppleAuthData.check(auth,aaguid,true,leaf.x,leaf.y,validationCategory);admit(cdhash,rp);
-        require(!keys[kid].enrolled,"already enrolled");
+        _checkNewKey(kid);
         require(P384.verify(
-            0xae5b37a0774d79b2358f40e7d1f22626,
-            0xf1c25fef17802deab3826a59874ff8d2ad1525789aa26604191248b63cb96706,
-            0x9e98d363bd5e370fbfa08e329e8073a9,
-            0x85e7746ea359a2f66f29db32af455e211658d567af9e267eb2614dc21a66ce99,
+            ca.key.xhi,ca.key.xlo,ca.key.yhi,ca.key.ylo,
             uint256(leaf.tbsHash),leaf.rhi,leaf.rlo,leaf.shi,leaf.slo),"Apple certificate signature");
-        keys[kid]=Key(leaf.x,leaf.y,leaf.expires,0,true);emit Enrolled(kid,leaf.expires);
+        _storeKey(kid,leaf.x,leaf.y,leaf.expires<ca.notAfter?leaf.expires:ca.notAfter);
+    }
+    function _checkNewKey(bytes32 kid) internal view {require(!keys[kid].enrolled,"already enrolled");}
+    function _storeKey(bytes32 kid,uint256 x,uint256 y,uint64 expires) internal {
+        keys[kid]=Key(x,y,expires,0,true);emit Enrolled(kid,expires);
     }
     /// proof = abi.encode(keyId, rawAuthenticatorData, signatureR, signatureS).
     /// Expected context is the clientDataHash the app passed to generateAssertion.
     function verify(bytes32 context,bytes calldata proof) external returns(bytes32 kid){
         require(msg.sender==registry,"registry only");
         bytes memory auth;uint256 r;uint256 s;(kid,auth,r,s)=abi.decode(proof,(bytes32,bytes,uint256,uint256));
-        Key storage k=keys[kid];require(k.enrolled && block.timestamp<=k.expires && block.timestamp<=1899590400,"key validity");
+        Key storage k=keys[kid];require(k.enrolled && block.timestamp<=k.expires && block.timestamp<=ROOT_NOT_AFTER,"key validity");
         (uint32 count,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory);admit(cdhash,rp);
         require(count>k.counter,"assertion replay");
         bytes32 digest=sha256(abi.encodePacked(sha256(abi.encodePacked(auth,context))));

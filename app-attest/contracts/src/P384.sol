@@ -423,4 +423,12 @@ library P384 {
         }
         return g.xhi == rhi && g.xlo == rlo;
     }
+    function verify384(C384Elm memory pub,uint256 hh,uint256 hl,uint256 rh,uint256 rl,uint256 sh,uint256 sl) internal view returns(bool){
+        (sh,sl)=oinv(sh,sl);(uint256 uh,uint256 ul)=omul(hh,hl,sh,sl);(uint256 vh,uint256 vl)=omul(rh,rl,sh,sl);
+        C384Elm memory g=C384Elm(gxhi,gxlo,gyhi,gylo);
+        C384Elm memory point=joint(g,pub,uh,ul,vh,vl);
+        if(point.xhi>ohi || (point.xhi==ohi && point.xlo>=olo)){uint256 old=point.xlo;unchecked{point.xlo-=olo;point.xhi=point.xhi-ohi-(old<olo?1:0);}}
+        return point.xhi==rh && point.xlo==rl;
+    }
+
 }

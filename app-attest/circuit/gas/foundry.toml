@@ -1,0 +1,11 @@
+[profile.default]
+src = "src"
+test = "test"
+out = "out"
+cache_path = "cache"
+optimizer = true
+optimizer_runs = 1
+via_ir = false
+fs_permissions = [{ access = "read", path = "../proofs" }]
+remappings = ["leaf-verifier/=../verifier/", "forge-std/=../../contracts/lib/forge-std/src/"]
+allow_paths = ["../verifier", "../../contracts/lib"]

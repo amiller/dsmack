@@ -1,0 +1,6 @@
+{
+  "vk_sha256": "0xc808cbc75a32156fc145f53024033ae5499971203cd835b657d7c6f8c7f72587",
+  "verifier_sha256": "0x35995b1c124ce985e2e6c1d90e67e852efac3139e6191927fe2d019c69c53f5e",
+  "nargo": "1.0.0-beta.17",
+  "bb": "3.0.3"
+}

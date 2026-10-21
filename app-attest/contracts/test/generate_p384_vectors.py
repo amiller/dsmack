@@ -22,4 +22,4 @@ def limbs(x):return [str(x>>256),str(x%(2**256))]
 v=[]
 for u,w in pairs:
  r=add(mul(g,u),mul(q,w));v.append(limbs(u)+limbs(w)+limbs(r[0] if r else 0)+limbs(r[1] if r else 0))
-Path('ios-app-attest/solidity/fixtures/p384-joint.json').write_text(json.dumps(v))
+(Path(__file__).resolve().parents[1] / 'fixtures/p384-joint.json').write_text(json.dumps(v))

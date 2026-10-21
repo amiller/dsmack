@@ -52,7 +52,7 @@ such as the holder of its wrapped blob or an app sharing its keychain group. [`e
 shows both results.
 
 Implemented in: [`verifier/core.py`](verifier/core.py) (offline),
-[`contracts/src/AppleAttest.sol`](contracts/src/AppleAttest.sol) (on chain),
+[`app-attest/contracts/src/AppleAttest.sol`](app-attest/contracts/src/AppleAttest.sol) (on chain),
 [`experiments/app-attest-offline-verify`](experiments/app-attest-offline-verify/)
 (the five checks in 40 lines, with a real attestation).
 
@@ -117,10 +117,10 @@ An application contract does not need to understand any of the above. It needs
 to know which runner builds it accepts, and to receive an assertion that commits
 to the thing it cares about.
 
-[`AppleAttest.sol`](contracts/src/AppleAttest.sol) verifies an App Attest
+[`AppleAttest.sol`](app-attest/contracts/src/AppleAttest.sol) verifies an App Attest
 enrollment against Apple's P-384 certificate chain in Solidity, and later
 assertions with Base's P-256 precompile. Subclasses decide which builds count:
-[`MacAppAttestV1`](contracts/src/MacAppAttestV1.sol) admits one approved code
+[`MacAppAttestV1`](app-attest/contracts/src/MacAppAttestV1.sol) admits one approved code
 hash; [`AppleAttestRegistryV1`](contracts/src/AppleAttestRegistryV1.sol) admits
 any build that [`CDRegistry`](contracts/src/CDRegistry.sol) has measured, so a
 re-signed copy of the same program, by any Apple developer team, is accepted.
@@ -174,7 +174,8 @@ Two layers can go on top, and neither lives here yet.
 |---|---|
 | `runner/` | Boots a measured compose in a VM, attests it, proxies egress, signs receipts |
 | `verifier/` | Offline App Attest verification |
-| `contracts/` | On-chain App Attest verification and build registries |
+| [`app-attest/`](app-attest/) | App Attest contracts, leaf circuit and rule corpus |
+| `contracts/` | dsmack build registries |
 | `experiments/` | Small, runnable proofs of each claim above, with recorded results |
 | `trust/` | Apple's App Attestation root certificate |
 | `tests/` | Verifier tests and App Attest test vectors |

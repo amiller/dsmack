@@ -1,0 +1,8 @@
+[package]
+name = "attest_leaf"
+type = "bin"
+authors = [""]
+compiler_version = ">=1.0.0"
+
+[dependencies]
+app_attest = { path = "../core" }

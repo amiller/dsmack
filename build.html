@@ -2,119 +2,149 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Build the Mac app under your own team · Dsmack</title>
-<link rel="icon" href="assets/abalone.png">
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
-<link rel="stylesheet" href="assets/site.css">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="Inspect Dsmack's signed Mac runner, its trust boundaries and the evidence behind the current alpha work.">
+<title>Inspect before running · Dsmack</title>
+<link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
-<div class="wrap">
 <header>
-<nav class="nav" aria-label="Main">
-<a class="mark" href="./">Dsmack</a>
-<ul class="navlinks">
-<li><a href="./#join">Join</a></li>
-<li><a href="nodes/">Nodes</a></li>
-<li><a href="build.html" aria-current="page">Build it yourself</a></li>
-<li><a href="app-attest.html">App Attest</a></li>
-<li><a href="./#redeem">Redeem a coupon</a></li>
-</ul>
+<div class="wrap">
+<nav aria-label="Main">
+<a class="brand" href="index.html">dsmack</a>
+<div class="links">
+<a href="build.html">Inspect before running</a>
+<a href="app-attest.html">App Attest</a>
+<a href="https://github.com/amiller/dsmack">Public source</a>
+</div>
 </nav>
+</div>
 </header>
-<main class="prose">
-<p class="eyebrow">Mirrors <a href="https://github.com/amiller/dsmack/blob/main/docs/build.md">docs/build.md</a></p>
-<h1>Build the Mac app under your own team</h1>
-<p>You can build the Mac node from source, sign it with your own Apple developer
-team, and check that it is the same program as the build the network admits.
-The signature, team and app name will differ from ours. The code must not.</p>
-<h2>What gets compared</h2>
-<p>Every signed Mac app carries a code directory: a hash of each page of the
-program, plus hashes of its settings and entitlements. Apple hashes that
-directory again to get the CDHash, which is what App Attest reports. Your
-CDHash will never match ours, because the code directory also contains your
-Team ID, your bundle ID and the size of your signature.</p>
-<p>The measurement M is a hash of the same code directory with those parts left
-out. It keeps every code page, the hardened-runtime flags, the first page of
-the program with its signature sizes blanked, and every entitlement except the
-four that name a team or app (<code>application-identifier</code>,
-<code>com.apple.application-identifier</code>, <code>com.apple.developer.team-identifier</code>,
-<code>keychain-access-groups</code>). Two builds have the same M only if they run the same
-code with the same permissions. The
-<a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a>
-on Base Sepolia admits builds by M, so a build whose M is admitted can join
-whoever signed it.</p>
-<h2>What you need</h2>
+<main class="wrap">
+<section class="smallhero">
+<div class="eyebrow">For you and your personal agent</div>
+<h1>Inspect first.<br>Run only what you select.</h1>
+<p class="lead">A release should answer what it does, what it can access, and which checks support those claims—before asking for a credential or a VM launch.</p>
+</section>
+<section class="section">
+<h2>First, identify the product.</h2>
+<p>The public repository currently contains the earlier measured runner and App Attest components. The new generic libkrun/HVF runner, participant client and alpha staging work are unpublished candidates. A public GitHub commit or the old Node download is not the new alpha release.</p>
+<div class="buttons">
+<a class="button" href="https://github.com/amiller/dsmack">Inspect today's public source</a>
+<a class="button" href="legacy-build.html">Historical Node build documentation</a>
+</div>
+<div class="callout">No runnable new-alpha download command is supplied here. Wait for the reviewed release inventory, package and independently selected public trust root. Never bypass Gatekeeper or copy a maintainer's private keys.</div>
+</section>
+<section class="section">
+<h2>The agent's review packet</h2>
+<p>Ask for these public materials together. A checksum supplied only by the untrusted download cannot select its own authority.</p>
+<ol class="checklist">
+<li>
+<strong>Release identity:</strong> immutable version, exact archive size/hash, detached inventory signature, externally selected root, validity window and rollback policy.</li>
+<li>
+<strong>Source correspondence:</strong> selected source commit, native/helper inventories, build inputs and output records. A maintainer build or packaging attestation must not be described as a reproducible hosted source build.</li>
+<li>
+<strong>Actual Mac identity:</strong> full CodeDirectory SHA-256, Team/bundle, Developer ID leaf certificate, complete entitlements and provisioning profile. Check code pages, Apple signature and bundle resources separately.</li>
+<li>
+<strong>Distribution checks:</strong> actual stapled-ticket validation and macOS distribution assessment for the final exported app. Export/re-signing can change its code hash; enrollment must use that final identity.</li>
+<li>
+<strong>Workload plan:</strong> selected Linux base and OCI digests, file inputs, mounts, writable paths, network destinations and finite resource/time limits.</li>
+<li>
+<strong>Disclosure and recovery:</strong> what remains local, what reaches a provider/verifier, persistent enrollment keys, progress freshness, retained evidence and how to inspect an interrupted run without launching twice.</li>
+</ol>
+</section>
+<section class="section">
+<h2>What each result proves</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr>
+<th>Check</th>
+<th>Useful conclusion</th>
+<th>Still separate</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td data-label="">Source / inventory</td>
+<td data-label="Useful conclusion">The selected files match an authenticated release.</td>
+<td data-label="Still separate">Code safety and source-to-binary correspondence.</td>
+</tr>
+<tr>
+<td data-label="">Apple signature / ticket</td>
+<td data-label="Useful conclusion">The current app has the selected signature and validated notarization ticket.</td>
+<td data-label="Still separate">Execution, fresh-host install and application correctness.</td>
+</tr>
+<tr>
+<td data-label="">App Attest</td>
+<td data-label="Useful conclusion">An admitted app identity holds an enrolled key, with the checked environment and replay rules.</td>
+<td data-label="Still separate">VM result verification or useful task success.</td>
+</tr>
+<tr>
+<td data-label="">Full run verification</td>
+<td data-label="Useful conclusion">Original launch/native/guest/output evidence agrees with the selected request and profile.</td>
+<td data-label="Still separate">The task's independent acceptance policy.</td>
+</tr>
+<tr>
+<td data-label="">Accepted task</td>
+<td data-label="Useful conclusion">The promised acceptance conditions passed.</td>
+<td data-label="Still separate">A claimable credit, successful withdrawal and confirmed payment.</td>
+</tr>
+</tbody>
+</table>
+</div>
+</section>
+<section class="section">
+<div class="split">
+<div>
+<h2>Cheap checks before expensive work.</h2>
+<p>Begin with a read-only inventory of OS/version, architecture, available memory and disk, required tools and release files. The current doctor reports these observations; it does not test the VM or declare launch readiness.</p>
+<p>Next, authenticate and privately stage the selected release, check the actual signed app, then perform a disclosed fresh enrollment and bounded credential-free sample. Inspect the original verified result before considering a subscription-backed task.</p>
+<p>Do not copy your whole Claude/Codex home, hooks, MCP configuration, SSH keys, browser profile or history. Import only fields explicitly allowed by a separately reviewed recipe.</p>
+</div>
+<div class="card">
+<h3>Known limits of this checkpoint</h3>
 <ul>
-<li>An Apple Silicon Mac on macOS 27.</li>
-<li>The exact Xcode, SDK and Swift versions in
-  <a href="https://github.com/amiller/dsmack/blob/main/node/mac/toolchain.json">node/mac/toolchain.json</a>. The build stops if
-  they differ.</li>
-<li>An Apple developer team with a Developer ID Application certificate, an
-  explicit App ID with the App Attest capability, and a Developer ID
-  provisioning profile for that App ID.</li>
+<li>The new alpha package and runtime admission journey are not publicly available yet.</li>
+<li>The qualification Mac had global Gatekeeper assessments disabled. Direct signature, stapler and distribution checks passed; a quarantined fresh-Mac open remains unqualified.</li>
+<li>App Attest's fraud receipt is retained but not validated by the current verifier.</li>
+<li>The pilot trusts the host; it does not protect private staging or disks from root.</li>
+<li>Progress can be stale. Closing a tab or terminal is not confirmation that a VM stopped.</li>
 </ul>
-<h2>Build and sign</h2>
-<p>Check out the commit of the release you are reproducing, then use an output
-directory that does not exist yet:</p>
-<pre><code class="language-sh">python3 scripts/release/build_mac.py --gui --out build/mine \
-  --team ABCDE12345 --bundle-id com.example.node \
-  --version 0.3.0 --build-number 6 \
-  --sdk-runner 6c8e8ef4f55f717c4073048ce8307cc086c2ae113bb5401e1bc642742c08b60e
-</code></pre>
-<p>Use your own Team ID and bundle ID, and the release's version, build number and
-<code>--sdk-runner</code> value (the M_runner its notes list as compiled in).
-Omit <code>--gui</code> for the command-line node. Besides the unsigned <code>Node.app</code>, the
-build writes <code>build/mine/entitlements.plist</code> from
-<a href="https://github.com/amiller/dsmack/blob/main/node/mac/Entitlements.template.plist">node/mac/Entitlements.template.plist</a>.
-The only things your Team ID and bundle ID change are <code>Info.plist</code> and that
-entitlements file; the program file is byte-for-byte the same as ours.</p>
-<p>Sign with your certificate and profile:</p>
-<pre><code class="language-sh">python3 scripts/release/sign_mac.py --build build/mine --out build/mine-signed \
-  --profile mine.provisionprofile --team ABCDE12345 \
-  --identity &quot;Developer ID Application: Your Name (ABCDE12345)&quot; \
-  --channel developer-id --notary-profile your-notary-profile
-</code></pre>
-<p>The signer refuses a profile whose entitlements differ from the template. If
-you sign by hand, pass <code>--entitlements build/mine/entitlements.plist
---generate-entitlement-der --options runtime</code> to <code>codesign</code> and add nothing
-else: an extra entitlement changes M.</p>
-<h2>Check your M</h2>
-<pre><code class="language-sh">python3 scripts/release/measure_two_teams.py \
-  --one build/mine-signed/Node.app/Contents/MacOS/node
-</code></pre>
-<p>This prints your M and your CDHash. Compare M with the one admitted for that
-release; the <a href="https://github.com/amiller/dsmack/releases/tag/node-v0.3.0">0.3.0 release notes</a>
-list <code>0xe361800e…b09cf4</code> for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
-different flavor (<code>--gui</code> or not), or a change to the entitlements.</p>
-<h2>Try it without an Apple account</h2>
-<pre><code class="language-sh">scripts/release/measure_two_teams.sh build/two-teams
-</code></pre>
-<p>This builds the command-line node from two checkouts at different paths under
-two made-up teams, checks that the two unsigned programs are identical, signs
-each with a throwaway self-signed certificate, and also builds and signs a
-deliberately modified version. It passes only if the two honest builds share
-one M, the modified build has a different M, and all three CDHashes differ. The
-certificates live in a temporary keychain inside the output directory and are
-deleted when the script ends. Self-signed copies cannot use App Attest, so this
-only checks the measurement. The same check runs on every change to the Mac
-code in the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
-<a href="https://github.com/amiller/dsmack/actions/runs/38381216545">here is the run</a>
-for the 0.3.0 source commit <code>ad3855f</code>.</p>
-<section></section>
+</div>
+</div>
+</section>
+<section class="section">
+<h2>Read the underlying mechanisms.</h2>
+<p>These links resolve to currently public material. They explain existing components, not the unpublished alpha's complete source closure.</p>
+<ul>
+<li>
+<a href="app-attest.html">App Attest technical explainer</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/verifier">Public offline Apple verifier</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/runner">Earlier Containerization/Virtualization runner</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/experiments">Recorded public experiments</a>
+</li>
+<li>
+<a href="https://pod.dstack.soc1024.com/artifact-reports-2026c/dsmack-native-browser-alpha-progress--aDjmWQNt_mOslLZni8SP-Q/">Dated native-browser progress artifact</a>
+</li>
+</ul>
+<p>For an actual release, replace this overview with the version's exact inspection packet and supported commands. A personal agent should be able to say “not enough evidence yet” without needing private operator files.</p>
+</section>
 </main>
 <footer>
-<div><div class="display">Dsmack</div><div class="dim">Base Sepolia testnet</div></div>
-<nav aria-label="Footer">
-<ul>
-<li><a href="https://github.com/amiller/dsmack">Source</a></li>
-<li><a href="https://github.com/amiller/dsmack/releases">Releases</a></li>
-<li><a href="nodes/">Nodes</a></li>
-<li><a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a></li>
-<li><a href="https://github.com/amiller/abalone">Abalone</a></li>
-</ul>
-</nav>
-</footer>
+<div class="wrap">
+<p>Project status: 22 October 2026. Evidence belongs to an exact version and configuration.</p>
+<a href="https://github.com/amiller/dsmack">Public repository</a>
+<a href="legacy-node.html">Historical Node network</a>
+<a href="legacy-build.html">Historical Node build guide</a>
+<a href="app-attest.html">Technical App Attest explainer</a>
 </div>
+</footer>
 </body>
 </html>

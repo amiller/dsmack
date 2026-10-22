@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Build the Mac app under your own team · Dsmack</title>
+<link rel="icon" href="assets/abalone.png">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="assets/site.css">
+</head>
+<body>
+<div class="wrap">
+<header>
+<nav class="nav" aria-label="Main">
+<a class="mark" href="./">Dsmack</a>
+<ul class="navlinks">
+<li><a href="./#join">Join</a></li>
+<li><a href="nodes/">Nodes</a></li>
+<li><a href="build.html" aria-current="page">Build it yourself</a></li>
+<li><a href="app-attest.html">App Attest</a></li>
+<li><a href="./#redeem">Redeem a coupon</a></li>
+</ul>
+</nav>
+</header>
+<main class="prose">
+<p class="eyebrow">Mirrors <a href="https://github.com/amiller/dsmack/blob/main/docs/build.md">docs/build.md</a></p>
+<h1>Build the Mac app under your own team</h1>
+<p>You can build the Mac node from source, sign it with your own Apple developer
+team, and check that it is the same program as the build the network admits.
+The signature, team and app name will differ from ours. The code must not.</p>
+<h2>What gets compared</h2>
+<p>Every signed Mac app carries a code directory: a hash of each page of the
+program, plus hashes of its settings and entitlements. Apple hashes that
+directory again to get the CDHash, which is what App Attest reports. Your
+CDHash will never match ours, because the code directory also contains your
+Team ID, your bundle ID and the size of your signature.</p>
+<p>The measurement M is a hash of the same code directory with those parts left
+out. It keeps every code page, the hardened-runtime flags, the first page of
+the program with its signature sizes blanked, and every entitlement except the
+four that name a team or app (<code>application-identifier</code>,
+<code>com.apple.application-identifier</code>, <code>com.apple.developer.team-identifier</code>,
+<code>keychain-access-groups</code>). Two builds have the same M only if they run the same
+code with the same permissions. The
+<a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a>
+on Base Sepolia admits builds by M, so a build whose M is admitted can join
+whoever signed it.</p>
+<h2>What you need</h2>
+<ul>
+<li>An Apple Silicon Mac on macOS 27.</li>
+<li>The exact Xcode, SDK and Swift versions in
+  <a href="https://github.com/amiller/dsmack/blob/main/node/mac/toolchain.json">node/mac/toolchain.json</a>. The build stops if
+  they differ.</li>
+<li>An Apple developer team with a Developer ID Application certificate, an
+  explicit App ID with the App Attest capability, and a Developer ID
+  provisioning profile for that App ID.</li>
+</ul>
+<h2>Build and sign</h2>
+<p>Check out the commit of the release you are reproducing, then use an output
+directory that does not exist yet:</p>
+<pre><code class="language-sh">python3 scripts/release/build_mac.py --gui --out build/mine \
+  --team ABCDE12345 --bundle-id com.example.node \
+  --version 0.3.0 --build-number 6 \
+  --sdk-runner 6c8e8ef4f55f717c4073048ce8307cc086c2ae113bb5401e1bc642742c08b60e
+</code></pre>
+<p>Use your own Team ID and bundle ID, and the release's version, build number and
+<code>--sdk-runner</code> value (the M_runner its notes list as compiled in).
+Omit <code>--gui</code> for the command-line node. Besides the unsigned <code>Node.app</code>, the
+build writes <code>build/mine/entitlements.plist</code> from
+<a href="https://github.com/amiller/dsmack/blob/main/node/mac/Entitlements.template.plist">node/mac/Entitlements.template.plist</a>.
+The only things your Team ID and bundle ID change are <code>Info.plist</code> and that
+entitlements file; the program file is byte-for-byte the same as ours.</p>
+<p>Sign with your certificate and profile:</p>
+<pre><code class="language-sh">python3 scripts/release/sign_mac.py --build build/mine --out build/mine-signed \
+  --profile mine.provisionprofile --team ABCDE12345 \
+  --identity &quot;Developer ID Application: Your Name (ABCDE12345)&quot; \
+  --channel developer-id --notary-profile your-notary-profile
+</code></pre>
+<p>The signer refuses a profile whose entitlements differ from the template. If
+you sign by hand, pass <code>--entitlements build/mine/entitlements.plist
+--generate-entitlement-der --options runtime</code> to <code>codesign</code> and add nothing
+else: an extra entitlement changes M.</p>
+<h2>Check your M</h2>
+<pre><code class="language-sh">python3 scripts/release/measure_two_teams.py \
+  --one build/mine-signed/Node.app/Contents/MacOS/node
+</code></pre>
+<p>This prints your M and your CDHash. Compare M with the one admitted for that
+release; the <a href="https://github.com/amiller/dsmack/releases/tag/node-v0.3.0">0.3.0 release notes</a>
+list <code>0xe361800e…b09cf4</code> for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
+different flavor (<code>--gui</code> or not), or a change to the entitlements.</p>
+<h2>Try it without an Apple account</h2>
+<pre><code class="language-sh">scripts/release/measure_two_teams.sh build/two-teams
+</code></pre>
+<p>This builds the command-line node from two checkouts at different paths under
+two made-up teams, checks that the two unsigned programs are identical, signs
+each with a throwaway self-signed certificate, and also builds and signs a
+deliberately modified version. It passes only if the two honest builds share
+one M, the modified build has a different M, and all three CDHashes differ. The
+certificates live in a temporary keychain inside the output directory and are
+deleted when the script ends. Self-signed copies cannot use App Attest, so this
+only checks the measurement. The same check runs on every change to the Mac
+code in the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
+<a href="https://github.com/amiller/dsmack/actions/runs/38381216545">here is the run</a>
+for the 0.3.0 source commit <code>ad3855f</code>.</p>
+<section></section>
+</main>
+<footer>
+<div><div class="display">Dsmack</div><div class="dim">Base Sepolia testnet</div></div>
+<nav aria-label="Footer">
+<ul>
+<li><a href="https://github.com/amiller/dsmack">Source</a></li>
+<li><a href="https://github.com/amiller/dsmack/releases">Releases</a></li>
+<li><a href="nodes/">Nodes</a></li>
+<li><a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a></li>
+<li><a href="https://github.com/amiller/abalone">Abalone</a></li>
+</ul>
+</nav>
+</footer>
+</div>
+</body>
+</html>

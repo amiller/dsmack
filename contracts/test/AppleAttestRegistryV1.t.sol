@@ -20,7 +20,7 @@ contract AppleAttestRegistryV1Test is Test {
         cert=vm.parseJsonBytes(fixture,".cert");auth=vm.parseJsonBytes(fixture,".auth");clientData=vm.parseJsonBytes(fixture,".clientData");kid=vm.parseJsonBytes32(fixture,".kid");
         bytes memory guid=vm.parseJsonBytes(fixture,".aaguid");assembly{sstore(aaguid.slot,shr(128,mload(add(guid,32))))}
         string memory b=vm.readFile(build);bytes memory cd=vm.parseJsonBytes(b,".cd");bytes memory page0=vm.parseJsonBytes(b,".page0");bytes memory ent=vm.parseJsonBytes(b,".ent");
-        cds=new CDRegistry();cds.setBuild(cd,page0,ent,vm.parseJsonUint(b,".linkeditCmd"),vm.parseJsonUint(b,".codeSigCmd"));
+        cds=new CDRegistry();cds.setBuild(cd,page0,ent);
         if(register)assertEq(cds.registerBuild(cd,page0,ent),vm.parseJsonBytes32(fixture,".cdhash"));
         adapter=new AppleAttestRegistryV1(new AppleEndorsements(),address(this),cds,aaguid,category,ios);adapter.endorsements().endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/apple-intermediate.der"));
     }
@@ -89,7 +89,7 @@ contract AppleAttestRegistryV1Test is Test {
     function test_SyntheticTeamLookup() public {
         mac(true);bytes memory a=vm.parseJsonBytes(fixture,".assert.auth");
         string memory e=vm.readFile("fixtures/resign/node-honest.json");string memory o=vm.readFile("fixtures/resign/node-synthetic-team.json");
-        cds=new CDRegistry();cds.setBuild(jb(e,".cd"),jb(e,".page0"),jb(e,".ent"),vm.parseJsonUint(e,".linkeditCmd"),vm.parseJsonUint(e,".codeSigCmd"));
+        cds=new CDRegistry();cds.setBuild(jb(e,".cd"),jb(e,".page0"),jb(e,".ent"));
         bytes32 eh=cds.registerBuild(jb(e,".cd"),jb(e,".page0"),jb(e,".ent"));bytes32 oh=cds.registerBuild(jb(o,".cd"),jb(o,".page0"),jb(o,".ent"));
         bytes32 erp=sha256("DC9JH5DRMY.dev.dsmack.provider");bytes32 orp=sha256("TESTTEAM01.dev.dsmack.provider");
         Lookup l=new Lookup(cds,aaguid);

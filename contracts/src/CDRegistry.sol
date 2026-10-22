@@ -37,6 +37,32 @@ contract CDRegistry {
     mapping(bytes32 => bytes32) team;
     mapping(bytes32 => bytes32) bundle;
     function be32(bytes calldata b, uint256 o) internal pure returns (uint256) { return uint32(bytes4(b[o:o + 4])); }
+    function le32(bytes calldata b, uint256 o) internal pure returns (uint256 x) {
+        x = be32(b, o);
+        x = (x >> 24) | (x >> 8 & 0xff00) | (x << 8 & 0xff0000) | (x << 24 & 0xff000000);
+    }
+    /// Page-0 offsets of the __LINKEDIT LC_SEGMENT_64 and LC_CODE_SIGNATURE of a thin arm64 Mach-O.
+    function loadCommands(bytes calldata page0) public pure returns (uint256 linkedit, uint256 codeSig) {
+        require(le32(page0, 0) == 0xfeedfacf && le32(page0, 4) == 0x0100000c, "thin arm64");
+        uint256 end = 32 + le32(page0, 20);
+        require(end <= page0.length, "load commands");
+        uint256 off = 32;
+        for (uint256 n = le32(page0, 16); n > 0; n--) {
+            (uint256 cmd, uint256 sz) = (le32(page0, off), le32(page0, off + 4));
+            require(sz >= 8 && off + sz <= end, "load commands");
+            if (cmd == 0x19 && bytes16(page0[off + 8:off + 24]) == "__LINKEDIT") {
+                require(linkedit == 0 && sz == 72, "__LINKEDIT");
+                linkedit = off;
+            }
+            if (cmd == 0x1d) {
+                require(codeSig == 0 && sz == 16, "LC_CODE_SIGNATURE");
+                codeSig = off;
+            }
+            off += sz;
+        }
+        require(linkedit != 0, "__LINKEDIT");
+        require(codeSig != 0, "LC_CODE_SIGNATURE");
+    }
     function maskedHash(bytes memory p, uint256 linkedit, uint256 codeSig) public pure returns (bytes32 h) {
         assembly {
             let d := add(p, 0x20)
@@ -99,7 +125,7 @@ contract CDRegistry {
     function header(bytes calldata cd) internal pure returns (bytes32) {
         return keccak256(bytes.concat(cd[8:16], cd[0x24:0x30], cd[0x34:be32(cd, 8) >= 0x20500 ? 0x60 : 0x58]));
     }
-    function measure(bytes calldata cd, bytes calldata page0, bytes calldata ent, uint256 linkedit, uint256 codeSig) public pure returns (Build memory b, bytes32 app) {
+    function measure(bytes calldata cd, bytes calldata page0, bytes calldata ent) public pure returns (Build memory b, bytes32 app) {
         require(be32(cd, 0) == 0xfade0c02 && be32(cd, 4) == cd.length, "blob");
         require(cd[0x24] == 0x20 && cd[0x25] == 0x02 && cd[0x27] == 0x0e && page0.length == 16384, "sha256/16KiB");
         uint256 off = be32(cd, 0x10);
@@ -108,20 +134,22 @@ contract CDRegistry {
         require(be32(cd, 0x18) >= 7 && sha256(abi.encodePacked(uint32(0xfade7172), uint32(ent.length + 8), ent)) == bytes32(cd[off - 7 * 32:off - 6 * 32]), "entitlements slot");
         (b.entitlements, app) = entitlements(ent);
         b.rest = keccak256(cd[off + 32:end]);
-        b.maskedPage0 = maskedHash(page0, linkedit, codeSig);
+        (b.linkeditCmd, b.codeSigCmd) = loadCommands(page0);
+        b.maskedPage0 = maskedHash(page0, b.linkeditCmd, b.codeSigCmd);
         b.header = header(cd);
-        (b.codeLimit, b.linkeditCmd, b.codeSigCmd) = (be32(cd, 0x20), linkedit, codeSig);
+        b.codeLimit = be32(cd, 0x20);
     }
-    function setBuild(bytes calldata cd, bytes calldata page0, bytes calldata ent, uint256 linkedit, uint256 codeSig) external {
+    function setBuild(bytes calldata cd, bytes calldata page0, bytes calldata ent) external {
         require(msg.sender == owner, "owner");
-        (approved,) = measure(cd, page0, ent, linkedit, codeSig);
+        (approved,) = measure(cd, page0, ent);
         buildId = keccak256(abi.encode(approved));
     }
     function registerBuild(bytes calldata cd, bytes calldata page0, bytes calldata ent) external returns (bytes32 h) {
         Build memory a = approved;
         require(a.codeLimit != 0, "no approved build");
-        (Build memory b, bytes32 app) = measure(cd, page0, ent, a.linkeditCmd, a.codeSigCmd);
+        (Build memory b, bytes32 app) = measure(cd, page0, ent);
         require(b.codeLimit == a.codeLimit, "limit");
+        require(b.linkeditCmd == a.linkeditCmd && b.codeSigCmd == a.codeSigCmd, "load commands");
         require(b.rest == a.rest, "code slots");
         require(b.maskedPage0 == a.maskedPage0, "page0");
         require(b.header == a.header, "header");

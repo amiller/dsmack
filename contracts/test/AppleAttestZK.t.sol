@@ -86,7 +86,7 @@ contract AppleAttestZKTest is Test {
         MacAppAttestV1 mac=new MacAppAttestV1(e,address(this),p.rpIdHash,p.cdhash,p.aaguid,3,false);
         CDRegistry cds=new CDRegistry();string memory b=vm.readFile("fixtures/cd-args-probe-macos.json");
         bytes memory cd=vm.parseJsonBytes(b,".cd");bytes memory page=vm.parseJsonBytes(b,".page0");bytes memory ent=vm.parseJsonBytes(b,".ent");
-        cds.setBuild(cd,page,ent,vm.parseJsonUint(b,".linkeditCmd"),vm.parseJsonUint(b,".codeSigCmd"));cds.registerBuild(cd,page,ent);
+        cds.setBuild(cd,page,ent);cds.registerBuild(cd,page,ent);
         AppleAttestRegistryV1 reg=new AppleAttestRegistryV1(e,address(this),cds,p.aaguid,3,false);
         bytes memory cert=vm.parseJsonBytes(fixture,".cert");bytes memory auth=vm.parseJsonBytes(fixture,".auth");
         assertEq(mac.enroll(cert,auth,client,EF.id()),kid);assertEq(reg.enroll(cert,auth,client,EF.id()),kid);

@@ -4,23 +4,20 @@ import {Test} from "forge-std/Test.sol";
 import {CDRegistry} from "../src/CDRegistry.sol";
 contract CDRegistryTest is Test {
     string constant D = "fixtures/resign/";
-    uint256 constant LINKEDIT = 2320;
-    uint256 constant CODESIG = 3608;
     bytes32 constant OURS = 0x90a07dc69293aa64c279caed89cfebd3fde0ad92b510f752ed45ba829157fff6;
     function rd(string memory n, string memory ext) internal view returns (bytes memory) { return vm.readFileBinary(string.concat(D, n, ext)); }
-    function registry(bytes memory cd, bytes memory page0, bytes memory ent, uint256 linkedit, uint256 codeSig) internal returns (CDRegistry r) {
+    function registry(bytes memory cd, bytes memory page0, bytes memory ent) internal returns (CDRegistry r) {
         r = new CDRegistry();
-        r.setBuild(cd, page0, ent, linkedit, codeSig);
+        r.setBuild(cd, page0, ent);
     }
-    function mac() internal returns (CDRegistry) { return registry(rd("A-original", ".cd"), rd("A-original", ".page0"), rd("A-original", ".ent"), LINKEDIT, CODESIG); }
+    function mac() internal returns (CDRegistry) { return registry(rd("A-original", ".cd"), rd("A-original", ".page0"), rd("A-original", ".ent")); }
     function json(string memory n) internal view returns (bytes memory cd, bytes memory page0, bytes memory ent) {
         string memory j = vm.readFile(string.concat(D, n, ".json"));
         (cd, page0, ent) = (vm.parseJsonBytes(j, ".cd"), vm.parseJsonBytes(j, ".page0"), vm.parseJsonBytes(j, ".ent"));
     }
     function jsonRegistry(string memory n) internal returns (CDRegistry r) {
-        string memory j = vm.readFile(string.concat(D, n, ".json"));
         (bytes memory cd, bytes memory page0, bytes memory ent) = json(n);
-        r = registry(cd, page0, ent, vm.parseJsonUint(j, ".linkeditCmd"), vm.parseJsonUint(j, ".codeSigCmd"));
+        r = registry(cd, page0, ent);
     }
     function admit(CDRegistry r, bytes memory cd, bytes memory page0, bytes memory ent) internal returns (bytes32 h) {
         h = r.registerBuild(cd, page0, ent);
@@ -44,6 +41,31 @@ contract CDRegistryTest is Test {
         vm.expectRevert("page0"); r.registerBuild(rd("M-modified", ".cd"), rd("M-modified", ".page0"), rd("M-modified", ".ent"));
         bytes memory p = rd("A-original", ".page0"); p[100] ^= 0x01;
         vm.expectRevert("page0 hash"); r.registerBuild(rd("A-original", ".cd"), p, rd("A-original", ".ent"));
+    }
+    /// Derived offsets equal the ones cd_args.py recorded in the fixtures.
+    function test_loadCommandsMatchFixtures() public {
+        CDRegistry r = new CDRegistry();
+        string[10] memory js = ["../cd-args-probe-macos", "../cd-args-developer-id", "../cd-args-release-development", "iphone-honest", "iphone-modified",
+            "node-honest", "node-resigned", "node-modified", "node-synthetic-team", "node-synthetic-prefix-only"];
+        for (uint256 i; i < js.length; i++) {
+            string memory j = vm.readFile(string.concat(D, js[i], ".json"));
+            (uint256 linkedit, uint256 codeSig) = r.loadCommands(vm.parseJsonBytes(j, ".page0"));
+            assertEq(linkedit, vm.parseJsonUint(j, ".linkeditCmd"));
+            assertEq(codeSig, vm.parseJsonUint(j, ".codeSigCmd"));
+        }
+        (uint256 l, uint256 c) = r.loadCommands(rd("A-original", ".page0"));
+        assertEq(l, 2320); assertEq(c, 3608);
+    }
+    function test_loadCommandsRejectMalformed() public {
+        CDRegistry r = new CDRegistry();
+        bytes memory p = rd("A-original", ".page0"); p[2320 + 8 + 2] = "X";
+        vm.expectRevert("__LINKEDIT"); r.loadCommands(p);
+        p = rd("A-original", ".page0"); p[3592] = 0x1d;
+        vm.expectRevert("LC_CODE_SIGNATURE"); r.loadCommands(p);
+        p = rd("A-original", ".page0"); p[21] = 0x40;
+        vm.expectRevert("load commands"); r.loadCommands(p);
+        p = rd("A-original", ".page0"); p[20] = 0;
+        vm.expectRevert("load commands"); r.loadCommands(p);
     }
     function patched(uint256 at, bytes1 x) internal view returns (bytes memory cd) { cd = rd("A-original", ".cd"); cd[at] ^= x; }
     function withEnt(bytes memory ent) internal view returns (bytes memory cd) {
@@ -104,8 +126,8 @@ contract CDRegistryTest is Test {
         CDRegistry r = mac();
         bytes32 a = file(r, "A-original");
         (bytes memory cd, bytes memory page0, bytes memory ent) = json("iphone-honest");
-        vm.prank(address(1)); vm.expectRevert("owner"); r.setBuild(cd, page0, ent, 2880, 5120);
-        r.setBuild(cd, page0, ent, 2880, 5120);
+        vm.prank(address(1)); vm.expectRevert("owner"); r.setBuild(cd, page0, ent);
+        r.setBuild(cd, page0, ent);
         assertEq(r.rpIdHash(a), 0);
         assertEq(r.teamIdHash(a), 0);
         assertEq(r.bundleIdHash(a), 0);
@@ -159,8 +181,7 @@ contract CDRegistryTest is Test {
         vm.expectRevert("code slots"); r.registerBuild(cd, page0, ent);
     }
     function synth(uint256 n) internal view returns (bytes memory cd, bytes memory page0) {
-        page0 = new bytes(16384);
-        for (uint256 i; i < 16384; i++) page0[i] = bytes1(uint8(i * 7 + 1));
+        page0 = rd("A-original", ".page0");
         uint256 off = 0x60 + 20 + 11 + 7 * 32;
         cd = new bytes(off + 32 * n);
         bytes memory h = abi.encodePacked(uint32(0xfade0c02), uint32(cd.length), uint32(0x20500), uint32(0), uint32(off), uint32(0x60), uint32(7), uint32(n), uint32(n * 16384));
@@ -177,7 +198,7 @@ contract CDRegistryTest is Test {
     function measure(uint256 n) internal {
         (bytes memory cd, bytes memory page0) = synth(n);
         bytes memory ent = rd("A-original", ".ent");
-        CDRegistry r = registry(cd, page0, ent, LINKEDIT, CODESIG);
+        CDRegistry r = registry(cd, page0, ent);
         r.registerBuild(cd, page0, ent);
         uint256 exec = vm.lastCallGas().gasTotalUsed;
         bytes memory d = abi.encodeCall(CDRegistry.registerBuild, (cd, page0, ent));

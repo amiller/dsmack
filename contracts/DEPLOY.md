@@ -26,15 +26,14 @@ creation with `--from` the deployer when comparing code hashes.
 registered under the previous build stop resolving, and because the adapter
 calls `admit` on every assertion, keys already enrolled under them stop
 verifying too. (Calling `setBuild` again with the same build keeps `buildId`, so nothing changes.)
-`measure` does not check that the two offsets point at `__LINKEDIT` and
-`LC_CODE_SIGNATURE`, and wrong offsets would mask other page-0 bytes, so pass
-the `cd_args.py` output verbatim. From a signed `Runner.app` on the Mac
+`measure` finds the masked `__LINKEDIT` and `LC_CODE_SIGNATURE` load commands
+in page 0 itself. From a signed `Runner.app` on the Mac
 (`lipo -thin arm64` a universal binary first):
 
 ```sh
 python3 contracts/cd_args.py Runner.app/Contents/MacOS/runner > build.json
 b(){ python3 -c "import json,sys;print(json.load(open('build.json'))[sys.argv[1]])" $1; }
-cast send $CDS 'setBuild(bytes,bytes,bytes,uint256,uint256)' $(b cd) $(b page0) $(b ent) $(b linkeditCmd) $(b codeSigCmd)  # owner only
+cast send $CDS 'setBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent)  # owner only
 cast send $CDS 'registerBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent)
 cast call $CDS 'rpIdHash(bytes32)(bytes32)' $(b cdhash)   # must equal sha256(application-identifier)
 ```

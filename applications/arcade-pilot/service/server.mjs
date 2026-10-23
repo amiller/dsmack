@@ -32,6 +32,7 @@ export function server(pilot,{basePath='',maxConnections=64,workerTokenHash}={})
    if(method==='POST'&&path==='/api/attempts')return send(res,await pilot.attempt(v));
    if(method==='POST'&&path==='/api/registrations/challenge')return send(res,await pilot.registrationChallenge(v));
    if(method==='POST'&&path==='/api/registrations')return send(res,await pilot.registration(v));
+   if(method==='POST'&&m?.[2]==='claim'&&!m[3])return send(res,pilot.refreshClaim(m[1],cap,v));
    if(method==='POST'&&m?.[2]==='execution'&&!m[3])return send(res,await pilot.execution(m[1],cap,v));
    if(method==='POST'&&m?.[2]==='evidence'&&!m[3])return send(res,pilot.beginEvidence(m[1],cap,v));
    if(chunk)return send(res,pilot.chunk(m[1],cap,m[3],decodeURIComponent(m[4]),req.headers['content-range'],raw));

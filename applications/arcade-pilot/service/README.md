@@ -25,7 +25,7 @@ and a mode0600 JSON `ARCADE_CONFIG`. Fields:
 - `worker_token_sha256`: SHA256 of a separately generated32-byte base64url worker
   token. The worker stores that token privately; no browser/participant receives it.
 - `task`: public immutable object with `slug`, `policy_sha256`,
-  `app_policy_sha256`, `candidates` (exact40hex commits), `chain_id`:84532,
+  `app_policy_sha256`, `repository`: `amiller/bounty-arcade`, optional `candidates` (display suggestions only), `chain_id`:84532,
   `contract` (lowercase address), `task_id` (actual receipt-derived decimalstring),
   plus selected public terms/checker/image/fee/reward/instructions descriptors.
 
@@ -58,7 +58,7 @@ writes only; CLI can omit Origin. Agent discovery: `GET /agent.json`.
    candidate, request ID, fresh nonce and expiry. No private key upload.
 3. `POST /api/attempts`
    `{request_id,candidate_commit,payee,authorization_id,wallet_authorization:{signature},capability}`.
-   Exact request retries recover the same attempt; altered retries/replays refuse.
+   Any lowercase40hex candidate commit may register against the fixed published repository. The trusted factory must resolve that exact immutable commit from this repository/its PR refs, prove the required base39-file projection and permit changes only to the three board files before preparing execution. No arbitrary repository, URL, branch, ref or path is accepted from an HTTP caller. Exact request retries recover the same attempt; altered retries/replays refuse.
 4. `POST /api/registrations/challenge`
    `{request_id,payee,authorization_id,wallet_authorization:{signature},node_capability}`.
    Client generates/preserves private32-byte-base64url node_capability. Returns
@@ -81,9 +81,7 @@ writes only; CLI can omit Origin. Agent discovery: `GET /agent.json`.
    Complete with POST samepath `/complete` `{request_id}`. Unknown partial writes
    retain residue and refuse implicit overwrites. Final verify is once-only;
    errors remain errors, not retried as a successful run.
-8. `GET /api/attempts/:id` gives safe status. `/claim` queues trusted chain work
-   only after full bound functional success; returns exact signed/unsigned claim
-   transactions when ready. Signature issuance still requires fresh actual
+8. `GET /api/attempts/:id` gives safe status. GET `/claim` is read-only and returns current claim data/status. Capability-authenticated POST `/claim` `{request_id}` queues a fresh once-journaled chain observation only after full bound functional success; exact retries recover the same job. This supports submitting the immutable commitments first, obtaining signatures only after actual Submitted state, then resolve/withdraw/received progression. No prospective signature or fabricated receipt is implied. Signature issuance still requires fresh actual
    chain/task/assignment/payee/commitment/deadline checks in the selected actor.
 
 The public site connects a local browser wallet, signs authorization and displays

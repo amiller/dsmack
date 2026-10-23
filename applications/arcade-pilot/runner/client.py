@@ -10,8 +10,9 @@ need=_scope['need'];read=_scope['read'];doc=_scope['document'];canonical=_scope[
 class API:
     def __init__(self,url,allow_loopback=False):
         self.url=urllib.parse.urlsplit(url);u=self.url
-        need(not u.username and not u.password and not u.query and not u.fragment and u.path in ('','/'),'API must be an origin')
+        need(not u.username and not u.password and not u.query and not u.fragment and re.fullmatch(r'(?:/[A-Za-z0-9_-]+)*/?',u.path)is not None,'API must be a protected origin with a simple optional prefix')
         need(u.scheme=='https' or (allow_loopback and u.scheme=='http' and u.hostname in ('127.0.0.1','::1')),'HTTPS required; explicit loopback development only')
+        self.prefix=u.path.rstrip('/')
     def request(self,method,path,body=None,capability=None,headers=None,raw=False):
         need(path.startswith('/api/') and not any(x in path for x in ('?','#','..')),'closed API path')
         h=dict(headers or {});h['Accept']='application/json'
@@ -21,12 +22,12 @@ class API:
         if body is not None:h['Content-Length']=str(len(body))
         c=(http.client.HTTPSConnection if self.url.scheme=='https' else http.client.HTTPConnection)(self.url.hostname,self.url.port,timeout=120)
         try:
-            c.request(method,path,body,headers=h);r=c.getresponse();b=r.read((1<<20)+1)
+            c.request(method,self.prefix+path,body,headers=h);r=c.getresponse();b=r.read((1<<20)+1)
             need(len(b)<=1<<20 and 200<=r.status<300,'API refused request; retained state permits explicit reconciliation')
             return doc(b) if b else {}
         finally:c.close()
     def fetch(self,d,path,capability=None):
-        u=urllib.parse.urlsplit(d['url']);need((u.scheme,u.netloc)==(self.url.scheme,self.url.netloc) and not u.query and not u.fragment and not u.username and '..' not in u.path,'same-origin artifact URL required')
+        u=urllib.parse.urlsplit(d['url']);need((u.scheme,u.netloc)==(self.url.scheme,self.url.netloc) and not u.query and not u.fragment and not u.username and '..' not in u.path and u.path.startswith(self.prefix+'/api/'),'same-origin artifact URL required')
         c=(http.client.HTTPSConnection if u.scheme=='https' else http.client.HTTPConnection)(u.hostname,u.port,timeout=120)
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         try:

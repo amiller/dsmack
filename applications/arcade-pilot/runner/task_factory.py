@@ -12,7 +12,7 @@ CONFIG='61c8f50f8b46b3badde245be0635dcaa1b530a3e87a8641d3a9ccc648c49ed76'
 BASE='5c76d40e77db1f4864dabd4b9398d02589cff330';SELECTOR='bounty-board-search-primary-review-v1'
 ALLOWED={'apps/board/index.html','apps/board/logic.js','apps/board/ui.js'}
 CHECKER={'check.py':'607ea431bc4a897579d18ef5ef6ff4405e42b5597d15a1a33a7e917cbede4e16','browser.mjs':'65a9d6b1f2925eb7a08296b213d6bbf5a0587282dc1109f1229e1ac49accb271','base-files.json':'f4ad467a335c432de3339c80a620abe44630679095ec79a9ddb6f4fdae034260'}
-FILES=[('driver','/workspace/inputs/driver.py',65536),('checker','/checker/check.py',65536),('browser','/checker/browser.mjs',65536),('basefiles','/checker/base-files.json',65536),('base','/workspace/inputs/base.json',16777216),('candidate','/workspace/inputs/candidate.json',16777216),('request','/workspace/inputs/request.json',65536)]
+FILES=[('driver','/workspace/inputs/driver.py',65536),('checker','/workspace/inputs/check.py',65536),('browser','/workspace/inputs/browser.mjs',65536),('basefiles','/workspace/inputs/base-files.json',65536),('base','/workspace/inputs/base.json',16777216),('candidate','/workspace/inputs/candidate.json',16777216),('request','/workspace/inputs/request.json',65536)]
 
 def selected(d,cap=1<<20):
     need(pin(d['path'],cap)==d,'publisher source changed');return read(d['path'],cap)
@@ -49,7 +49,7 @@ def manifest(config):
     m['docker_compose_file']=canonical({'services':{'checker':service}}).decode();m['harness']['version']='arcade-deterministic-checker-v1'
     m['allowed_files']=[{'slot':slot,'target':target,'mode':'ro','audience':'workload','required':True,'max_bytes':cap}for slot,target,cap in FILES]
     m['limits']={'output_max_bytes':268435456,'timeout_s':300,'workspace_max_bytes':268435456}
-    m['outputs']={'capture':['stdout','stderr'],'artifacts':[{'name':role+'-'+name.replace('.','-'),'path':'/workspace/artifacts/'+role+'/'+name}for role in ('baseline','candidate')for name in ('checker-result.json','final.png','trace.zip','video.webm')]}
+    m['outputs']={'capture':['stdout','stderr'],'artifacts':[{'name':role+'-'+name.replace('.','-'),'path':'/workspace/artifacts/'+role+'-'+name}for role in ('baseline','candidate')for name in ('checker-result.json','final.png','trace.zip','video.webm')]}
     return m
 
 def guest_modules(config):

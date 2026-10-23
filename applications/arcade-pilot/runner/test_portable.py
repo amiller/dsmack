@@ -16,9 +16,10 @@ class Portable(unittest.TestCase):
   p.chmod(0o666)
   with self.assertRaises(ValueError):scope['read'](p)
  def test_http_and_userinfo_refused(self):
-  for url in ('http://example.com','https://user:password@example.com','https://example.com/path'):
+  for url in ('http://example.com','https://user:password@example.com','https://example.com/bad/../path'):
    with self.assertRaises(ValueError):client['API'](url)
   client['API']('http://127.0.0.1:8788',True)
+  self.assertEqual(client['API']('https://example.com/arcade-pilot').prefix,'/arcade-pilot')
  def test_cross_origin_download_refused_before_file(self):
   api=client['API']('https://example.com')
   with self.assertRaises(ValueError):api.fetch({'url':'https://other.example/file'},self.root/'x')

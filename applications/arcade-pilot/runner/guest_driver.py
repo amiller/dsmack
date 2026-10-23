@@ -21,8 +21,8 @@ def main():
  need(base_hash==request['base_tree_sha256']and candidate_hash==request['candidate_tree_sha256'],'input tree binding')
  checks={}
  for role,source,expected in (('baseline',base,3),('candidate',candidate,0)):
-  out=art/role;out.mkdir(mode=0o700)
-  proc=subprocess.run(['/usr/bin/python3','-I','-B','/checker/check.py','--base-dir',str(base),'--candidate-dir',str(source),'--out',str(out)],env={'HOME':str(state),'PATH':'/usr/bin:/bin','PLAYWRIGHT_BROWSERS_PATH':'/ms-playwright'},stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
+  out=state/(role+'-outputs');out.mkdir(mode=0o700)
+  proc=subprocess.run(['/usr/bin/python3','-I','-B','/workspace/inputs/check.py','--base-dir',str(base),'--candidate-dir',str(source),'--out',str(out)],env={'HOME':str(state),'PATH':'/usr/bin:/bin','PLAYWRIGHT_BROWSERS_PATH':'/ms-playwright'},stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120)
   need(len(proc.stdout)<=65536 and len(proc.stderr)<=65536,'checker output bound')
   result=json.loads((out/'checker-result.json').read_bytes());checks[role]=result
   need(proc.returncode==expected and result['schema']=='dsmack-arcade-checker-result/1','typed checker execution')
@@ -32,6 +32,9 @@ def main():
   need({x['name']for x in result['artifacts']}=={'final.png','trace.zip','video.webm'},'complete media')
   for d in result['artifacts']:
    b=(out/d['name']).read_bytes();need(len(b)==d['bytes']and hashlib.sha256(b).hexdigest()==d['sha256'],'media digest')
+  for name in ('checker-result.json','final.png','trace.zip','video.webm'):
+   b=(out/name).read_bytes()
+   with (art/(role+'-'+name)).open('xb')as exported:exported.write(b)
  # No worker/candidate supplied success flag is consulted.
  print(json.dumps({'baseline':'functional_failure','candidate':'passed','native_outcome':'completed','candidate_tree_sha256':candidate_hash}))
 if __name__=='__main__':

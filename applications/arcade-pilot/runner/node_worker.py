@@ -22,7 +22,7 @@ def main():
             if time.monotonic()>=deadline:print(json.dumps({'queued_task_available':False,'vm_launched':False}));return
             time.sleep(5)
     packet=lease['execution'];attempt=lease['attempt_id'];need(packet['attempt_id']==attempt and packet['key_id']==reg['key_id'],'node task binding')
-    local=root/attempt
+    local=p['task_directory'](root,attempt)
     if (local/'CLEANUP-COMPLETE.json').exists():print(read(local/'CLEANUP-COMPLETE.json').decode());return
     if not local.exists():task=p['materialize'](cfg,packet,reg['key_id'],root,api.fetch)
     else:task=local/'task.json';need(doc(read(local/'execution-packet.json'))==packet,'saved execution changed')

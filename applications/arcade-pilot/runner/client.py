@@ -12,7 +12,7 @@ class API:
         self.url=urllib.parse.urlsplit(url);u=self.url
         need(not u.username and not u.password and not u.query and not u.fragment and re.fullmatch(r'(?:/[A-Za-z0-9_-]+)*/?',u.path)is not None,'API must be a protected origin with a simple optional prefix')
         need(u.scheme=='https' or (allow_loopback and u.scheme=='http' and u.hostname in ('127.0.0.1','::1')),'HTTPS required; explicit loopback development only')
-        self.prefix=u.path.rstrip('/')
+        self.prefix=u.path.rstrip('/');self.resume_download=False
     def request(self,method,path,body=None,capability=None,headers=None,raw=False):
         need(path.startswith('/api/') and not any(x in path for x in ('?','#','..')),'closed API path')
         h=dict(headers or {});h['Accept']='application/json'
@@ -28,10 +28,22 @@ class API:
         finally:c.close()
     def fetch(self,d,path,capability=None):
         u=urllib.parse.urlsplit(d['url']);need((u.scheme,u.netloc)==(self.url.scheme,self.url.netloc) and not u.query and not u.fragment and not u.username and '..' not in u.path and u.path.startswith(self.prefix+'/api/'),'same-origin artifact URL required')
-        fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
+        existing=Path(path).exists()
+        if existing:
+            need(self.resume_download,'existing download requires explicit reconciliation');p=protected(path);st=p.stat()
+            need(st.st_uid==os.getuid() and not st.st_mode&0o077 and st.st_size<=d['bytes'],'unprotected partial download')
+        fd=os.open(path,(os.O_RDWR if existing else os.O_WRONLY|os.O_CREAT|os.O_EXCL)|os.O_NOFOLLOW,0o600)
         try:
+            if existing:
+                held=os.fstat(fd);need((held.st_dev,held.st_ino,held.st_size,held.st_mtime_ns,held.st_ctime_ns)==(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns),'partial changed before open')
             n=0;digest=hashlib.sha256()
-            with os.fdopen(fd,'wb',closefd=False) as f:
+            with os.fdopen(fd,'r+b' if existing else 'wb',closefd=False) as f:
+                if existing:
+                    while True:
+                        prefix=f.read(4<<20)
+                        if not prefix:break
+                        digest.update(prefix);n+=len(prefix)
+                    after=os.fstat(fd);need(n==held.st_size and (after.st_size,after.st_mtime_ns,after.st_ctime_ns)==(held.st_size,held.st_mtime_ns,held.st_ctime_ns),'partial changed while hashing')
                 while n<d['bytes']:
                     end=min(n+(4<<20),d['bytes'])-1
                     c=(http.client.HTTPSConnection if u.scheme=='https' else http.client.HTTPConnection)(u.hostname,u.port,timeout=120)
@@ -79,7 +91,7 @@ def main():
         a=sub.add_parser(name);a.add_argument('--authorization',required=True);a.add_argument('--wallet-signature',required=True);a.add_argument('--out',required=True)
     for name in ('prepare','check','run','resume','submit','status','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
-        if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self')
+        if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
     x=p.parse_args();need(sys.flags.isolated,'invoke Python with -I');cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
     if x.command=='authorization':
         request_id=secrets.token_hex(32);payload={'purpose':x.purpose,'payee':x.payee.lower(),'request_id':request_id,'candidate_commit':None}
@@ -124,9 +136,10 @@ def main():
             observed=api.request('GET',f'/api/attempts/{attempt}');packet=observed.get('execution')
             if not packet:print(json.dumps({'preparation_pending':True,'attempt_id':attempt,'retry_same_prepare_after_status':True}));return
         need(packet['attempt_id']==attempt,'wrong task packet')
-        if local.exists():
+        if local.exists() and not x.resume_download:
             need(doc(read(local/'execution-packet.json'))==packet and (local/'task.json').exists(),'partial or conflicting preparation; preserve state');print(json.dumps({'prepared':True,'existing_task':True,'use_check_or_resume':True}));return
-        task=_scope['materialize'](cfg,packet,registration['key_id'],parent,api.fetch)
+        api.resume_download=x.resume_download
+        task=_scope['materialize'](cfg,packet,registration['key_id'],parent,api.fetch,resume_download=x.resume_download)
         raise SystemExit(_scope['coordinator'](cfg,'prepare',task,local,packet['native_execution_id']))
     task=local/'task.json';packet=doc(read(local/'execution-packet.json'));native=packet['native_execution_id']
     if x.command=='submit':

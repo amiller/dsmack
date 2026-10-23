@@ -44,6 +44,13 @@ class Portable(unittest.TestCase):
    client['API']('https://example.com/arcade-pilot').fetch(d,self.root/'download')
    self.assertEqual(calls,[(0,4194303),(4194304,4194310)]);self.assertEqual((self.root/'download').read_bytes(),payload)
    with self.assertRaisesRegex(ValueError,'digest mismatch'):client['API']('https://example.com/arcade-pilot').fetch({**d,'sha256':'0'*64},self.root/'bad')
+   partial=self.root/'partial';partial.write_bytes(payload[:4194304]);partial.chmod(0o600)
+   api=client['API']('https://example.com/arcade-pilot')
+   with self.assertRaisesRegex(ValueError,'explicit reconciliation'):api.fetch(d,partial)
+   api.resume_download=True;calls.clear();api.fetch(d,partial)
+   self.assertEqual(calls,[(4194304,4194310)]);self.assertEqual(partial.read_bytes(),payload)
+   bad=self.root/'bad-prefix';bad.write_bytes(b'bad');bad.chmod(0o600)
+   with self.assertRaisesRegex(ValueError,'digest mismatch'):api.fetch(d,bad)
    Response.status=200
    with self.assertRaisesRegex(ValueError,'bounded artifact response'):client['API']('https://example.com/arcade-pilot').fetch(d,self.root/'unbounded')
   finally:client['http'].client.HTTPSConnection=old

@@ -28,7 +28,10 @@ python3 -I setup.py --api https://PUBLISHED-PILOT-ORIGIN \
 ```
 
 Setup authenticates the runtime, derives this Mac's bootstrap/paths and installs
-one selected runtime. It does not create a key or launch a VM. It never downloads
+one selected runtime. State defaults to `--home` plus `/s` to fit native Unix
+socket paths. Setup checks the actual helper-path budget before network access
+or installation. If your home path is too long, add `--state-dir /SHORT/OWNED/PATH`
+using a fresh directory under an existing protected parent. It does not create a key or launch a VM. It never downloads
 an interpreter. Partial installs are retained and never overwritten automatically.
 
 Use `client.py --config "$HOME/.dsmack-arcade/client.json" COMMAND ...`:

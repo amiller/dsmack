@@ -3,11 +3,27 @@ from pathlib import Path
 P=Path(__file__).parent
 scope={'__name__':'portable_test','__file__':str(P/'portable.py')};exec(compile((P/'portable.py').read_bytes(),str(P/'portable.py'),'exec'),scope)
 client={'__name__':'client_test','__file__':str(P/'client.py')};exec(compile((P/'client.py').read_bytes(),str(P/'client.py'),'exec'),client)
+setup={'__name__':'setup_test','__file__':str(P/'setup.py')};exec(compile((P/'setup.py').read_bytes(),str(P/'setup.py'),'exec'),setup)
 worker={'__name__':'worker_test','__file__':str(P/'worker.py')};exec(compile((P/'worker.py').read_bytes(),str(P/'worker.py'),'exec'),worker)
 class Portable(unittest.TestCase):
  def setUp(self):
   self.tmp=tempfile.TemporaryDirectory(prefix='.arcade-test-',dir=Path.home());self.root=Path(self.tmp.name);self.root.chmod(0o700)
  def tearDown(self):self.tmp.cleanup()
+ def test_setup_default_mac_path_and_early_long_path_refusal(self):
+  state=setup['state_directory'](Path('/Users/amiller/.dsmack-arcade'))
+  self.assertEqual(state,Path('/Users/amiller/.dsmack-arcade/s'))
+  with self.assertRaisesRegex(ValueError,'shorter owned state_dir'):
+   setup['state_directory'](Path('/Users/a-much-longer-account-name/.dsmack-arcade'))
+  chosen=Path.home()/('as-'+self.root.name[-4:])
+  short=setup['state_directory'](self.root/'installation',str(chosen))
+  self.assertEqual(short,chosen)
+  # main must refuse before reading the absent key or reaching the API/download.
+  import sys
+  old=sys.argv
+  try:
+   sys.argv=['setup.py','--api','https://never-contact.example','--home',str(self.root/('x'*100)),'--node','/missing-node','--public-key','/missing-key']
+   with self.assertRaisesRegex(ValueError,'shorter owned state_dir'):setup['main']()
+  finally:sys.argv=old
  def test_duplicate_document_refused(self):
   with self.assertRaises(ValueError):scope['document'](b'{"a":1,"a":2}')
  def test_symlink_and_world_write_refused(self):

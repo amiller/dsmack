@@ -161,15 +161,23 @@ class Bridge:
   if withdrawn is None:return self.packet(a,b,aid,'withdrawal_unobserved',received=False)
   return self.packet(a,b,aid,'received',received=True,payment_received=True,transaction_hash=withdrawn['transactionHash'],inclusion_not_finality=True)
  def event(self,signature,indexed,types,expected,start,end,minimum=None,sender=None,after=None):
-  topic='0x'+keccak(text=signature).hex();topics=[topic,*['0x'+x[2:].rjust(64,'0')for x in indexed]];logs=self.rpc('eth_getLogs',[{'address':CONTRACT,'fromBlock':start,'toBlock':end,'topics':topics}]);need(isinstance(logs,list)and len(logs)<=128,'event lookup bound')
-  for log in logs:
-   need(log['address'].lower()==CONTRACT and [x.lower()for x in log['topics']]==topics and not log.get('removed',False),'event identity');values=list(decode_hex(types,log['data']))
-   if expected is not None and values!=expected:continue
-   if minimum is not None and values[0]<minimum:continue
-   if after is not None and tuple(int(log[k],16)for k in ['blockNumber','transactionIndex','logIndex'])<=tuple(int(after[k],16)for k in ['blockNumber','transactionIndex','logIndex']):continue
-   r=self.rpc('eth_getTransactionReceipt',[log['transactionHash']]);need(r and int(r['status'],16)==1 and r['to'].lower()==CONTRACT and r['blockHash'].lower()==log['blockHash'].lower()and r['transactionHash'].lower()==log['transactionHash'].lower(),'successful event transaction')
-   if sender:need(r['from'].lower()==sender,'withdrawal signer')
-   block=self.rpc('eth_getBlockByNumber',[r['blockNumber'],False]);need(block['hash'].lower()==r['blockHash'].lower()and log in r['logs'],'canonical event receipt');return log
+  topic='0x'+keccak(text=signature).hex();topics=[topic,*['0x'+x[2:].rjust(64,'0')for x in indexed]]
+  first,last=int(start,16),int(end,16);window=200
+  need(0<=first<=last and (last-first)//window+1<=512,'event block-window bound')
+  total=0
+  for low in range(first,last+1,window):
+   high=min(low+window-1,last)
+   logs=self.rpc('eth_getLogs',[{'address':CONTRACT,'fromBlock':hex(low),'toBlock':hex(high),'topics':topics}])
+   need(isinstance(logs,list),'event lookup list');total+=len(logs);need(total<=128,'event lookup bound')
+   for log in logs:
+    need(low<=int(log['blockNumber'],16)<=high,'event outside requested window')
+    need(log['address'].lower()==CONTRACT and [x.lower()for x in log['topics']]==topics and not log.get('removed',False),'event identity');values=list(decode_hex(types,log['data']))
+    if expected is not None and values!=expected:continue
+    if minimum is not None and values[0]<minimum:continue
+    if after is not None and tuple(int(log[k],16)for k in ['blockNumber','transactionIndex','logIndex'])<=tuple(int(after[k],16)for k in ['blockNumber','transactionIndex','logIndex']):continue
+    r=self.rpc('eth_getTransactionReceipt',[log['transactionHash']]);need(r and int(r['status'],16)==1 and r['to'].lower()==CONTRACT and r['blockHash'].lower()==log['blockHash'].lower()and r['transactionHash'].lower()==log['transactionHash'].lower(),'successful event transaction')
+    if sender:need(r['from'].lower()==sender,'withdrawal signer')
+    block=self.rpc('eth_getBlockByNumber',[r['blockNumber'],False]);need(block['hash'].lower()==r['blockHash'].lower()and log in r['logs'],'canonical event receipt');return log
   return None
 
 def validation_envelope(raw):

@@ -115,4 +115,28 @@ class Tests(unittest.TestCase):
   def open_request(request,timeout):requests.append((request,timeout));return Response()
   with patch.object(w.urllib.request,'urlopen',side_effect=open_request):self.assertEqual(w.RPC('https://sepolia.base.org')('eth_chainId',[]),'0x14a34')
   req,timeout=requests[0];self.assertEqual(req.get_header('User-agent'),'dsmack-arcade-pilot/1');self.assertEqual(req.get_header('Content-type'),'application/json');self.assertEqual(timeout,20);self.assertEqual(w.parse(req.data),{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]})
+class EventPaginationTests(unittest.TestCase):
+ def fixture(self,range_error=False,bad_receipt=False):
+  topic='0x'+w.keccak(text='Resolved(uint256,uint8,uint256)').hex();log={'address':w.CONTRACT,'topics':[topic,'0x'+hex(10)[2:].rjust(64,'0')],'blockNumber':hex(205),'blockHash':'0x'+'5'*64,'transactionHash':'0x'+'6'*64,'data':'0x'+w.encode(['uint8','uint256'],[2,100]).hex()};windows=[]
+  def rpc(method,args):
+   if method=='eth_getLogs':
+    q=args[0];low,high=int(q['fromBlock'],16),int(q['toBlock'],16);windows.append((low,high));self.assertLessEqual(high-low+1,200)
+    if range_error and low==200:raise w.Refusal('synthetic provider range failure')
+    return [log]if low<=205<=high else[]
+   if method=='eth_getTransactionReceipt':return {'status':'0x1','to':w.CONTRACT,'from':PAYEE,'transactionHash':log['transactionHash'],'blockHash':log['blockHash'],'blockNumber':log['blockNumber'],'logs':[log]}
+   if method=='eth_getBlockByNumber':return {'hash':'0x'+('0'if bad_receipt else'5')*64}
+   raise AssertionError(method)
+  b=object.__new__(w.Bridge);b.rpc=rpc;return b,windows,log
+ def test_target_event_in_second_window_keeps_identity_and_receipt_checks(self):
+  b,windows,log=self.fixture();self.assertEqual(b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(550)),log);self.assertEqual(windows,[(0,199),(200,399)])
+ def test_provider_range_error_is_not_swallowed_or_relabelled_absent(self):
+  b,windows,_=self.fixture(range_error=True)
+  with self.assertRaisesRegex(w.Refusal,'provider range failure'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(550))
+  self.assertEqual(windows,[(0,199),(200,399)])
+ def test_paginated_target_with_noncanonical_receipt_still_refuses(self):
+  b,windows,_=self.fixture(bad_receipt=True)
+  with self.assertRaisesRegex(w.Refusal,'canonical event receipt'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(550))
+ def test_empty_windows_exact_tail_and_excessive_total_span_refuse(self):
+  b,windows,_=self.fixture();self.assertIsNone(b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[1,100],'0x0',hex(550)));self.assertEqual(windows,[(0,199),(200,399),(400,550)])
+  with self.assertRaisesRegex(w.Refusal,'window bound'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(200*512))
 if __name__=='__main__':unittest.main()

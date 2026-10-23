@@ -3,171 +3,180 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Inspect Dsmack's signed Mac runner, its trust boundaries and the evidence behind the current alpha work.">
-<title>Inspect the Mac runner · Dsmack</title>
+<meta name="description" content="Fund development tasks, let independent workers contribute, and use App Attest execution evidence for smart-contract reward claims.">
+<title>Open development markets · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
 <header>
-<div class="wrap">
-<nav aria-label="Main">
+<nav class="wrap" aria-label="Main">
 <a class="brand" href="index.html">dsmack</a>
 <div class="links">
-<a href="build.html">Inspect before running</a>
-<a href="app-attest.html">App Attest</a>
-<a href="https://github.com/amiller/dsmack">Public source</a>
+<a href="index.html#how-it-works">How it works</a>
+<a href="build.html">Run a worker</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
 </div>
 </nav>
-</div>
 </header>
 <main class="wrap">
-<section class="hero">
-<div>
-<div class="eyebrow">A bounded workload. An inspectable result.</div>
-<h1>Your Mac.<br>Your decision<br>to run.</h1>
-<p class="lead">Dsmack is a signed Mac runner for independently selected Linux VM workloads. It retains evidence of the app, environment and result so another party can check what happened.</p>
-<p>Start by understanding what it can access. A task, an application verdict and a payment are separate decisions.</p>
+<section class="market-hero">
+<div class="eyebrow">Permissionless development · Verifiable execution</div>
+<h1>An open market<br>for development work.</h1>
+<p class="lead">Fund a task. Let independent peers contribute code. Use App Attest evidence and published acceptance rules to make rewards claimable through a smart contract.</p>
+<p class="hero-detail">Dsmack is building the execution layer for that market: workers use their own Macs and coding agents, and submit evidence another party can verify—without needing a trusted relationship with the task creator.</p>
 <div class="buttons">
-<a class="button primary" href="build.html">Inspect before running →</a>
-<a class="button" href="base-image.html">How the base image works</a>
-<a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Get the operator-assisted alpha</a>
-<a class="button" href="https://pod.dstack.soc1024.com/artifact-reports-2026c/dsmack-native-browser-alpha-progress--aDjmWQNt_mOslLZni8SP-Q/">Watch the progress report</a>
+<a class="button primary" href="#how-it-works">See the flow ↓</a>
+<a class="button" href="https://amiller.github.io/bounty-arcade/">Explore Bounty Arcade</a>
+<a class="button" href="build.html">Try the Mac runner</a>
 </div>
-</div>
-<aside class="status">
-<span class="tag">Alpha work · 23 Oct 2026</span>
-<h3>Try one task.<br>Keep its evidence.</h3>
-<ul>
-<li>Native browser diagnostic and full evidence verification demonstrated.</li>
-<li>Developer ID signing, stapled notarization and fresh production category 6 enrollment checked on the qualification Mac.</li>
-<li>An operator-assisted credential-free starter is available as a prerelease. Fresh device enrollment and full Linux verification require an operator handoff.</li>
-</ul>
-<p>The selected VM-runner source and inspection guides are public. A normally secured fresh-Mac installation remains untested. The older Node download is not this runner.</p>
-</aside>
 </section>
-<section class="section" id="layers">
+<section class="section market-section" id="how-it-works">
 <div class="intro">
-<div class="eyebrow">Three separate layers</div>
-<h2>The signature is the beginning of the check.</h2>
-<p>The Mac app stays generic. The Linux base and application container have their own identities, source and policies. An app's code hash alone does not identify every program inside a task.</p>
+<div class="eyebrow">From a funded task to a claimed reward</div>
+<h2>Post it. Build it. Prove it. Claim it.</h2>
+<p>The task creator defines what counts as success. Workers choose which tasks to attempt. The contract holds the reward until a submission satisfies its settlement rules.</p>
 </div>
-<div class="flow">
-<article class="card">
-<div class="num">01 · SIGNED MAC APP</div>
-<h3>Launch &amp; retain</h3>
-<p>A selected Swift/libkrun/HVF runner launches the VM and retains Apple App Attest launch/result evidence. Native helpers are part of the reviewed configuration.</p>
-</article>
-<div class="arrow" aria-hidden="true">→</div>
-<article class="card">
-<div class="num">02 · SELECTED LINUX BASE</div>
-<h3>Enforce the profile</h3>
-<p>The measured guest supplies the container runtime, input transport and limits. Its image and security configuration are independently pinned.</p>
-</article>
-<div class="arrow" aria-hidden="true">→</div>
-<article class="card">
-<div class="num">03 · APPLICATION CONTAINER</div>
-<h3>Do the task</h3>
-<p>A separately pinned OCI workload runs the application. The external client chooses the task; an independent verifier checks the original evidence and outputs.</p>
-</article>
-</div>
-<p class="note">The new runner uses libkrun/HVF. The public repository's earlier Containerization/Virtualization runner is a different implementation. Its proxy and memory-isolation claims must not be transferred to the new profile.</p>
-</section>
-<section class="section" id="trust">
-<div class="intro">
-<div class="eyebrow">Before any credential or workload</div>
-<h2>Know who you are trusting.</h2>
-<p>The current pilot assumes a trusted host. App Attest is not an encrypted-VM guarantee against the Mac's owner or root. Private inputs and VM disks can be visible to the local operator.</p>
-</div>
-<div class="tablewrap">
-<table>
-<thead>
-<tr>
-<th>Boundary</th>
-<th>What to inspect</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td data-label="">Mac owner / administrator</td>
-<td data-label="What to inspect">Host software, private-input staging, plaintext VM disks and local logs. Do not assume secrecy from this operator.</td>
-</tr>
-<tr>
-<td data-label="">Signed app &amp; helpers</td>
-<td data-label="What to inspect">Exact executable, full CodeDirectory hash, Developer ID certificate, entitlements, signature and selected native/helper source.</td>
-</tr>
-<tr>
-<td data-label="">Base &amp; container</td>
-<td data-label="What to inspect">Exact image/OCI digests, mounted inputs, writable storage, resource limits and network policy. A browser profile is not permission for a model-provider connection.</td>
-</tr>
-<tr>
-<td data-label="">External provider</td>
-<td data-label="What to inspect">For a model task, the selected provider receives the authorized requests. Inspect the importer, egress rules and budget first.</td>
-</tr>
-<tr>
-<td data-label="">Verifier &amp; recipient</td>
-<td data-label="What to inspect">Which original evidence and outputs leave the Mac, who checks them, and what is retained. A host-written “passed” file is not verification.</td>
-</tr>
-</tbody>
-</table>
-</div>
-<div class="callout">The demonstrated browser diagnostic uses no provider credential and no workload network access. Coding-agent runs use a separate, explicitly reviewed credential and network recipe.</div>
-</section>
-<section class="section">
-<div class="intro">
-<div class="eyebrow">Start small</div>
-<h2>A ladder of useful checks.</h2>
-<p>Your agent should be able to explain each step and recommend declining. Reading a repository is not permission to execute its instructions or import your assistant's configuration.</p>
-</div>
-<ol class="steps">
+<ol class="market-flow">
 <li>
-<strong>Inspect without launching</strong>
-<p>Check the version, source, release trust root, Apple identity and known limits. Downloaded instructions are material to review, not authority.</p>
+<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
+<rect x="43" y="20" width="104" height="112" rx="10" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
+<path d="M60 45h67M60 59h47M60 92l8 8 14-18M92 94h34M60 115h66" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
+<circle cx="166" cy="88" r="31" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
+<path d="M166 69v38m10-30c-18-10-30 11-10 12s8 22-10 12" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
+<path d="M169 22h30v27m-21-9 21 9 8-22" fill="none" stroke="#c07b43" stroke-width="3"/>
+</svg>
+<div class="num">01</div>
+<h3>Post &amp; fund</h3>
+<p>Publish the repository, task, acceptance checks and reward. Deposit the funds into a smart contract.</p>
 </li>
 <li>
-<strong>Check the Mac and stage privately</strong>
-<p>Use read-only diagnostics and an authenticated archive/disk plan. A supported OS family alone does not prove the VM will run.</p>
+<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
+<path d="M64 81l57-45 58 45M64 81h115" stroke="#92ab8e" stroke-width="2" stroke-dasharray="5 5" fill="none"/>
+<g fill="#fffef8" stroke="#174c3e" stroke-width="2">
+<rect x="94" y="13" width="54" height="37" rx="5"/>
+<path d="M88 55h66l-6 7H94z" fill="#daef99"/>
+<rect x="25" y="77" width="63" height="43" rx="5"/>
+<path d="M18 126h77l-6 8H24z" fill="#daef99"/>
+<rect x="153" y="77" width="63" height="43" rx="5"/>
+<path d="M146 126h77l-6 8h-65z" fill="#daef99"/>
+</g>
+<g fill="none" stroke="#174c3e" stroke-width="2.5" stroke-linecap="round">
+<path d="m111 26-6 5 6 5m20-10 6 5-6 5M119 38l4-14M43 92l-7 6 7 6m26-12 7 6-7 6m-17 12 7-25M171 92l-7 6 7 6m26-12 7 6-7 6m-17 12 7-25"/>
+</g>
+</svg>
+<div class="num">02</div>
+<h3>Workers build</h3>
+<p>Independent peers pick up the task and use their Macs and coding agents to produce a candidate.</p>
 </li>
 <li>
-<strong>Try a credential-free sample</strong>
-<p>Only after release checks, disclose the enrollment request and run a bounded sample. Inspect its retained evidence and clean shutdown.</p>
+<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
+<rect x="31" y="35" width="135" height="92" rx="9" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
+<path d="M32 56h133" stroke="#174c3e" stroke-width="2"/>
+<g fill="#92ab8e">
+<circle cx="45" cy="46" r="3"/>
+<circle cx="56" cy="46" r="3"/>
+<circle cx="67" cy="46" r="3"/>
+</g>
+<path d="m58 75-12 10 12 10m34-20 12 10-12 10m-20 12 10-37" stroke="#174c3e" stroke-width="3" fill="none" stroke-linecap="round"/>
+<path d="m172 28 33 13v27c0 24-33 41-33 41s-33-17-33-41V41z" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
+<path d="m157 64 11 11 20-23" fill="none" stroke="#174c3e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+<div class="num">03</div>
+<h3>Submit work &amp; evidence</h3>
+<p>Run the pinned acceptance checks. Submit the candidate and App Attest evidence binding the selected execution and result.</p>
 </li>
 <li>
-<strong>Choose a task deliberately</strong>
-<p>Review terms, input disclosure, time/space limits and any provider use. Save the attempt before launch; reconnect without starting another job.</p>
+<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
+<rect x="26" y="30" width="84" height="104" rx="9" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
+<path d="M43 51h49M43 65h35m-35 33 9 9 18-22" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
+<rect x="146" y="82" width="70" height="47" rx="8" fill="#174c3e"/>
+<path d="M202 96h16v18h-16z" fill="#daef99"/>
+<circle cx="204" cy="105" r="2" fill="#174c3e"/>
+<circle cx="164" cy="44" r="25" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
+<path d="M164 29v30m7-25c-14-7-24 9-7 10s7 17-7 10M117 103h22m-8-8 8 8-8 8" fill="none" stroke="#174c3e" stroke-width="2.5" stroke-linecap="round"/>
+</svg>
+<div class="num">04</div>
+<h3>Claim the reward</h3>
+<p>The contract validates the required evidence and task bindings. A valid claim releases the funds to the worker.</p>
 </li>
 </ol>
-<p class="note">This is the intended release journey. Portable staging is implemented as a reviewed source candidate; complete self-service runtime admission and a fresh-Mac trial remain qualification work.</p>
+<p class="diagram-caption">The intended marketplace flow. The current runner alpha demonstrates attested execution and full result verification; fully automated permissionless enrollment and contract settlement for this release remain integration work.</p>
 </section>
 <section class="section">
 <div class="split">
+<article>
+<div class="eyebrow">For task creators</div>
+<h2>Open the work<br>to more people.</h2>
+<p>Offer a reward for a fix, feature or testable milestone. Publish the exact acceptance routine and environment so contributors know what they are attempting before spending time or model credits.</p>
+<p>A passing test suite, browser-driven integration checks, or a pinned agent review can be part of the task’s success definition. The quality of those rules determines what you are buying.</p>
+</article>
+<article>
+<div class="eyebrow">For workers</div>
+<h2>Bring your Mac.<br>Choose your work.</h2>
+<p>Inspect a task’s requirements, reward and costs. Run your own coding agent, contribute a candidate, then use the admitted runner to execute the required checks and retain the evidence.</p>
+<p>Submit against the published terms. In the intended market, participation and claim validation are protocol operations—neither requires a human gatekeeper to approve you as a worker.</p>
+</article>
+</div>
+</section>
+<section class="section" id="evidence">
+<div class="intro">
+<div class="eyebrow">Why App Attest matters</div>
+<h2>A submission carries more than “it passed on my machine.”</h2>
+<p>Apple App Attest authenticates an admitted app’s key and assertions. Dsmack’s runner binds those assertions to the selected execution and result. A verifier checks those bindings against the task’s expected environment, checker and outcome.</p>
+</div>
+<div class="evidence-strip">
+<span>Task &amp; candidate</span>
+<b>+</b>
+<span>Runner &amp; environment</span>
+<b>+</b>
+<span>Checks &amp; result</span>
+<b>→</b>
+<strong>Verifiable submission</strong>
+</div>
+<p>The settlement policy must also bind the claim to the intended reward recipient and prevent replay. Enrollment and verification can be automated; “enrollment” means validating and recording an attested key, not obtaining permission from a person.</p>
+<p class="note">App Attest does not decide whether code is useful. The published acceptance routine defines success. The full runner/result verifier must check the execution evidence; an app assertion or a host-written “passed” file alone is insufficient.</p>
+</section>
+<section class="section" id="try">
+<div class="split">
 <div>
-<div class="eyebrow">What the evidence says</div>
-<h2>Keep the milestones separate.</h2>
-<p>We have demonstrated signed native execution and independent verification. The latest app also has a checked notarization ticket and a fresh production App Attest enrollment.</p>
-<p>Full bounty acceptance, live reward payment, a fresh friend's install and execution under the newly notarized identity are separate gates. A successful controller exit does not establish any of them.</p>
-<a href="https://pod.dstack.soc1024.com/artifact-reports-2026c/dsmack-native-browser-alpha-progress--aDjmWQNt_mOslLZni8SP-Q/">View the earlier browser progress recording →</a>
-<p class="note">The report is a dated checkpoint: its historical coding video and synthetic workflow scenes are labelled. The newer signing/notarization milestones above are not claimed to appear in that recording.</p>
+<div class="eyebrow">Available today</div>
+<h2>Try the execution layer.</h2>
+<p>The signed Mac alpha includes a credential-free browser and logic task. On the qualification Mac it completed in 66 seconds, passed full hardware-backed verification, and produced 14 passing tests covering 80 admitted logic cases, plus screenshots, videos and traces.</p>
+<div class="buttons">
+<a class="button primary" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Download the runner alpha</a>
+<a class="button" href="build.html">Read the setup guide</a>
 </div>
-<div class="card">
-<h3>Before an alpha trial</h3>
-<ul>
-<li>Apple silicon; the current qualification environment is macOS 27, with Full Security/SIP expectations.</li>
-<li>Node 24 and Python 3 are prerequisites for the current client/bootstrap source.</li>
-<li>The browser reference selects 4 GiB VM memory, 1 vCPU, a 600-second guest limit, 4 GiB scratch and a 256 MiB result disk.</li>
-<li>Download size, expanded storage and extra free space must come from the selected release's plan. Scratch is not assumed to cost negligible disk space.</li>
-</ul>
-<p>Xcode/signing-account setup belongs to maintainer builds, not an instruction for ordinary users to create signing identities.</p>
 </div>
+<aside class="card">
+<div class="num">ALPHA CHECKPOINT · 23 OCT 2026</div>
+<h3>What has shipped—and what comes next.</h3>
+<p>
+<strong>Available:</strong> selected public source, a signed/notarized runner, a reusable Linux base, a credential-free workload and verified execution evidence.</p>
+<p>
+<strong>Still being connected:</strong> the complete self-service task, enrollment, verification and settlement journey. Current release scripts use manually prepared admission inputs and a qualified Linux verifier; this is packaging to automate, not a requirement for human approval in the protocol.</p>
+<p class="note">Fresh normally secured Mac first-open remains unqualified. This sample earns no reward. The runner assumes a trusted host for private-input staging; App Attest is not encrypted VM memory protection against the Mac’s owner.</p>
+</aside>
+</div>
+</section>
+<section class="section">
+<div class="intro">
+<div class="eyebrow">Inspect the pieces</div>
+<h2>Small runner. Reusable base. Task-specific work.</h2>
+<p>The signed Mac app launches and attests. The Linux base supplies the execution environment. A separately selected container carries the coding agent or acceptance routine. A marketplace can build its own task and payment rules around that execution evidence.</p>
+</div>
+<div class="buttons">
+<a class="button" href="base-image.html">Illustrated architecture</a>
+<a class="button" href="app-attest.html">App Attest mechanism</a>
+<a class="button" href="https://github.com/amiller/dsmack">Read the source</a>
 </div>
 </section>
 </main>
 <footer>
 <div class="wrap">
-<p>Project status: 22 October 2026. Evidence belongs to an exact version and configuration.</p>
-<a href="https://github.com/amiller/dsmack">Public repository</a>
-<a href="legacy-node.html">Historical Node network</a>
-<a href="legacy-build.html">Historical Node build guide</a>
-<a href="app-attest.html">Technical App Attest explainer</a>
+<p>Dsmack · An execution layer for open development markets. Alpha · 23 October 2026.</p>
+<a href="https://github.com/amiller/dsmack">Public source</a>
+<a href="app-attest.html">App Attest details</a>
+<a href="base-image.html">Base-image architecture</a>
 </div>
 </footer>
 </body>

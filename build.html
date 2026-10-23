@@ -13,7 +13,7 @@
 <nav aria-label="Main">
 <a class="brand" href="index.html">dsmack</a>
 <div class="links">
-<a href="build.html">Inspect before running</a>
+<a href="index.html#how-it-works">How it works</a>
 <a href="app-attest.html">App Attest</a>
 <a href="https://github.com/amiller/dsmack">Public source</a>
 </div>
@@ -24,11 +24,11 @@
 <section class="smallhero">
 <div class="eyebrow">For you and your personal agent</div>
 <h1>Inspect first.<br>Run only what you select.</h1>
-<p class="lead">A release should answer what it does, what it can access, and which checks support those claims—before asking for a credential or a VM launch.</p>
+<p class="lead">Use the Mac runner to produce verifiable execution evidence for development tasks. Begin with the credential-free starter, then inspect how the app, Linux base and task container fit together.</p>
 </section>
 <section class="section">
 <h2>First, identify the product.</h2>
-<p>The public repository now contains selected source for the generic libkrun/HVF runner, participant client and inspection tools. Start with its README and explicit source-selection manifest. The credential-free starter is an operator-assisted prerelease; the old Node download is not this application. A new Mac still needs an enrollment and admitted-task handoff. Full VM-result verification uses the qualified Linux environment.</p>
+<p>The public repository now contains selected source for the generic libkrun/HVF runner, participant client and inspection tools. Start with its README and explicit source-selection manifest. The credential-free starter is an operator-assisted prerelease; the old Node download is not this application. The current release scripts use prepared enrollment/admission inputs and a qualified Linux verifier. These steps can be automated; the protocol does not require a person to approve each worker or submission.</p>
 <div class="buttons">
 <a class="button" href="https://github.com/amiller/dsmack">Inspect today's public source</a>
 <a class="button" href="base-image.html">Base image and task proofs</a>
@@ -36,7 +36,7 @@
 <a class="button" href="https://github.com/amiller/dsmack/blob/main/docs/pilot/friend-invitation.md">Read the invitation guide</a>
 <a class="button" href="legacy-build.html">Historical Node build documentation</a>
 </div>
-<div class="callout">No runnable new-alpha download command is supplied here. Wait for the reviewed release inventory, package and independently selected public trust root. Never bypass Gatekeeper or copy a maintainer's private keys.</div>
+<div class="callout">Download the runtime-only ZIP from the alpha release, extract it, and read FRIEND-START-HERE.txt. It includes the supported setup and signed inventory. The large optional source archives are not runtime prerequisites. Keep Gatekeeper enabled and authenticate the release trust root independently.</div>
 </section>
 <section class="section">
 <h2>The agent's review packet</h2>
@@ -108,7 +108,7 @@
 <div class="card">
 <h3>Known limits of this checkpoint</h3>
 <ul>
-<li>The new alpha package and runtime admission journey are not publicly available yet.</li>
+<li>The signed alpha package is public. The full self-service marketplace flow remains integration work.</li>
 <li>The qualification Mac had global Gatekeeper assessments disabled. Direct signature, stapler and distribution checks passed; a quarantined fresh-Mac open remains unqualified.</li>
 <li>App Attest's fraud receipt is retained but not validated by the current verifier.</li>
 <li>The pilot trusts the host; it does not protect private staging or disks from root.</li>
@@ -119,19 +119,19 @@
 </section>
 <section class="section">
 <h2>Read the underlying mechanisms.</h2>
-<p>These links resolve to currently public material. They explain existing components, not the unpublished alpha's complete source closure.</p>
+<p>These links resolve to currently public material. Start with the selected runner source and its explicit source-selection manifest.</p>
 <ul>
 <li>
 <a href="app-attest.html">App Attest technical explainer</a>
 </li>
 <li>
-<a href="https://github.com/amiller/dsmack/tree/main/verifier">Public offline Apple verifier</a>
+<a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Selected full VM-result verifier</a>
 </li>
 <li>
-<a href="https://github.com/amiller/dsmack/tree/main/runner">Earlier Containerization/Virtualization runner</a>
+<a href="https://github.com/amiller/dsmack/tree/main/runner-vm">Current signed runner source</a>
 </li>
 <li>
-<a href="https://github.com/amiller/dsmack/tree/main/experiments">Recorded public experiments</a>
+<a href="https://github.com/amiller/dsmack/blob/main/docs/pilot/friend-invitation.md">Friend invitation guide</a>
 </li>
 <li>
 <a href="https://pod.dstack.soc1024.com/artifact-reports-2026c/dsmack-native-browser-alpha-progress--aDjmWQNt_mOslLZni8SP-Q/">Dated native-browser progress artifact</a>
@@ -142,7 +142,7 @@
 </main>
 <footer>
 <div class="wrap">
-<p>Project status: 22 October 2026. Evidence belongs to an exact version and configuration.</p>
+<p>Project status: 23 October 2026. Evidence belongs to an exact version and configuration.</p>
 <a href="https://github.com/amiller/dsmack">Public repository</a>
 <a href="legacy-node.html">Historical Node network</a>
 <a href="legacy-build.html">Historical Node build guide</a>

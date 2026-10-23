@@ -28,21 +28,27 @@ class API:
         finally:c.close()
     def fetch(self,d,path,capability=None):
         u=urllib.parse.urlsplit(d['url']);need((u.scheme,u.netloc)==(self.url.scheme,self.url.netloc) and not u.query and not u.fragment and not u.username and '..' not in u.path and u.path.startswith(self.prefix+'/api/'),'same-origin artifact URL required')
-        c=(http.client.HTTPSConnection if u.scheme=='https' else http.client.HTTPConnection)(u.hostname,u.port,timeout=120)
         fd=os.open(path,os.O_WRONLY|os.O_CREAT|os.O_EXCL|os.O_NOFOLLOW,0o600)
         try:
-            h={}
-            if capability is not None:h['Authorization']='Bearer '+capability
-            c.request('GET',u.path,headers=h);r=c.getresponse();need(r.status==200 and r.getheader('Content-Encoding') in (None,'identity'),'artifact response refused')
-            n=0;h=hashlib.sha256()
+            n=0;digest=hashlib.sha256()
             with os.fdopen(fd,'wb',closefd=False) as f:
-                while True:
-                    b=r.read(min(4<<20,d['bytes']+1-n))
-                    if not b:break
-                    n+=len(b);need(n<=d['bytes'],'artifact size exceeded');h.update(b);f.write(b)
+                while n<d['bytes']:
+                    end=min(n+(4<<20),d['bytes'])-1
+                    c=(http.client.HTTPSConnection if u.scheme=='https' else http.client.HTTPConnection)(u.hostname,u.port,timeout=120)
+                    try:
+                        headers={'Range':f'bytes={n}-{end}'}
+                        if capability is not None:headers['Authorization']='Bearer '+capability
+                        c.request('GET',u.path,headers=headers);r=c.getresponse()
+                        need(r.status==206 and r.getheader('Content-Encoding') in (None,'identity'),'bounded artifact response refused')
+                        need(r.getheader('Content-Length')==str(end-n+1),'bounded artifact length refused')
+                        content_range=r.getheader('Content-Range')
+                        need(content_range in (None,f'bytes {n}-{end}/{d["bytes"]}'),'artifact range mismatch')
+                        chunk=r.read(end-n+2);need(len(chunk)==end-n+1,'artifact range truncated or exceeded')
+                        f.write(chunk);digest.update(chunk);n+=len(chunk)
+                    finally:c.close()
                 f.flush();os.fsync(fd)
-            need(n==d['bytes'] and h.hexdigest()==d['sha256'],'artifact digest mismatch')
-        finally:os.close(fd);c.close()
+            need(n==d['bytes'] and digest.hexdigest()==d['sha256'],'artifact digest mismatch')
+        finally:os.close(fd)
 
 def state(path):
     p=protected(path);need(p.stat().st_uid==os.getuid() and not p.stat().st_mode&0o077,'private client state required');return doc(read(p))

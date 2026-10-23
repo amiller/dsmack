@@ -24,6 +24,29 @@ class Portable(unittest.TestCase):
   api=client['API']('https://example.com')
   with self.assertRaises(ValueError):api.fetch({'url':'https://other.example/file'},self.root/'x')
   self.assertFalse((self.root/'x').exists())
+ def test_bounded_download_and_final_hash(self):
+  import io
+  payload=b'x'*(4194304+7);calls=[]
+  class Response:
+   status=206
+   def __init__(self,start,end):self.start=start;self.end=end
+   def getheader(self,name):return {'Content-Length':str(self.end-self.start+1)}.get(name)
+   def read(self,limit):return payload[self.start:self.end+1]
+  class Connection:
+   def __init__(self,*a,**k):pass
+   def request(self,method,path,headers):
+    span=headers['Range'].split('=')[1];self.start,self.end=map(int,span.split('-'));calls.append((self.start,self.end))
+   def getresponse(self):return Response(self.start,self.end)
+   def close(self):pass
+  old=client['http'].client.HTTPSConnection;client['http'].client.HTTPSConnection=Connection
+  try:
+   d={'url':'https://example.com/arcade-pilot/api/artifacts/a/workload.img','bytes':len(payload),'sha256':hashlib.sha256(payload).hexdigest()}
+   client['API']('https://example.com/arcade-pilot').fetch(d,self.root/'download')
+   self.assertEqual(calls,[(0,4194303),(4194304,4194310)]);self.assertEqual((self.root/'download').read_bytes(),payload)
+   with self.assertRaisesRegex(ValueError,'digest mismatch'):client['API']('https://example.com/arcade-pilot').fetch({**d,'sha256':'0'*64},self.root/'bad')
+   Response.status=200
+   with self.assertRaisesRegex(ValueError,'bounded artifact response'):client['API']('https://example.com/arcade-pilot').fetch(d,self.root/'unbounded')
+  finally:client['http'].client.HTTPSConnection=old
  def test_original_membership_and_caps(self):
   for name in scope['ORIGINALS']:(self.root/name).write_bytes(b'x');(self.root/name).chmod(0o600)
   rows=scope['evidence_manifest'](self.root);self.assertEqual(len(rows),21)

@@ -15,7 +15,15 @@ The trusted Node executable is fixed at `/usr/bin/node`; its only external modul
 is `/opt/checker/node_modules/playwright/index.mjs` in the pinned runtime image.
 There is no caller-selectable command, module path or environment injection.
 
-The runtime supplies read-only complete source snapshots. The base is exactly
+The runtime supplies read-only projected source snapshots, not arbitrary Git
+working directories. Policy `frozen-base39+candidate-board3/v1` resolves the
+public full candidate commit from the fixed repository, starts with the frozen
+39-file base, and overlays only that commit's three allowed board files. Other
+files in the candidate Git commit (including package, tests and bounty files)
+are not executed, imported or copied into this projection. The request must bind
+both the full candidate Git commit and the resulting projected tree digest.
+
+The base is exactly
 `5c76d40e77db1f4864dabd4b9398d02589cff330`; reference checker input is
 `82323836a672b799ac8f9f74265498f97438cd02`. Only `apps/board/index.html`,
 `apps/board/logic.js`, and `apps/board/ui.js` may differ. An unchanged base is a

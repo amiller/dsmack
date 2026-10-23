@@ -4,7 +4,11 @@ These three files were authored in this lane by reading the frozen
 `5c76d40e77db1f4864dabd4b9398d02589cff330` board source and published search
 requirements. They do not copy a contributor PR or a previous paid candidate.
 Overlay only these files onto the complete frozen 39-file base source snapshot.
-All other source bytes must remain unchanged. No package/test/config changes.
+All other projected source bytes must remain unchanged. No candidate
+package/test/config files enter execution. A candidate commit may contain other
+repository changes; the trusted factory ignores them under the explicit
+`frozen-base39+candidate-board3/v1` projection policy and binds the full Git
+commit separately from this projected-tree digest.
 
 The patch adds an exported pure filter, a transient search control, filtered
 counts and rendering. Card controls keep their original underlying-board indices;

@@ -18,8 +18,8 @@ export function server(pilot,{basePath='',maxConnections=64,workerTokenHash}={})
    const reg=/^\/api\/registrations\/([a-f0-9]{32})$/.exec(path);if(method==='GET'&&reg){const r=pilot.get('registration',reg[1]);return send(res,{registration_id:r.id,state:r.state,enrollment:r.enrollment,pending_job_id:r.pending_job_id??null});}
    if(method==='POST'&&path==='/api/nodes/lease'){const raw=await body(req,4096);const v=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));const cap=/^Bearer ([A-Za-z0-9_-]{43})$/.exec(req.headers.authorization??'')?.[1];const lease=pilot.nodeLease(v,cap);if(!lease){res.writeHead(204);res.end();return;}return send(res,lease);}
    const wm=/^\/api\/worker\/(lease|jobs\/([a-f0-9]{32})\/(result|files|artifacts)(?:\/([^/]+))?)$/.exec(path);
-   if(wm){workerAuth(req,workerTokenHash);if(method==='GET'&&wm[3]==='files'&&wm[4])return file(res,pilot.jobFile(wm[2],decodeURIComponent(wm[4])));const raw=await body(req,method==='PUT'?4194304:524288);let v;if(method!=='PUT'){try{v=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{throw new Refusal('invalid worker JSON');}}if(method==='POST'&&wm[1]==='lease'){const leased=pilot.lease(v);if(!leased){res.writeHead(204);res.end();return;}return send(res,leased);}if(method==='POST'&&wm[3]==='result')return send(res,pilot.jobResult(wm[2],v));if(method==='POST'&&wm[3]==='artifacts'&&!wm[4])return send(res,pilot.artifactManifest(wm[2],v));if(method==='PUT'&&wm[3]==='artifacts'&&wm[4])return send(res,pilot.artifactChunk(wm[2],decodeURIComponent(wm[4]),req.headers['content-range'],raw));throw new Refusal('worker route not found',404);}
-   const artifact=/^\/api\/artifacts\/([a-f0-9]{32})\/([^/]+)$/.exec(path);if(method==='GET'&&artifact)return file(res,pilot.artifactFile(artifact[1],decodeURIComponent(artifact[2])));
+   if(wm){workerAuth(req,workerTokenHash);if(method==='GET'&&wm[3]==='files'&&wm[4])return file(req,res,pilot.jobFile(wm[2],decodeURIComponent(wm[4])));const raw=await body(req,method==='PUT'?4194304:524288);let v;if(method!=='PUT'){try{v=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));}catch{throw new Refusal('invalid worker JSON');}}if(method==='POST'&&wm[1]==='lease'){const leased=pilot.lease(v);if(!leased){res.writeHead(204);res.end();return;}return send(res,leased);}if(method==='POST'&&wm[3]==='result')return send(res,pilot.jobResult(wm[2],v));if(method==='POST'&&wm[3]==='artifacts'&&!wm[4])return send(res,pilot.artifactManifest(wm[2],v));if(method==='PUT'&&wm[3]==='artifacts'&&wm[4])return send(res,pilot.artifactChunk(wm[2],decodeURIComponent(wm[4]),req.headers['content-range'],raw));throw new Refusal('worker route not found',404);}
+   const artifact=/^\/api\/artifacts\/([a-f0-9]{32})\/([^/]+)$/.exec(path);if(method==='GET'&&artifact)return file(req,res,pilot.artifactFile(artifact[1],decodeURIComponent(artifact[2])));
    const m=/^\/api\/attempts\/([a-f0-9]{32})(?:\/(execution|evidence|claim)(?:\/([a-f0-9]{32})(?:\/([^/]+))?)?)?$/.exec(path);
    if(method==='GET'&&m&&!m[2])return send(res,pilot.publicAttempt(pilot.get('attempt',m[1])));
    if(method==='GET'&&m&&m[2]==='claim')return send(res,await pilot.claim(m[1]));
@@ -41,7 +41,22 @@ export function server(pilot,{basePath='',maxConnections=64,workerTokenHash}={})
   }catch(e){send(res,{error:e instanceof Refusal?e.message:'operation refused; retained state requires inspection'},e instanceof Refusal?e.status:502);}
  });s.maxConnections=maxConnections;s.requestTimeout=60000;s.headersTimeout=15000;return s;
 }
-function file(res,f){res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':f.bytes,'ETag':'"'+f.sha256+'"'});createReadStream(f.path).pipe(res);}
+export function closedRange(header,bytes){
+ if(header===undefined)return null;
+ const m=typeof header==='string'&&/^bytes=(0|[1-9][0-9]*)-(0|[1-9][0-9]*)$/.exec(header);
+ need(m,'one closed byte range required',416);
+ const start=Number(m[1]),end=Number(m[2]);
+ need(Number.isSafeInteger(start)&&Number.isSafeInteger(end)&&start<=end&&end<bytes&&end-start+1<=4194304,'byte range outside bounds',416);
+ return {start,end,length:end-start+1};
+}
+function file(req,res,f){
+ let range;try{range=closedRange(req.headers.range,f.bytes);}catch(e){res.setHeader('Content-Range','bytes */'+f.bytes);throw e;}
+ const headers={'Content-Type':'application/octet-stream','Content-Length':range?.length??f.bytes,'ETag':'"'+f.sha256+'"','Accept-Ranges':'bytes'};
+ if(range)headers['Content-Range']=`bytes ${range.start}-${range.end}/${f.bytes}`;
+ res.writeHead(range?206:200,headers);
+ const stream=createReadStream(f.path,range?{start:range.start,end:range.end}:{});
+ stream.on('error',()=>res.destroy());res.on('close',()=>stream.destroy());stream.pipe(res);
+}
 function send(res,v,status=200){res.writeHead(status,{'Content-Type':'application/json'});res.end(JSON.stringify(v)+'\n');}
 async function body(req,max){const parts=[];let n=0;for await(const c of req){n+=c.length;need(n<=max,'body too large',413);parts.push(c);}return Buffer.concat(parts);}
 if(process.argv[1]===fileURLToPath(import.meta.url)){

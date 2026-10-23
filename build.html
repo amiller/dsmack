@@ -3,150 +3,110 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Inspect Dsmack's signed Mac runner, its trust boundaries and the evidence behind the current alpha work.">
-<title>Inspect before running · Dsmack</title>
+<meta name="description" content="Download the Dsmack Mac alpha, authenticate and install its runtime, then run a credential-free task and retain its execution evidence.">
+<title>Run a task on your Mac · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
 <header>
-<div class="wrap">
-<nav aria-label="Main">
+<nav class="wrap" aria-label="Main">
 <a class="brand" href="index.html">dsmack</a>
 <div class="links">
-<a href="index.html#how-it-works">How it works</a>
+<a href="index.html">Overview</a>
+<a href="base-image.html">Architecture</a>
+<a href="build.html" aria-current="page">Setup</a>
 <a href="app-attest.html">App Attest</a>
-<a href="https://github.com/amiller/dsmack">Public source</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
 </div>
 </nav>
-</div>
 </header>
 <main class="wrap">
 <section class="smallhero">
-<div class="eyebrow">For you and your personal agent</div>
-<h1>Inspect first.<br>Run only what you select.</h1>
-<p class="lead">Use the Mac runner to produce verifiable execution evidence for development tasks. Begin with the credential-free starter, then inspect how the app, Linux base and task container fit together.</p>
+<div class="eyebrow">Mac alpha · Credential-free starter</div>
+<h1>Run a task on your Mac.</h1>
+<p class="lead">Install the signed runner, run a small browser task inside its Linux VM, and keep the original execution evidence. This starter needs no coding-agent subscription or payment.</p>
+<p>You need an Apple silicon Mac running macOS 27.0 or later, Python 3, a trusted Node 24 runtime, and at least 32 GiB of free disk space for download, installation and working disks.</p>
 </section>
-<section class="section">
-<h2>First, identify the product.</h2>
-<p>The public repository now contains selected source for the generic libkrun/HVF runner, participant client and inspection tools. Start with its README and explicit source-selection manifest. The credential-free starter is an operator-assisted prerelease; the old Node download is not this application. The current release scripts use prepared enrollment/admission inputs and a qualified Linux verifier. These steps can be automated; the protocol does not require a person to approve each worker or submission.</p>
+<section class="section" id="download">
+<h2>1. Download and extract the runtime.</h2>
+<p>From the <a href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">runner-v0.1.0-alpha.1 release</a>, download <a href="https://github.com/amiller/dsmack/releases/download/runner-v0.1.0-alpha.1/dsmack-runner-macos-arm64-alpha.1.zip">dsmack-runner-macos-arm64-alpha.1.zip</a> (about 869 MB). Extract it into a folder you own. The optional source-offer archives are separate; you do not need them to run the starter.</p>
+<p>Open Terminal in the extracted folder containing <code>FRIEND-START-HERE.txt</code>, <code>release-public.pem</code> and <code>source/</code>. All commands below start in that folder. Read <code>FRIEND-START-HERE.txt</code> and <code>source/docs/pilot/friend-invitation.md</code>; the bundled source is commit <code>b068448d7983d67b827ced6d7286c7f4fc9252e7</code>.</p>
+<pre><code>pwd
+ls FRIEND-START-HERE.txt release-public.pem source/README.md
+python3 --version
+node --version</code></pre>
+<p>The last command must report Node 24. On macOS, bootstrap retains your existing Node executable and loaded-library paths. That executable, its non-system libraries, the inspected bootstrap source and their ancestor directories must be protected against group/other writes; dependencies must have ordinary, single-link files. A copied Homebrew executable alone is not a standalone runtime. Bootstrap installs no dependencies and refuses unsafe or injected runtimes. Follow <code>source/docs/pilot/alpha-install.md</code> if your prerequisite is refused.</p>
+</section>
+<section class="section" id="trust">
+<h2>2. Confirm the release key.</h2>
+<p>Check this public-key fingerprint through an independent maintainer channel before trusting the download. A checksum index inside the same ZIP cannot establish its own authority.</p>
+<pre><code>shasum -a 256 release-public.pem</code></pre>
+<p>Expected SHA-256:</p>
+<pre><code>4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df</code></pre>
+<p>The following steps use that key to authenticate the detached release signature. Keep macOS security settings enabled; this procedure does not require re-signing the app or removing quarantine.</p>
+</section>
+<section class="section" id="bootstrap">
+<h2>3. Create your local bootstrap.</h2>
+<p>Run once with fresh destination paths. This records your Mac's selected Node runtime and copies the small authenticated-staging tools into a private directory.</p>
+<pre><code>umask 077
+mkdir -m700 "$HOME/.dsmack-friend"
+node source/applications/pilot-client/alpha-bootstrap.mjs \
+  --trust-key "$PWD/release-public.pem" \
+  --key-id dsmack-alpha-20261022-86473863 --channel alpha \
+  --min-sequence 28 --out "$HOME/.dsmack-friend/bootstrap"</code></pre>
+<p>Expected result: JSON naming <code>bootstrap.json</code> and <code>alpha_stage.py</code>, with <code>launch_ready: false</code>. The runner is not installed or launched yet.</p>
+</section>
+<section class="section" id="install">
+<h2>4. Check the plan, then install.</h2>
+<p>First authenticate the inventory and inspect the reported sizes without creating an installation:</p>
+<pre><code>python3 -I "$HOME/.dsmack-friend/bootstrap/alpha_stage.py" \
+  --bootstrap "$HOME/.dsmack-friend/bootstrap/bootstrap.json" \
+  --inventory "$PWD/release-starter-friend-r1.UNSIGNED.json" \
+  --signature "$PWD/release-starter-friend-r1.sig" \
+  --target "$HOME/.dsmack-friend/runtime" --plan</code></pre>
+<p>Then install the exact signed archive:</p>
+<pre><code>python3 -I "$HOME/.dsmack-friend/bootstrap/alpha_stage.py" \
+  --bootstrap "$HOME/.dsmack-friend/bootstrap/bootstrap.json" \
+  --inventory "$PWD/release-starter-friend-r1.UNSIGNED.json" \
+  --signature "$PWD/release-starter-friend-r1.sig" \
+  --archive "$PWD/release-starter-friend-r1.tar.gz" \
+  --target "$HOME/.dsmack-friend/runtime"</code></pre>
+<p><code>.UNSIGNED.json</code> is the canonical document's filename; its <code>.sig</code> is the detached signature. Installation authenticates and stages the runtime, but still reports <code>launch_ready: false</code>. If a command refuses or leaves a partial installation, preserve its output and paths for diagnosis rather than overwriting them or resetting rollback state.</p>
+</section>
+<section class="section" id="invitation">
+<h2>5. Obtain a task for this Mac.</h2>
+<p>The current download does not include a reusable invitation. At this step, the alpha operator checks your Mac's fresh enrollment and supplies an admitted local task, <code>invitation.json</code>, and its independently communicated SHA-256 digest. Use the exchange described in <code>source/docs/pilot/operator-assisted-mac.md</code>; there is no public signup or enrollment endpoint in this release. This is the current tooling handoff, not a protocol requirement for human approval of every task.</p>
+<p>Keep the supplied files at their specified local paths. Put the actual invitation in this working folder, then replace <code>OPERATOR_DIGEST</code> below with its digest. Inspect the selected app, base, workload, paths and finite resource limits before preparing the run.</p>
+<pre><code>python3 -I source/applications/pilot-client/friend.py inspect invitation.json --sha256 OPERATOR_DIGEST
+python3 -I source/applications/pilot-client/friend.py prepare invitation.json --sha256 OPERATOR_DIGEST
+python3 -I source/applications/pilot-client/friend.py check invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<p>These commands inspect the invitation, prepare its local plan and run admission checks. They do not start the VM. Stop here if a check refuses.</p>
+</section>
+<section class="section" id="run">
+<h2>6. Run once and retain the result.</h2>
+<pre><code>python3 -I source/applications/pilot-client/friend.py run invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<p>The runner launches the selected Linux VM and retains its result. For an interrupted terminal or a status check, use the same invitation:</p>
+<pre><code>python3 -I source/applications/pilot-client/friend.py resume invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<p><code>resume</code> observes an attempted run; it does not implicitly launch it again. Preserve the complete original output directory and <code>friend-summary-NATIVE_ID.json</code>. The summary is useful status, not cryptographic proof. Closing Terminal does not confirm that a VM stopped.</p>
+</section>
+<section class="section" id="evidence">
+<h2>7. Have the original evidence checked.</h2>
+<p>Provide the retained originals through the operator's agreed evidence-transfer route. The selected Linux x86-64 verifier checks the launch and result assertions, output bytes and expected workload outcome. Full verification currently uses that qualified Linux environment; there is no equivalent self-service Mac command in this guide.</p>
+<p>The published starter qualification passed full hardware verification and its fixed 14-test fixture, including 80 admitted logic cases and retained screenshots, videos and traces. Your run needs its own verification result. This diagnostic starter does not submit a bounty or earn a reward.</p>
+<p>Once evidence is preserved and the owned VM/helper is confirmed stopped, coordinate cleanup of disposable scratch disks and staged public copies. Retain the proof originals; do not delete uncertain state. A normally secured fresh-Mac first-open remains unqualified by the published test, so retain any macOS refusal for diagnosis.</p>
 <div class="buttons">
-<a class="button" href="https://github.com/amiller/dsmack">Inspect today's public source</a>
-<a class="button" href="base-image.html">Base image and task proofs</a>
-<a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Download the alpha starter</a>
-<a class="button" href="https://github.com/amiller/dsmack/blob/main/docs/pilot/friend-invitation.md">Read the invitation guide</a>
-<a class="button" href="legacy-build.html">Historical Node build documentation</a>
+<a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Release files and qualification</a>
+<a class="button" href="base-image.html">Understand the VM and container</a>
+<a class="button" href="app-attest.html">Understand the evidence</a>
 </div>
-<div class="callout">Download the runtime-only ZIP from the alpha release, extract it, and read FRIEND-START-HERE.txt. It includes the supported setup and signed inventory. The large optional source archives are not runtime prerequisites. Keep Gatekeeper enabled and authenticate the release trust root independently.</div>
-</section>
-<section class="section">
-<h2>The agent's review packet</h2>
-<p>Ask for these public materials together. A checksum supplied only by the untrusted download cannot select its own authority.</p>
-<ol class="checklist">
-<li>
-<strong>Release identity:</strong> immutable version, exact archive size/hash, detached inventory signature, externally selected root, validity window and rollback policy.</li>
-<li>
-<strong>Source correspondence:</strong> selected source commit, native/helper inventories, build inputs and output records. A maintainer build or packaging attestation must not be described as a reproducible hosted source build.</li>
-<li>
-<strong>Actual Mac identity:</strong> full CodeDirectory SHA-256, Team/bundle, Developer ID leaf certificate, complete entitlements and provisioning profile. Check code pages, Apple signature and bundle resources separately.</li>
-<li>
-<strong>Distribution checks:</strong> actual stapled-ticket validation and macOS distribution assessment for the final exported app. Export/re-signing can change its code hash; enrollment must use that final identity.</li>
-<li>
-<strong>Workload plan:</strong> selected Linux base and OCI digests, file inputs, mounts, writable paths, network destinations and finite resource/time limits.</li>
-<li>
-<strong>Disclosure and recovery:</strong> what remains local, what reaches a provider/verifier, persistent enrollment keys, progress freshness, retained evidence and how to inspect an interrupted run without launching twice.</li>
-</ol>
-</section>
-<section class="section">
-<h2>What each result proves</h2>
-<div class="tablewrap">
-<table>
-<thead>
-<tr>
-<th>Check</th>
-<th>Useful conclusion</th>
-<th>Still separate</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td data-label="">Source / inventory</td>
-<td data-label="Useful conclusion">The selected files match an authenticated release.</td>
-<td data-label="Still separate">Code safety and source-to-binary correspondence.</td>
-</tr>
-<tr>
-<td data-label="">Apple signature / ticket</td>
-<td data-label="Useful conclusion">The current app has the selected signature and validated notarization ticket.</td>
-<td data-label="Still separate">Execution, fresh-host install and application correctness.</td>
-</tr>
-<tr>
-<td data-label="">App Attest</td>
-<td data-label="Useful conclusion">An admitted app identity holds an enrolled key, with the checked environment and replay rules.</td>
-<td data-label="Still separate">VM result verification or useful task success.</td>
-</tr>
-<tr>
-<td data-label="">Full run verification</td>
-<td data-label="Useful conclusion">Original launch/native/guest/output evidence agrees with the selected request and profile.</td>
-<td data-label="Still separate">The task's independent acceptance policy.</td>
-</tr>
-<tr>
-<td data-label="">Accepted task</td>
-<td data-label="Useful conclusion">The promised acceptance conditions passed.</td>
-<td data-label="Still separate">A claimable credit, successful withdrawal and confirmed payment.</td>
-</tr>
-</tbody>
-</table>
-</div>
-</section>
-<section class="section">
-<div class="split">
-<div>
-<h2>Cheap checks before expensive work.</h2>
-<p>Begin with a read-only inventory of OS/version, architecture, available memory and disk, required tools and release files. The current doctor reports these observations; it does not test the VM or declare launch readiness.</p>
-<p>Next, authenticate and privately stage the selected release, check the actual signed app, then perform a disclosed fresh enrollment and bounded credential-free sample. Inspect the original verified result before considering a subscription-backed task.</p>
-<p>Do not copy your whole Claude/Codex home, hooks, MCP configuration, SSH keys, browser profile or history. Import only fields explicitly allowed by a separately reviewed recipe.</p>
-</div>
-<div class="card">
-<h3>Known limits of this checkpoint</h3>
-<ul>
-<li>The signed alpha package is public. The full self-service marketplace flow remains integration work.</li>
-<li>The qualification Mac had global Gatekeeper assessments disabled. Direct signature, stapler and distribution checks passed; a quarantined fresh-Mac open remains unqualified.</li>
-<li>App Attest's fraud receipt is retained but not validated by the current verifier.</li>
-<li>The pilot trusts the host; it does not protect private staging or disks from root.</li>
-<li>Progress can be stale. Closing a tab or terminal is not confirmation that a VM stopped.</li>
-</ul>
-</div>
-</div>
-</section>
-<section class="section">
-<h2>Read the underlying mechanisms.</h2>
-<p>These links resolve to currently public material. Start with the selected runner source and its explicit source-selection manifest.</p>
-<ul>
-<li>
-<a href="app-attest.html">App Attest technical explainer</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Selected full VM-result verifier</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/tree/main/runner-vm">Current signed runner source</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/blob/main/docs/pilot/friend-invitation.md">Friend invitation guide</a>
-</li>
-<li>
-<a href="https://pod.dstack.soc1024.com/artifact-reports-2026c/dsmack-native-browser-alpha-progress--aDjmWQNt_mOslLZni8SP-Q/">Dated native-browser progress artifact</a>
-</li>
-</ul>
-<p>For an actual release, replace this overview with the version's exact inspection packet and supported commands. A personal agent should be able to say “not enough evidence yet” without needing private operator files.</p>
 </section>
 </main>
 <footer>
 <div class="wrap">
-<p>Project status: 23 October 2026. Evidence belongs to an exact version and configuration.</p>
-<a href="https://github.com/amiller/dsmack">Public repository</a>
-<a href="legacy-node.html">Historical Node network</a>
-<a href="legacy-build.html">Historical Node build guide</a>
-<a href="app-attest.html">Technical App Attest explainer</a>
+<p>Dsmack · Mac runner alpha</p>
+<a href="https://github.com/amiller/dsmack">Project source</a>
+<a href="base-image.html">Architecture</a>
+<a href="app-attest.html">App Attest</a>
 </div>
 </footer>
 </body>

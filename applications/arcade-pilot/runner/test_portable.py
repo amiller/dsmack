@@ -59,6 +59,13 @@ class Portable(unittest.TestCase):
   rows=scope['evidence_manifest'](self.root);self.assertEqual(len(rows),21)
   (self.root/'statement.json').unlink();(self.root/'statement.json').symlink_to(self.root/'envelope.json')
   with self.assertRaises(ValueError):scope['evidence_manifest'](self.root)
+ def test_authority_window_covers_transport_and_commit(self):
+  import datetime
+  a={'__name__':'authority_test','__file__':str(P/'authority.py')};exec(compile((P/'authority.py').read_bytes(),str(P/'authority.py'),'exec'),a)
+  now=datetime.datetime(2026,10,23,tzinfo=datetime.timezone.utc)
+  self.assertEqual((a['admission_expiry'](now,now+datetime.timedelta(hours=3))-now).total_seconds(),7200)
+  self.assertEqual((a['admission_expiry'](now,now+datetime.timedelta(seconds=4000))-now).total_seconds(),4000)
+  with self.assertRaisesRegex(ValueError,'close to expiry'):a['admission_expiry'](now,now+datetime.timedelta(seconds=3599))
  def test_native_socket_path_budget(self):
   p=scope['task_directory']('/Users/amiller/ap','a'*32)
   self.assertLess(len(str(p/('attempt-'+('b'*32)+'.helper/net.sock')).encode()),104)

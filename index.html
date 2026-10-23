@@ -100,7 +100,7 @@
 <p>The contract validates the required evidence and task bindings. A valid claim releases the funds to the worker.</p>
 </li>
 </ol>
-<p class="diagram-caption">The intended marketplace flow. The current runner alpha demonstrates attested execution and full result verification; fully automated permissionless enrollment and contract settlement for this release remain integration work.</p>
+<p class="diagram-caption">The intended marketplace flow. The current runner alpha demonstrates attested execution and full result verification; connecting this release to the complete permissionless claim-and-payment flow remains integration work.</p>
 </section>
 <section class="section">
 <div class="split">
@@ -133,7 +133,7 @@
 <b>→</b>
 <strong>Verifiable submission</strong>
 </div>
-<p>The settlement policy must also bind the claim to the intended reward recipient and prevent replay. Enrollment and verification can be automated; “enrollment” means validating and recording an attested key, not obtaining permission from a person.</p>
+<p>The contract’s rules bind each claim to the task and the worker’s reward address, and prevent the same evidence from being used to claim twice. Workers submit evidence; the protocol checks it.</p>
 <p class="note">App Attest does not decide whether code is useful. The published acceptance routine defines success. The full runner/result verifier must check the execution evidence; an app assertion or a host-written “passed” file alone is insufficient.</p>
 </section>
 <section class="section" id="try">
@@ -153,7 +153,7 @@
 <p>
 <strong>Available:</strong> selected public source, a signed/notarized runner, a reusable Linux base, a credential-free workload and verified execution evidence.</p>
 <p>
-<strong>Still being connected:</strong> the complete self-service task, enrollment, verification and settlement journey. Current release scripts use manually prepared admission inputs and a qualified Linux verifier; this is packaging to automate, not a requirement for human approval in the protocol.</p>
+<strong>Still being connected:</strong> the complete self-service journey from funded task to verified claim and payment. Today’s release provides the runner and an example task; the setup guide explains the current scripts and verification requirements.</p>
 <p class="note">Fresh normally secured Mac first-open remains unqualified. This sample earns no reward. The runner assumes a trusted host for private-input staging; App Attest is not encrypted VM memory protection against the Mac’s owner.</p>
 </aside>
 </div>

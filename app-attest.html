@@ -10,12 +10,12 @@
 <style>
 
 main.aa {
-  --bg: #f5f4ec; --sheet: #fffef8; --ink: #173b35; --muted: #536860; --rule: #cad5cb;
-  --accent: #174c3e; --accent-soft: #e9eddc;
-  --pin: #78583f; --pin-soft: #f1e7d9; --chain: #174c3e; --chain-soft: #e2eddf;
-  --obs: #335e73; --obs-soft: #e5edf0; --apple: #536860; --apple-soft: #e8ebe3;
-  --warn: #7a5b22; --warn-soft: #f4ecd4; --bad: #9a3d37; --bad-soft: #f5e3df;
-  --f0: #e4ebf3; --f1: #f2e7d1; --f2: #ece3f0; --f3: #e2eddf; --f4: #f1dfe3; --f5: #dfeeed; --f6: #eeecd5; --f7: #f2e2d5; --f8: #e4e7f2;
+  --bg: #0E1418; --sheet: #151E24; --ink: #DADDDE; --muted: #9AA6AC; --rule: #34444D;
+  --accent: #8FD3B9; --accent-soft: #17332a;
+  --pin: #E3AEBD; --pin-soft: #3a2229; --chain: #8FD3B9; --chain-soft: #17332a;
+  --obs: #93B8E3; --obs-soft: #1a2b40; --apple: #9AA6AC; --apple-soft: #222c31;
+  --warn: #E3C38F; --warn-soft: #3a2f18; --bad: #F2867E; --bad-soft: #4b1c1a;
+  --f0: #1f2d44; --f1: #3d3018; --f2: #33264a; --f3: #1c3a28; --f4: #44222d; --f5: #1b3a40; --f6: #34331f; --f7: #42291b; --f8: #262c45;
   --display: Georgia, serif; --body: system-ui, sans-serif; --mono: ui-monospace, SFMono-Regular, Consolas, monospace;
   display: flex; flex-direction: column; gap: 72px; padding: 24px 0 96px;
 }
@@ -128,7 +128,7 @@ main.aa .eyebrow { margin: 0; }
 <div class="wrap">
 <main class="aa">
 
-<section>
+<section class="attest-intro"><div class="attest-copy">
   <p class="eyebrow">Apple App Attest · Solidity · Base Sepolia</p>
   <h1>App Attest on chain</h1>
   <p class="lede">What it takes to verify an Apple App Attest attestation in a smart contract instead of on the app developer's server. The page maps Apple's validation steps to the dsmack verifier contracts, re-runs the key checks on a live Mac capture in your browser, and keeps the reference values in one place.</p>
@@ -136,7 +136,7 @@ main.aa .eyebrow { margin: 0; }
     <a href="https://github.com/amiller/dsmack/tree/ae28913cdb7268cb1ca9ef2c4513a1e1979444d0/app-attest">Source: amiller/dsmack @ ae28913</a>
     <a href="https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server">Apple: Validating apps that connect to your server</a>
       </div>
-</section>
+</div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini in an abalone shell; not a photograph of the attestation run." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 
 <section>
   <h2>Four transactions</h2>

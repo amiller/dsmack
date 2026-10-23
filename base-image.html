@@ -1,12 +1,178 @@
-<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Dsmack: one task, a checkable execution</title><style>
-:root{--ink:#17283a;--muted:#526579;--paper:#f6f8fa;--line:#dbe3ea;--blue:#1665a8;--green:#1b7760;--amber:#8c5310}*{box-sizing:border-box}body{margin:0;background:var(--paper);color:var(--ink);font:17px/1.65 system-ui,-apple-system,sans-serif}main{max-width:1100px;margin:auto;padding:56px 28px 70px}h1,h2,h3{line-height:1.16;letter-spacing:-.035em}h1{font-size:clamp(38px,6vw,67px);max-width:880px;margin:16px 0 24px}h2{font-size:33px;margin:0 0 20px}h3{font-size:22px;margin:0 0 12px}p{margin:0 0 17px}.eyebrow{color:var(--blue);font-size:13px;font-weight:750;letter-spacing:.12em;text-transform:uppercase}.lead{font-size:23px;max-width:850px;color:var(--muted)}nav{display:flex;gap:10px;flex-wrap:wrap;margin:28px 0 32px}a{color:var(--blue);text-underline-offset:3px}nav a,.tag{border:1px solid var(--line);border-radius:30px;padding:6px 13px;font-size:14px;text-decoration:none;background:white}.status{background:#fff6e5;border-left:4px solid #d49635;padding:20px 23px;border-radius:8px;color:#67451e}.status strong{color:#68400b}section{margin-top:58px}.layers{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:17px;margin:25px 0}.card{background:white;border:1px solid var(--line);border-radius:15px;padding:25px}.card .number{font-size:12px;font-weight:800;letter-spacing:.1em;color:var(--muted);margin-bottom:12px}.card.mac{border-top:5px solid var(--blue)}.card.vm{border-top:5px solid var(--green)}.card.task{border-top:5px solid #9770b4}.card p{font-size:16px}.card small{font-size:14px;color:var(--muted)}.small{font-size:14px;color:var(--muted)}.flow{display:flex;align-items:stretch;gap:9px;margin:24px 0;flex-wrap:wrap}.flow div{flex:1;min-width:150px;background:#e9eff5;border-radius:10px;padding:16px;font-size:15px}.flow b{display:block;margin-bottom:4px}.split{display:grid;grid-template-columns:1fr 1fr;gap:20px}.note{background:#eaf3ef;padding:22px;border-radius:12px}.note p:last-child,.card p:last-child{margin-bottom:0}table{width:100%;border-collapse:collapse;background:white;font-size:15px}th,td{text-align:left;padding:15px 17px;vertical-align:top;border-bottom:1px solid var(--line)}th{background:#eaf0f5;font-weight:750}td:first-child{font-weight:650;width:24%}.table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:12px}code{font:13px/1.5 ui-monospace,SFMono-Regular,Consolas,monospace;overflow-wrap:anywhere}pre{white-space:pre-wrap;overflow-wrap:anywhere;background:#17283a;color:#eef4fa;border-radius:12px;padding:20px}pre code{font-size:14px}.steps{counter-reset:step;display:grid;gap:12px}.step{display:grid;grid-template-columns:38px 1fr;gap:12px;background:white;border:1px solid var(--line);padding:18px;border-radius:12px}.step:before{counter-increment:step;content:counter(step);display:grid;place-items:center;align-self:start;width:31px;height:31px;border-radius:50%;background:#e7f0f8;color:var(--blue);font-weight:750}.step b{display:block}.step p{font-size:16px;margin:3px 0 0}.proposal{border:1px dashed #83a0bb;background:#f0f5fa;padding:24px;border-radius:12px}.footer{margin-top:40px;padding-top:22px;border-top:1px solid var(--line);font-size:13px;color:var(--muted)}ul{padding-left:22px}li{margin:7px 0}@media(max-width:740px){main{padding:32px 18px 48px}.layers,.split{grid-template-columns:1fr}h2{font-size:28px}.lead{font-size:20px}.card{padding:21px}th,td{padding:12px 10px}.flow div{min-width:130px}td:first-child{width:29%}}
-</style></head><body><main><header><div class="eyebrow">Architecture explainer · inspected 23 October 2026</div><h1>One task.<br>A checkable execution.</h1><p class="lead">Dsmack’s reusable Linux VM hosts separately selected containers. The signed Mac app launches that VM and produces Apple-backed execution evidence. An application decides what the result means.</p><nav aria-label="Sections"><a href="#layers">The three layers</a><a href="#flexibility">What can change?</a><a href="#proof">What the proof says</a><a href="#friend">A friend’s first run</a><a href="#iteration">A faster loop</a><a href="#bounties">Robot workers</a></nav><div class="status"><strong>Current status, without the demo machinery:</strong> the qualified Mac runner, credential import, agent execution and full evidence verification have worked on the existing Mini. The same B44 base was reused across recent coding-agent and browser payloads. A complete public download and fresh, normally secured Mac first-open journey remain unqualified. Public GitHub main still contains the older implementation; the inspected current runner candidate is local. The cancelled bounty demonstration is not being resumed.</div></header>
-<section id="layers"><div class="eyebrow">Architecture</div><h2>Three layers, with different reasons to change</h2><div class="layers"><article class="card mac"><div class="number">01 · THE SIGNED MAC APP</div><h3>Launch + attest</h3><p>Admit the selected boot and workload inputs, run the ARM64 Linux VM through the native HVF path, retain launch/result evidence, and request App Attest assertions.</p><small>The current path lives in <code>runner-vm/</code>. The older <code>runner/</code> Containerization implementation is a separate historical path.</small></article><article class="card vm"><div class="number">02 · THE REUSABLE BASE VM</div><h3>Boot + supervise</h3><p>Kernel, initrd and a verity-protected, read-only Linux system. The guest supervisor provides container execution, per-run scratch, input plumbing and result export.</p><small>The qualified B44 bundle is ARM64, dstack-style Linux plumbing. It is not a macOS guest and it does not identify one particular Claude task.</small></article><article class="card task"><div class="number">03 · THE WORKLOAD</div><h3>Agent, CI, or another program</h3><p>A validated compose description selects digest-pinned OCI content, commands, declared inputs and the output contract.</p><small>Claude Code is one qualified example. Browser CI is another. Supporting an additional harness still needs its own adapter and qualification.</small></article></div><div class="note"><strong>The practical flexibility:</strong> changing a task or container within the admitted contract does not inherently require rebuilding or re-signing the Mac app. It does require selecting and admitting the new workload identity.</div></section>
-<section><h2>What actually boots?</h2><div class="flow"><div><b>Admit</b>Check the selected app, base bundle, workload disk and task bindings.</div><div><b>Boot Linux</b>Mount the verified system read-only.</div><div><b>Run</b>Use disposable scratch, the selected workload and permitted input channels.</div><div><b>Export</b>Retain the result, receipt and output commitments.</div><div><b>Attest + verify</b>The Mac app asserts launch and the finalized result; an external checker validates the evidence.</div></div><p>The guest uses separate disks for disposable Docker state, the public workload payload and result export. This separation is why one base can support many task containers. The current packaging still puts OCI content and public task inputs together in a workload disk; that is a delivery choice.</p></section>
-<section id="flexibility"><div class="eyebrow">Change boundaries</div><h2>Flexible does not mean unrestricted Docker Compose</h2><div class="table-wrap"><table><thead><tr><th>Change</th><th>What it needs</th><th>New Mac binary?</th></tr></thead><tbody><tr><td>New task or source input</td><td>New selected task/input commitments and corresponding admissions; retain the same base and container when applicable.</td><td>Not inherently.</td></tr><tr><td>New agent or CI container</td><td>New digest-pinned OCI image, supported compose configuration and qualified input/output adapter.</td><td>Not inherently.</td></tr><tr><td>Command, entrypoint, declared environment/files</td><td>Revalidate the supported compose subset and bind its exact configuration to the run.</td><td>Not inherently.</td></tr><tr><td>Network or resource profile</td><td>An admitted profile. Offline and selected NAT routes exist; do not infer arbitrary egress, full network recording or unrestricted host networking.</td><td>Only if the required native capability changes.</td></tr><tr><td>Guest kernel, broker, supervisor or base runtime</td><td>A new base identity and corresponding policy/release qualification.</td><td>Only if the native interface also changes.</td></tr><tr><td>Native backend, app code or entitlements</td><td>A new app closure, signature/identity and its enrollment/qualification.</td><td>Yes.</td></tr></tbody></table></div><p class="small">The current compose validator rejects unsupported keys, floating image tags and writable container roots. <code>runsc-hostnet</code> is a specific runtime contract, not a promise of unrestricted Docker host networking.</p></section>
-<section><h2>Where do credentials go?</h2><div class="split"><div class="card"><h3>A separate input channel</h3><p>A subscription credential is not supposed to be baked into the public workload image. Import is explicit and profile-specific. API-key broker profiles can keep a provider key upstream; broker-file profiles intentionally disclose selected files to their declared audience.</p></div><div class="card"><h3>A real limit</h3><p>The current pilot trusts the host during private-input staging and uses plaintext disk files. Do not promise confidentiality from the Mac’s owner or root. App Attest is not encrypted VM memory.</p></div></div></section>
-<section id="proof"><div class="eyebrow">The core product</div><h2>“Verified execution” and “task passed” are different answers</h2><div class="table-wrap"><table><thead><tr><th>Question</th><th>Evidence to check</th></tr></thead><tbody><tr><td>Did the selected app attest this statement?</td><td>Apple enrollment/assertions, admitted app identity, expected statement and freshness/replay policy.</td></tr><tr><td>Is this the intended execution?</td><td>Selected base/workload/manifest, task and input commitments, retained receipt and output bytes, and their authenticated relationships.</td></tr><tr><td>Did the task succeed?</td><td>The independently pinned checker, expected outcome and relevant result files. An authentic run can honestly report failure.</td></tr><tr><td>Can the worker collect a reward?</td><td>The accepted task/candidate/payee binding, delivery and escrow state. A proof does not by itself establish payment.</td></tr></tbody></table></div><p>The guest’s compose receipt currently contains <code>attestation: None</code>. The current outer Mac app produces two Apple assertions: one for launch and one binding the finalized run-result envelope. Task semantics remain a downstream check of the retained bytes. Treating the guest JSON alone as an App Attest proof would be a mistake.</p><p>A friend should receive an evidence bundle plus a checker invocation and the expected task/release identities. A small signed summary is useful, but cannot replace retained output bytes when the checker needs them. Full VM-result verification is currently Linux-oriented and needs its selected tools and trust inputs; the one-command friend experience is still work to finish.</p></section>
-<section id="friend"><div class="eyebrow">Repository entry point</div><h2>Make the first journey small</h2><div class="steps"><div class="step"><div><b>Inspect before supplying a credential</b><p>Read the runner/base/workload boundary, inspect the selected release identity and see exactly which host access and tools the adapter uses.</p></div></div><div class="step"><div><b>Run a credential-free diagnostic first</b><p>Check prerequisites cheaply, then use a separately qualified small workload. A read-only doctor is not a VM execution test.</p></div></div><div class="step"><div><b>Run one pinned task</b><p>Use an operator-selected release, task and coordinator. Import a subscription only if that task requires it. Current enrollment and launch are operator-assisted.</p></div></div><div class="step"><div><b>Hand another agent the evidence</b><p>Include the task identity, verifier/trust inputs, original evidence and output references. Show authentic-success, authentic-failure and invalid-evidence as distinct outcomes.</p></div></div></div><p class="small">Actual read-only entry point in the selected source candidate:</p><pre><code>node applications/pilot-client/pilot.mjs doctor   --workspace /absolute/private/pilot-state</code></pre><p class="small">This command does not launch a VM and its launch-ready verdict stays false. Current execution details belong in <code>docs/pilot/alpha-runtime.md</code>; do not use the older journal interface as a ready-made self-service launcher.</p></section>
-<section id="iteration"><div class="eyebrow">Proposed improvements · not implemented by this report</div><h2>A stable base should make iteration cheaper</h2><div class="proposal"><p><strong>Reuse the large immutable pieces. Deliver the small changing pieces.</strong></p><p>Cache verified OCI blobs separately, deliver compact task inputs, and retain full final identity checks. Reuse verified public transfer bases while the current disk format remains in use. A separate content-addressed cache requires an explicit delivery and measurement contract; it cannot be assumed equivalent without checking that boundary.</p><p>Use one repeatable run → collect → verify → clean lifecycle. Preserve original evidence, confirm the owned VM/helpers stopped, then retire scratch and staged copies. Add safe aggregate broker timing before changing timeouts again.</p><p class="small">These changes would target the repeated packaging, transfer and manual coordination overhead. They are not evidence that a new fast path already exists.</p></div></section>
-<section id="bounties"><div class="eyebrow">An application on top</div><h2>Robot workers can participate through a pinned task</h2><p>The useful unit is a task descriptor: repository/base commit, permitted changes, exact checker, reward rules and evidence/delivery requirements. A worker’s agent can inspect those terms, run the task, then submit the candidate and its execution evidence.</p><div class="proposal"><strong>Suggested first integration:</strong> take an existing submission such as <a href="https://github.com/amiller/bounty-arcade/pull/65">board search PR #65</a>, freeze its candidate commit and the publisher’s checker, and run one credential-free attested CI check. This proves the selected check ran on that candidate; it does not prove authorship. It avoids requiring another coding-agent development run just to demonstrate acceptance.</div><p></p><p>Self-claiming requires a verifier and escrow policy that accept that exact task, candidate and payee. A GitHub comment or passing an unrelated test run is not enough. GitHub issues and the website can discover and display tasks; they should not silently invent the success condition after work is submitted. The worker must not be able to substitute its own passing checker for the publisher’s pinned checker.</p><div class="split"><div class="card"><h3>What the website should expose</h3><p>Task identity and reward; the pinned success rule; prerequisites and one clear agent entry point; current run state; a downloadable, checkable evidence bundle.</p></div><div class="card"><h3>Current public pages</h3><p><a href="https://amiller.github.io/dsmack/">Dsmack explainer</a><br><a href="https://amiller.github.io/bounty-arcade/">Bounty arcade gallery</a></p><p class="small">The private pilot task board is separate. One operator-assisted testnet payout and a refund were observed; the cancelled second payout sequence was not completed.</p></div></div></section>
-<section><h2>Source trail for a critical agent</h2><p class="small">Inspected local source candidate <code>e26196f3080f7617d00e7b8b589fe10eebb00616</code>. This report does not publish that candidate, a binary or a new release. Public main and the published website can lag this inspected source.</p><div class="table-wrap"><table><thead><tr><th>Concern</th><th>Source location in that candidate</th></tr></thead><tbody><tr><td>Boot and disk separation</td><td><code>base-vm/browser-sandbox-v1/source/guest/init-dstack-arm64.sh:68–78; supervisor-dstack-trixie.sh:100–113,212–229</code></td></tr><tr><td>Compose contract</td><td><code>base-vm/browser-sandbox-v1/source/runner-content/lib/dsmack_compose_contract/manifest.py:143–171,304–363</code></td></tr><tr><td>Public workload packaging</td><td><code>applications/bounty-develop/build_generation.py:38–61</code></td></tr><tr><td>Selected launch and inputs</td><td><code>applications/pilot-client/alpha_coordinator.py:109–158</code></td></tr><tr><td>Guest receipt versus Apple assertion</td><td><code>base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/receipting.py:230–256; runner-vm/app-src/Sources/mar/V3Launch.swift:311–357</code></td></tr><tr><td>Participant limits and entry points</td><td><code>applications/pilot-client/README.md; docs/pilot/newcomer.md</code></td></tr><tr><td>Broker qualification limits</td><td><code>base-vm/broker-timeout-v1/README.md:3–16</code></td></tr></tbody></table></div></section><footer class="footer">Architecture explanation, not a new runtime qualification or payout demonstration. No VM, runtime build, contract transaction or demo restart was performed for this report. Unlisted sharing is link-based: anyone with the link can read it. The repository documentation changes are reviewed separately before local integration.</footer></main></body></html>
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="The signed Mac runner, reusable Linux VM, task container, input disks, outputs and App Attest evidence.">
+<title>Base-image architecture · Dsmack</title>
+<link rel="stylesheet" href="assets/operator.css">
+</head>
+<body>
+<header>
+<nav class="wrap" aria-label="Main">
+<a class="brand" href="index.html">dsmack</a>
+<div class="links">
+<a href="index.html">Overview</a>
+<a href="base-image.html">Architecture</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
+</div>
+</nav>
+</header>
+<main class="wrap">
+<section class="pagehero">
+<h1>How the base image<br>runs a task.</h1>
+<p class="lead">The Mac app is the launcher. The Linux base is the reusable execution environment. The task container supplies the program to run.</p>
+<p>A task does not need its own Mac application. It selects a compatible container, execution manifest and inputs, which the existing app and VM base can run.</p>
+</section>
+<section class="section">
+<h2>The three layers</h2>
+<div class="runtime-figure" role="group" aria-label="Task container inside a reusable Linux VM inside the signed Mac runner">
+<div class="runtime-label">Mac · Signed runner app</div>
+<p>Admit selected boot/workload inputs · launch through Apple’s hypervisor · retain launch and result assertions</p>
+<div class="runtime-vm">
+<div class="runtime-label">Reusable Linux VM base</div>
+<p>Kernel + initrd + verity-protected system disk<br>Guest supervisor · container runtime · input/output transport</p>
+<div class="runtime-container">
+<div class="runtime-label">Task container · pinned OCI image</div>
+<p>Coding agent, test harness or acceptance routine<br>Selected command, declared inputs and resource/network profile</p>
+</div>
+</div>
+</div>
+<p class="note">Current Mac path: Swift / libkrun / Hypervisor.framework. This is the VM runner, separate from the older Containerization-based node application.</p>
+</section>
+<section class="section">
+<h2>What goes into the VM</h2>
+<div class="grid3">
+<article class="card">
+<h3>Boot bundle</h3>
+<p>Selected kernel, initrd and protected Linux system image. These supply the reusable base rather than a particular task.</p>
+</article>
+<article class="card">
+<h3>Public workload disk</h3>
+<p>The pinned OCI image, execution manifest and public task files. The current delivery format packages them together; their identities and bindings are checked.</p>
+</article>
+<article class="card">
+<h3>Private inputs, if used</h3>
+<p>A separately selected input channel supplies only the data allowed by that profile. The credential-free starter has none.</p>
+</article>
+</div>
+</section>
+<section class="section">
+<h2>What happens after launch</h2>
+<ol class="steps">
+<li>
+<strong>Boot the protected system</strong>
+<p>The guest verifies and mounts its system image read-only.</p>
+</li>
+<li>
+<strong>Check the workload</strong>
+<p>The supervisor validates the selected public payload, manifest and OCI identity before running it.</p>
+</li>
+<li>
+<strong>Run in disposable storage</strong>
+<p>The container uses separate scratch space for Docker state and working data. The task runs under the selected limits and network profile.</p>
+</li>
+<li>
+<strong>Export the result</strong>
+<p>The guest writes outputs and a receipt to the result disk. The Mac app retains the launch assertion and a result assertion bound to the finalized result envelope.</p>
+</li>
+</ol>
+<div class="disk-row">
+<div>
+<b>System disk</b>
+<span>Read-only Linux base</span>
+</div>
+<div>
+<b>Workload disk</b>
+<span>Public program + task inputs</span>
+</div>
+<div>
+<b>Scratch disk</b>
+<span>Disposable working state</span>
+</div>
+<div>
+<b>Result disk</b>
+<span>Retained outputs + receipt</span>
+</div>
+</div>
+</section>
+<section class="section">
+<h2>What the evidence binds</h2>
+<p>The run has selected identities for the app, base, workload, manifest and task inputs. The guest receipt records workload and output commitments. The app’s App Attest assertions bind its launch and finalized result statements.</p>
+<p>The full verifier checks those relationships against independently selected expectations and original retained bytes. It checks both execution validity and the task’s expected outcome. A summary JSON is not a substitute for that evidence.</p>
+<p>Apple authenticates the app’s key and assertions; it does not directly measure the Linux VM or judge the code. The runner and verification protocol supply the execution bindings.</p>
+</section>
+<section class="section">
+<h2>What can change independently?</h2>
+<div class="tablewrap">
+<table>
+<thead>
+<tr>
+<th>Change</th>
+<th>What must be selected again</th>
+<th>New Mac app?</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>Task or candidate code</td>
+<td>Task/input identities and acceptance context</td>
+<td>No, within the supported contract</td>
+</tr>
+<tr>
+<td>Agent or test container</td>
+<td>OCI digest, execution manifest and workload policy</td>
+<td>No, within the supported contract</td>
+</tr>
+<tr>
+<td>Linux kernel or guest runtime</td>
+<td>Base identity and qualification</td>
+<td>Not inherently</td>
+</tr>
+<tr>
+<td>Native launcher or entitlements</td>
+<td>App build, signature, identity and qualification</td>
+<td>Yes</td>
+</tr>
+</tbody>
+</table>
+</div>
+<p>The compose format is a validated subset with digest-pinned images, declared files and bounded resources. It is not unrestricted Docker Compose.</p>
+</section>
+<section class="section">
+<h2>Current implementation and source</h2>
+<p>The released B44 base and flat starter container have completed actual hardware-backed execution and full result verification on the qualification Mac. Fresh normally secured Mac first-open is not yet qualified. Current private-input staging trusts the Mac’s owner; this is not an encrypted-VM guarantee against host root.</p>
+<ul class="source-list">
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/runner-vm">Signed runner source</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1/source">Guest boot, supervisor and container contract</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Full result verifier</a>
+</li>
+<li>
+<a href="https://github.com/amiller/dsmack/blob/main/docs/base-image-architecture.md">Architecture source guide</a>
+</li>
+</ul>
+<div class="buttons">
+<a class="button primary" href="build.html">Run the example</a>
+<a class="button" href="app-attest.html">App Attest on-chain</a>
+</div>
+</section>
+</main>
+<footer>
+<div class="wrap">
+<p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
+<a href="index.html">Overview</a>
+<a href="base-image.html">Architecture</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
+</div>
+</footer>
+</body>
+</html>

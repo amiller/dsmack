@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="Fund development tasks, let independent workers contribute, and use App Attest execution evidence for smart-contract reward claims.">
-<title>Open development markets · Dsmack</title>
+<meta name="description" content="How development work, App Attest evidence and smart-contract rewards fit together.">
+<title>Development bounties · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
@@ -12,171 +12,107 @@
 <nav class="wrap" aria-label="Main">
 <a class="brand" href="index.html">dsmack</a>
 <div class="links">
-<a href="index.html#how-it-works">How it works</a>
-<a href="build.html">Run a worker</a>
+<a href="index.html">Overview</a>
+<a href="base-image.html">Architecture</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
 <a href="https://github.com/amiller/dsmack">Source</a>
 </div>
 </nav>
 </header>
 <main class="wrap">
-<section class="market-hero">
-<div class="eyebrow">Permissionless development · Verifiable execution</div>
-<h1>An open market<br>for development work.</h1>
-<p class="lead">Fund a task. Let independent peers contribute code. Use App Attest evidence and published acceptance rules to make rewards claimable through a smart contract.</p>
-<p class="hero-detail">Dsmack is building the execution layer for that market: workers use their own Macs and coding agents, and submit evidence another party can verify—without needing a trusted relationship with the task creator.</p>
+<section class="pagehero">
+<h1>Development bounties<br>verified with App Attest.</h1>
+<p class="lead">A task creator funds a reward and fixes the acceptance rules. An independent contributor submits code and evidence that the required checks ran on it. A smart contract can validate the claim and pay the contributor.</p>
+<p>Dsmack runs the coding agent or acceptance checks in a Linux VM on the contributor’s Mac, and retains App Attest evidence about that execution. The runner is available today. The complete automated claim-and-payment flow below is the intended integration.</p>
 <div class="buttons">
-<a class="button primary" href="#how-it-works">See the flow ↓</a>
-<a class="button" href="https://amiller.github.io/bounty-arcade/">Explore Bounty Arcade</a>
-<a class="button" href="build.html">Try the Mac runner</a>
+<a class="button primary" href="base-image.html">How the runner works</a>
+<a class="button" href="build.html">Run a task on your Mac</a>
 </div>
 </section>
-<section class="section market-section" id="how-it-works">
-<div class="intro">
-<div class="eyebrow">From a funded task to a claimed reward</div>
-<h2>Post it. Build it. Prove it. Claim it.</h2>
-<p>The task creator defines what counts as success. Workers choose which tasks to attempt. The contract holds the reward until a submission satisfies its settlement rules.</p>
+<section class="section" id="flow">
+<h2>What happens on-chain—and what doesn’t.</h2>
+<p>The repository, task instructions, code and execution stay off-chain. The contract holds funds and applies the settlement rules. This diagram shows the intended automated flow.</p>
+<div class="boundary-flow" role="group" aria-label="Three stages showing off-chain work and on-chain settlement">
+<article class="flow-stage">
+<h3>1. Define and fund</h3>
+<div class="offchain">
+<span class="lane-label">Off-chain · Creator / GitHub</span>
+<strong>Publish the task</strong>
+<p>Repository and starting commit, acceptance code, environment, reward terms and delivery requirements.</p>
 </div>
-<ol class="market-flow">
-<li>
-<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
-<rect x="43" y="20" width="104" height="112" rx="10" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
-<path d="M60 45h67M60 59h47M60 92l8 8 14-18M92 94h34M60 115h66" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
-<circle cx="166" cy="88" r="31" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
-<path d="M166 69v38m10-30c-18-10-30 11-10 12s8 22-10 12" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
-<path d="M169 22h30v27m-21-9 21 9 8-22" fill="none" stroke="#c07b43" stroke-width="3"/>
-</svg>
-<div class="num">01</div>
-<h3>Post &amp; fund</h3>
-<p>Publish the repository, task, acceptance checks and reward. Deposit the funds into a smart contract.</p>
-</li>
-<li>
-<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
-<path d="M64 81l57-45 58 45M64 81h115" stroke="#92ab8e" stroke-width="2" stroke-dasharray="5 5" fill="none"/>
-<g fill="#fffef8" stroke="#174c3e" stroke-width="2">
-<rect x="94" y="13" width="54" height="37" rx="5"/>
-<path d="M88 55h66l-6 7H94z" fill="#daef99"/>
-<rect x="25" y="77" width="63" height="43" rx="5"/>
-<path d="M18 126h77l-6 8H24z" fill="#daef99"/>
-<rect x="153" y="77" width="63" height="43" rx="5"/>
-<path d="M146 126h77l-6 8h-65z" fill="#daef99"/>
-</g>
-<g fill="none" stroke="#174c3e" stroke-width="2.5" stroke-linecap="round">
-<path d="m111 26-6 5 6 5m20-10 6 5-6 5M119 38l4-14M43 92l-7 6 7 6m26-12 7 6-7 6m-17 12 7-25M171 92l-7 6 7 6m26-12 7 6-7 6m-17 12 7-25"/>
-</g>
-</svg>
-<div class="num">02</div>
-<h3>Workers build</h3>
-<p>Independent peers pick up the task and use their Macs and coding agents to produce a candidate.</p>
-</li>
-<li>
-<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
-<rect x="31" y="35" width="135" height="92" rx="9" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
-<path d="M32 56h133" stroke="#174c3e" stroke-width="2"/>
-<g fill="#92ab8e">
-<circle cx="45" cy="46" r="3"/>
-<circle cx="56" cy="46" r="3"/>
-<circle cx="67" cy="46" r="3"/>
-</g>
-<path d="m58 75-12 10 12 10m34-20 12 10-12 10m-20 12 10-37" stroke="#174c3e" stroke-width="3" fill="none" stroke-linecap="round"/>
-<path d="m172 28 33 13v27c0 24-33 41-33 41s-33-17-33-41V41z" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
-<path d="m157 64 11 11 20-23" fill="none" stroke="#174c3e" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-<div class="num">03</div>
-<h3>Submit work &amp; evidence</h3>
-<p>Run the pinned acceptance checks. Submit the candidate and App Attest evidence binding the selected execution and result.</p>
-</li>
-<li>
-<svg viewBox="0 0 240 150" aria-hidden="true" focusable="false" class="step-art">
-<rect x="26" y="30" width="84" height="104" rx="9" fill="#fffef8" stroke="#174c3e" stroke-width="2"/>
-<path d="M43 51h49M43 65h35m-35 33 9 9 18-22" fill="none" stroke="#174c3e" stroke-width="3" stroke-linecap="round"/>
-<rect x="146" y="82" width="70" height="47" rx="8" fill="#174c3e"/>
-<path d="M202 96h16v18h-16z" fill="#daef99"/>
-<circle cx="204" cy="105" r="2" fill="#174c3e"/>
-<circle cx="164" cy="44" r="25" fill="#daef99" stroke="#174c3e" stroke-width="2"/>
-<path d="M164 29v30m7-25c-14-7-24 9-7 10s7 17-7 10M117 103h22m-8-8 8 8-8 8" fill="none" stroke="#174c3e" stroke-width="2.5" stroke-linecap="round"/>
-</svg>
-<div class="num">04</div>
-<h3>Claim the reward</h3>
-<p>The contract validates the required evidence and task bindings. A valid claim releases the funds to the worker.</p>
-</li>
-</ol>
-<p class="diagram-caption">The intended marketplace flow. The current runner alpha demonstrates attested execution and full result verification; connecting this release to the complete permissionless claim-and-payment flow remains integration work.</p>
+<div class="bridge">↓ Creator transaction: funds + terms commitment</div>
+<div class="onchain">
+<span class="lane-label">On-chain · Smart contract</span>
+<strong>Hold the reward</strong>
+<p>Record the reward and a hash committing to the task’s settlement terms.</p>
+</div>
+</article>
+<article class="flow-stage">
+<h3>2. Do the work</h3>
+<div class="offchain">
+<span class="lane-label">Off-chain · Worker’s Mac</span>
+<strong>Build and check a candidate</strong>
+<p>Run the pinned acceptance routine on the candidate. Retain result files and App Attest execution evidence.</p>
+</div>
+<div class="bridge quiet">No transaction needed while the work runs</div>
+<div class="onchain">
+<span class="lane-label">On-chain · Smart contract</span>
+<strong>Funds remain in escrow</strong>
+<p>The contract does not run the coding agent, browser or test suite.</p>
+</div>
+</article>
+<article class="flow-stage">
+<h3>3. Submit and claim</h3>
+<div class="offchain">
+<span class="lane-label">Off-chain · Submission</span>
+<strong>Deliver code and result files</strong>
+<p>Publish or deliver the candidate and the required artifacts. Evidence binds them to the task and its checker.</p>
+</div>
+<div class="bridge">↓ Claim transaction: verifiable task / result bindings</div>
+<div class="onchain">
+<span class="lane-label">On-chain · Smart contract</span>
+<strong>Check the claim and pay</strong>
+<p>Validate the required evidence, task, payee and unused claim. Release the reward to the bound worker address.</p>
+</div>
+</article>
+</div>
+<p class="note">Contract responsibilities shown here are the intended settlement design, not deployed interfaces. Full source and result files stay off-chain; committing their hashes does not guarantee their delivery. The verification path must establish the required execution and acceptance outcome before payment.</p>
 </section>
 <section class="section">
-<div class="split">
-<article>
-<div class="eyebrow">For task creators</div>
-<h2>Open the work<br>to more people.</h2>
-<p>Offer a reward for a fix, feature or testable milestone. Publish the exact acceptance routine and environment so contributors know what they are attempting before spending time or model credits.</p>
-<p>A passing test suite, browser-driven integration checks, or a pinned agent review can be part of the task’s success definition. The quality of those rules determines what you are buying.</p>
-</article>
-<article>
-<div class="eyebrow">For workers</div>
-<h2>Bring your Mac.<br>Choose your work.</h2>
-<p>Inspect a task’s requirements, reward and costs. Run your own coding agent, contribute a candidate, then use the admitted runner to execute the required checks and retain the evidence.</p>
-<p>Submit against the published terms. In the intended market, participation and claim validation are protocol operations—neither requires a human gatekeeper to approve you as a worker.</p>
-</article>
-</div>
-</section>
-<section class="section" id="evidence">
-<div class="intro">
-<div class="eyebrow">Why App Attest matters</div>
-<h2>A submission carries more than “it passed on my machine.”</h2>
-<p>Apple App Attest authenticates an admitted app’s key and assertions. Dsmack’s runner binds those assertions to the selected execution and result. A verifier checks those bindings against the task’s expected environment, checker and outcome.</p>
-</div>
-<div class="evidence-strip">
-<span>Task &amp; candidate</span>
-<b>+</b>
-<span>Runner &amp; environment</span>
-<b>+</b>
-<span>Checks &amp; result</span>
-<b>→</b>
-<strong>Verifiable submission</strong>
-</div>
-<p>The contract’s rules bind each claim to the task and the worker’s reward address, and prevent the same evidence from being used to claim twice. Workers submit evidence; the protocol checks it.</p>
-<p class="note">App Attest does not decide whether code is useful. The published acceptance routine defines success. The full runner/result verifier must check the execution evidence; an app assertion or a host-written “passed” file alone is insufficient.</p>
-</section>
-<section class="section" id="try">
 <div class="split">
 <div>
-<div class="eyebrow">Available today</div>
-<h2>Try the execution layer.</h2>
-<p>The signed Mac alpha includes a credential-free browser and logic task. On the qualification Mac it completed in 66 seconds, passed full hardware-backed verification, and produced 14 passing tests covering 80 admitted logic cases, plus screenshots, videos and traces.</p>
-<div class="buttons">
-<a class="button primary" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Download the runner alpha</a>
-<a class="button" href="build.html">Read the setup guide</a>
+<h2>What the worker runs</h2>
+<p>A signed Mac app boots a reusable Linux VM. Inside it, a selected container runs the coding agent or acceptance routine. Separate inputs identify the task and candidate; separate outputs retain the results.</p>
+<p>The app produces launch and result assertions. A verifier checks the original evidence against the expected app, base image, workload and task bindings.</p>
+<a href="base-image.html">See the base image, disks and evidence path →</a>
 </div>
+<div>
+<h2>What makes a claim valid</h2>
+<p>App Attest authenticates the app’s key and assertions. The task’s pinned acceptance routine defines success. The contract’s verification rules must bind that passing result to this task and the worker being paid, and reject replay.</p>
+<p>Apple does not review the patch or decide whether the bounty is solved. The contract does not trust a contributor’s self-written “passed” file.</p>
+<a href="app-attest.html">Read how App Attest is checked on-chain →</a>
 </div>
-<aside class="card">
-<div class="num">ALPHA CHECKPOINT · 23 OCT 2026</div>
-<h3>What has shipped—and what comes next.</h3>
-<p>
-<strong>Available:</strong> selected public source, a signed/notarized runner, a reusable Linux base, a credential-free workload and verified execution evidence.</p>
-<p>
-<strong>Still being connected:</strong> the complete self-service journey from funded task to verified claim and payment. Today’s release provides the runner and an example task; the setup guide explains the current scripts and verification requirements.</p>
-<p class="note">Fresh normally secured Mac first-open remains unqualified. This sample earns no reward. The runner assumes a trusted host for private-input staging; App Attest is not encrypted VM memory protection against the Mac’s owner.</p>
-</aside>
 </div>
 </section>
 <section class="section">
-<div class="intro">
-<div class="eyebrow">Inspect the pieces</div>
-<h2>Small runner. Reusable base. Task-specific work.</h2>
-<p>The signed Mac app launches and attests. The Linux base supplies the execution environment. A separately selected container carries the coding agent or acceptance routine. A marketplace can build its own task and payment rules around that execution evidence.</p>
-</div>
+<h2>What you can try now</h2>
+<p>The public alpha includes the signed Mac runner, Linux base and a credential-free browser/test workload. Its latest qualification on the Mini passed full App Attest-backed result verification, 14 tests and 80 admitted logic cases. The current scripts still need prepared task inputs and a qualified Linux verifier; the complete self-service marketplace connection is unfinished.</p>
 <div class="buttons">
-<a class="button" href="base-image.html">Illustrated architecture</a>
-<a class="button" href="app-attest.html">App Attest mechanism</a>
-<a class="button" href="https://github.com/amiller/dsmack">Read the source</a>
+<a class="button primary" href="build.html">Follow the setup steps</a>
+<a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Download the alpha</a>
+<a class="button" href="https://amiller.github.io/bounty-arcade/">Bounty Arcade examples</a>
 </div>
 </section>
 </main>
 <footer>
 <div class="wrap">
-<p>Dsmack · An execution layer for open development markets. Alpha · 23 October 2026.</p>
-<a href="https://github.com/amiller/dsmack">Public source</a>
-<a href="app-attest.html">App Attest details</a>
-<a href="base-image.html">Base-image architecture</a>
+<p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
+<a href="index.html">Overview</a>
+<a href="base-image.html">Architecture</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
 </div>
 </footer>
 </body>

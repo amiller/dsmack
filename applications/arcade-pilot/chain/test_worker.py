@@ -105,4 +105,14 @@ class Tests(unittest.TestCase):
    def process(self,v):return {'stage':'synthetic-contract-only','payee':v['attempt']['payee']}
   result=handler.handle(request,binding,w,make_bridge=lambda _:Fake());self.assertEqual(set(result),{'public_result','artifacts'});self.assertEqual(result['artifacts'],[]);self.assertEqual(result['public_result']['payee'],PAYEE)
   with self.assertRaises(ValueError):handler.handle({**request,'input_sha256':'0'*64},binding,w,make_bridge=lambda _:Fake())
+ def test_official_rpc_constant_user_agent_and_read_request_contract(self):
+  from unittest.mock import patch
+  requests=[]
+  class Response:
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self,cap):self.cap=cap;return w.canon({'jsonrpc':'2.0','id':1,'result':'0x14a34'})
+  def open_request(request,timeout):requests.append((request,timeout));return Response()
+  with patch.object(w.urllib.request,'urlopen',side_effect=open_request):self.assertEqual(w.RPC('https://sepolia.base.org')('eth_chainId',[]),'0x14a34')
+  req,timeout=requests[0];self.assertEqual(req.get_header('User-agent'),'dsmack-arcade-pilot/1');self.assertEqual(req.get_header('Content-type'),'application/json');self.assertEqual(timeout,20);self.assertEqual(w.parse(req.data),{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]})
 if __name__=='__main__':unittest.main()

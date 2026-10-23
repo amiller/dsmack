@@ -54,7 +54,7 @@ class RPC:
  def __init__(self,url):need(isinstance(url,str)and url.startswith('https://'),'HTTPS RPC required');self.url=url
  def __call__(self,method,args):
   need(method in ['eth_chainId','eth_getBlockByNumber','eth_getBlockByHash','eth_getCode','eth_call','eth_getBalance','eth_getTransactionCount','eth_estimateGas','eth_gasPrice','eth_getTransactionReceipt','eth_sendRawTransaction','eth_getLogs'],'RPC method refused')
-  request=urllib.request.Request(self.url,data=canon({'jsonrpc':'2.0','id':1,'method':method,'params':args}),headers={'Content-Type':'application/json'})
+  request=urllib.request.Request(self.url,data=canon({'jsonrpc':'2.0','id':1,'method':method,'params':args}),headers={'Content-Type':'application/json','User-Agent':'dsmack-arcade-pilot/1'})
   with urllib.request.urlopen(request,timeout=20)as r:raw=r.read(2097153)
   need(len(raw)<=2097152,'RPC body bound');v=parse(raw);need(v.get('id')==1 and 'error'not in v and 'result'in v,'RPC refused');return v['result']
 

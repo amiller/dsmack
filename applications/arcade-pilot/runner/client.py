@@ -119,7 +119,7 @@ def main():
             evidence=_scope['enroll'](cfg,reg['challenge_b64'],directory);exclusive(evpath,canonical(evidence))
         response=api.request('POST','/api/registrations',{'registration_id':reg['registration_id'],**evidence,'payee':a['payee']})
         exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));print(json.dumps({'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}));return
-    record=state(x.attempt);response=record['response'];attempt=response.get('attempt_id',response.get('id',response.get('attempt',{}).get('id')));need(re.fullmatch('[a-f0-9]{32}',attempt or ''),'attempt identity');cap=record['capability'];local=parent/attempt
+    record=state(x.attempt);response=record['response'];attempt=response.get('attempt_id',response.get('id',response.get('attempt',{}).get('id')));need(re.fullmatch('[a-f0-9]{32}',attempt or ''),'attempt identity');cap=record['capability'];local=_scope['task_directory'](parent,attempt)
     if x.command=='status':print(json.dumps(api.request('GET',f'/api/attempts/{attempt}')));return
     if x.command=='prepare':
         registration=state(x.registration) if x.registration else None

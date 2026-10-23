@@ -59,6 +59,10 @@ class Portable(unittest.TestCase):
   rows=scope['evidence_manifest'](self.root);self.assertEqual(len(rows),21)
   (self.root/'statement.json').unlink();(self.root/'statement.json').symlink_to(self.root/'envelope.json')
   with self.assertRaises(ValueError):scope['evidence_manifest'](self.root)
+ def test_native_socket_path_budget(self):
+  p=scope['task_directory']('/Users/amiller/ap','a'*32)
+  self.assertLess(len(str(p/('attempt-'+('b'*32)+'.helper/net.sock')).encode()),104)
+  with self.assertRaisesRegex(ValueError,'shorter owned state_dir'):scope['task_directory']('/Users/amiller/a-very-long-runtime-namespace/state','a'*32)
  def test_plan_binding_before_subprocess(self):
   old=scope['release'];scope['release']=lambda c:None
   try:

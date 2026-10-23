@@ -79,6 +79,12 @@ def enroll(config,challenge_b64,parent):
     key=read(out/'keyId.txt',4096).decode().strip();need(key and len(base64.b64decode(key,validate=True))==32,'invalid Apple key id')
     return {'key_id':key,'attestation_b64':base64.b64encode(read(out/'attestation.cbor',262144)).decode(),'client_data_b64':base64.b64encode(client).decode()}
 
+def task_directory(parent,attempt):
+    need(re.fullmatch('[a-f0-9]{32}',attempt),'attempt identity')
+    dest=Path(parent)/('a-'+attempt[:12])
+    need(len(str(dest/('attempt-'+('0'*32)+'.helper/net.sock')).encode())<104,'choose a shorter owned state_dir for native Unix sockets')
+    return dest
+
 def materialize(config,packet,key_id,parent,fetch,resume_download=False):
     """Server prepares signed per-attempt inputs; only local paths are generated here."""
     parent=protected(parent,True);need(re.fullmatch('[a-f0-9]{32}',packet['attempt_id']) and packet['key_id']==key_id,'attempt/key binding')
@@ -86,7 +92,7 @@ def materialize(config,packet,key_id,parent,fetch,resume_download=False):
     need(packet['release_inventory_sha256']==pin(config['inventory'])['sha256'],'unexpected release')
     rows=packet['artifacts'];names={'closure-context.json','checker-context.json','workload-admission.json','workload.sig','workload.img'}
     need(type(rows)is list and len(rows)==len(names) and {d['name'] for d in rows}==names,'closed portable artifact membership')
-    dest=parent/packet['attempt_id']
+    dest=task_directory(parent,packet['attempt_id'])
     if resume_download:
         protected(dest,True);need(dest.stat().st_uid==os.getuid() and not dest.stat().st_mode&0o077,'private partial directory required')
         need({p.name for p in dest.iterdir()}<=names,'only incomplete downloads may be reconciled')

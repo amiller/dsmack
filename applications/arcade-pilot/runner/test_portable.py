@@ -50,7 +50,7 @@ class Portable(unittest.TestCase):
    def read(self,limit):return payload[self.start:self.end+1]
   class Connection:
    def __init__(self,*a,**k):pass
-   def request(self,method,path,headers):
+   def request(self,method,path,body=None,headers=None):
     span=headers['Range'].split('=')[1];self.start,self.end=map(int,span.split('-'));calls.append((self.start,self.end))
    def getresponse(self):return Response(self.start,self.end)
    def close(self):pass
@@ -70,6 +70,61 @@ class Portable(unittest.TestCase):
    Response.status=200
    with self.assertRaisesRegex(ValueError,'bounded artifact response'):client['API']('https://example.com/arcade-pilot').fetch(d,self.root/'unbounded')
   finally:client['http'].client.HTTPSConnection=old
+ def test_dns_request_retry_exact_payload_then_success(self):
+  import socket
+  from unittest.mock import patch
+  calls=[];closed=[];created=[]
+  class Response:
+   status=200
+   def read(self,limit):return b'{"ok":true}'
+  class Connection:
+   def __init__(self,*a,**k):self.n=len(created);created.append(self)
+   def request(self,method,path,body=None,headers=None):
+    calls.append((method,path,body,headers))
+    if self.n<2:raise socket.gaierror(-3,'synthetic temporary DNS failure')
+   def getresponse(self):return Response()
+   def close(self):closed.append(self.n)
+  with patch.object(client['http'].client,'HTTPSConnection',Connection),patch.object(client['time'],'sleep')as sleep:
+   value=client['API']('https://example.com/arcade-pilot').request('POST','/api/attempts',{'request_id':'same-once-request'},'a'*43)
+  self.assertEqual(value,{'ok':True});self.assertEqual(len(calls),3);self.assertEqual(closed,[0,1,2]);self.assertEqual([x.args for x in sleep.call_args_list],[(5,),(5,)])
+  for call in calls:
+   self.assertEqual(call,calls[0]);self.assertIs(call[2],calls[0][2]);self.assertIs(call[3],calls[0][3])
+  self.assertEqual(calls[0][0:2],('POST','/arcade-pilot/api/attempts'));self.assertEqual(calls[0][3]['Authorization'],'Bearer '+'a'*43)
+ def test_dns_retry_bound_and_non_dns_errors_never_retry(self):
+  import socket,ssl,http.client
+  from unittest.mock import patch
+  for error,where,expected in [(socket.gaierror(-3,'synthetic'), 'request',6),(http.client.RemoteDisconnected('synthetic'),'request',1),(ssl.SSLError('synthetic'),'request',1),(BrokenPipeError('synthetic afterwrite'),'request',1),(socket.gaierror(-3,'synthetic response'), 'response',1)]:
+   with self.subTest(error=type(error).__name__,where=where):
+    counts={'created':0,'closed':0}
+    class Connection:
+     def __init__(self,*a,**k):counts['created']+=1
+     def request(self,*a,**k):
+      if where=='request':raise error
+     def getresponse(self):raise error
+     def close(self):counts['closed']+=1
+    with patch.object(client['http'].client,'HTTPSConnection',Connection),patch.object(client['time'],'sleep')as sleep:
+     with self.assertRaises(type(error)):client['API']('https://example.com').request('POST','/api/worker/lease',{'worker_id':'unchanged'})
+    self.assertEqual(counts,{'created':expected,'closed':expected});self.assertEqual(sleep.call_count,expected-1)
+ def test_dns_fetch_retries_same_range_and_capability_then_full_hash(self):
+  import socket
+  from unittest.mock import patch
+  payload=b'authenticated-public-bytes';calls=[];closed=[]
+  class Response:
+   status=206
+   def getheader(self,n):return str(len(payload))if n=='Content-Length'else None
+   def read(self,limit):return payload
+  class Connection:
+   def __init__(self,*a,**k):self.n=len(calls)
+   def request(self,method,path,body=None,headers=None):
+    calls.append((method,path,body,headers))
+    if self.n<2:raise socket.gaierror(-3,'synthetic DNS')
+   def getresponse(self):return Response()
+   def close(self):closed.append(self.n)
+  descriptor={'url':'https://example.com/arcade-pilot/api/artifacts/a/workload.img','bytes':len(payload),'sha256':hashlib.sha256(payload).hexdigest()}
+  with patch.object(client['http'].client,'HTTPSConnection',Connection),patch.object(client['time'],'sleep'):
+   client['API']('https://example.com/arcade-pilot').fetch(descriptor,self.root/'dns-download','b'*43)
+  self.assertEqual((self.root/'dns-download').read_bytes(),payload);self.assertEqual(len(calls),3);self.assertEqual(closed,[0,1,2])
+  self.assertEqual(calls,[calls[0]]*3);self.assertEqual(calls[0][3],{'Range':f'bytes=0-{len(payload)-1}','Authorization':'Bearer '+'b'*43})
  def test_original_membership_and_caps(self):
   for name in scope['ORIGINALS']:(self.root/name).write_bytes(b'x');(self.root/name).chmod(0o600)
   rows=scope['evidence_manifest'](self.root);self.assertEqual(len(rows),21)

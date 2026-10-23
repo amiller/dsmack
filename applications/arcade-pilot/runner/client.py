@@ -1,11 +1,28 @@
 #!/usr/bin/env python3
 """Public arcade client. Wallet signatures are supplied by a wallet, never private keys."""
-import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,sys,urllib.parse
+import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,socket,sys,time,urllib.parse
 from pathlib import Path
 # Load reviewed sibling source directly; -I does not add the script directory.
 _source=Path(__file__).with_name('portable.py');_scope={'__file__':str(_source),'__name__':'arcade_portable'}
 exec(compile(_source.read_bytes(),str(_source),'exec'),_scope)
 need=_scope['need'];read=_scope['read'];doc=_scope['document'];canonical=_scope['canonical'];exclusive=_scope['exclusive'];protected=_scope['protected']
+
+def request_connection(url,method,path,body=None,headers=None):
+    """Retry only DNS resolution failure from request, before socket writes.
+
+    Responses, TLS failures and disconnects are never replayed here. Every
+    attempt gets a fresh connection with the exact already-selected payload.
+    """
+    for turn in range(6):
+        c=(http.client.HTTPSConnection if url.scheme=='https' else http.client.HTTPConnection)(url.hostname,url.port,timeout=120)
+        try:c.request(method,path,body,headers=headers)
+        except socket.gaierror:
+            c.close()
+            if turn==5:raise
+            time.sleep(5)
+        except BaseException:
+            c.close();raise
+        else:return c
 
 class API:
     def __init__(self,url,allow_loopback=False):
@@ -20,9 +37,9 @@ class API:
             need(re.fullmatch('[A-Za-z0-9_-]{43}',capability),'invalid capability');h['Authorization']='Bearer '+capability
         if body is not None and not raw:body=canonical(body);h['Content-Type']='application/json'
         if body is not None:h['Content-Length']=str(len(body))
-        c=(http.client.HTTPSConnection if self.url.scheme=='https' else http.client.HTTPConnection)(self.url.hostname,self.url.port,timeout=120)
+        c=request_connection(self.url,method,self.prefix+path,body,h)
         try:
-            c.request(method,self.prefix+path,body,headers=h);r=c.getresponse();b=r.read((1<<20)+1)
+            r=c.getresponse();b=r.read((1<<20)+1)
             need(len(b)<=1<<20 and 200<=r.status<300,'API refused request; retained state permits explicit reconciliation')
             return doc(b) if b else {}
         finally:c.close()
@@ -46,11 +63,11 @@ class API:
                     after=os.fstat(fd);need(n==held.st_size and (after.st_size,after.st_mtime_ns,after.st_ctime_ns)==(held.st_size,held.st_mtime_ns,held.st_ctime_ns),'partial changed while hashing')
                 while n<d['bytes']:
                     end=min(n+(4<<20),d['bytes'])-1
-                    c=(http.client.HTTPSConnection if u.scheme=='https' else http.client.HTTPConnection)(u.hostname,u.port,timeout=120)
+                    headers={'Range':f'bytes={n}-{end}'}
+                    if capability is not None:headers['Authorization']='Bearer '+capability
+                    c=request_connection(u,'GET',u.path,headers=headers)
                     try:
-                        headers={'Range':f'bytes={n}-{end}'}
-                        if capability is not None:headers['Authorization']='Bearer '+capability
-                        c.request('GET',u.path,headers=headers);r=c.getresponse()
+                        r=c.getresponse()
                         need(r.status==206 and r.getheader('Content-Encoding') in (None,'identity'),'bounded artifact response refused')
                         need(r.getheader('Content-Length')==str(end-n+1),'bounded artifact length refused')
                         content_range=r.getheader('Content-Range')

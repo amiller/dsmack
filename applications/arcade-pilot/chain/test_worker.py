@@ -115,6 +115,13 @@ class Tests(unittest.TestCase):
   def open_request(request,timeout):requests.append((request,timeout));return Response()
   with patch.object(w.urllib.request,'urlopen',side_effect=open_request):self.assertEqual(w.RPC('https://sepolia.base.org')('eth_chainId',[]),'0x14a34')
   req,timeout=requests[0];self.assertEqual(req.get_header('User-agent'),'dsmack-arcade-pilot/1');self.assertEqual(req.get_header('Content-type'),'application/json');self.assertEqual(timeout,20);self.assertEqual(w.parse(req.data),{'jsonrpc':'2.0','id':1,'method':'eth_chainId','params':[]})
+ def test_old_task_creation_uses_recent_validated_allocation_lower_bound(self):
+  self.process();self.rpc.state=3;self.rpc.active=0;self.c['task_created_block']='0x0';observed=[];original=self.b.event
+  def event(signature,indexed,types,expected,start,end,**kw):observed.append((signature,start));return original(signature,indexed,types,expected,start,end,**kw)
+  self.b.event=event;self.assertEqual(self.process()['stage'],'withdraw');self.assertEqual(observed[0],('Resolved(uint256,uint8,uint256)','0x65'))
+ def test_changed_cached_allocation_receipt_is_refused(self):
+  self.process();self.rpc.state=3;self.rpc.active=0;j=self.b.journal('a'*32);p=j/'allocation-receipt.json';v=w.parse(p.read_bytes());v['block_hash']='0x'+'0'*64;p.write_bytes(w.canon(v))
+  with self.assertRaisesRegex(w.Refusal,'allocation receipt binding'):self.process()
 class EventPaginationTests(unittest.TestCase):
  def fixture(self,range_error=False,bad_receipt=False):
   topic='0x'+w.keccak(text='Resolved(uint256,uint8,uint256)').hex();log={'address':w.CONTRACT,'topics':[topic,'0x'+hex(10)[2:].rjust(64,'0')],'blockNumber':hex(205),'blockHash':'0x'+'5'*64,'transactionHash':'0x'+'6'*64,'data':'0x'+w.encode(['uint8','uint256'],[2,100]).hex()};windows=[]
@@ -138,5 +145,10 @@ class EventPaginationTests(unittest.TestCase):
   with self.assertRaisesRegex(w.Refusal,'canonical event receipt'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(550))
  def test_empty_windows_exact_tail_and_excessive_total_span_refuse(self):
   b,windows,_=self.fixture();self.assertIsNone(b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[1,100],'0x0',hex(550)));self.assertEqual(windows,[(0,199),(200,399),(400,550)])
-  with self.assertRaisesRegex(w.Refusal,'window bound'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(200*512))
+  with self.assertRaisesRegex(w.Refusal,'window bound'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[1,100],'0x0',hex(200*512))
+ def test_early_match_survives_far_future_head_but_absent_event_budget_refuses(self):
+  b,windows,log=self.fixture();self.assertEqual(b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[2,100],'0x0',hex(200*10000)),log);self.assertEqual(len(windows),2)
+  b,windows,_=self.fixture()
+  with self.assertRaisesRegex(w.Refusal,'window bound'):b.event('Resolved(uint256,uint8,uint256)',[hex(10)],['uint8','uint256'],[1,100],'0x0',hex(200*10000))
+  self.assertEqual(len(windows),512)
 if __name__=='__main__':unittest.main()

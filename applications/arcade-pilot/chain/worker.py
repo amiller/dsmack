@@ -153,7 +153,11 @@ class Bridge:
      sig=Account.sign_message(message,self.key_loader(role));need(Account.recover_message(message,signature=sig.signature).lower()==self.c['roles'][role]['address'],'verifier role recovery');signatures.append('0x'+sig.signature.hex())
     durable(sigpath,{'decision_digest':'0x'+digest.hex(),'signatures':signatures,'checked_block':h['number']})
    return self.packet(a,b,aid,'resolve',{'resolve':self.tx(a['payee'],data('resolve(uint256,uint8,bytes,bytes,bytes)',['uint256','uint8','bytes','bytes','bytes'],[int(aid),2,*[bytes.fromhex(x[2:])for x in signatures]]))},typed_data=typed,signatures=signatures,checked_block=h['number'])
-  need(s[2]==3 and s[3]==0,'assignment not completion-settled');resolved=self.event('Resolved(uint256,uint8,uint256)',[hex(int(aid))],['uint8','uint256'],[2,int(self.c['payout_wei'])],self.c['task_created_block'],h['number']);need(resolved,'actual completion resolution event required');credit=int(self.call('withdrawable(address)',['address'],[a['payee']],h['number']),16)
+  need(s[2]==3 and s[3]==0,'assignment not completion-settled')
+  allocation=parse(secure_read(rec,65536));ar=self.rpc('eth_getTransactionReceipt',[allocation['transaction_hash']])
+  need(ar and int(ar['status'],16)==1 and ar['transactionHash'].lower()==allocation['transaction_hash'].lower()and ar['to'].lower()==CONTRACT and ar['from'].lower()==self.c['roles']['allocator']['address']and ar['blockHash'].lower()==allocation['block_hash'].lower(),'cached allocation receipt binding')
+  need(self.rpc('eth_getBlockByNumber',[ar['blockNumber'],False])['hash'].lower()==ar['blockHash'].lower(),'canonical allocation receipt')
+  resolved=self.event('Resolved(uint256,uint8,uint256)',[hex(int(aid))],['uint8','uint256'],[2,int(self.c['payout_wei'])],ar['blockNumber'],h['number']);need(resolved,'actual completion resolution event required');credit=int(self.call('withdrawable(address)',['address'],[a['payee']],h['number']),16)
   if credit>0:return self.packet(a,b,aid,'withdraw',{'withdraw':self.tx(a['payee'],data('withdraw()'))},withdrawable_wei=str(credit),received=False)
   # Zero credit is not receipt. Require a canonical successful event-bearing
   # withdrawal after THIS assignment's actual Completion resolution.
@@ -163,9 +167,10 @@ class Bridge:
  def event(self,signature,indexed,types,expected,start,end,minimum=None,sender=None,after=None):
   topic='0x'+keccak(text=signature).hex();topics=[topic,*['0x'+x[2:].rjust(64,'0')for x in indexed]]
   first,last=int(start,16),int(end,16);window=200
-  need(0<=first<=last and (last-first)//window+1<=512,'event block-window bound')
+  need(0<=first<=last,'event block range')
   total=0
-  for low in range(first,last+1,window):
+  for page,low in enumerate(range(first,last+1,window)):
+   need(page<512,'event block-window bound')
    high=min(low+window-1,last)
    logs=self.rpc('eth_getLogs',[{'address':CONTRACT,'fromBlock':hex(low),'toBlock':hex(high),'topics':topics}])
    need(isinstance(logs,list),'event lookup list');total+=len(logs);need(total<=128,'event lookup bound')

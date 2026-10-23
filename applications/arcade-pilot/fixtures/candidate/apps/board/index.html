@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Board</title>
+<link rel="icon" href="data:,">
+<style>
+  :root { --bg: #f4f4f1; --panel: #e9e8e3; --card: #fff; --ink: #1d1d1b; --muted: #6b6a65; --line: #d4d2cb; --accent: #2f6fde; }
+  @media (prefers-color-scheme: dark) {
+    :root { --bg: #171716; --panel: #22221f; --card: #2d2d29; --ink: #ecebe6; --muted: #9a9890; --line: #3a3a35; --accent: #7aa7ff; }
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.4 system-ui, sans-serif; }
+  header { display: flex; flex-wrap: wrap; gap: .5rem 1rem; align-items: center; padding: 1rem; }
+  header h1 { margin: 0; font-size: 1.25rem; flex: 1; }
+  a { color: var(--accent); }
+  button, .file { font: inherit; color: inherit; background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: .25rem .6rem; cursor: pointer; }
+  button:disabled { opacity: .35; cursor: default; }
+  .file input { display: none; }
+  #status { width: 100%; margin: 0; color: #c0392b; }
+  #status:empty { display: none; }
+  #board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; padding: 0 1rem 1rem; }
+  @media (max-width: 640px) { #board { grid-template-columns: 1fr; } }
+  .column { background: var(--panel); border-radius: 10px; padding: .75rem; min-height: 8rem; }
+  .column.over { outline: 2px dashed var(--accent); }
+  .column h2 { margin: 0 0 .5rem; font-size: 1rem; display: flex; justify-content: space-between; }
+  .column h2 span { color: var(--muted); font-weight: normal; }
+  ol { list-style: none; margin: 0 0 .5rem; padding: 0; display: grid; gap: .5rem; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: .5rem; }
+  .card p { margin: 0 0 .4rem; white-space: pre-wrap; overflow-wrap: anywhere; }
+  .card input { width: 100%; font: inherit; margin-bottom: .4rem; }
+  .tools { display: flex; gap: .25rem; flex-wrap: wrap; }
+  .tools button { padding: .1rem .45rem; font-size: .85rem; }
+  form { display: flex; gap: .4rem; }
+  form input { flex: 1; min-width: 0; font: inherit; padding: .3rem .5rem; border: 1px solid var(--line); border-radius: 6px; background: var(--card); color: inherit; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Board</h1>
+  <a href="../../">All apps</a>
+  <button id="export" data-testid="export">Export JSON</button>
+  <label class="file">Import JSON<input id="import" data-testid="import" type="file" accept="application/json,.json"></label>
+  <label>Search <input id="search" data-testid="search" type="search" placeholder="Search cards"></label>
+  <p id="status" data-testid="status" role="alert"></p>
+</header>
+<main id="board" data-testid="board"></main>
+<script type="module" src="ui.js"></script>
+</body>
+</html>

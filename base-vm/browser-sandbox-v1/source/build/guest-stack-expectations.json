@@ -1,0 +1,117 @@
+{
+  "allowed_architectures": [
+    "arm64",
+    "all"
+  ],
+  "architecture": "arm64",
+  "debian_release": "trixie",
+  "debian_snapshot": "20260721T000000Z",
+  "generated_by": "build-verifier-repair3 via dpkg-deb -f over the hash-pinned seed .debs",
+  "packages": {
+    "bash": {
+      "architecture": "arm64",
+      "source_deb": "bash_5.2.37-2+b9_arm64.deb",
+      "source_deb_sha256": "f9b0e4eb4ae81b3934a3211d755de26fa03881af3f159eb582437d3e8f55d9eb",
+      "version": "5.2.37-2+b9",
+      "version_frozen": true
+    },
+    "busybox-static": {
+      "architecture": "arm64",
+      "source_deb": "busybox-static_1%3a1.37.0-6+b8_arm64.deb",
+      "source_deb_sha256": "6d144e5012d47ec3a6f2102ba6fac644ad34c989373fed30c1bb7264f5cd3616",
+      "version": "1:1.37.0-6+b8",
+      "version_frozen": true
+    },
+    "ca-certificates": {
+      "architecture": "all",
+      "source_deb": "ca-certificates_20250419_all.deb",
+      "source_deb_sha256": "ef590f89563aa4b46c8260d49d1cea0fc1b181d19e8df3782694706adf05c184",
+      "version": "20250419",
+      "version_frozen": true
+    },
+    "containerd": {
+      "architecture": "arm64",
+      "source_deb": "containerd_1.7.24~ds1-6+deb13u1_arm64.deb",
+      "source_deb_sha256": "4af6b5a85498cc590eaf48d34c5c6c952ddabadae0afd6a9d2931d6a05782bc9",
+      "version": "1.7.24~ds1-6+deb13u1",
+      "version_frozen": true
+    },
+    "cryptsetup-bin": {
+      "architecture": "arm64",
+      "source_deb": "cryptsetup-bin_2%3a2.7.5-2_arm64.deb",
+      "source_deb_sha256": "94b6bf78404b2e7d2329935960041b5306ef6adad53a3271b7a7ac9d33776c23",
+      "version": "2:2.7.5-2",
+      "version_frozen": true
+    },
+    "dmsetup": {
+      "architecture": "arm64",
+      "source_deb": "dmsetup_2%3a1.02.205-2_arm64.deb",
+      "source_deb_sha256": "f802c1ec2d6f45a6544f09c5da72f9688e06208d12bb76ac9b25f2cfa8033306",
+      "version": "2:1.02.205-2",
+      "version_frozen": true
+    },
+    "docker-cli": {
+      "architecture": "arm64",
+      "source_deb": "docker-cli_26.1.5+dfsg1-9+b13_arm64.deb",
+      "source_deb_sha256": "d340cdcf25ecbcb7699e907283f94e8791f0b112d84b62ffc9eb0d337f21879d",
+      "version": "26.1.5+dfsg1-9+b13",
+      "version_frozen": true
+    },
+    "docker-compose": {
+      "architecture": "arm64",
+      "source_deb": "docker-compose_2.26.1-4_arm64.deb",
+      "source_deb_sha256": "bbafaa666f3e7fa00ad36f2a8bab889f1c791ca8743d674e7267a3d07203869c",
+      "version": "2.26.1-4",
+      "version_frozen": true
+    },
+    "docker.io": {
+      "architecture": "arm64",
+      "source_deb": "docker.io_26.1.5+dfsg1-9+b13_arm64.deb",
+      "source_deb_sha256": "4a2336834be515f6e989b1e7073c6c2bc5c8b4038aca4ab266ce5cc374937230",
+      "version": "26.1.5+dfsg1-9+b13",
+      "version_frozen": true
+    },
+    "iproute2": {
+      "architecture": "arm64",
+      "source_deb": "iproute2_6.15.0-1_arm64.deb",
+      "source_deb_sha256": "6750637e683afeef92690c7a136bace6c277066d644aa0da0adc08e2d6785af6",
+      "version": "6.15.0-1",
+      "version_frozen": true
+    },
+    "python3": {
+      "architecture_allowed": [
+        "arm64",
+        "all"
+      ],
+      "note": "pulled from the pinned snapshot mirror, not a hash-pinned seed .deb; version is verified by promoted-inventory == rebuilt-rootfs dpkg-status agreement, never a hand-written literal",
+      "source_deb": null,
+      "source_deb_sha256": null,
+      "version": null,
+      "version_frozen": false
+    },
+    "runc": {
+      "architecture": "arm64",
+      "source_deb": "runc_1.1.15+ds1-2+b4_arm64.deb",
+      "source_deb_sha256": "be066fd107eceb72459aef9285299f979d7b0c25f947aec6f9a59eac05be135c",
+      "version": "1.1.15+ds1-2+b4",
+      "version_frozen": true
+    }
+  },
+  "purpose": "Frozen expected version+architecture for the COMPLETE required guest container stack (B05-package-version-regression). Versions marked version_frozen=true are the authoritative dpkg control metadata of the hash-pinned debootstrap seed .deb for the selected snapshot (Debian epochs/revisions preserved). Provenance (source_deb + source_deb_sha256) lets a reviewer independently re-derive each value from the hash-pinned seed cache.",
+  "required_stack": [
+    "bash",
+    "busybox-static",
+    "ca-certificates",
+    "containerd",
+    "cryptsetup-bin",
+    "dmsetup",
+    "docker-cli",
+    "docker-compose",
+    "docker.io",
+    "iproute2",
+    "python3",
+    "runc"
+  ],
+  "schema": "dsmack.guest-stack-expectations/1",
+  "seed_cache": "dstack-base-image/cache/debootstrap (115 hash-pinned .debs; B04)"
+}

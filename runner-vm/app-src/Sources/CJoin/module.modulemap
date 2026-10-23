@@ -1,0 +1,18 @@
+module CJoin {
+    header "dsmack_join.h"
+    // v1 ctl ABI retired with archive patch 0002 (fable-native-audit F2):
+    // dsmack_ctl_join.h is GONE. The v1 returning ABI (dsmack_join.h) stays for
+    // the unsigned fixture path only.
+    header "dsmack_ctl_join_v2.h"
+    // v3 control-profile ABI (loop40-swift-repair2, 2026-10-22).
+    // Versioned probes (F06) — dsmack_ctl_join_abi_version_v3 /
+    // dsmack_ctl_join_err_cap_min_v3 (the implementer's exported suffix names;
+    // SWIFT03 repair2) — do NOT collide with the v2 unversioned probes, so a
+    // single apple-static archive can carry BOTH backend objects. The v3
+    // lifecycle symbols are provided by the reviewed v3 archive; its one-time
+    // init dsmack_ctl_v3_init comes from the HVF adapter (hvf_consumption_v3.rs),
+    // the native-nat REMAINING-GAP (G2) NOT built in this lane. This header is
+    // byte-identical to the native-nat implementer's dsmack_ctl_join_v3.h.
+    header "dsmack_ctl_join_v3.h"
+    export *
+}

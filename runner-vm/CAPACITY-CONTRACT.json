@@ -1,0 +1,20 @@
+{
+  "schema": "dsmack-runner-template-capacity-contract/1",
+  "source_profile_id": "generic-scratch-4g-v1",
+  "ceilings": {
+    "scratch_template_bytes": 4294967296,
+    "result_template_bytes": 1073741824,
+    "private_input_bytes": 1073741824,
+    "public_workload_bytes": 4294967296
+  },
+  "template_alignment_bytes": 512,
+  "template_minimum_bytes": 512,
+  "generic_runtime_max_seconds_unchanged": 86400,
+  "pilot_runtime_seconds": 600,
+  "scope": "Generic admission ceilings only. A separately authorized profile still chooses exact scratch/result bytes and template SHA-256. No 4GiB default selection or authority is implied.",
+  "role_rules": "Only scratch and result may use fresh blank templates. Unknown/system/workload/private roles refuse before file access; private input keeps its separate existing admission.",
+  "unchanged_result_contract": "Result finalization, envelope schemas, result checker cap, private input presence-only/no-commitment behavior and public workload bound remain unchanged.",
+  "source_lineage": "SOURCE-IMPORT.json and QUALIFIED-INPUTS.json retain original app3/native provenance. SOURCE-DERIVATION.json binds exact changed/new source and selected native source inventory; the independent expected derivation digest is mandatory for building.",
+  "new_identity_required": "New native build record/archive, unsigned app, independent review, signing/CDHash and enrollment are required. Historical signed app evidence does not qualify these new ceilings.",
+  "qualification": "Source candidate only; native build, actual Mini 4GiB execution, peak disk/memory and browser security preset qualification pending. Existing Mini Runner VMs remain untouched."
+}

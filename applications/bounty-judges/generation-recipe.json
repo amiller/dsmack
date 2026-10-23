@@ -1,0 +1,42 @@
+{
+  "schema": "dsmack-bounty-generator-recipe/1",
+  "version": "board-search-opus48-declarative-v1",
+  "policy": "NEW pilot; never legacy three-Claude-5.5 fulfillment",
+  "requested_model": "claude-opus-4-8",
+  "observed_model_policy": "exact requested ID in CLI init and every assistant message; no alias or fallback",
+  "cli_version": "2.1.187",
+  "cli_arm64_sha256": "b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2",
+  "qualified_source_oci_manifest_sha256": "dedc08251681f537d3c4fc8d3e9a3bc70f666bf979946e6daadee35178f0c418",
+  "derived_generator_oci_manifest_sha256": null,
+  "platform": "linux/arm64",
+  "runtime_uid": 1000,
+  "runtime_gid": 1000,
+  "node_path": "/usr/local/bin/node",
+  "node_binary_sha256": null,
+  "auth_policy": "Only generic injected DSMACK_SENTINEL_ENDPOINT, mapped to ANTHROPIC_BASE_URL and run-local ANTHROPIC_AUTH_TOKEN; no provider credentials in workload",
+  "context_policy": "One new container, empty cwd and HOME, no history/tools/MCP/hooks/plugins/candidate/other suites for each judge; same pinned base/spec projection only",
+  "stage_ids": ["generate-1", "generate-2", "generate-3"],
+  "stage_input_relation": "Each independent request pins the same base tree, spec and generator snapshot digests; suite hashes are outputs",
+  "bounds": {
+    "model_wall_seconds": 180,
+    "outer_stage_wall_seconds": 240,
+    "max_turns": 2,
+    "stdout_bytes": 1048576,
+    "stderr_bytes": 65536,
+    "public_input_bytes": 524288,
+    "prompt_argument_bytes": 98304,
+    "suite_bytes": 262144,
+    "tests": 16,
+    "steps_per_test": 64,
+    "total_steps": 512,
+    "container_memory_bytes": 1073741824,
+    "container_pids": 128,
+    "container_cpus": 2,
+    "writable_state_bytes": 67108864
+  },
+  "required_success_outputs": [
+    "checks.json", "generation-outcome.json", "input-snapshot.json", "observed-identity.json",
+    "prompt.txt", "stderr.txt", "suite.json", "transcript.jsonl", "version.txt"
+  ],
+  "qualification": "UNQUALIFIED recipe; audit managed settings, validate exact model ID/CLI flags and pin actual derived image and driver in immutable stage plan before any real run"
+}

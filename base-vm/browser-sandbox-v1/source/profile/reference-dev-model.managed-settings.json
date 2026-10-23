@@ -1,0 +1,4 @@
+{
+  "_comment": "REFERENCE DEVELOPMENT PROFILE model pin (guest-io-integration). This is a measured-image managed-settings asset for the DEVELOPMENT/reference profile only -- it is NOT the signed Mac app and makes NO attested claim. The pinned workload wrapper (dsmack-claude-wrapper) already consumes /etc/claude-code/managed-settings.json from the READ-ONLY measured rootfs; installing this file there configures the model through MEASURED manifest/image configuration rather than caller-controlled runtime input. The value 'opus' matches PROVIDER-ROUTE.requested_model. HANDOFF: the final integrator installs this at /etc/claude-code/managed-settings.json in the harness image at the gated build; the ACTUAL resolved model/provider attribution is RECORDED from a real run later and is NOT asserted here (api.z.ai historical route attribution is explicitly unverified per PROVIDER-ROUTE.json).",
+  "model": "opus"
+}

@@ -1,0 +1,12 @@
+# SOURCE RECIPE ONLY. No dependency installs. Build on Zed from the independently
+# selected browser image pinned by OCI digest, with the admitted Playwright 1.64.
+ARG ADMITTED_BROWSER_IMAGE
+FROM ${ADMITTED_BROWSER_IMAGE}
+USER root
+WORKDIR /opt/bounty-judges
+COPY browser-driver.mjs suite-contract.mjs ./
+RUN chmod 0755 /opt/bounty-judges && chmod 0444 browser-driver.mjs suite-contract.mjs \
+ && test -x /usr/bin/node && test -f /opt/checker/node_modules/playwright/index.mjs \
+ && /usr/bin/node -e 'if(Number(process.versions.node.split(".")[0])<20 || require("/opt/checker/node_modules/playwright/package.json").version!=="1.64.0")process.exit(2)'
+USER 1000:1000
+ENTRYPOINT ["/usr/bin/node", "/opt/bounty-judges/browser-driver.mjs"]

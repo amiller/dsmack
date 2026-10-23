@@ -1,0 +1,362 @@
+{
+  "omitted_generated_files": [
+    {
+      "path": "runner-content/dsmack_guest_io/__pycache__/oci_publish.cpython-310.pyc",
+      "reason": "Generated CPython cache; source-only package never executes/imports it.",
+      "sha256": "63f2287bba7ed1c71e02daf20f24f95ad7bd245c89a71c8d18a67ec1adddee1b"
+    }
+  ],
+  "original_inventory_sha256": "3d60c937cf58c0858d3b8fb4e3a8c5ddcb416171f4478e7baab1368756888110",
+  "original_qualified_base_image": "971ae3219df6779737f3373e4de051a5030c8dca6ce31c30fb72f464d17b31a8",
+  "original_reviewed_inventory": {
+    "generated_cache_not_reviewed": true,
+    "historical_total_files": 218,
+    "matched_source_files": 63,
+    "path": "provenance/IMAGE7-SOURCE-INVENTORY.json",
+    "scope": "All63retained original source entries match originalreviewed218inventory; unrelatedoriginalentries retainedas hash/pathmetadata only, notcopiedsource.",
+    "selected_source_prefix": "dstack-runner-join/source/",
+    "sha256": "161d4608a2b63878b54c8947793470c7dfa8525a3b19a252d62aae48ae331d85"
+  },
+  "publication_approved": false,
+  "reproducible_clean_build_claimed": false,
+  "schema": "dsmack-base-vm-selected-source/1",
+  "scope": "Source-only import of actual reviewed reference guest; generic app/native and bounty applications remain separate. Historical build/smoke scripts retain original paths for analysis; only portable derive.py is supported here.",
+  "selected_built_base_image": "8eea5c4dff96a52878208dc4a1af8af8b2c03198d8603ae5e54a3f6e306dd6f2",
+  "source_path_map": {
+    "build/BUILD-DELIVERY.md": {
+      "original_path": "dstack-runner-join/source/build/BUILD-DELIVERY.md",
+      "original_sha256": "e6e3c86eea06f02158162a8374f9c1e645b7f1dd13122dc3eb57be4744673497",
+      "selected_sha256": "e6e3c86eea06f02158162a8374f9c1e645b7f1dd13122dc3eb57be4744673497"
+    },
+    "build/BUILD.sh": {
+      "original_path": "dstack-runner-join/source/build/BUILD.sh",
+      "original_sha256": "4ea810c403865e8f6c45764e0531daacc29c57c45124dd76e4865b366f2ce2e5",
+      "selected_sha256": "4ea810c403865e8f6c45764e0531daacc29c57c45124dd76e4865b366f2ce2e5"
+    },
+    "build/assemble_leg.sh": {
+      "original_path": "dstack-runner-join/source/build/assemble_leg.sh",
+      "original_sha256": "b3575c6c7cc7c76d4ea4c5e90059ce0a1279f74c2c85052680d379e0ac5dbd79",
+      "selected_sha256": "f3bdbbeb339ae75ecc613a86a32b49c4393fb107ea0379e513ab9aa0bde9678d"
+    },
+    "build/build_disk_templates.py": {
+      "original_path": "dstack-runner-join/source/build/build_disk_templates.py",
+      "original_sha256": "c4b86268cf54b3bffbcf2d03e97da51cfd70970dcddc759ace226697622fcbc2",
+      "selected_sha256": "7f28379466949b0b25c9d6aad1ea296d0c486161c5451138f3f80f8cf471a1dc"
+    },
+    "build/build_kernel_leg.sh": {
+      "original_path": "dstack-runner-join/source/build/build_kernel_leg.sh",
+      "original_sha256": "b1fa3ba76e4b1df83d0ea68c8dcdb6350dd5ab982a88ed4483d7e7215eb45ddb",
+      "selected_sha256": "b1fa3ba76e4b1df83d0ea68c8dcdb6350dd5ab982a88ed4483d7e7215eb45ddb"
+    },
+    "build/build_leg_rootfs.sh": {
+      "original_path": "dstack-runner-join/source/build/build_leg_rootfs.sh",
+      "original_sha256": "c815eba464efa6a4dcfea2f5b322cecfb6dc4430c8cf0e0fd7e3deaaa4b0dd97",
+      "selected_sha256": "73c3d4ea5ae77569b7b35eb182f73ae494a93be5c0a7180f32c5dabe06a2bcad"
+    },
+    "build/build_supervisor.py": {
+      "original_path": "dstack-runner-join/source/build/build_supervisor.py",
+      "original_sha256": "e0cfa9645b61be1c36c7b57db85e7cd8ae0aadbba2a8d79c124f601bcec489f8",
+      "selected_sha256": "e0cfa9645b61be1c36c7b57db85e7cd8ae0aadbba2a8d79c124f601bcec489f8"
+    },
+    "build/extract_export.py": {
+      "original_path": "dstack-runner-join/source/build/extract_export.py",
+      "original_sha256": "eabbe271f02d7c8332d5bb4bc6707c4b3deb5deb41f8796563392dbb4de75cae",
+      "selected_sha256": "eabbe271f02d7c8332d5bb4bc6707c4b3deb5deb41f8796563392dbb4de75cae"
+    },
+    "build/finalize_handoff.py": {
+      "original_path": "dstack-runner-join/source/build/finalize_handoff.py",
+      "original_sha256": "bb171ab6f71fc804f3121dc5d65fa33a770d716197fdd4570f22f6c6cf3ae12d",
+      "selected_sha256": "bb171ab6f71fc804f3121dc5d65fa33a770d716197fdd4570f22f6c6cf3ae12d"
+    },
+    "build/guest-stack-expectations.json": {
+      "original_path": "dstack-runner-join/source/build/guest-stack-expectations.json",
+      "original_sha256": "be65466ae80939d13dd7b5dac8c395269731397e6424d7b347a92f909b0ab1e7",
+      "selected_sha256": "be65466ae80939d13dd7b5dac8c395269731397e6424d7b347a92f909b0ab1e7"
+    },
+    "build/make_guest_inputs.py": {
+      "original_path": "dstack-runner-join/source/build/make_guest_inputs.py",
+      "original_sha256": "69a2e7c310a91f3b327d9ef859a941b84a500c9c3ac664be4d8d5f9e37a17537",
+      "selected_sha256": "69a2e7c310a91f3b327d9ef859a941b84a500c9c3ac664be4d8d5f9e37a17537"
+    },
+    "build/promote_and_verify.sh": {
+      "original_path": "dstack-runner-join/source/build/promote_and_verify.sh",
+      "original_sha256": "db1303985536d118c2811b3d00b199af78de7e6055de1c60acb210291baa1565",
+      "selected_sha256": "db1303985536d118c2811b3d00b199af78de7e6055de1c60acb210291baa1565"
+    },
+    "build/render_product_manifests.py": {
+      "original_path": "dstack-runner-join/source/build/render_product_manifests.py",
+      "original_sha256": "8f02fa734b1839ec7358f4fcbc35917c52c320dbb80b0930f60eea35f1b66dcc",
+      "selected_sha256": "8f02fa734b1839ec7358f4fcbc35917c52c320dbb80b0930f60eea35f1b66dcc"
+    },
+    "build/run-my-legs.sh": {
+      "original_path": "dstack-runner-join/source/build/run-my-legs.sh",
+      "original_sha256": "0ba59988a487ba1b2365bcb7afa73be629754c2e419fcc22d249d389caea29da",
+      "selected_sha256": "0ba59988a487ba1b2365bcb7afa73be629754c2e419fcc22d249d389caea29da"
+    },
+    "build/verify_built_artifacts.py": {
+      "original_path": "dstack-runner-join/source/build/verify_built_artifacts.py",
+      "original_sha256": "c3e61a96f17fda570624fd4aa62aeaf3c63fac4d68de1e409a1de0d5f90fe247",
+      "selected_sha256": "c3e61a96f17fda570624fd4aa62aeaf3c63fac4d68de1e409a1de0d5f90fe247"
+    },
+    "guest/init-dstack-arm64.sh": {
+      "original_path": "dstack-runner-join/source/guest/init-dstack-arm64.sh",
+      "original_sha256": "dd5a5b46f2dcb50a0366d353618cf68b6dc8ddc2a3d8006764356b803e4b18b4",
+      "selected_sha256": "dd5a5b46f2dcb50a0366d353618cf68b6dc8ddc2a3d8006764356b803e4b18b4"
+    },
+    "guest/supervisor-dstack-trixie.sh": {
+      "original_path": "dstack-runner-join/source/guest/supervisor-dstack-trixie.sh",
+      "original_sha256": "f10ee4aca3482d0fbc1b378758a7d19fe7d27f4eaed3e00adefdb97ec7112fc3",
+      "selected_sha256": "a2447141e6647ed07931c44b1a5299461dd28d9f7f2f07c7d46d9479e51326c3"
+    },
+    "profile/dstack-trixie-arm64-minimal/docker-daemon.json": {
+      "original_path": "dstack-runner-join/source/profile/dstack-trixie-arm64-minimal/docker-daemon.json",
+      "original_sha256": "d75ad2c54c8822d5e0458f417d16f59fb2a510518c51248aaec1c360b4afd83c",
+      "selected_sha256": "d75ad2c54c8822d5e0458f417d16f59fb2a510518c51248aaec1c360b4afd83c"
+    },
+    "profile/dstack-trixie-arm64-minimal/guest-network.env": {
+      "original_path": "dstack-runner-join/source/profile/dstack-trixie-arm64-minimal/guest-network.env",
+      "original_sha256": "2992b558470a61733f1381f9f8e257b622c318832c53533ba9250726e870879d",
+      "selected_sha256": "2992b558470a61733f1381f9f8e257b622c318832c53533ba9250726e870879d"
+    },
+    "profile/dstack-trixie-arm64-minimal/kernel-cmdline.sh": {
+      "original_path": "dstack-runner-join/source/profile/dstack-trixie-arm64-minimal/kernel-cmdline.sh",
+      "original_sha256": "7899b65002fadd107d3d3d973803a4aa3a0f116bab40a2a833866d85cba38a7a",
+      "selected_sha256": "7899b65002fadd107d3d3d973803a4aa3a0f116bab40a2a833866d85cba38a7a"
+    },
+    "profile/dstack-trixie-arm64-minimal/kernel-fragment-arm64.config": {
+      "original_path": "dstack-runner-join/source/profile/dstack-trixie-arm64-minimal/kernel-fragment-arm64.config",
+      "original_sha256": "a140d3613d303c450b33c2973381c0c45d2aed2962803a3b12aa17815355410c",
+      "selected_sha256": "a140d3613d303c450b33c2973381c0c45d2aed2962803a3b12aa17815355410c"
+    },
+    "profile/dstack-trixie-arm64-minimal/profile.json": {
+      "original_path": "dstack-runner-join/source/profile/dstack-trixie-arm64-minimal/profile.json",
+      "original_sha256": "ba73607e0dbc4214237a41d2908216dd0103b13a8fcbdef95b8ae5f735d6bd1d",
+      "selected_sha256": "ba73607e0dbc4214237a41d2908216dd0103b13a8fcbdef95b8ae5f735d6bd1d"
+    },
+    "profile/reference-dev-model.managed-settings.json": {
+      "original_path": "dstack-runner-join/source/profile/reference-dev-model.managed-settings.json",
+      "original_sha256": "073283e8ba8a33a5e3b1de6abac8dc874b0508a7a90c14a75c6217779045a388",
+      "selected_sha256": "073283e8ba8a33a5e3b1de6abac8dc874b0508a7a90c14a75c6217779045a388"
+    },
+    "runner-content/bin/dsmack-compose-runner": {
+      "original_path": "dstack-runner-join/source/runner-content/bin/dsmack-compose-runner",
+      "original_sha256": "d84e4b228f7a7c568ced6db6467061bab913a3c5a1fb6ba2b7ca2603e8215e81",
+      "selected_sha256": "d84e4b228f7a7c568ced6db6467061bab913a3c5a1fb6ba2b7ca2603e8215e81"
+    },
+    "runner-content/dsmack_compose_runner/__init__.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/__init__.py",
+      "original_sha256": "3ca24245080cb4f747728dc6c7188092c61957ec55df43b62e53c1151511d7b1",
+      "selected_sha256": "3ca24245080cb4f747728dc6c7188092c61957ec55df43b62e53c1151511d7b1"
+    },
+    "runner-content/dsmack_compose_runner/__main__.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/__main__.py",
+      "original_sha256": "fc8ab627e05df95f6e2af0a589276a243fbdbb64fd5ce73f9ec06c9984162366",
+      "selected_sha256": "fc8ab627e05df95f6e2af0a589276a243fbdbb64fd5ce73f9ec06c9984162366"
+    },
+    "runner-content/dsmack_compose_runner/cli.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/cli.py",
+      "original_sha256": "2b9e37f478a0af31240ea5f4fc63bc4c3f50d0509ab78f875770854ad5ad962c",
+      "selected_sha256": "2b9e37f478a0af31240ea5f4fc63bc4c3f50d0509ab78f875770854ad5ad962c"
+    },
+    "runner-content/dsmack_compose_runner/control.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/control.py",
+      "original_sha256": "1303998698adbd55c35bb85909e52d14893cc17d1cbe10c508caf29591e60190",
+      "selected_sha256": "1303998698adbd55c35bb85909e52d14893cc17d1cbe10c508caf29591e60190"
+    },
+    "runner-content/dsmack_compose_runner/errors.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/errors.py",
+      "original_sha256": "82b4622aca8f85ce0f408e91c692dd7e58b72fe8c8c5940122b2b63c03067ac8",
+      "selected_sha256": "82b4622aca8f85ce0f408e91c692dd7e58b72fe8c8c5940122b2b63c03067ac8"
+    },
+    "runner-content/dsmack_compose_runner/export_outputs.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/export_outputs.py",
+      "original_sha256": "09eee7bece0f56d85b33ca521f4039257197f3a1d09d3ca58cfc5b72832867a0",
+      "selected_sha256": "09eee7bece0f56d85b33ca521f4039257197f3a1d09d3ca58cfc5b72832867a0"
+    },
+    "runner-content/dsmack_compose_runner/identity.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/identity.py",
+      "original_sha256": "6d1d70e4a0e31d703ea77945990d906329f62479127541bfe4eb785f57143bc6",
+      "selected_sha256": "6d1d70e4a0e31d703ea77945990d906329f62479127541bfe4eb785f57143bc6"
+    },
+    "runner-content/dsmack_compose_runner/lifecycle.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/lifecycle.py",
+      "original_sha256": "98c907d352cc8f81f486b497718ff3f84e9e721f1b0c5b4dad248ca47197567b",
+      "selected_sha256": "ea822900c6a217c79e431b90855d1b1689418eab5cb4c7adf0697a339762c23b"
+    },
+    "runner-content/dsmack_compose_runner/receipting.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/receipting.py",
+      "original_sha256": "0e82109d8829c473f308b4cc3ab9bc1947372b526fae7ff90b9f82e348ccf906",
+      "selected_sha256": "0e82109d8829c473f308b4cc3ab9bc1947372b526fae7ff90b9f82e348ccf906"
+    },
+    "runner-content/dsmack_compose_runner/runner.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/runner.py",
+      "original_sha256": "8717eacc14530a3c1383b56153b94fb906da616c53c63933bc6636a3eb4abdc1",
+      "selected_sha256": "8717eacc14530a3c1383b56153b94fb906da616c53c63933bc6636a3eb4abdc1"
+    },
+    "runner-content/dsmack_compose_runner/workspace.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_compose_runner/workspace.py",
+      "original_sha256": "c22891a602118f34e4e2a5486dd3598abf03878707f10e377bb260f5866309d5",
+      "selected_sha256": "c22891a602118f34e4e2a5486dd3598abf03878707f10e377bb260f5866309d5"
+    },
+    "runner-content/dsmack_guest_io/__init__.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/__init__.py",
+      "original_sha256": "3af5839834e24b419f1ce048ae493059a9f2121843d1984fb1448e0b48fc3e3b",
+      "selected_sha256": "3af5839834e24b419f1ce048ae493059a9f2121843d1984fb1448e0b48fc3e3b"
+    },
+    "runner-content/dsmack_guest_io/boot_observe.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/boot_observe.py",
+      "original_sha256": "dba4aec553fd28d2ec0a0765c595c1d74c04570df265501818a7aae6563e53bc",
+      "selected_sha256": "dba4aec553fd28d2ec0a0765c595c1d74c04570df265501818a7aae6563e53bc"
+    },
+    "runner-content/dsmack_guest_io/cli.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/cli.py",
+      "original_sha256": "48e2f81a58bee80c3ad70326319cecf0f3792c66b21bfe4606a2c623d4ded297",
+      "selected_sha256": "48e2f81a58bee80c3ad70326319cecf0f3792c66b21bfe4606a2c623d4ded297"
+    },
+    "runner-content/dsmack_guest_io/closure.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/closure.py",
+      "original_sha256": "8ed11fbb5b64e313463d2f24c527a570364a32675140cd8fadd00cca9888b54f",
+      "selected_sha256": "8ed11fbb5b64e313463d2f24c527a570364a32675140cd8fadd00cca9888b54f"
+    },
+    "runner-content/dsmack_guest_io/oci_identity.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/oci_identity.py",
+      "original_sha256": "796507dc5758d28bccb77888b86199ef64c31b3a994302ac06e6ac61c89a50e3",
+      "selected_sha256": "796507dc5758d28bccb77888b86199ef64c31b3a994302ac06e6ac61c89a50e3"
+    },
+    "runner-content/dsmack_guest_io/oci_publish.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/oci_publish.py",
+      "original_sha256": "d68fca5d394c3a934cfb3b66485534cd9051c67a10266be8f61a83879940b676",
+      "selected_sha256": "d68fca5d394c3a934cfb3b66485534cd9051c67a10266be8f61a83879940b676"
+    },
+    "runner-content/dsmack_guest_io/private_transport.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/private_transport.py",
+      "original_sha256": "ad63bf9d32d29c97fb71f21f8a5c0326643ec301f9b23433c9004f4ffc5d60be",
+      "selected_sha256": "ad63bf9d32d29c97fb71f21f8a5c0326643ec301f9b23433c9004f4ffc5d60be"
+    },
+    "runner-content/dsmack_guest_io/pt_limits.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/pt_limits.py",
+      "original_sha256": "34012b9a11da1ce248896dc30b1684cb4cace92d51138263e483a1f2f390a390",
+      "selected_sha256": "34012b9a11da1ce248896dc30b1684cb4cace92d51138263e483a1f2f390a390"
+    },
+    "runner-content/dsmack_guest_io/public_inputs.py": {
+      "original_path": null,
+      "original_sha256": null,
+      "selected_sha256": "bb7f41ab04c545295cc7fcbd6fde5931085b8f39867be6a32cbfa85e1f917564"
+    },
+    "runner-content/dsmack_guest_io/public_toc.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/public_toc.py",
+      "original_sha256": "76379dfbf26b86d8fe3bd6dc5441c1bf52a8634915b51002d2328d9b3fb2ef11",
+      "selected_sha256": "b3f698b31760b9d5927105000c54b179ea8d7448c8d0db4d2540be630958dc5d"
+    },
+    "runner-content/dsmack_guest_io/scratch_probe.py": {
+      "original_path": "dstack-runner-join/source/runner-content/dsmack_guest_io/scratch_probe.py",
+      "original_sha256": "3d629025fba8de847e188f8f6a4e88cb9779a3722b0c6e666542a4589ee2ab9c",
+      "selected_sha256": "3d629025fba8de847e188f8f6a4e88cb9779a3722b0c6e666542a4589ee2ab9c"
+    },
+    "runner-content/lib/dsmack_compose_contract/__init__.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/__init__.py",
+      "original_sha256": "0b2379fdd3681b5c1eea1250ba63256e83a3d8e1c8a9ea2ad216d3067aa91f2f",
+      "selected_sha256": "0b2379fdd3681b5c1eea1250ba63256e83a3d8e1c8a9ea2ad216d3067aa91f2f"
+    },
+    "runner-content/lib/dsmack_compose_contract/__main__.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/__main__.py",
+      "original_sha256": "d3659ee70c3363fe42909825371a72665fb3043432c556524a32456bdccc29eb",
+      "selected_sha256": "d3659ee70c3363fe42909825371a72665fb3043432c556524a32456bdccc29eb"
+    },
+    "runner-content/lib/dsmack_compose_contract/attestation.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/attestation.py",
+      "original_sha256": "8dbb839e921b8cff1f146d50c2ed07e3b1f4241433c8bbfc4de6e0a1f8fae6c3",
+      "selected_sha256": "8dbb839e921b8cff1f146d50c2ed07e3b1f4241433c8bbfc4de6e0a1f8fae6c3"
+    },
+    "runner-content/lib/dsmack_compose_contract/browser-sandbox-v1.json": {
+      "original_path": null,
+      "original_sha256": null,
+      "selected_sha256": "cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849"
+    },
+    "runner-content/lib/dsmack_compose_contract/canonical.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/canonical.py",
+      "original_sha256": "9d8be2083dff2d3d261bb53aa3d6605fe35a4d43d3958bc40f5c2b9012f13037",
+      "selected_sha256": "9d8be2083dff2d3d261bb53aa3d6605fe35a4d43d3958bc40f5c2b9012f13037"
+    },
+    "runner-content/lib/dsmack_compose_contract/ed25519.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/ed25519.py",
+      "original_sha256": "0a5d0b36f759cee5b232dc819e7c04de7d71c4607c6e77a9d8c80f1fc80e2ee7",
+      "selected_sha256": "0a5d0b36f759cee5b232dc819e7c04de7d71c4607c6e77a9d8c80f1fc80e2ee7"
+    },
+    "runner-content/lib/dsmack_compose_contract/errors.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/errors.py",
+      "original_sha256": "5eb10e5969e905f4932deb709c3961e1eedc6986ab360058bfd51b30e4d82052",
+      "selected_sha256": "5eb10e5969e905f4932deb709c3961e1eedc6986ab360058bfd51b30e4d82052"
+    },
+    "runner-content/lib/dsmack_compose_contract/image_admission.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/image_admission.py",
+      "original_sha256": "47c6375204a6c04f19cfe909c716f9497aa076e8f917edaeb596b4b24dd56379",
+      "selected_sha256": "47c6375204a6c04f19cfe909c716f9497aa076e8f917edaeb596b4b24dd56379"
+    },
+    "runner-content/lib/dsmack_compose_contract/lowering.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/lowering.py",
+      "original_sha256": "1648def74bfcde268ad0f855f2543ca8e5eb8304f566a1ffe4315a600b328b07",
+      "selected_sha256": "ad908e54f73614b6edcaa0e3880c8668bee31cf1723094622477aa97e5c335a5"
+    },
+    "runner-content/lib/dsmack_compose_contract/manifest.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/manifest.py",
+      "original_sha256": "ddffbc55e82c55cb3db78a3d9c63bfdd808dfafac2f69646001d01914d31c6b0",
+      "selected_sha256": "2c8f3b3e69cdc8365b0d161a8bddcb7f5b2eec650ed358978e075972696ed10c"
+    },
+    "runner-content/lib/dsmack_compose_contract/oci_index.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/oci_index.py",
+      "original_sha256": "94a625cee7491055bb9f8a2d0017d0d79c38b790563e1b3aa5e10a8af57f6cb3",
+      "selected_sha256": "94a625cee7491055bb9f8a2d0017d0d79c38b790563e1b3aa5e10a8af57f6cb3"
+    },
+    "runner-content/lib/dsmack_compose_contract/receipt.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/receipt.py",
+      "original_sha256": "3f25dbead69d07b7caa78414132e10f3278e176f10d1abe2f09d8cfd7955ca72",
+      "selected_sha256": "3f25dbead69d07b7caa78414132e10f3278e176f10d1abe2f09d8cfd7955ca72"
+    },
+    "runner-content/lib/dsmack_compose_contract/report_adapter.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/report_adapter.py",
+      "original_sha256": "aeca885bb9f2029ba4052607d16b25a2b54431ec953f68248518d8c24f72d2d6",
+      "selected_sha256": "aeca885bb9f2029ba4052607d16b25a2b54431ec953f68248518d8c24f72d2d6"
+    },
+    "runner-content/lib/dsmack_compose_contract/runtime_inputs.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/runtime_inputs.py",
+      "original_sha256": "151cede062fa6b58a4645a39257289e52c64f2d08b2605235498a979fa5caa8e",
+      "selected_sha256": "151cede062fa6b58a4645a39257289e52c64f2d08b2605235498a979fa5caa8e"
+    },
+    "runner-content/lib/dsmack_compose_contract/schema_check.py": {
+      "original_path": "dstack-runner-join/source/runner-content/lib/dsmack_compose_contract/schema_check.py",
+      "original_sha256": "a5ad2e1273e764575918fb680787b592daa95304f839c8468984c7748cbbcb0d",
+      "selected_sha256": "a5ad2e1273e764575918fb680787b592daa95304f839c8468984c7748cbbcb0d"
+    },
+    "runner-content/lib/dsmack_compose_contract/security.py": {
+      "original_path": null,
+      "original_sha256": null,
+      "selected_sha256": "67926d2aa09828e0c9e20eb031059a1f68cf3415edd816068d07363f5482a1ce"
+    },
+    "smoke/descriptor-launch/main.go": {
+      "original_path": "dstack-runner-join/source/smoke/descriptor-launch/main.go",
+      "original_sha256": "ebed1ef4fbef8587088bd99988d539cda14979aa651a5e379b115f0035ab5cdd",
+      "selected_sha256": "ebed1ef4fbef8587088bd99988d539cda14979aa651a5e379b115f0035ab5cdd"
+    },
+    "smoke/launch_vm_dstack_arm64.py": {
+      "original_path": "dstack-runner-join/source/smoke/launch_vm_dstack_arm64.py",
+      "original_sha256": "c390723c8b7f4417483462b0a6110f274c13a97d4b394cdac0b7d121322d4f9d",
+      "selected_sha256": "c390723c8b7f4417483462b0a6110f274c13a97d4b394cdac0b7d121322d4f9d"
+    },
+    "tests/check_kernel_config.sh": {
+      "original_path": "dstack-runner-join/source/tests/check_kernel_config.sh",
+      "original_sha256": "3ad05a874698ae2fa0b70c2b1595b01c011e9cb27a7c7a61b602067a9caa9243",
+      "selected_sha256": "3ad05a874698ae2fa0b70c2b1595b01c011e9cb27a7c7a61b602067a9caa9243"
+    },
+    "tests/verify_manifest.py": {
+      "original_path": "dstack-runner-join/source/tests/verify_manifest.py",
+      "original_sha256": "5a5c1a1a3fe56a77eae89797bdb771c22080bb982325ab77584165e396ec15bc",
+      "selected_sha256": "5a5c1a1a3fe56a77eae89797bdb771c22080bb982325ab77584165e396ec15bc"
+    }
+  },
+  "upstream_dstack": {
+    "repository": "https://github.com/Dstack-TEE/dstack",
+    "revision": "247c3add65d0e8e6ba90eae5f6b981a9063cf701",
+    "scope": "Documented ARM64 adaptations of init, assembly and kernel command line; upstreamidentity does not mean unchanged dstack runtime."
+  }
+}

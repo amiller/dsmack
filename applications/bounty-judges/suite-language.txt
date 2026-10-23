@@ -1,0 +1,35 @@
+dsmack-bounty-browser-suite/1, strict canonical UTF-8 JSON:
+{"schema":"dsmack-bounty-browser-suite/1","tests":[{"id":"search-behavior","steps":[{"op":"navigate","path":"/apps/board/"},{"op":"assert_count","selector":"[data-testid=\"search\"]","value":1}]}]}
+
+Each test has EXACTLY id and steps. IDs match [a-z][a-z0-9-]{0,63}, sorted,
+unique. 1..16 tests, 2..64 steps/test, at most 512 total steps. Every test starts
+with navigate and contains at least one explicit behavioral assertion. Each test
+has its own fresh browser context: no state is shared between tests. A failed
+assertion ends that test; every test ID still runs, in order, on both source trees.
+There is no conditional execution, optional step, timeout override or skip.
+
+Each step has exactly the fields shown for its operation:
+{"op":"navigate","path":"/apps/board/"} (this is the ONLY allowed path)
+{"op":"reload"}
+{"op":"fill","selector":"CSS","value":"text"}
+{"op":"click","selector":"CSS"}
+{"op":"assert_count","selector":"CSS","value":1} (integer 0..1000)
+{"op":"assert_text","selector":"CSS","value":"exact textContent"}
+{"op":"assert_value","selector":"CSS","value":"exact input value"}
+{"op":"assert_attribute","selector":"CSS","name":"data-saved","value":"1"}
+{"op":"assert_visible","selector":"CSS","value":true}
+
+CSS means only tag, *, #id, .class, [attribute], [attribute="value"], their
+compound forms, and descendant (one space) or child (space > space) combinators.
+At most 8 compounds and 240 characters. Names use letters/digits/underscore/hyphen;
+attribute values use only letters/digits/space/underscore/dot/hyphen. No unquoted
+attribute values, escaping, pseudo selectors, commas, selector engines or scripts.
+Text values are at most 4096 characters. assert_attribute names are restricted
+to data-*, aria-*, title and disabled. No substring or whitespace normalization:
+assert_text compares exact DOM textContent, including whitespace. Assertions
+poll for at most 1500ms; browser reads/action errors are infrastructure failures.
+fill/click requires exactly one target and an ordinary successful Playwright
+action. Assert presence explicitly before actions that may be absent on base.
+No eval, imports, executable code, URLs, downloads, filesystem, arbitrary browser
+settings or raw network operations. The renderer sees only admitted local board
+assets. Suites cannot alter the driver, its media, results or resource limits.

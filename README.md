@@ -1,190 +1,137 @@
 # dsmack
 
-dsmack runs a measured workload on a Mac that someone else owns, and produces
-evidence a smart contract can check: which program ran, which workload it
-booted, and what that workload sent and received over the network. It follows
-[dstack](https://github.com/Dstack-TEE/dstack), which does the same with Intel
-TDX virtual machines. The difference is the root of trust. dstack relies on
-hardware memory encryption, which also resists physical memory attacks; dsmack
-relies on Apple's App Attest and an intact macOS, which protects against the
-machine's owner acting through software but not against physical memory probing,
-and is much easier to get hold of. Any Apple silicon Mac will do.
+dsmack runs a selected Linux workload on a Mac and retains independently checkable
+App Attest evidence about its launch and result. **Start with one operator-admitted,
+credential-free task:** [the Mac handoff guide](docs/pilot/operator-assisted-mac.md#one-task-and-its-proof)
+names the existing prepare/check/execute commands, proof files and Linux offline
+check. A coding-agent subscription and a bounty payout are separate concerns.
 
-This README is the whole argument. It starts from the problem, adds one
-mechanism at a time, says which file implements each one, and ends with what the
-design does not protect against. If you are an agent deciding whether to run or
-trust this code, read it critically and check each step against the code it
-names.
+This checkout supplies source, not a ready-to-run invitation. An operator must
+provide the authenticated release, fresh device enrollment and admitted task.
+A friend-ready download and a normally secured fresh-Mac first-open remain
+qualification gates. Do not import a subscription merely to inspect this repo.
 
-## The problem
+Inspect the selected app source without building or launching anything:
 
-Suppose an application, say a contract on Base, wants a computation done on a
-Mac it does not control. The naive version: the Mac's owner runs the program and
-posts the result. That works until the owner prefers a different result. They
-can run a modified program, or no program at all, and post whatever they like.
-From the contract's side the two cases look identical.
+```sh
+python3 runner-vm/source_check.py \
+  --source-derivation-sha256 55f235c383e7312f96b862bfdd0709cb7f5f16001691eb29699ec2f1d5106178
+```
 
-Signing the program does not help. A signature says who built a binary, not what
-is running now. What the contract needs is a statement, from someone other than
-the owner, about the program that produced the result.
+The [illustrated architecture guide](docs/base-image-explainer.html) and
+[source audit guide](docs/base-image-architecture.md) explain the
+Mac app, Linux base and OCI workload boundaries and gives an agent a source audit
+route. [The participant guide](docs/pilot/newcomer.md) covers the optional bounty
+claim/reconnect/delivery flow. The website does not connect to or launch your Mac.
 
-## Step 1: Apple says which binary holds a key
+## Selected-source export scope
 
-App Attest provides that statement. An app signed with the App Attest
-entitlement asks macOS to generate a key in the Secure Enclave and to attest it.
-Apple returns a certificate chain to its App Attestation root, covering:
+A minimal source archive is an explicit subset of this development repository.
+Its file manifest is authoritative: it contains runner source, selected base and
+workload recipes, participant inspection/claim tools and their declared local
+dependencies. The broader repository map below also describes components that
+may be omitted: root `verifier/`, `app-attest/`, `runner/`, `experiments/`, `trust/`
+and contract projects. Only `contracts/cd_args.py` is needed by the included
+runner inspection tool. Omitted project build/test commands are not runnable
+from the selected archive. Private operator services, release keys, enrollment
+authority, task inputs, model credentials and binary dependencies must never be
+inferred from source inclusion.
 
-- the public key,
-- the app's team and bundle identifier,
-- a 32-byte value the app chose (the client data hash),
-- with the `CDhash` opt-in, the code directory hash of the exact binary.
+## What is implemented
 
-Apple ties these keys to a Full Security boot with System Integrity
-Protection; this repository has not tested App Attest with SIP off. Under
-those conditions no other process, root included, can attach
-to the app or read its memory. Later the app can sign assertions with the same
-key, and each assertion again carries the code hash.
+[`runner-vm/`](runner-vm/README.md) contains the selected generic app3 Swift and
+libkrun/HVF native implementation. It consumes a pinned VM image and workload
+inputs, retains launch and result assertions and records the evidence needed by
+a full application verifier. VM image releases and workload/harness configuration
+are separate from the signed application. The source import has passed a native
+cross-build and a fresh unsigned Mac build; those outputs have their own
+identities. Separately assembled app identities have completed actual signed
+execution and Developer ID distribution checks. See the dated status below;
+qualification of one binary does not transfer to a rebuilt binary.
 
-So a verifier that knows which code hashes it accepts can tell whether a message
-came from one of those binaries on an intact Mac. The Secure Enclave alone would
-not give this: a Secure Enclave key can be used by other code that reaches it,
-such as the holder of its wrapped blob or an app sharing its keychain group. [`experiments/secure-enclave-probes`](experiments/secure-enclave-probes/)
-shows both results.
+[`applications/bounty-demo/`](applications/bounty-demo/README.md) provides the
+prototype task board, durable claims and evidence-submission API.
+[`applications/pilot-client/`](applications/pilot-client/README.md) delegates to a
+separately selected protected coordinator and journals local launch attempts.
+A successful controller exit is not task acceptance; acceptance is not a received
+payment. The browser cannot assign either verdict itself.
 
-Implemented in: [`verifier/core.py`](verifier/core.py) (offline),
-[`app-attest/contracts/src/AppleAttest.sol`](app-attest/contracts/src/AppleAttest.sol) (on chain),
-[`experiments/app-attest-offline-verify`](experiments/app-attest-offline-verify/)
-(the five checks in 40 lines, with a real attestation).
+A historically qualified, separately assembled signed Mac runner completed an
+actual Claude coding task and full evidence verification. That result does not
+qualify a newly rebuilt binary, a different VM profile, an arbitrary Mac or a new
+application's acceptance conditions. Source checks and synthetic application or
+local-chain tests are useful evidence with narrower scope.
 
-## Step 2: the runner says which workload it booted
+## Trust and distribution boundaries
 
-App Attest identifies one signed binary. That binary is the runner. Its job is
-to boot a workload and to commit, in its attestation, to exactly which workload.
+App Attest evidence binds an admitted app identity and protocol data. It does
+not prove a workload is correct, a credential is safe to disclose, an output is
+available indefinitely or a payment was received. A full run check also needs
+the independently selected image/workload, original retained bytes, native and
+guest evidence, enrollment/replay state and the application's immutable checker.
+`verifier/` supplies Apple verification components; it is not, by
+itself, the portable full VM-result verifier or a deployed settlement service.
+The [full Linux VM-result verifier package](applications/pilot-client/verifier/README.md)
+relocates the v3-aware consumer with source/dependency pins and a namespace
+extraction boundary. Its local doctor/import controls and preparation of the
+historical retained output passed; fresh production verification and deployment
+authority remain separate qualification steps.
 
-The runner takes a dstack-format `app-compose.json` and computes
-`compose_hash = sha256(file bytes)`, the same definition dstack uses. It refuses
-the compose unless every image is pinned by digest and there is no shell script,
-pre-launch script, host mount or Docker config. It checks the kernel against a
-digest compiled into the runner and builds the init filesystem from a pinned
-image on every boot. Then it puts the compose hash into the client data it asks
-App Attest to cover, and boots the workload in a Linux VM with Apple's
-Virtualization framework.
+**Do not assume confidentiality from the Mac's owner.** The current pilot uses a
+trusted host for private-input staging and plaintext VM disk files. Credential
+exposure and networking differ by explicitly selected harness/profile. App Attest
+alone is not a general encrypted-VM boundary or proof that host root cannot see
+private inputs. Native helpers and external tools remain part of the selected
+execution and verification configuration.
 
-Because the runner's own code hash is in the attestation, and the runner only
-boots what it hashed, a verifier that accepts the runner's code hash and the
-compose hash knows what is running inside the VM.
+## Release status — 22 October 2026
 
-Implemented in: [`runner/Sources/runner/main.swift`](runner/Sources/runner/main.swift)
-(compose checks, attestation, VM boot through Apple's Containerization package),
-[`runner/README.md`](runner/README.md) (the exact rules).
-[`experiments/mac-vm-approaches`](experiments/mac-vm-approaches/) records why it
-is built this way and what else was tried.
+The [public explainer](https://amiller.github.io/dsmack/) describes the architecture
+and inspection journey. This checkout contains the selected VM-runner source;
+its signed starter download and qualification records are separate release assets.
+Until a runner alpha prerelease is available, the older `node-v0.3.0` download is
+not a substitute for this application. See the [operator-assisted handoff](docs/pilot/operator-assisted-mac.md).
 
-## Step 3: everything that crosses the boundary is recorded
+A selected Developer ID Application build has passed independent signature,
+code-page, stapled-ticket and macOS distribution checks. Its provisioning profile
+permits all devices; ordinary participants do **not** need to register each Mac.
+The final exported app also completed fresh production App Attest enrollment
+with certificate category 6. Certificate category and App Attest environment are
+separate fields. The [participant guide](docs/pilot/newcomer.md) records its exact
+identity and remaining limits.
 
-A workload that could reach the network freely could fetch new instructions or
-leak its inputs, and its result would no longer follow from the compose hash.
-So the VM has no network device. Its only way out is a socket to a proxy inside
-the runner, and the proxy:
+The final notarized identity has executed authenticated workloads on the existing
+Apple silicon Mini, including private subscription import and retained full
+verification. One operator-assisted bounty journey has also completed acceptance
+and a received Base Sepolia testnet reward, alongside a refund journey. The
+second earned payout and a fresh friend's installation remain incomplete.
+These are separate gates from signature and VM execution checks. The
+qualification Mac had global Gatekeeper assessments disabled; direct distribution
+assessment passed, but a quarantined first-open journey remains unqualified.
+The reviewed [alpha staging source](docs/pilot/alpha-install.md) authenticates and
+stages a selected release; it does not grant launch readiness by itself.
 
-- forwards only HTTP requests whose host, method and path prefix match the
-  egress allow-list declared in the compose (and therefore covered by the
-  compose hash), and opens raw TCP tunnels only to the host:port pairs the
-  compose lists under `egress.tcp`;
-- drops credential headers the workload sent (`authorization`, `x-api-key`,
-  `cookie` and a few others) and injects the rule's credential, so the
-  workload never holds a provider key;
-- accepts only TLS chains ending at roots pinned in the runner, and follows no
-  redirects;
-- enforces request and token budgets;
-- signs a receipt for every forwarded HTTP exchange: the request and response
-  hashes, a sequence number and the previous receipt's hash, with a key that
-  the attestation covers.
+Before an actual trial, obtain the reviewed release inventory and trust root,
+source/build correspondence, selected base/container identities, supported host
+requirements and resource/egress plan. The [release runbook](docs/release/runner-release.md)
+keeps these gates separate. Never bypass Gatekeeper or copy a maintainer's
+private keys to try the app.
 
-Raw TCP tunnels get no TLS pinning, credential handling or receipts, and neither
-do refused requests, upstream errors or the runner's own `runner.local`
-endpoints (task attach and detach have their own chains). Anyone holding the receipt chain can check that nothing inside it was
-dropped or reordered. The host stores the chain, so it can still cut off the
-tail.
+## Repository map
 
-Implemented in: [`runner/Sources/runner/Proxy.swift`](runner/Sources/runner/Proxy.swift),
-[`runner/Sources/runner/Anchors.swift`](runner/Sources/runner/Anchors.swift).
-Receipts are checked by [`runner/kms/verify_receipts.py`](runner/kms/verify_receipts.py).
-
-## Step 4: a contract checks the evidence
-
-An application contract does not need to understand any of the above. It needs
-to know which runner builds it accepts, and to receive an assertion that commits
-to the thing it cares about.
-
-[`AppleAttest.sol`](app-attest/contracts/src/AppleAttest.sol) verifies an App Attest
-enrollment against Apple's P-384 certificate chain in Solidity, and later
-assertions with Base's P-256 precompile. Subclasses decide which builds count:
-[`MacAppAttestV1`](app-attest/contracts/src/MacAppAttestV1.sol) admits one approved code
-hash; [`AppleAttestRegistryV1`](contracts/src/AppleAttestRegistryV1.sol) admits
-any build that [`CDRegistry`](contracts/src/CDRegistry.sol) has measured, so a
-re-signed copy of the same program, by any Apple developer team, is accepted.
-The address fixed as `registry` at deployment calls `verify(context, proof)`, where `context` is the hash its own logic expects, for
-example the hash of a result together with the compose hash that produced it.
-
-Today the compose-hash check runs in the offline verifier
-([`runner/verify/macrunner.mjs`](runner/verify/macrunner.mjs)); the contracts
-check the runner's code hash and the assertion.
-
-## What this does not protect against
-
-- **The owner reading memory physically.** Apple silicon does not encrypt main
-  memory. Someone probing the memory bus can read the workload's data. Research
-  on keeping small computations in GPU on-chip state is in
-  [`experiments/gpu-onchip-mailbox`](experiments/gpu-onchip-mailbox/).
-- **The owner reading the VM's disk (current gap).** Volumes are plaintext
-  files on the host, and the kernel and init filesystem sit on the host between
-  being hashed and booted. Encrypted app volumes and verity, as dstack uses,
-  close this.
-- **A kernel exploit.** It defeats the premise of Step 1 on that machine.
-- **A Mac without SIP.** App Attest's key policy is meant to exclude it; that
-  exclusion is Apple's to enforce, not this code's.
-- **What the workload does with its own inputs.** dsmack says which program ran.
-  Whether that program is correct is the application's business.
-
-Within those limits dsmack gives confidentiality as well as code integrity
-against an owner acting through software. On an intact, attested macOS no other
-process, root included, can attach to the runner or read its memory, and the
-guest VM's memory lives in the runner's Virtualization host process, inside the
-same trusted base.
-
-## Layers
-
-This repository is the bottom layer: the runner, and the code that checks its
-evidence. Useful applications can stop here. A contract that pays for a result
-only needs Step 4, and does not care how the Mac was found or who owns it.
-
-Two layers can go on top, and neither lives here yet.
-
-- **Keys.** Release secrets only to an admitted runner and compose, so a
-  workload can hold credentials that its host cannot read. `runner/kms/` is a
-  stand-in for this layer today; the runner currently boots against it.
-- **Network.** Discovery, admission of strangers' Macs, scheduling and payment.
-  Earlier prototypes of this layer (a peer testnet and a coupon service) are
-  preserved outside this repository.
-
-## Repository
-
-| Path | What it is |
+| Path | Role |
 |---|---|
-| `runner/` | Boots a measured compose in a VM, attests it, proxies egress, signs receipts |
-| `verifier/` | Offline App Attest verification |
-| [`app-attest/`](app-attest/) | App Attest contracts, leaf circuit and rule corpus |
-| `contracts/` | dsmack build registries |
-| `experiments/` | Small, runnable proofs of each claim above, with recorded results |
-| `trust/` | Apple's App Attestation root certificate |
-| `tests/` | Verifier tests and App Attest test vectors |
+| [`runner-vm/`](runner-vm/README.md) | Selected generic Swift app and libkrun/HVF source; build adapters and source provenance |
+| [`base-vm/`](base-vm/browser-sandbox-v1/README.md) | Independently configured Linux base source and guest/runtime profiles |
+| [`applications/pilot-client/`](applications/pilot-client/README.md) | Invited-participant local CLI and launch journal |
+| [`applications/bounty-demo/`](applications/bounty-demo/README.md) | Task board, invitation/claim and submission prototype |
+| `verifier/` | Apple App Attest verification components |
+| `app-attest/` and [`contracts/`](contracts/) | Attestation and build-registry contracts; not proof that the pilot is live on-chain |
+| `runner/` | Earlier Containerization/Virtualization runner and proxy experiments; a different implementation |
+| `experiments/` | Recorded probes and bounded experiments |
+| `trust/` | Apple trust material |
 
-## Running it
-
-Requirements: an Apple silicon Mac on macOS 27 with Full Security and SIP
-(`csrutil status`), and an Apple Development signing identity with a
-provisioning profile that grants App Attest. The runner must be built against
-the macOS 27 SDK; built against the macOS 26 SDK, its attestation omits the code
-hash. Build, sign and test instructions are in
-[`runner/README.md`](runner/README.md).
+The earlier `runner/` design's kernel pins, proxy behavior and memory-isolation
+arguments must not be inferred to apply to `runner-vm/`. Read the selected code
+and profile before trusting a claim. Contribution instructions are in
+[CONTRIBUTING.md](CONTRIBUTING.md).

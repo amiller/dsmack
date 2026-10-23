@@ -1,0 +1,7 @@
+FROM 127.0.0.1:5005/dsmack-claude-harness@sha256:71023367bea2614acd730a0c24fb15c9e195b2c4fa9c87d5abcfd243249a5390
+USER 0
+COPY --chown=0:0 output/ffmpeg-linux /ms-playwright/ffmpeg-1013/ffmpeg-linux
+COPY --chown=0:0 output/notices/ /opt/ffmpeg-source-v1/notices/
+COPY --chown=0:0 SOURCES.json build.sh /opt/ffmpeg-source-v1/
+RUN chmod 0555 /ms-playwright/ffmpeg-1013/ffmpeg-linux && chmod -R a-w /opt/ffmpeg-source-v1
+USER 1000:1000

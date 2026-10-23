@@ -1,0 +1,17 @@
+# SOURCE RECIPE ONLY. Build on Zed /data, never on the laptop. No downloads.
+# Pass a locally admitted image name/repository (without tag/digest). The source
+# image digest is fixed here; a resulting derived image needs its OWN stage pin.
+ARG QUALIFIED_CLAUDE_REPOSITORY
+FROM --platform=linux/arm64 ${QUALIFIED_CLAUDE_REPOSITORY}@sha256:dedc08251681f537d3c4fc8d3e9a3bc70f666bf979946e6daadee35178f0c418
+USER root
+WORKDIR /opt/bounty-judges
+COPY generate.py suite-contract.mjs suite-language.txt generation-recipe.json ./
+# Refuse missing prerequisites; do not silently install or change the CLI.
+RUN chmod 0755 /opt/bounty-judges \
+ && chmod 0444 generate.py suite-contract.mjs suite-language.txt generation-recipe.json \
+ && test -x /usr/bin/python3 && test -x /usr/local/bin/node \
+ && test -x /usr/local/bin/claude \
+ && /usr/local/bin/node -e 'if(Number(process.versions.node.split(".")[0])<20)process.exit(2)' \
+ && printf '%s  %s\n' b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2 /usr/local/bin/claude | sha256sum -c -
+USER 1000:1000
+ENTRYPOINT ["/usr/bin/python3", "/opt/bounty-judges/generate.py"]

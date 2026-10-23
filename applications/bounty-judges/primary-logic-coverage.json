@@ -1,0 +1,529 @@
+{
+  "schema": "dsmack-bounty-primary-logic-coverage/1",
+  "commit": "5c76d40e77db1f4864dabd4b9398d02589cff330",
+  "original_manifest_sha256": "c4e98e5a647b11e53f0325cdbfa1c0e477a01fc173a60ca77490d77317ef7749",
+  "groups": {
+    "board": {
+      "original_source": "apps/board/test/logic.test.js",
+      "required_case_ids": [
+        "add appends cards with sequential ids and trimmed text",
+        "add rejects empty text and unknown columns",
+        "applyAction does not mutate its input",
+        "edit changes text in place and keeps position",
+        "delete removes the card and never reuses its id",
+        "move appends to target column by default",
+        "move with index reorders within and across columns",
+        "neighbour steps across columns and stops at the edges",
+        "findCard reports column and index",
+        "unknown action types throw",
+        "export/import round-trips through JSON",
+        "validate accepts a well-formed board",
+        "validate rejects: null",
+        "validate rejects: array",
+        "validate rejects: missing nextId",
+        "validate rejects: zero nextId",
+        "validate rejects: fractional nextId",
+        "validate rejects: missing column",
+        "validate rejects: extra column",
+        "validate rejects: column not array",
+        "validate rejects: card missing text",
+        "validate rejects: card extra field",
+        "validate rejects: empty text",
+        "validate rejects: non-string text",
+        "validate rejects: malformed id",
+        "validate rejects: id not below nextId",
+        "validate rejects: duplicate id"
+      ],
+      "renderer_assertion_correspondence": [
+        {
+          "id": "add appends cards with sequential ids and trimmed text",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "add rejects empty text and unknown columns",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "applyAction does not mutate its input",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "edit changes text in place and keeps position",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "delete removes the card and never reuses its id",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "move appends to target column by default",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "move with index reorders within and across columns",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "neighbour steps across columns and stops at the edges",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "findCard reports column and index",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "unknown action types throw",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "export/import round-trips through JSON",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate accepts a well-formed board",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: null",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: array",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: missing nextId",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: zero nextId",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: fractional nextId",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: missing column",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: extra column",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: column not array",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: card missing text",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: card extra field",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: empty text",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: non-string text",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: malformed id",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: id not below nextId",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        },
+        {
+          "id": "validate rejects: duplicate id",
+          "module": "primary-logic-board.mjs",
+          "original_source": "apps/board/test/logic.test.js"
+        }
+      ],
+      "admitted": true,
+      "module": "primary-logic-board.mjs",
+      "module_sha256": "8f5c7325429803c01b5efdb87fe6b29b6897908c0ef53f0310924d0a0d57e223"
+    },
+    "flight": {
+      "original_source": "apps/flight/test/logic.test.js",
+      "required_case_ids": [
+        "seeded rng is deterministic and in [0,1)",
+        "levels are pure data from the seed",
+        "generated gates clear the terrain and are ordered",
+        "terrainAt interpolates linearly and clamps at the ends",
+        "trim balances forces in level flight at cruise",
+        "level flight at cruise holds altitude and speed for a minute",
+        "a speed disturbance damps out instead of diverging",
+        "lift is linear below the critical angle and collapses past it",
+        "pulling up hard at low speed stalls and the plane sinks",
+        "the same pitch-up at cruise speed climbs without stalling",
+        "throttle accelerates and stays within [0, 1]",
+        "flying through a gate scores, missing it does not",
+        "hitting the terrain crashes and freezes the state",
+        "same seed and inputs give identical flights",
+        "hands-off flight through a generated level is deterministic and ends"
+      ],
+      "renderer_assertion_correspondence": [
+        {
+          "id": "seeded rng is deterministic and in [0,1)",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "levels are pure data from the seed",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "generated gates clear the terrain and are ordered",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "terrainAt interpolates linearly and clamps at the ends",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "trim balances forces in level flight at cruise",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "level flight at cruise holds altitude and speed for a minute",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "a speed disturbance damps out instead of diverging",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "lift is linear below the critical angle and collapses past it",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "pulling up hard at low speed stalls and the plane sinks",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "the same pitch-up at cruise speed climbs without stalling",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "throttle accelerates and stays within [0, 1]",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "flying through a gate scores, missing it does not",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "hitting the terrain crashes and freezes the state",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "same seed and inputs give identical flights",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        },
+        {
+          "id": "hands-off flight through a generated level is deterministic and ends",
+          "module": "primary-logic-flight.mjs",
+          "original_source": "apps/flight/test/logic.test.js"
+        }
+      ],
+      "admitted": true,
+      "module": "primary-logic-flight.mjs",
+      "module_sha256": "5fd60db4f84cd5ab49ea4b169c74e9c7813408e11570048df103789a59e591e6"
+    },
+    "puzzle": {
+      "original_source": "apps/puzzle/test/logic.test.js",
+      "required_case_ids": [
+        "parse reads walls, goals, boxes and player",
+        "parse handles + and * and ragged rows",
+        "parse rejects malformed levels",
+        "render round-trips every level",
+        "walking moves the player and counts moves",
+        "walls block movement and return the same state",
+        "moves off the map edge are blocked",
+        "pushing moves a box and counts a push",
+        "cannot push a box into a wall",
+        "cannot push two boxes",
+        "cannot push a box off the edge of an open map",
+        "move rejects unknown directions",
+        "move does not mutate the previous state",
+        "win detection",
+        "play throws on a blocked move",
+        "every level has a recorded solution",
+        "undo reverses walks and pushes exactly",
+        "undo at the start is a no-op",
+        "blocked moves are not recorded in history",
+        "interior excludes the empty outside of a level",
+        "level \"First Push\" is won by its known solution",
+        "level \"Corner\" is won by its known solution",
+        "level \"Two Lanes\" is won by its known solution",
+        "level \"Pillar\" is won by its known solution",
+        "level \"Storeroom\" is won by its known solution",
+        "level \"Warehouse\" is won by its known solution"
+      ],
+      "renderer_assertion_correspondence": [
+        {
+          "id": "parse reads walls, goals, boxes and player",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "parse handles + and * and ragged rows",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "parse rejects malformed levels",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "render round-trips every level",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "walking moves the player and counts moves",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "walls block movement and return the same state",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "moves off the map edge are blocked",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "pushing moves a box and counts a push",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "cannot push a box into a wall",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "cannot push two boxes",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "cannot push a box off the edge of an open map",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "move rejects unknown directions",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "move does not mutate the previous state",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "win detection",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "play throws on a blocked move",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "every level has a recorded solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "undo reverses walks and pushes exactly",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "undo at the start is a no-op",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "blocked moves are not recorded in history",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "interior excludes the empty outside of a level",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"First Push\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"Corner\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"Two Lanes\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"Pillar\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"Storeroom\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        },
+        {
+          "id": "level \"Warehouse\" is won by its known solution",
+          "module": "primary-logic-puzzle.mjs",
+          "original_source": "apps/puzzle/test/logic.test.js"
+        }
+      ],
+      "admitted": true,
+      "module": "primary-logic-puzzle.mjs",
+      "module_sha256": "4f1d68446bc4698450d3de7799678437fe38aa29ec692559b427457681efe9eb"
+    },
+    "routes": {
+      "original_source": "apps/routes/test/logic.test.js",
+      "required_case_ids": [
+        "parses alpine sample",
+        "parses riverside sample as a closed loop",
+        "parses self-closing trkpt, single quotes and missing ele",
+        "rejects GPX without points or with bad coordinates",
+        "haversine matches known distances",
+        "sample distances",
+        "gain and loss on synthetic tracks",
+        "sample elevation stats and bbox",
+        "profile is cumulative distance",
+        "project fits box, preserves aspect, north up",
+        "profileCoords spans the box",
+        "formatting"
+      ],
+      "renderer_assertion_correspondence": [
+        {
+          "id": "parses alpine sample",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "parses riverside sample as a closed loop",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "parses self-closing trkpt, single quotes and missing ele",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "rejects GPX without points or with bad coordinates",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "haversine matches known distances",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "sample distances",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "gain and loss on synthetic tracks",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "sample elevation stats and bbox",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "profile is cumulative distance",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "project fits box, preserves aspect, north up",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "profileCoords spans the box",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        },
+        {
+          "id": "formatting",
+          "module": "primary-logic-routes.mjs",
+          "original_source": "apps/routes/test/logic.test.js"
+        }
+      ],
+      "admitted": true,
+      "module": "primary-logic-routes.mjs",
+      "module_sha256": "23393907cbed7cde2392ac55879d5996ab2681dc6eb0c53967bbcb96fc69482b"
+    }
+  },
+  "gate": "Complete source-reviewed adaptations are admitted; selected-image/native qualification remains required.",
+  "scope": "Complete source-reviewed renderer observations and trusted Node expected comparisons; selected-image/native qualification remains separate."
+}

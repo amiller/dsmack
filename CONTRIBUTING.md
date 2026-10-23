@@ -71,3 +71,11 @@ LeafEnrollmentTest checks the verifier artifact metadata's source keccak256
 against the committed HonkVerifierLeaf.sol before deploying its bytecode.
 Rebuild the artifact whenever that source changes. Regenerated verifier output
 stays under ignored `proofs/leaf`, outside the gas project's source tree.
+
+For tagged runner releases and inspect-before-execute contributor checks, see
+[the runner release runbook](docs/release/runner-release.md). The selected `runner-vm/` source join and its explicit 557-input derivation
+are present; upstream ancestry and distribution qualification remain separate
+gates. The build/test commands above describe the full development repository,
+not the minimal selected-source export. In that export, use the participant
+inspection commands and its explicit file manifest; omitted circuits, contract
+projects and proof/build caches are not supplied.

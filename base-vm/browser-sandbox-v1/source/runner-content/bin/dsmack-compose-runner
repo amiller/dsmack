@@ -1,0 +1,22 @@
+#!/usr/bin/env python3
+"""dsmack-compose-runner -- exact CLI entry point.
+
+Usage: bin/dsmack-compose-runner <command> ... (see --help)
+
+PYTHONPATH must include the shared contract library's lib/ directory (the
+library is consumed read-only); this wrapper locates it relative to the
+candidate tree.
+"""
+
+import os
+import sys
+
+_HERE = os.path.dirname(os.path.abspath(__file__))
+_CANDIDATE = os.path.dirname(os.path.dirname(_HERE))  # compose_runner -> candidate
+for path in (os.path.join(_HERE, ".."), os.path.join(_CANDIDATE, "lib")):
+    sys.path.insert(0, os.path.abspath(path))
+
+from dsmack_compose_runner.cli import main  # noqa: E402
+
+if __name__ == "__main__":
+    sys.exit(main())

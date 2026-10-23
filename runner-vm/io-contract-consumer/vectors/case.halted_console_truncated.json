@@ -1,0 +1,94 @@
+{
+  "envelope": {
+    "console": {
+      "bytes": 16777216,
+      "limit_bytes": 16777216,
+      "sha256": "7878787878787878787878787878787878787878787878787878787878787878",
+      "truncated": true
+    },
+    "launch": {
+      "challenge": "golden-challenge-0001",
+      "counter": 1,
+      "evidence_sha256": "cde988d80048a34235dd81d7f6ecafe0f162b02344bc5b9bd5911e3949fb94e5",
+      "key_id_b64": "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz",
+      "manifest_sha256": "37d8b96d1cdbeb5a1a2e30dabbd98c91e4bafafb343ea4b83ccdecce26c3d300"
+    },
+    "lifecycle": {
+      "backend_abi": 3,
+      "run_ms": 1234,
+      "vmm_code": 0
+    },
+    "result_disk": {
+      "bytes": 2097152,
+      "role": "vdd",
+      "sha256": "5656565656565656565656565656565656565656565656565656565656565656",
+      "template_bytes": 2097152,
+      "template_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+    },
+    "runtime_input": {
+      "commitment_claim": null,
+      "max_bytes": 0,
+      "present": false
+    },
+    "schema": "dsmack-general-launcher/run-result-envelope/1",
+    "status": "halted"
+  },
+  "expected": {
+    "envelope_canonical_sha256": "7ae6b843be548f04620cfe807c67112f749b4566a62f7f7444cff56b2d133f1f",
+    "envelope_digest_E": "307058088170a44ede79f652cdc858560c2643c509cdef58a5417aeb3d796e2a",
+    "launch_client_data_hex": "64736d61636b2e6170706174746573742e617373657274696f6e2f340033376438623936643163646265623561316132653330646162626439386339316534626166616662333433656134623833636364656363653236633364333030006364653938386438303034386133343233356464383164376636656361666530663136326230323334346263356239626435393131653339343966623934653500676f6c64656e2d6368616c6c656e67652d30303031",
+    "launch_client_data_sha256": "a9ae91e4388c12f24b1db3cbe46f480c940d9a4fdd1c87adf171357f83447f83",
+    "result_client_data_hex": "64736d61636b2e6170706174746573742e72756e2d726573756c742f310063646539383864383030343861333432333564643831643766366563616665306631363262303233343462633562396264353931316533393439666239346535003330373035383038383137306134346564653739663635326364633835383536306332363433633530396364656635386135343137616562336437393665326100676f6c64656e2d6368616c6c656e67652d30303031",
+    "result_client_data_sha256": "6e0f1e70294860e1c940ade02756d9a894cb3247717d22fb6bd343bbd8c27a16"
+  },
+  "inputs": {
+    "challenge": "golden-challenge-0001",
+    "expected_vmm_code": 0,
+    "key_id_b64": "QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVowMTIz",
+    "launch_counter": 1,
+    "launch_evidence_body": {
+      "attestation": null,
+      "base_vm": {
+        "architecture": "arm64",
+        "cmdline": "console=hvc0 rdinit=/init panic=-1",
+        "initrd_sha256": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "kernel_sha256": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "memory_mb": 2048,
+        "metadata_sha256": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "os_image_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd",
+        "rootfs_sha256": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+        "vcpus": 1,
+        "verity_root_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"
+      },
+      "base_vm_launch": {
+        "admission": {
+          "admission_sha256": "9999999999999999999999999999999999999999999999999999999999999999",
+          "admission_version": "contract10",
+          "decision": "admit",
+          "os_image_hash": "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        },
+        "boot": {
+          "observed_by": "launcher",
+          "ok": true
+        }
+      },
+      "harness_sha256": null,
+      "manifest_sha256": "37d8b96d1cdbeb5a1a2e30dabbd98c91e4bafafb343ea4b83ccdecce26c3d300",
+      "observed": {
+        "profile": "demo-1x2g",
+        "runtime_seconds": 60
+      },
+      "outputs": null,
+      "run_id": null,
+      "runtime_inputs_commitment": null
+    },
+    "launch_evidence_sha256_L": "cde988d80048a34235dd81d7f6ecafe0f162b02344bc5b9bd5911e3949fb94e5",
+    "manifest_bytes_b64": null,
+    "manifest_sha256_M": "37d8b96d1cdbeb5a1a2e30dabbd98c91e4bafafb343ea4b83ccdecce26c3d300",
+    "private_present": false,
+    "result_counter": 2,
+    "result_template_bytes": 2097152,
+    "result_template_sha256": "7777777777777777777777777777777777777777777777777777777777777777"
+  },
+  "name": "halted_console_truncated"
+}

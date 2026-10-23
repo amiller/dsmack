@@ -1,0 +1,84 @@
+{
+  "schema": "dsmack-image-profile/1",
+  "name": "dstack-trixie-arm64-minimal",
+  "version": "0.6.1.min1",
+  "description": "Minimal dstack-derived ARM64 base VM image: Debian trixie rootfs from the upstream dstack snapshot pin, dstack squashfs+dm-verity root protocol, dstack checksum-manifest identity, source-built dstack-lineage kernel; TDX/GPU/KMS/gateway content excluded.",
+  "upstream": {
+    "repository": "https://github.com/Dstack-TEE/dstack",
+    "revision": "247c3add65d0e8e6ba90eae5f6b981a9063cf701",
+    "revision_date": "2026-10-20T01:01:22Z",
+    "snapshot_tarball_sha256": "ff087083451899b0eb862eadedff68d7385807e93d6a3e8b7d8f17c957ded655",
+    "dstack_version": "0.6.1",
+    "mkosi_conf": "os/mkosi/mkosi.conf (Distribution=debian, Release=trixie, Snapshot=20260721T000000Z)",
+    "artifact_pipeline_sources": [
+      "os/mkosi/scripts/make-release-artifacts.sh",
+      "os/image/kernel-cmdline.sh",
+      "os/image/assemble.sh",
+      "os/spec/artifact-manifest.schema.json",
+      "os/mkosi/components/kernel/kernel-build.sh",
+      "os/common/scripts/check-kernel-config.sh",
+      "os/yocto/layers/meta-dstack/recipes-core/images/dstack-initscript/init"
+    ]
+  },
+  "pins": {
+    "debian_release": "trixie",
+    "debian_snapshot": "20260721T000000Z",
+    "debian_mirror": "https://snapshot.debian.org/archive/debian/20260721T000000Z",
+    "kernel_source": "https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.40.tar.xz",
+    "kernel_version": "6.18.40",
+    "kernel_sha256": "3712fc1ec839e4daac981176c8518912e8f452650aaedfe4381da4419613a431",
+    "source_date_epoch": 1784592000,
+    "builder_base_image": "debian@sha256:913f6706df59a68922d1dd08f78c2476560a8d367897200a6005b00e5f67c2d5"
+  },
+  "guest_packages": [
+    "docker.io", "docker-cli", "docker-compose", "containerd",
+    "busybox-static", "bash", "ca-certificates", "iproute2",
+    "dmsetup", "cryptsetup-bin"
+  ],
+  "guest_content_overlays": {
+    "usr/bin/dsmack-supervisor": "source/guest/supervisor-dstack-trixie.sh",
+    "etc/docker/daemon.json": "source/profile/dstack-trixie-arm64-minimal/docker-daemon.json",
+    "etc/hostname": "dstack (upstream mkosi.conf Hostname=dstack)",
+    "etc/dstack-image.json": "generated identity record"
+  },
+  "workload_interface": {
+    "transport": "raw disk vdc: uncompressed tar at offset 0 with SHA256SUMS",
+    "layout": ["compose.yaml", "WORKLOAD", "images/*.tar", "SHA256SUMS"],
+    "executor": "trusted guest supervisor (measured image content) drives dockerd on a root-only socket and runs docker compose up --abort-on-container-exit --exit-code-from runner",
+    "provenance": "same external-workload contract as base-vm-foundation/arm64-compatibility lanes"
+  },
+  "identity": {
+    "os_image_hash_definition": "sha256(sha256sum.txt) where sha256sum.txt covers Image, initramfs.cpio.gz, metadata.json, rootfs.squashfs.verity",
+    "upstream_os_image_hash_definition": "sha256(sha256sum.txt) over ovmf.fd bzImage initramfs.cpio.gz metadata.json measurement.tdx.cbor (rootfs bound via metadata.cmdline verity hash + TEE measurements)",
+    "delta_note": "no firmware / TEE measurement artifacts exist on ARM64/Mac; the rootfs image bytes are checksummed directly so verified-byte loading binds them without a TEE",
+    "verity_parameters": {
+      "data_block_size": 4096,
+      "hash_block_size": 4096,
+      "salt": "0000000000000000000000000000000000000000000000000000000000000000",
+      "uuid": "00000000-0000-0000-0000-000000000000",
+      "hash_offset": "rounded-up squashfs size",
+      "format": "squashfs (zstd) + appended dm-verity hash tree, mksquashfs -tar from a sorted deterministic tar stream"
+    },
+    "cmdline_source": "source/profile/dstack-trixie-arm64-minimal/kernel-cmdline.sh"
+  },
+  "deltas_vs_upstream": [
+    "architecture arm64 (upstream x86-64/TDX); kernel built from the SAME pinned linux-6.18.40.tar.xz via arm64 defconfig + arch-neutral subset of upstream kernel.config (upstream: x86_64_defconfig + full TDX/SEV config and 10 TDX patches, dropped as x86-TEE-specific)",
+    "no OVMF/SEV firmware, no UKI, no measurement.{tdx,gcp,aws}.cbor: platform has no TEE measurement path; identity is the checksum manifest + verity root hash + cmdline, all bound in metadata.json and enforced by verified-byte loading",
+    "rootfsverity included in sha256sum.txt (upstream excludes the rootfs image; it is bound transitively via cmdline+MRTD)",
+    "guest init execs the trusted supervisor /usr/bin/dsmack-supervisor instead of systemd /sbin/init: appliance VM with external workload policy; systemd present in the rootfs only as dependency content, never executed (boot-time and minimality delta; documented, reviewable)",
+    "packages: upstream mkosi.conf Packages minus tpm2-tools, wireguard-tools, chrony, nvattest xmlsec libs, debug/net utilities (netcat, traceroute, pciutils, usbutils, fdisk, dosfstools, gdisk, parted, xfsprogs, rsync, pigz, fuse3, acpid, numactl, systemd-boot*), keeping the container stack + verity + CA bundle + busybox",
+    "no dstack guest agent / gateway / kms / key-provider services in the image (separate milestones per reconciliation; not silently completed)",
+    "kernel container-stack features built-in (=y) instead of modules (=m) so no module loading is needed before the container stack starts",
+    "debootstrap --foreign stage-1 rootfs (unpack without maintainer scripts) instead of mkosi chroot install: host has no binfmt/qemu for arm64 and global binfmt registration is out of scope; consequence: dpkg states stay 'Unpacked', packages are never configured — acceptable because no dpkg/systemd runs in the guest; all functionality used is unpacked file content. Upstream mkosi runs full install in its x86 chroot.",
+    "cmdline: console=hvc0 (Mac HVF + harness contract) instead of ttyS0; x86-only tokens mce=off/pci=noearly/tsc=reliable/no-kvmclock dropped; random.trust_cpu/random.trust_bootloader dropped because the RANDOM_TRUST_* Kconfig symbols were removed from the kernel before 6.18 (upstream's x86 line still carries random.trust_cpu=y — inert there; observed here, not copied); dstack.rootfs_device= added for the unpartitioned raw image",
+    "kernel 6.18 removed the legacy ip_tables family (IP_NF_IPTABLES/IP_NF_FILTER/IP_NF_NAT/IP_NF_TARGET_MASQUERADE): filtering/NAT assert the nftables-era path (NETFILTER_XTABLES/NF_CONNTRACK/NF_NAT/NF_TABLES + NETFILTER_XT_TARGET_MASQUERADE =y); the vendored upstream config checker caught each clamp during bring-up (4 rejected fragments before this final one)"
+  ],
+  "excluded_by_policy": [
+    "nvidia GPU stack (os/mkosi/components/nvidia, os/common/nvidia, meta-nvidia)",
+    "TDX/OVMF (components/ovmf, tdx-attest.conf, tdx guest tune)",
+    "sysbox runtime (components/sysbox)",
+    "zfs (components/zfs)",
+    "gateway, kms, verifier, local-key-provider services",
+    "runsc/gVisor (separate runsc-qualification lane owns that mode)"
+  ]
+}

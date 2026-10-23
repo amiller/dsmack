@@ -1,0 +1,28 @@
+{
+  "schema": "dsmack-derived-runner-source/1",
+  "source_profile_id": "generic-scratch-4g-v1",
+  "baseline_import_manifest_sha256": "b0b9e332d6607f1961b361ba8bb77af47aa607700fbb8b536358d5d0ae240689",
+  "native_source_inventory_sha256": "64a1d439ede102f82ebaef07097ac9fcf3a475d04f189a2c73985d7784d74b00",
+  "changes": [
+    {
+      "repository_relative": "runner-vm/app-src/Sources/mar/V3Launch.swift",
+      "before_sha256": "f28e0c450f45837fa0557a68e6139033b4f577bcda9d050a9542c322c30abd66",
+      "after_sha256": "228e5969a911b34a877c040305c59d00f9d810dce819c99cc151bbda61d3e66c"
+    },
+    {
+      "repository_relative": "runner-vm/app-src/Sources/mar/V3TemplateCapacity.swift",
+      "before_sha256": null,
+      "after_sha256": "9d4d14ed0a8544f893c397e60e3509686a4286e2b4307fae37a7b19f44c91349"
+    },
+    {
+      "repository_relative": "runner-vm/native/source-tree/apple-static/backend-v3/src/disks_v3.rs",
+      "before_sha256": "5c7504a7af0ee1f7a960c8f9a721cd9c65a9509551fe130acd5ad1ecb12a6440",
+      "after_sha256": "6845a45edd8cbd2bf0cd5d17c5ce532f7566b37ed241eeffafe33a1b08b02cdc"
+    },
+    {
+      "repository_relative": "runner-vm/native/source-tree/apple-static/backend-v3/src/spec_v3.rs",
+      "before_sha256": "7cfa277df0e2511e828ad2b781dbd19c0e800d6cec2ad3a0ac85f44ffa7ba2f5",
+      "after_sha256": "c84aed5f8491574efcf39e719a85f23993daf480a55644ecbb1a09e1c6631e87"
+    }
+  ]
+}

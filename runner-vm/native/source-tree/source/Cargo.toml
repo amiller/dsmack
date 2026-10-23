@@ -1,0 +1,31 @@
+[workspace]
+members = [
+    "src/libkrun",
+    "init/init-blob",
+    "bindings/init-blob-via-cdylib",
+    "src/input",
+    "src/display",
+    "src/utils",
+    "src/arch_gen",
+    "src/cpuid",
+    "src/smbios",
+    "src/polly",
+    "src/kernel",
+    "src/arch",
+    "src/hvf",
+    "src/devices",
+    "src/aws_nitro",
+    "src/whp",
+    "bindings/libkrun-via-cdylib-weak",
+]
+exclude = [
+    "examples/gtk_display",
+    "init/init-binary",
+    "init/aws-nitro",
+]
+resolver = "2"
+#panic = "abort"
+
+[profile.release]
+#panic = "abort"
+lto = true

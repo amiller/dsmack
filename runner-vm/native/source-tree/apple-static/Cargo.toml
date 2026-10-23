@@ -1,0 +1,29 @@
+[package]
+name = "dsmack-hvf-returning"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[lib]
+crate-type = ["staticlib"]
+
+[dependencies]
+# v3 enables the generic virtio-net option (F01): the "net" feature is added to
+# both krun and devices so VirtioNetBackend::UnixstreamFd and the Net device are
+# compiled into the archive. "blk" is retained for the five-disk set.
+krun = { package = "libkrun", path = "../source/src/libkrun", default-features = false, features = ["blk", "net"] }
+devices = { package = "krun-devices", path = "../source/src/devices", default-features = false, features = ["blk", "net"] }
+libc = "0.2"
+sha2 = "0.10"
+# v2 general backend (external admitted launch_spec, R1-R5 owned-buffer boot,
+# vda/vdb/vdc triple, resource profiles) — byte-identical copy of the reviewed
+# mac-backend-implementation candidate/backend-v2 crate (sha256-verified by
+# integration/apply.sh before build).
+dsmack-backend = { path = "backend-v2" }
+# v3 generic native backend (external admitted launch_spec, R1-R5 owned-buffer
+# boot, vda/vdb/vdc/vdd/vde device set, checked R06 finalization, bounded
+# allowlisted generic virtio-net, unmeasured vde). Vendored here so the archive
+# can path-depend on the EXACT repaired source (see backend-v3/ sha256 pins).
+dsmack-backend-v3 = { path = "backend-v3" }
+
+[workspace]

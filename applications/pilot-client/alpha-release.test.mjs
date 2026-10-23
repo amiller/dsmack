@@ -1,0 +1,32 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {generateKeyPairSync,sign,createHash} from 'node:crypto';
+import {mkdtempSync,mkdirSync,writeFileSync,chmodSync,symlinkSync,rmSync} from 'node:fs';
+import {homedir} from 'node:os';
+import {join} from 'node:path';
+import {authenticateInventory,verifyStagedFiles,canonical,authenticateWorkload} from './alpha-release.mjs';
+const {publicKey,privateKey}=generateKeyPairSync('ed25519');
+const h=x=>createHash('sha256').update(x).digest('hex');
+const data=Buffer.from('profile');
+function inventory(){return {schema:'dsmack-alpha-release/1',key_id:'test',release_id:'alpha-test',channel:'alpha',sequence:2,issued_at:'2026-10-22T00:00:00.000Z',expires_at:'2026-10-23T00:00:00.000Z',platform:{os:'darwin',arch:'arm64',minimum_version:'15.0'},app:{team_id:'DC9JH5DRMY',bundle_id:'dev.dsmack.provider',cdhash_full:'a'.repeat(64),certificate_sha256:'b'.repeat(64),attestation_category:6,entitlements_sha256:'c'.repeat(64),notarization_ticket_sha256:'d'.repeat(64)},files:[{path:'profile.json',bytes:data.length,sha256:h(data),mode:0o600}],profiles:[{profile_id:'diagnostic',descriptor_path:'profile.json',descriptor_sha256:h(data)}],provenance_sha256:'e'.repeat(64),verification_policy:'alpha-category6/1'};}
+function signed(v=inventory(),options={}){const raw=Buffer.from(canonical(v));return authenticateInventory(raw,sign(null,Buffer.concat([Buffer.from('dsmack-alpha-release/1\0'),raw]),privateKey),{publicKey:publicKey.export({format:'pem',type:'spki'}),keyId:'test',channel:'alpha',minSequence:2,now:Date.parse('2026-10-22T12:00:00.000Z'),...options});}
+test('authenticates release without implying OS or VM success',()=>{const r=signed();assert.equal(r.signature_authenticated,true);assert.equal(r.launch_ready,false);assert.equal(r.notarization_checked,false);});
+test('wrong root, signature, rollback, expiry and authority refuse',()=>{assert.throws(()=>signed(inventory(),{publicKey:generateKeyPairSync('ed25519').publicKey.export({format:'pem',type:'spki'})}));assert.throws(()=>signed(inventory(),{minSequence:3}));assert.throws(()=>signed(inventory(),{now:Date.parse('2026-10-24')}));assert.throws(()=>signed(inventory(),{keyId:'other'}));});
+test('closed Developer ID schema, traversal, duplicate and unbound profile refuse',()=>{for(const mutate of [v=>v.app.attestation_category=3,v=>v.approved=true,v=>v.files[0].path='../profile',v=>v.files.push({...v.files[0]}),v=>v.profiles[0].descriptor_sha256='f'.repeat(64)]){const v=inventory();mutate(v);assert.throws(()=>signed(v));}});
+test('exact private closure, mutation, extra file, symlink and permissive mode',()=>{const dir=mkdtempSync(join(homedir(),'.dsmack-alpha-test-'));chmodSync(dir,0o700);try{const f=join(dir,'profile.json');writeFileSync(f,data,{mode:0o600});assert.equal(verifyStagedFiles(dir,signed()).staged_files_checked,true);writeFileSync(f,'changed');assert.throws(()=>verifyStagedFiles(dir,signed()));writeFileSync(f,data);writeFileSync(join(dir,'extra'),'x');assert.throws(()=>verifyStagedFiles(dir,signed()));rmSync(join(dir,'extra'));chmodSync(f,0o644);assert.throws(()=>verifyStagedFiles(dir,signed()));chmodSync(f,0o600);rmSync(f);symlinkSync('/dev/null',f);assert.throws(()=>verifyStagedFiles(dir,signed()));}finally{rmSync(dir,{recursive:true,force:true});}});
+
+test('changed signed bytes or noncanonical duplicate JSON refuse',()=>{const raw=Buffer.from(canonical(inventory()));const sig=sign(null,Buffer.concat([Buffer.from('dsmack-alpha-release/1\0'),raw]),privateKey);raw[raw.length-2]^=1;assert.throws(()=>authenticateInventory(raw,sig,{publicKey:publicKey.export({format:'pem',type:'spki'})}));const duplicate=Buffer.from('{\"schema\":0,\"schema\":1}');assert.throws(()=>authenticateInventory(duplicate,sign(null,Buffer.concat([Buffer.from('dsmack-alpha-release/1\0'),duplicate]),privateKey),{publicKey:publicKey.export({format:'pem',type:'spki'})}));});
+
+test('authenticated handles and nested inventory cannot be forged or mutated',()=>{const r=signed();assert.throws(()=>r.inventory.files[0].sha256='0'.repeat(64));assert.throws(()=>verifyStagedFiles(homedir(),{...r}));assert.throws(()=>verifyStagedFiles(homedir(),{signature_authenticated:true,inventory:inventory()}));});
+
+test('writable staging ancestor refuses despite private leaf',()=>{const parent=mkdtempSync(join(homedir(),'.dsmack-alpha-parent-'));try{const leaf=join(parent,'leaf');mkdirSync(leaf,{mode:0o700});writeFileSync(join(leaf,'profile.json'),data,{mode:0o600});chmodSync(parent,0o777);assert.throws(()=>verifyStagedFiles(leaf,signed()));}finally{chmodSync(parent,0o700);rmSync(parent,{recursive:true,force:true});}});
+
+test('separate workload admission binds release/profile/manifest/attempt/disk/expiry',()=>{
+ const release=signed(),profile={schema:'dsmack-alpha-profile/2',profile_id:'diagnostic',execution_profile:{compose_manifest_sha256:'a'.repeat(64)}};
+ const claim={schema:'dsmack-alpha-workload-admission/1',key_id:'test',release_inventory_sha256:release.inventory_sha256,profile_id:'diagnostic',compose_manifest_sha256:'a'.repeat(64),attempt_id:'b'.repeat(32),closure_context_sha256:'c'.repeat(64),workload_disk:{bytes:1048576,sha256:'d'.repeat(64)},issued_at:'2026-10-22T11:00:00.000Z',expires_at:'2026-10-22T13:00:00.000Z'};
+ const check=(v,handle=release,key=publicKey)=>{const raw=Buffer.from(canonical(v));return authenticateWorkload(raw,sign(null,Buffer.concat([Buffer.from(v.schema+'\0'),raw]),privateKey),handle,profile,{publicKey:key.export({format:'pem',type:'spki'}),now:Date.parse('2026-10-22T12:00:00.000Z')});};
+ assert.equal(check(claim).attempt_id,claim.attempt_id);
+ for(const mutate of [v=>v.release_inventory_sha256='e'.repeat(64),v=>v.profile_id='other',v=>v.compose_manifest_sha256='f'.repeat(64),v=>v.expires_at='2026-10-22T12:00:00.000Z',v=>v.workload_disk.bytes=4294967297,v=>v.schema='dsmack-alpha-release/1']){const v=structuredClone(claim);mutate(v);assert.throws(()=>check(v));}
+ const other=generateKeyPairSync('ed25519'),otherRaw=Buffer.from(canonical(claim));assert.throws(()=>authenticateWorkload(otherRaw,sign(null,Buffer.concat([Buffer.from(claim.schema+'\0'),otherRaw]),other.privateKey),release,profile,{publicKey:other.publicKey.export({format:'pem',type:'spki'}),now:Date.parse('2026-10-22T12:00:00.000Z')}));
+ assert.throws(()=>check(claim,{...release}));assert.throws(()=>check(claim,release,generateKeyPairSync('ed25519').publicKey));
+});

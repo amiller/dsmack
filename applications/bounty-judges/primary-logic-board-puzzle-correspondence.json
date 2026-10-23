@@ -1,0 +1,241 @@
+{
+  "schema": "dsmack-primary-logic-correspondence/1",
+  "original_manifest_sha256": "c4e98e5a647b11e53f0325cdbfa1c0e477a01fc173a60ca77490d77317ef7749",
+  "scope": "Every original assertion retained: renderer candidate computations; Node expected comparisons. Observations snapshotted with captured native structuredClone after each case; undefined and reference identity preserved.",
+  "groups": {
+    "board": {
+      "original": {
+        "path": "apps/board/test/logic.test.js",
+        "bytes": 5906,
+        "sha256": "a5aca81bfdc05bbd594e77902a8ea253ddbc49b4b0c93e3d9c683aeb09245ad6"
+      },
+      "module": "primary-logic-board.mjs",
+      "cases": [
+        {
+          "id": "add appends cards with sequential ids and trimmed text",
+          "observation_index": 0
+        },
+        {
+          "id": "add rejects empty text and unknown columns",
+          "observation_index": 1
+        },
+        {
+          "id": "applyAction does not mutate its input",
+          "observation_index": 2
+        },
+        {
+          "id": "edit changes text in place and keeps position",
+          "observation_index": 3
+        },
+        {
+          "id": "delete removes the card and never reuses its id",
+          "observation_index": 4
+        },
+        {
+          "id": "move appends to target column by default",
+          "observation_index": 5
+        },
+        {
+          "id": "move with index reorders within and across columns",
+          "observation_index": 6
+        },
+        {
+          "id": "neighbour steps across columns and stops at the edges",
+          "observation_index": 7
+        },
+        {
+          "id": "findCard reports column and index",
+          "observation_index": 8
+        },
+        {
+          "id": "unknown action types throw",
+          "observation_index": 9
+        },
+        {
+          "id": "export/import round-trips through JSON",
+          "observation_index": 10
+        },
+        {
+          "id": "validate accepts a well-formed board",
+          "observation_index": 11
+        },
+        {
+          "id": "validate rejects: null",
+          "observation_index": 12
+        },
+        {
+          "id": "validate rejects: array",
+          "observation_index": 13
+        },
+        {
+          "id": "validate rejects: missing nextId",
+          "observation_index": 14
+        },
+        {
+          "id": "validate rejects: zero nextId",
+          "observation_index": 15
+        },
+        {
+          "id": "validate rejects: fractional nextId",
+          "observation_index": 16
+        },
+        {
+          "id": "validate rejects: missing column",
+          "observation_index": 17
+        },
+        {
+          "id": "validate rejects: extra column",
+          "observation_index": 18
+        },
+        {
+          "id": "validate rejects: column not array",
+          "observation_index": 19
+        },
+        {
+          "id": "validate rejects: card missing text",
+          "observation_index": 20
+        },
+        {
+          "id": "validate rejects: card extra field",
+          "observation_index": 21
+        },
+        {
+          "id": "validate rejects: empty text",
+          "observation_index": 22
+        },
+        {
+          "id": "validate rejects: non-string text",
+          "observation_index": 23
+        },
+        {
+          "id": "validate rejects: malformed id",
+          "observation_index": 24
+        },
+        {
+          "id": "validate rejects: id not below nextId",
+          "observation_index": 25
+        },
+        {
+          "id": "validate rejects: duplicate id",
+          "observation_index": 26
+        }
+      ],
+      "coverage": "All12fixed cases +15invalid-board cases, each with validate and import rejection; exact error regexes, undefined boundaries, nonmutation, indexing, IDs."
+    },
+    "puzzle": {
+      "original": {
+        "path": "apps/puzzle/test/logic.test.js",
+        "bytes": 4935,
+        "sha256": "06e23475f13da25bb4d1b171f1a0e4cdc2ef0a53a2c41fcad8fc07b79a372376"
+      },
+      "module": "primary-logic-puzzle.mjs",
+      "cases": [
+        {
+          "id": "parse reads walls, goals, boxes and player",
+          "observation_index": 0
+        },
+        {
+          "id": "parse handles + and * and ragged rows",
+          "observation_index": 1
+        },
+        {
+          "id": "parse rejects malformed levels",
+          "observation_index": 2
+        },
+        {
+          "id": "render round-trips every level",
+          "observation_index": 3
+        },
+        {
+          "id": "walking moves the player and counts moves",
+          "observation_index": 4
+        },
+        {
+          "id": "walls block movement and return the same state",
+          "observation_index": 5
+        },
+        {
+          "id": "moves off the map edge are blocked",
+          "observation_index": 6
+        },
+        {
+          "id": "pushing moves a box and counts a push",
+          "observation_index": 7
+        },
+        {
+          "id": "cannot push a box into a wall",
+          "observation_index": 8
+        },
+        {
+          "id": "cannot push two boxes",
+          "observation_index": 9
+        },
+        {
+          "id": "cannot push a box off the edge of an open map",
+          "observation_index": 10
+        },
+        {
+          "id": "move rejects unknown directions",
+          "observation_index": 11
+        },
+        {
+          "id": "move does not mutate the previous state",
+          "observation_index": 12
+        },
+        {
+          "id": "win detection",
+          "observation_index": 13
+        },
+        {
+          "id": "play throws on a blocked move",
+          "observation_index": 14
+        },
+        {
+          "id": "every level has a recorded solution",
+          "observation_index": 15
+        },
+        {
+          "id": "undo reverses walks and pushes exactly",
+          "observation_index": 16
+        },
+        {
+          "id": "undo at the start is a no-op",
+          "observation_index": 17
+        },
+        {
+          "id": "blocked moves are not recorded in history",
+          "observation_index": 18
+        },
+        {
+          "id": "interior excludes the empty outside of a level",
+          "observation_index": 19
+        },
+        {
+          "id": "level \"First Push\" is won by its known solution",
+          "observation_index": 20
+        },
+        {
+          "id": "level \"Corner\" is won by its known solution",
+          "observation_index": 21
+        },
+        {
+          "id": "level \"Two Lanes\" is won by its known solution",
+          "observation_index": 22
+        },
+        {
+          "id": "level \"Pillar\" is won by its known solution",
+          "observation_index": 23
+        },
+        {
+          "id": "level \"Storeroom\" is won by its known solution",
+          "observation_index": 24
+        },
+        {
+          "id": "level \"Warehouse\" is won by its known solution",
+          "observation_index": 25
+        }
+      ],
+      "coverage": "All20fixed cases +6known levels; every original solution move/push/history/win/undo assertion, all per-step reverse histories, Set contents, no-op identity and malformed-level regexes."
+    }
+  }
+}

@@ -77,16 +77,16 @@ node source/applications/pilot-client/alpha-bootstrap.mjs \
 <h2>5. Obtain a task for this Mac.</h2>
 <p>The current download does not include a reusable invitation. At this step, the alpha operator checks your Mac's fresh enrollment and supplies an admitted local task, <code>invitation.json</code>, and its independently communicated SHA-256 digest. Use the exchange described in <code>source/docs/pilot/operator-assisted-mac.md</code>; there is no public signup or enrollment endpoint in this release. This is the current tooling handoff, not a protocol requirement for human approval of every task.</p>
 <p>Keep the supplied files at their specified local paths. Put the actual invitation in this working folder, then replace <code>OPERATOR_DIGEST</code> below with its digest. Inspect the selected app, base, workload, paths and finite resource limits before preparing the run.</p>
-<pre><code>python3 -I source/applications/pilot-client/friend.py inspect invitation.json --sha256 OPERATOR_DIGEST
-python3 -I source/applications/pilot-client/friend.py prepare invitation.json --sha256 OPERATOR_DIGEST
-python3 -I source/applications/pilot-client/friend.py check invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<pre><code>python3 -I source/applications/pilot-client/friend.py inspect "$PWD/invitation.json" --sha256 OPERATOR_DIGEST
+python3 -I source/applications/pilot-client/friend.py prepare "$PWD/invitation.json" --sha256 OPERATOR_DIGEST
+python3 -I source/applications/pilot-client/friend.py check "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
 <p>These commands inspect the invitation, prepare its local plan and run admission checks. They do not start the VM. Stop here if a check refuses.</p>
 </section>
 <section class="section" id="run">
 <h2>6. Run once and retain the result.</h2>
-<pre><code>python3 -I source/applications/pilot-client/friend.py run invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<pre><code>python3 -I source/applications/pilot-client/friend.py run "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
 <p>The runner launches the selected Linux VM and retains its result. For an interrupted terminal or a status check, use the same invitation:</p>
-<pre><code>python3 -I source/applications/pilot-client/friend.py resume invitation.json --sha256 OPERATOR_DIGEST</code></pre>
+<pre><code>python3 -I source/applications/pilot-client/friend.py resume "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
 <p><code>resume</code> observes an attempted run; it does not implicitly launch it again. Preserve the complete original output directory and <code>friend-summary-NATIVE_ID.json</code>. The summary is useful status, not cryptographic proof. Closing Terminal does not confirm that a VM stopped.</p>
 </section>
 <section class="section" id="evidence">
@@ -101,13 +101,6 @@ python3 -I source/applications/pilot-client/friend.py check invitation.json --sh
 </div>
 </section>
 </main>
-<footer>
-<div class="wrap">
-<p>Dsmack · Mac runner alpha</p>
-<a href="https://github.com/amiller/dsmack">Project source</a>
-<a href="base-image.html">Architecture</a>
-<a href="app-attest.html">App Attest</a>
-</div>
-</footer>
+<footer><div class="wrap"><p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p><a href="index.html">Overview</a><a href="base-image.html">Architecture</a><a href="build.html">Setup</a><a href="app-attest.html">App Attest</a><a href="https://github.com/amiller/dsmack">Source</a></div></footer>
 </body>
 </html>

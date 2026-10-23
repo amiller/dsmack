@@ -5,6 +5,8 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+import subprocess
+import sys
 from unittest.mock import patch
 
 spec = importlib.util.spec_from_file_location('friend', Path(__file__).with_name('friend.py'))
@@ -100,6 +102,28 @@ class InvitationControls(unittest.TestCase):
         self.assertEqual(run[1:5], ['-I', '-B', str(entry), '--execute'])
         self.assertIn('--check-only', check)
         self.assertEqual(run[-1], str(self.runs / ('attempt-' + self.native + '.control') / 'plan.json'))
+
+    def test_stale_structurally_valid_plan_refuses_before_authentication(self):
+        plan = {'schema': 'dsmack-alpha-launch-plan/1',
+                'admission': {k: self.value[k] for k in ('bootstrap', 'inventory', 'signature')},
+                'root': self.value['install_root'], 'profile_id': self.value['profile_id'],
+                'task': self.value['task'], 'out_parent': self.value['run_parent'],
+                'inventory_sha256': self.value['inventory']['sha256'], 'attempt_id': self.native}
+        control = self.runs / ('attempt-' + self.native + '.control')
+        control.mkdir(mode=0o700)
+        path = control / 'plan.json'
+        path.write_text(json.dumps(plan))
+        path.chmod(0o600)
+        self.assertEqual(friend.validate_plan(self.value), path)
+        # This remains a valid coordinator plan, but selects a different task.
+        plan['task'] = self.write('another-task.json', self.task)
+        path.write_text(json.dumps(plan))
+        d = self.write('invitation.json', self.value)
+        result = subprocess.run([sys.executable, '-I', str(Path(friend.__file__)),
+                                 'run', d['path'], '--sha256', d['sha256']],
+                                capture_output=True, text=True)
+        self.assertEqual(result.returncode, 2)
+        self.assertIn('existing plan does not match selected invitation', result.stderr)
 
 
 if __name__ == '__main__':

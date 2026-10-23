@@ -23,6 +23,8 @@ original full public-payload checker. Prepare/check use the existing coordinator
 they do not launch a VM. Run delegates its once-only execute route. To observe the
 same attempted run later, use `resume` with the same invitation and digest. A
 lost connection or nonzero return never grants permission to launch again.
+Check/run/resume also require the existing plan's complete task and release
+bindings to match that invitation; a valid plan for a different task is refused.
 
 The adapter accepts only the selected primary starter aliases, public profile/2,
 task/2, network disabled and no credential/environment inputs. It does not

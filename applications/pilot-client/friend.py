@@ -145,6 +145,18 @@ def argv(command, v, entry):
                      '--plan', str(plan)]
 
 
+def validate_plan(v):
+    path = Path(v['run_parent']) / ('attempt-' + v['native_execution_id'] + '.control') / 'plan.json'
+    plan = document(read(path, 65536))
+    expected = {'schema': 'dsmack-alpha-launch-plan/1',
+                'admission': {k: v[k] for k in ('bootstrap', 'inventory', 'signature')},
+                'root': v['install_root'], 'profile_id': v['profile_id'], 'task': v['task'],
+                'out_parent': v['run_parent'], 'inventory_sha256': v['inventory']['sha256'],
+                'attempt_id': v['native_execution_id']}
+    need(plan == expected, 'existing plan does not match selected invitation')
+    return path
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=['inspect', 'prepare', 'check', 'run', 'resume'])
@@ -153,6 +165,8 @@ def main():
     a = parser.parse_args()
     need(sys.flags.isolated == 1, 'invoke trusted Python with -I')
     v, task = invitation(a.invitation, a.sha256)
+    if a.command in ('check', 'run', 'resume'):
+        validate_plan(v)
     entry = authenticate(v, task)
     if a.command == 'inspect':
         print(json.dumps({'native_execution_id': v['native_execution_id'],

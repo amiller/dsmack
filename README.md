@@ -2,7 +2,8 @@
 
 dsmack runs a selected Linux workload on a Mac and retains independently checkable
 App Attest evidence about its launch and result. **Start with one operator-admitted,
-credential-free task:** [the Mac handoff guide](docs/pilot/operator-assisted-mac.md#one-task-and-its-proof)
+credential-free task:** [the one-file invitation adapter](docs/pilot/friend-invitation.md)
+uses existing coordinator commands; [the Mac handoff guide](docs/pilot/operator-assisted-mac.md#one-task-and-its-proof)
 names the existing prepare/check/execute commands, proof files and Linux offline
 check. A coding-agent subscription and a bounty payout are separate concerns.
 

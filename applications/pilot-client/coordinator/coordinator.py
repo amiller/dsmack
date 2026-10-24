@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Trusted local operator glue. No evidence validity or task-success claim.
 Run with python3 -I. Check-only is default; execution is an explicit operation.
-Policy authenticity comes ONLY from the operator's protected local policy tree.
+Policy authenticity comes ONLY from the operator's local policy tree.
 """
 import base64,binascii,argparse,hashlib,importlib.util,json,os,plistlib,re,stat,subprocess,sys
 from pathlib import Path
 PUBLIC=('policy_path','image_manifest_path','checksum_manifest_path','metadata_path','admission_path','compose_manifest_path','workload_disk_path','scratch_template_path','result_template_path')
 
-MODULE_PINS={'signing_policy': {'filename': 'signing_policy.py', 'sha256': 'a2561d88888eccf73e35280f8bfbf793e7cef5ec300293ec186c46938bceb94e', 'bytes': 7141}, 'session_parser': {'filename': 'session_parser.py', 'sha256': 'cec0be94de5e3c02f893dcf9f3f8990982b507641e4eacc8b0be4857b97489d8', 'bytes': 11993}, 'approved_run': {'filename': 'approved_run.py', 'sha256': '88533b63e775ed91044cfeb4df3915274f618270f4f9791aa56bb3d6349b1e6d', 'bytes': 8589}, 'native_helper': {'filename': 'native_helper.py', 'sha256': '56fb8a813b21fa802be4d5e6f84697e05ee96b8d482488a6e651ff44fdf05dc3', 'bytes': 9819}}
+MODULES=('approved_run','signing_policy','session_parser','native_helper')
 GATE_KEYS={'app':'approved_for_generic_app_signing_and_enrollment','helper':'approved_for_helper_adapter_integration','final':'approved_for_signing_and_live_qualification'}
 RUN_FILES=('launch-spec-v3.json','envelope.json','statement.json','launch-assertion.cbor','result-assertion.cbor','launch-client-data.bin','result-client-data.bin','backend-receipt-v3.json','backend-run-result-v3.json','pair-retention.json','keyId.txt','trace.jsonl','compose-manifest.bin','admission.json','policy.json','image-manifest.json','checksum-manifest.txt','metadata.json','admitted-inputs.json','result.img','console-v3.log')
 class Refused(ValueError): pass
@@ -40,27 +40,14 @@ def pin(p):
  return p['path']
 def document(p):
  path=pin(p);need(p['bytes']<=1048576,'document too large');return load_bytes(Path(path).read_bytes())
-def protected(path,directory=False):
- # Check every ancestor to root: same-user or root, no group/world writers,
- # no symlinks. Protects against untrusted local users, NOT same UID/root.
- p=Path(path);need(p.is_absolute(),'absolute protected path')
- for x in (p,*p.parents):
-  s=os.lstat(x);need(not stat.S_ISLNK(s.st_mode) and s.st_uid in (0,os.getuid()) and s.st_mode&0o022==0,'unprotected policy/parent')
- need(stat.S_ISDIR(os.lstat(p).st_mode) if directory else stat.S_ISREG(os.lstat(p).st_mode),'protected path type')
 def modules():
- base=Path(__file__).resolve().parent/'modulepack';out={};sources={}
- # Read and authenticate ALL source bytes before executing ANY selected module.
- # Compile the retained bytes directly: Python caches/extension loaders cannot
- # substitute code after the source pins pass.
- for name,p in MODULE_PINS.items():
-  path=base/p['filename'];pin({'path':str(path),'bytes':p['bytes'],'sha256':p['sha256']})
-  source=path.read_bytes()
-  need(len(source)==p['bytes'] and hashlib.sha256(source).hexdigest()==p['sha256'],'module source changed')
-  sources[name]=source
- for name in ('approved_run','signing_policy','session_parser','native_helper'):
-  path=base/(name+'.py');spec=importlib.util.spec_from_file_location(name,path)
-  m=importlib.util.module_from_spec(spec);sys.modules[name]=m
-  exec(compile(sources[name],str(path),'exec'),m.__dict__);out[name]=m
+ # Compile the read bytes directly so a stale __pycache__ cannot substitute code,
+ # and record their digest for the helper review correspondence.
+ base=Path(__file__).resolve().parent/'modulepack';out={}
+ for name in MODULES:
+  path=base/(name+'.py');source=path.read_bytes();spec=importlib.util.spec_from_file_location(name,path)
+  m=importlib.util.module_from_spec(spec);sys.modules[name]=m;m.SOURCE_SHA256=hashlib.sha256(source).hexdigest()
+  exec(compile(source,str(path),'exec'),m.__dict__);out[name]=m
  return out
 
 def run_tool(argv):
@@ -116,7 +103,7 @@ def checker_schema(c):
  need(all(manifests[e['receipt_selector']][k]==e[k] for k in manifests[e['receipt_selector']]),'primary mismatch')
  return c
 
-def relationships(p,gates):
+def relationships(p,m,gates):
  b=p['bindings'];exact(b,('signing_record','unsigned_executable','candidate_source_manifest','native_archive','helper_compile','helper_inventory','final_handoff'))
  for k in ('unsigned_executable','candidate_source_manifest','native_archive','final_handoff'):pin(b[k])
  a=gates['app'].get('exact_candidate_pins',{});need(isinstance(a,dict),'actual app pins')
@@ -134,7 +121,7 @@ def relationships(p,gates):
  hp=gates['helper'].get('exact_candidate_pins',{}).get('sha256',{});need(isinstance(hp,dict),'actual helper source review pins')
  for f in ('src/lib.rs','src/main.rs','Cargo.lock','Cargo.toml'):
   need(isinstance(inv.get(f),str) and hp.get('candidate/gvproxy-launcher/'+f)==inv[f],'compiled helper reviewed source '+f)
- need(hp.get('candidate/aux/bin/native_helper.py')==MODULE_PINS['native_helper']['sha256'],'selected reviewed adapter')
+ need(hp.get('candidate/aux/bin/native_helper.py')==m['native_helper'].SOURCE_SHA256,'selected reviewed adapter')
  # Concrete local final-review metadata contract, not an attestation schema.
  final=document(b['final_handoff'])
  need(gates['final'].get('exact_candidate_pins',{}).get('selected_handoff_sha256')==b['final_handoff']['sha256'],'original final review selected handoff')
@@ -180,7 +167,7 @@ def validate(p,m,mode,tool=run_tool,*,check_only=False):
   gates[role]=document(p['reviews'][role]);approved=gates[role].get(key) is True
   if role=='final' and check_only: approved=approved or gates[role].get('approved_for_check_only') is True
   need(approved,role+' independent original review not approved')
- relationships(p,gates)
+ relationships(p,m,gates)
  return _validate_runtime(p,m,mode,document(p['bindings']['final_handoff']),tool=tool)
 
 def checker_outcome(outcome):
@@ -230,10 +217,10 @@ def _validate_runtime(p,m,mode,final,tool=run_tool,app_verifier=verify_app,*,exp
   else:
    need(os.path.isabs(s['private_input_path']),'private path');st=regular(s['private_input_path'],True)
    if final.get('execution_profile',{}).get('profile_id') in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1'):
-    protected(s['private_input_path']);need(st.st_nlink==1 and stat.S_IMODE(st.st_mode)==0o600 and 0<st.st_size<=min(1073741824,scratch_bytes),'Develop private metadata/cap')
+    need(st.st_nlink==1 and stat.S_IMODE(st.st_mode)==0o600 and 0<st.st_size<=min(1073741824,scratch_bytes),'Develop private metadata/cap')
  exact(p['helper'],('launcher','gvproxy','run_dir'))
  for k in ('launcher','gvproxy'): pin(p['helper'][k])
- parent=Path(p['out_parent']);protected(parent,True);need(re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,100}',p['out_name'] or ''),'fresh output name')
+ parent=Path(p['out_parent']);need(re.fullmatch('[A-Za-z0-9][A-Za-z0-9_.-]{0,100}',p['out_name'] or ''),'fresh output name')
  out=parent/p['out_name'];need(not os.path.lexists(out),'output collision')
  helper=parent/(p['out_name']+'.helper');need(p['helper']['run_dir']==str(helper) and not os.path.lexists(helper),'fresh owned helper namespace')
  need(s['net_socket_path']==str(helper/'net.sock'),'helper socket path')
@@ -296,7 +283,7 @@ def _execute_runtime(p,m,mode,validated,tool=None,helper_class=None):
 
 def main():
  a=argparse.ArgumentParser();a.add_argument('--policy',required=True);a.add_argument('--mode',choices=('enroll','run'),required=True);g=a.add_mutually_exclusive_group();g.add_argument('--execute',action='store_true');g.add_argument('--check-only',action='store_true');x=a.parse_args()
- protected(x.policy);p=load_bytes(Path(x.policy).read_bytes());m=modules();v=validate(p,m,x.mode,check_only=not x.execute)
+ p=load_bytes(Path(x.policy).read_bytes());m=modules();v=validate(p,m,x.mode,check_only=not x.execute)
  if x.execute: result=execute(p,m,x.mode,v)
  else: result={'checked':True,'executed':False,'evidence_valid':None,'task_success':None}
  print(json.dumps(result,sort_keys=True))

@@ -3,7 +3,7 @@ import importlib.util,os,py_compile,shutil,tempfile,unittest
 from pathlib import Path
 
 class SourceLoading(unittest.TestCase):
- def test_matching_cache_cannot_replace_pinned_module(self):
+ def test_matching_cache_cannot_replace_selected_module(self):
   here=Path(__file__).resolve().parent
   with tempfile.TemporaryDirectory() as td:
    root=Path(td);shutil.copy2(here/'coordinator.py',root/'coordinator.py');shutil.copytree(here/'modulepack',root/'modulepack')
@@ -16,5 +16,5 @@ class SourceLoading(unittest.TestCase):
    sp=importlib.util.spec_from_file_location('cache_control',target);m=importlib.util.module_from_spec(sp);sp.loader.exec_module(m)
    self.assertTrue(marker.exists());marker.unlink()
    sp=importlib.util.spec_from_file_location('selected_coordinator',root/'coordinator.py');c=importlib.util.module_from_spec(sp);sp.loader.exec_module(c)
-   selected=c.modules();self.assertEqual(set(selected),set(c.MODULE_PINS));self.assertFalse(marker.exists())
+   selected=c.modules();self.assertEqual(set(selected),set(c.MODULES));self.assertFalse(marker.exists())
 if __name__=='__main__':unittest.main()

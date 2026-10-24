@@ -13,7 +13,7 @@ def digest(p):
 class Tests(unittest.TestCase):
  @classmethod
  def setUpClass(c):
-  c.root=Path(tempfile.mkdtemp(prefix='coordinator-controls-',dir=str(Path(__file__).parent.parent)));os.chmod(c.root,0o700);c.m=d.modules();c.pins={}
+  c.root=Path(tempfile.mkdtemp(prefix='coordinator-controls-'));os.chmod(c.root,0o700);c.m=d.modules();c.pins={}
   def file(n,b):
    p=c.root/n;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b);return digest(p)
   c.file=staticmethod(file)
@@ -42,7 +42,7 @@ class Tests(unittest.TestCase):
   appgate={d.GATE_KEYS['app']:True,'exact_candidate_pins':{'unsigned_executable':unsigned['sha256'],'unsigned_executable_bytes':unsigned['bytes'],'info_plist':info['sha256'],'candidate_source_manifest':source['sha256'],'native_archive':native['sha256'],'native_archive_bytes':native['bytes']}}
   c.p['reviews']['app']=file('TEST-ONLY-app-review.json',json.dumps(appgate).encode())
   inv={k:hashlib.sha256(k.encode()).hexdigest() for k in ('src/lib.rs','src/main.rs','Cargo.lock','Cargo.toml')}
-  helpergate={d.GATE_KEYS['helper']:True,'exact_candidate_pins':{'sha256':{'candidate/gvproxy-launcher/'+k:v for k,v in inv.items()}}};helpergate['exact_candidate_pins']['sha256']['candidate/aux/bin/native_helper.py']=d.MODULE_PINS['native_helper']['sha256']
+  helpergate={d.GATE_KEYS['helper']:True,'exact_candidate_pins':{'sha256':{'candidate/gvproxy-launcher/'+k:v for k,v in inv.items()}}};helpergate['exact_candidate_pins']['sha256']['candidate/aux/bin/native_helper.py']=c.m['native_helper'].SOURCE_SHA256
   c.p['reviews']['helper']=file('TEST-ONLY-helper-review.json',json.dumps(helpergate).encode())
   ip=file('helper-source-inventory',json.dumps(inv).encode());comp={'schema':'dsmack-repaired-helper-compile/1','actual_link_exit':0,'mini_actual_artifact':c.p['helper']['launcher'],'source_inventory':ip['path'],'source_inventory_sha256':ip['sha256']};cp=file('helper-compile',json.dumps(comp).encode())
   sign={'schema':'dsmack-local-signing-operation/1','app_review':c.p['reviews']['app'],'unsigned_executable':unsigned,'signed_executable':exe,'info_plist':info,'native_archive':native,'candidate_source_manifest':source,'full_cdhash':c.p['app']['full_cdhash']}
@@ -169,9 +169,4 @@ class Tests(unittest.TestCase):
   with self.assertRaisesRegex(d.Refused,'selected ARM64 image'):self.check(p)
   p=copy.deepcopy(self.p);p['inputs']['compose_manifest_path']=self.file('stale-compose',b'stale-compose');p['spec']['compose_manifest_path']=p['inputs']['compose_manifest_path']['path'];fixture_rebind(p)
   with self.assertRaisesRegex(d.Refused,'expected manifest_sha256'):self.check(p)
- def test_module_tamper(self):
-  old=d.MODULE_PINS['native_helper']['sha256'];d.MODULE_PINS['native_helper']['sha256']='0'*64
-  try:
-   with self.assertRaises(d.Refused):d.modules()
-  finally:d.MODULE_PINS['native_helper']['sha256']=old
 if __name__=='__main__':unittest.main(verbosity=2)

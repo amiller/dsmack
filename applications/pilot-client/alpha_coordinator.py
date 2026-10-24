@@ -59,10 +59,10 @@ def release(auth,root,profile_id):
 def selected_modules(root,checked):
  v=checked['inventory'];p=checked['profile'];files={f['path']:f for f in v['files']};base=Path(root)
  cpath=base/p['roles']['coordinator'];c=source_module(cpath,files[p['roles']['coordinator']]['sha256'])
- for name,entry in c['MODULE_PINS'].items():
-  expected=cpath.parent/'modulepack'/entry['filename'];actual=base/p['roles'][name]
-  need(actual==expected and (files[p['roles'][name]]['sha256'],files[p['roles'][name]]['bytes'])==(entry['sha256'],entry['bytes']),'exact executed coordinator role')
- m=c['modules']();a=source_module(base/p['roles']['alpha_signing_policy'],files[p['roles']['alpha_signing_policy']]['sha256'])
+ m=c['modules']()
+ for name in c['MODULES']:
+  need(base/p['roles'][name]==cpath.parent/'modulepack'/(name+'.py') and files[p['roles'][name]]['sha256']==m[name].SOURCE_SHA256,'exact executed coordinator role')
+ a=source_module(base/p['roles']['alpha_signing_policy'],files[p['roles']['alpha_signing_policy']]['sha256'])
  return c,m,a
 
 def verify_app(a,sp,tool,*,root,checked,alpha):

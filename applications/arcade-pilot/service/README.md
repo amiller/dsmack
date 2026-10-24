@@ -113,8 +113,8 @@ Separate worker Bearer token, fixed task, HTTPS:
 
 An accepted verification publishes the attempt's 21 originals plus the signed
 `report.json` and the key's `enrollment.json` at
-`/api/artifacts/:submission_id/:name`. For attempts accepted before this, run
-`ARCADE_CONFIG=<config> node applications/arcade-pilot/service/publish-evidence.mjs` once.
+`/api/artifacts/:submission_id/:name`. The host calls `backfillEvidence()` at
+startup to publish attempts accepted before this existed.
 
 Registration output has registered_key_id/enrollment_sha256/publicpackage.
 Execution output binds market attempt_id and selected key_id, plus separate

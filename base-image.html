@@ -63,14 +63,14 @@
 </section>
 <section class="section" id="outputs">
 <h2>The files returned for verification</h2>
-<p>The manifest names the public input files the task expects and the outputs to collect. After execution, the exporter writes the captured files to the result disk, including:</p>
+<p>The manifest names the public input files the task expects and the outputs to collect. After execution, the exporter creates a directory named after the task manifest on the result disk. Within that directory it writes:</p>
 <ul>
 <li><code>receipt.json</code>: the execution record, including its outcome and output hashes.</li>
 <li><code>outputs/index.json</code>: the list of exported files, their sizes and hashes.</li>
 <li><code>outputs/streams/stdout</code> and <code>outputs/streams/stderr</code>: the command’s captured text output, when requested.</li>
 <li><code>outputs/artifacts/</code>: requested files such as test reports or screenshots.</li>
 </ul>
-<p>The exporter writes <code>EXPORT-COMPLETE</code> last, after saving the files. That marker tells the verifier that export finished. The receipt separately records whether the task succeeded, failed or was cancelled, so a failed test run can still return useful logs.</p>
+<p>The exporter writes <code>outputs/EXPORT-COMPLETE</code> last, after saving the files. That marker tells the verifier that export finished. The receipt separately records whether the task succeeded, failed or was cancelled, so a failed test run can still return useful logs.</p>
 <p>After the VM stops, the macOS app finishes writing the result disk, hashes it, and includes that hash in its signed result statement. The recipient checks the disk hash, then the files and receipt inside it. <a href="architecture.html#evidence">Follow the complete verification sequence →</a></p>
 <p><a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1/source/runner-content/dsmack_guest_io">Input/output transport</a> · <a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/export_outputs.py">Output exporter</a></p>
 </section>

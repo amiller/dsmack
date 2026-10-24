@@ -25,7 +25,7 @@
 <section class="pagehero architecture-hero">
 <h1>From a task request<br>to a signed result.</h1>
 <p class="lead">DsmackRunner is a signed command-line app that runs on an Apple silicon Mac. It starts a Linux virtual machine, runs a task inside it, and uses Apple App Attest to sign statements about the software it loaded and the files it got back.</p>
-<p>For a browser-test task, the task publisher supplies a container with the browser and test tools, the proposed repository changes, and a command to run. The output includes the test results and any requested screenshots. Someone receiving those files can verify the app’s signatures and compare the recorded software and inputs with the task they requested.</p>
+<p>For a browser-test task, the task publisher specifies a container with the browser and test tools, and a command to run. The worker supplies the repository changes to check. The output includes the test results and any requested screenshots. Someone receiving those files can verify the app’s signatures and compare the recorded software and inputs with the task they requested.</p>
 <figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork of Mac minis used to run application workloads." width="1280" height="360" loading="eager" decoding="async"></figure>
 <p><a href="#mac-app">Preparing and running a task</a> · <a href="#apple-virtualization">libkrun and Apple’s hypervisor</a> · <a href="base-image.html">Inside the Linux image</a> · <a href="#evidence">Verifying the result</a></p>
 </section>
@@ -53,7 +53,7 @@
 <p>The task publisher supplies the container, command, input files and rules for accepting the result. On the Mac, an <strong>application client</strong> prepares these for DsmackRunner. In the current pilot this client is a set of scripts: it checks the release and task signatures, locates the downloaded files, and writes the documents the app will read.</p>
 <p>Those documents answer three different questions:</p>
 <ul>
-<li><strong>Where are the files?</strong> The session document gives local paths to the Linux boot files, task disk, temporary disk templates and output location. It also requests a time limit and, where permitted, a private-input disk or network connection.</li>
+<li><strong>Where are the files?</strong> The session document gives local paths to the Linux boot files, task disk and temporary disk templates. The client also gives the app a fresh output directory for the returned evidence. It also requests a time limit and, where permitted, a private-input disk or network connection.</li>
 <li><strong>Which exact bytes should they contain?</strong> The image manifest lists the Linux kernel, its startup archive and the system disk, with their SHA-256 hashes. A hash is a fingerprint of a file’s bytes. The session records the expected hashes of the task disk and writable-disk templates.</li>
 <li><strong>Which choices are allowed?</strong> The policy document lists acceptable image-manifest hashes and caps memory, CPU count and running time. The pilot’s client derives it from the authenticated release settings.</li>
 </ul>
@@ -83,7 +83,7 @@
 </section>
 <section class="section" id="evidence">
 <h2>What does the recipient verify?</h2>
-<p>The returned evidence contains Apple’s attestation of the app key, the two signed assertions, the launch and result records, and the original output files. The verifier already has the task’s expected software hashes, input hashes, challenge and acceptance rules.</p>
+<p>The returned evidence contains Apple’s attestation of the app key, the two signed assertions, the launch and result records, and the original output files. The verifier already has the task’s expected software hashes, public-input hashes, challenge and acceptance rules.</p>
 <p>It first checks Apple’s certificate chain and the app identity allowed by its policy, then the assertion signatures and replay counters. Next it compares the recorded launch with the expected request and recomputes the hashes of the retained result disk and console log. Inside the disk, it checks the guest’s execution record and exported files.</p>
 <p>For the browser example, the final step is to examine the checker’s results against the task’s acceptance rules. A correctly authenticated run can report failing tests. In the bounty application, a passing result must also satisfy the delivery and settlement conditions before payment.</p>
 <p>The current execution prototype assumes the Mac’s owner does not tamper with VM storage. Private inputs are staged in plaintext on that host.</p>

@@ -47,3 +47,20 @@ PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s applications/bounty-de
 Actual model execution, private input staging and native launch require a separately
 selected request, image, nonce and operator admission. This source has not yet been
 qualified with a real model or native Mac run.
+
+## Host helpers
+
+- `substring_inputs.py`, `transport_v2_inputs.py`, `paid480_inputs.py`,
+  `guided_inputs.py`, `serialization_inputs.py`: lower a selected task's public
+  documents into stage inputs (`fixtures/<task>/`).
+- `build_public.py`: build the public develop disk on Zed from a preparation,
+  OCI layout and guest transport source.
+- `export_subscription.py --source FILE --emit-credential-stdout`: emit only the
+  Claude subscription auth fields to a pipe.
+- `credential_health.py` / `models_health.py --source FILE --validator-source
+  reference/claude_subscription_document.py`: one OAuth profile or `/v1/models`
+  request, status only.
+- `renew_private.py --source FILE --out NEW --oauth-source FILE --validator-source
+  reference/claude_subscription_document.py`: one-shot token refresh into a new file.
+
+Run with `python3 -I`.

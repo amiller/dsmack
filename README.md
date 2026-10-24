@@ -34,7 +34,7 @@ the evidence, and the trust model.
 | [`applications/pilot-client/`](applications/pilot-client/README.md) | Mac-side install, coordinator and launch; Linux run-result verifier |
 | [`applications/arcade-pilot/`](applications/arcade-pilot/runner/README.md) | Testnet bounty pilot: service, worker runner, checker, escrow |
 | [`applications/bounty-demo/`](applications/bounty-demo/README.md) | Task board, claims and submission API |
-| `applications/bounty-{develop,judges,runtime,settlement}/` | Agent development workload, acceptance join, stage adapters, settlement adapters |
+| `applications/bounty-{develop,judges,recipes,runtime,settlement}/` | Agent development workload, judges, shared request protocol, stage adapters, acceptance and settlement |
 | [`app-attest/`](app-attest/README.md) | On-chain App Attest verification, in Solidity and as a Noir circuit |
 | [`contracts/`](contracts/DEPLOY.md) | Build and App Attest key registries |
 | `verifier/` | Python App Attest verification |

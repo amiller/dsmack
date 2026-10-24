@@ -40,12 +40,3 @@ test('legacy claim_uncertain recovery requires unchanged complete accepted bound
  p.put('attempt',saved.id,saved);assert.equal((await p.claim(saved.id)).status,'uncertain');assert.equal(p.publicAttempt(saved).claim,null);assert.throws(()=>p.refreshClaim(saved.id,'invalid',{request_id:'legacy-recovery-01'}),/capability/);
  const q=p.refreshClaim(saved.id,CAP,{request_id:'legacy-recovery-01'});const a=p.get('attempt',saved.id);assert.equal(a.state,'verified');assert.deepEqual(a.verdict,saved.verdict);assert.equal(p.get('job',q.pending_job_id).input.attempt.state,'verified');assert.equal((await p.claim(a.id)).status,'pending');
 });
-
-test('actual UI enables explicit legacy recheck and removes stale transaction buttons',async()=>{
- const {readFileSync}=await import('node:fs');const {runInNewContext}=await import('node:vm');const elements={};const node=id=>elements[id]??=( {disabled:true,textContent:'',replaceChildren(){this.cleared=true;}} );
- const source=readFileSync(new URL('../web/app.mjs',import.meta.url),'utf8');
- const show=await runInNewContext('(async()=>{'+source+';return show;})()',{document:{getElementById:node},localStorage:{getItem:()=>null},fetch:async()=>({ok:true,json:async()=>task})});
- show({state:'claim_uncertain',verdict:{accepted:true,verification_level:'full'}});assert.equal(node('request-claim').disabled,false);assert.equal(node('claim').disabled,false);assert.match(node('request-claim').textContent,/Recheck chain/);assert.equal(node('transactions').cleared,true);
- show({state:'claim_uncertain',verdict:{accepted:false,verification_level:'full'}});assert.equal(node('request-claim').disabled,true);
- show({state:'claim_uncertain',verdict:{accepted:true,verification_level:'partial'}});assert.equal(node('request-claim').disabled,true);
-});

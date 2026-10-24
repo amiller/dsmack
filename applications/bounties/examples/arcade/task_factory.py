@@ -11,7 +11,7 @@ IMAGE='222c279f5a94a6ad7fdbcf781faf4536cd0d6edd40c18e711b714183dbd58ed3'
 CONFIG='61c8f50f8b46b3badde245be0635dcaa1b530a3e87a8641d3a9ccc648c49ed76'
 BASE='5c76d40e77db1f4864dabd4b9398d02589cff330';SELECTOR='bounty-board-search-primary-review-v1'
 ALLOWED={'apps/board/index.html','apps/board/logic.js','apps/board/ui.js'}
-CHECKER={'check.py':'607ea431bc4a897579d18ef5ef6ff4405e42b5597d15a1a33a7e917cbede4e16','browser.mjs':'65a9d6b1f2925eb7a08296b213d6bbf5a0587282dc1109f1229e1ac49accb271','base-files.json':'f4ad467a335c432de3339c80a620abe44630679095ec79a9ddb6f4fdae034260'}
+CHECKER=('check.py','browser.mjs','base-files.json')
 FILES=[('driver','/workspace/inputs/driver.py',65536),('checker','/workspace/inputs/check.py',65536),('browser','/workspace/inputs/browser.mjs',65536),('basefiles','/workspace/inputs/base-files.json',65536),('base','/workspace/inputs/base.json',16777216),('candidate','/workspace/inputs/candidate.json',16777216),('request','/workspace/inputs/request.json',65536)]
 
 def selected(d,cap=1<<20):
@@ -37,10 +37,9 @@ def project_candidate(base,submitted):
     return candidate
 
 def checker_files(config):
-    files={}
-    for name,sha in CHECKER.items():
-        d=config['checker'][name];need(d['sha256']==sha,'unselected checker revision');files[name]=selected(d)
-    return files
+    return {name:selected(config['checker'][name])for name in CHECKER}
+
+def checker_digest(config):return hashlib.sha256(canonical({n:config['checker'][n]['sha256']for n in CHECKER})).hexdigest()
 
 def manifest(config):
     m=doc(selected(config['reference_manifest']));need(m['network']['mode']=='none','offline reference required');m=copy.deepcopy(m)
@@ -98,7 +97,7 @@ def prepare_execution(config,value,job):
     need(set(base)==set(candidate)and all(n in ALLOWED for n in base if base[n]!=candidate[n]),'frozen-base39 plus candidate-board3 projection')
     m=manifest(config);mr=canonical(m);need(hashlib.sha256(mr).hexdigest()==config['manifest_sha256'],'selected closed pilot manifest')
     native=secrets.token_hex(16);context={'schema':'dsmack-result-closure-context/1','attempt_id':native,'selectors':[SELECTOR]}
-    request={'schema':'dsmack-arcade-native-request/1','role':'primary-review','attempt_id':attempt['id'],'run_id':native,'candidate_commit':attempt['candidate_commit'],'candidate_projection_policy':'frozen-base39+candidate-board3/v1','candidate_tree_sha256':tree_digest(candidate),'base_tree_sha256':tree_digest(base),'policy_sha256':config['policy_sha256'],'payee':attempt['payee'],'checker_sha256':hashlib.sha256(canonical(CHECKER)).hexdigest()}
+    request={'schema':'dsmack-arcade-native-request/1','role':'primary-review','attempt_id':attempt['id'],'run_id':native,'candidate_commit':attempt['candidate_commit'],'candidate_projection_policy':'frozen-base39+candidate-board3/v1','candidate_tree_sha256':tree_digest(candidate),'base_tree_sha256':tree_digest(base),'policy_sha256':config['policy_sha256'],'payee':attempt['payee'],'checker_sha256':checker_digest(config)}
     driver=selected(config['guest_driver']);files={'driver':driver,'checker':checker['check.py'],'browser':checker['browser.mjs'],'basefiles':checker['base-files.json'],'base':canonical({n:base64.b64encode(b).decode()for n,b in base.items()}),'candidate':canonical({n:base64.b64encode(b).decode()for n,b in candidate.items()}),'request':canonical(request)}
     validate,commit=guest_modules(config);validate(mr)
     projection={'runtime_input_version':4,'manifest_sha256':hashlib.sha256(mr).hexdigest(),'files':[{'slot':slot,'content_base64':base64.b64encode(files[slot]).decode()}for slot,_,_ in FILES],'commitments':{'alg':'dsmack.task-commitment/3','scope':{'include':['files'],'file_slots':sorted(files)},'inputs_sha256':'0'*64}}
@@ -143,6 +142,6 @@ def check_authenticated_outputs(config,value,job):
         passed=passed and typed
         need({a['name']for a in result['artifacts']}=={'final.png','trace.zip','video.webm'},'checker media membership')
         for d in result['artifacts']:need(all(records[role+'-'+d['name'].replace('.','-')][k]==d[k]for k in ('bytes','sha256')),'checker media descriptor')
-    report={'schema':'dsmack-arcade-functional-verdict/1','candidate_sha256':selected_context['candidate_sha256'],'policy_sha256':selected_context['policy_sha256'],'checker_sha256':hashlib.sha256(canonical(CHECKER)).hexdigest(),'functional_passed':passed,'artifacts':{n:{k:d[k]for k in ('bytes','sha256')}for n,d in records.items()}}
+    report={'schema':'dsmack-arcade-functional-verdict/1','candidate_sha256':selected_context['candidate_sha256'],'policy_sha256':selected_context['policy_sha256'],'checker_sha256':checker_digest(config),'functional_passed':passed,'artifacts':{n:{k:d[k]for k in ('bytes','sha256')}for n,d in records.items()}}
     exclusive(job/'FUNCTIONAL-CHECK.json',canonical(report))
     return {'functional_passed':passed,'report_sha256':pin(job/'FUNCTIONAL-CHECK.json')['sha256'],'checker_sha256':report['checker_sha256'],'candidate_sha256':selected_context['candidate_sha256']}

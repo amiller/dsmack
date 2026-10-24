@@ -5,7 +5,6 @@ reauthenticates the external root/expiry/floor and complete installed closure.
 """
 import argparse,datetime,hashlib,json,os,platform,plistlib,re,stat,sys,tempfile
 from pathlib import Path
-INSTALLER_SHA256='7f222196640c7eefd7429ef56bd0c6983b798986b3f0bdce09cc85055d2ee6eb'
 
 def need(ok,msg):
  if not ok:raise ValueError(msg)
@@ -29,10 +28,13 @@ def protected(path,private=False):
  for x in (p,*p.parents):
   s=os.lstat(x);need(not stat.S_ISLNK(s.st_mode) and s.st_uid in (0,os.getuid()) and not s.st_mode&0o022,'protected path ancestry')
  if private:need(os.lstat(p).st_uid==os.getuid() and not os.lstat(p).st_mode&0o077,'private output parent')
+def module(b,path):
+ ns={'__name__':'dsmack_alpha_selected','__file__':str(path),'SOURCE_SHA256':hashlib.sha256(b).hexdigest()};exec(compile(b,str(path),'exec'),ns);return ns
 def source_module(path,expected):
- b=read(path,262144);need(hashlib.sha256(b).hexdigest()==expected,'source module pin');ns={'__name__':'dsmack_alpha_selected','__file__':str(path)};exec(compile(b,str(path),'exec'),ns);return ns
+ b=read(path,262144);need(hashlib.sha256(b).hexdigest()==expected,'source module pin');return module(b,path)
 
-def installer():return source_module(Path(__file__).with_name('alpha_stage.py'),INSTALLER_SHA256)
+def installer():
+ path=Path(__file__).with_name('alpha_stage.py');return module(read(path,262144),path)
 
 def release(auth,root,profile_id):
  helper=installer();bp=Path(auth['bootstrap']['path']);protected(bp)
@@ -50,7 +52,7 @@ def release(auth,root,profile_id):
  for role,name in [('alpha_verifier','alpha-release-cli.mjs'),('alpha_library','alpha-release.mjs'),('alpha_profile','alpha-profile.mjs')]:
   f=files[p['roles'][role]];b=bootstrap['sources'][name];need((f['bytes'],f['sha256'])==(b['bytes'],b['sha256']),'bootstrap/release verifier source drift')
  need((Path(root)/p['roles']['alpha_entry']).resolve()==Path(__file__).resolve(),'selected alpha entry path')
- need(files[p['roles']['installer']]['sha256']==INSTALLER_SHA256 and (Path(root)/p['roles']['installer']).resolve()==Path(__file__).with_name('alpha_stage.py').resolve(),'selected installer closure')
+ need(files[p['roles']['installer']]['sha256']==helper['SOURCE_SHA256'] and (Path(root)/p['roles']['installer']).resolve()==Path(__file__).with_name('alpha_stage.py').resolve(),'selected installer closure')
  need(platform.system()=='Darwin' and platform.machine()=='arm64','alpha requires Apple Silicon macOS')
  version=lambda s:tuple((list(map(int,s.split('.')))+[0,0,0])[:3])
  need(re.fullmatch(r'\d+(?:\.\d+){0,2}',v['platform']['minimum_version']) and version(platform.mac_ver()[0])>=version(v['platform']['minimum_version']),'minimum macOS version')

@@ -36,65 +36,67 @@
 ls FRIEND-START-HERE.txt release-public.pem source/README.md
 python3 --version
 node --version</code></pre>
-<p>The last command must report Node 24. On macOS, bootstrap retains your existing Node executable and loaded-library paths. That executable, its non-system libraries, the inspected bootstrap source and their ancestor directories must be protected against group/other writes; dependencies must have ordinary, single-link files. A copied Homebrew executable alone is not a standalone runtime. Bootstrap installs no dependencies and refuses unsafe or injected runtimes. Follow <code>source/docs/pilot/alpha-install.md</code> if your prerequisite is refused.</p>
+<p><code>pwd</code> shows the folder you are using; <code>ls</code> confirms the expected release files are there. Check that Python is version 3 and Node is version 24 before continuing.</p>
+<p>The next step records the Node executable and libraries already on your Mac. Other users and groups must not be able to modify those files, the setup source or their parent directories. Dependency files must be ordinary files with one hard link. Copying a Homebrew Node executable by itself is insufficient because its libraries may still be elsewhere. The setup tool installs no dependencies and rejects unsafe permissions or injected runtimes. If it refuses your Node installation, keep the error and follow <code>source/docs/pilot/alpha-install.md</code>.</p>
 </section>
 <section class="section" id="trust">
 <h2>2. Confirm the release key.</h2>
-<p>Check this public-key fingerprint through an independent maintainer channel before trusting the download. A checksum index inside the same ZIP cannot establish its own authority.</p>
+<p>The release signature tells you whether the files were approved by the holder of this key. First confirm the key’s SHA-256 fingerprint with the maintainer through a separate trusted channel. Comparing files only with checksums from the same download would not establish who supplied them.</p>
 <pre><code>shasum -a 256 release-public.pem</code></pre>
 <p>Expected SHA-256:</p>
 <pre><code>4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df</code></pre>
 <p>The following steps use that key to authenticate the detached release signature. Keep macOS security settings enabled; this procedure does not require re-signing the app or removing quarantine.</p>
 </section>
 <section class="section" id="bootstrap">
-<h2>3. Create your local bootstrap.</h2>
-<p>Run once with fresh destination paths. This records your Mac's selected Node runtime and copies the small authenticated-staging tools into a private directory.</p>
+<h2>3. Record your local tools and release key.</h2>
+<p>This command creates a private folder for your setup files. It records the release key you checked, the minimum release sequence to accept and the local Node files needed by the installer. It also copies the installer into that folder. The resulting <code>bootstrap.json</code> is a local configuration file; it is not a VM image. Use fresh destination paths and run this step once.</p>
 <pre><code>umask 077
 mkdir -m700 "$HOME/.dsmack-friend"
 node source/applications/pilot-client/alpha-bootstrap.mjs \
   --trust-key "$PWD/release-public.pem" \
   --key-id dsmack-alpha-20261022-86473863 --channel alpha \
   --min-sequence 28 --out "$HOME/.dsmack-friend/bootstrap"</code></pre>
-<p>Expected result: JSON naming <code>bootstrap.json</code> and <code>alpha_stage.py</code>, with <code>launch_ready: false</code>. The runner is not installed or launched yet.</p>
+<p>The command prints JSON with the paths to <code>bootstrap.json</code> and the installer, <code>alpha_stage.py</code>. <code>launch_ready: false</code> is expected: you have recorded the local tools, but have not installed the runner or prepared a task.</p>
 </section>
 <section class="section" id="install">
-<h2>4. Check the plan, then install.</h2>
-<p>First authenticate the inventory and inspect the reported sizes without creating an installation:</p>
+<h2>4. Check the release contents, then install.</h2>
+<p>The inventory is the JSON list of release files, their sizes and their hashes. The first command checks its signature using your saved key and shows the installation plan and sizes. <code>--plan</code> leaves the runtime uninstalled, so you can inspect the result before continuing.</p>
 <pre><code>python3 -I "$HOME/.dsmack-friend/bootstrap/alpha_stage.py" \
   --bootstrap "$HOME/.dsmack-friend/bootstrap/bootstrap.json" \
   --inventory "$PWD/release-starter-friend-r1.UNSIGNED.json" \
   --signature "$PWD/release-starter-friend-r1.sig" \
   --target "$HOME/.dsmack-friend/runtime" --plan</code></pre>
-<p>Then install the exact signed archive:</p>
+<p>If that check succeeds, run the installer with the archive. It checks the archive against the signed file list and writes the runtime into <code>$HOME/.dsmack-friend/runtime</code>.</p>
 <pre><code>python3 -I "$HOME/.dsmack-friend/bootstrap/alpha_stage.py" \
   --bootstrap "$HOME/.dsmack-friend/bootstrap/bootstrap.json" \
   --inventory "$PWD/release-starter-friend-r1.UNSIGNED.json" \
   --signature "$PWD/release-starter-friend-r1.sig" \
   --archive "$PWD/release-starter-friend-r1.tar.gz" \
   --target "$HOME/.dsmack-friend/runtime"</code></pre>
-<p><code>.UNSIGNED.json</code> is the canonical document's filename; its <code>.sig</code> is the detached signature. Installation authenticates and stages the runtime, but still reports <code>launch_ready: false</code>. If a command refuses or leaves a partial installation, preserve its output and paths for diagnosis rather than overwriting them or resetting rollback state.</p>
+<p>The filename contains <code>.UNSIGNED.json</code>, but the separate <code>.sig</code> file supplies its signature. A successful installation still reports <code>launch_ready: false</code>: the runtime is installed, but no task is ready to launch. If either command refuses or leaves a partial installation, keep its output and the affected paths for diagnosis. Do not overwrite the partial files or reset the installer’s record of previously accepted release sequences.</p>
 </section>
 <section class="section" id="invitation">
 <h2>5. Obtain a task for this Mac.</h2>
-<p>The current download does not include a reusable invitation. At this step, the alpha operator checks your Mac's fresh enrollment and supplies an admitted local task, <code>invitation.json</code>, and its independently communicated SHA-256 digest. Use the exchange described in <code>source/docs/pilot/operator-assisted-mac.md</code>; there is no public signup or enrollment endpoint in this release. This is the current tooling handoff, not a protocol requirement for human approval of every task.</p>
-<p>Keep the supplied files at their specified local paths. Put the actual invitation in this working folder, then replace <code>OPERATOR_DIGEST</code> below with its digest. Inspect the selected app, base, workload, paths and finite resource limits before preparing the run.</p>
+<p>You now need help from the alpha operator. Follow <code>source/docs/pilot/operator-assisted-mac.md</code> to register a fresh App Attest key from your Mac. The operator checks that registration and supplies task files prepared for this Mac, an <code>invitation.json</code> describing them, and the invitation’s SHA-256 digest through the agreed channel. This starter release has no public signup or enrollment endpoint, and its download does not include an invitation you can reuse.</p>
+<p>Keep the supplied files at the paths named in the invitation. Put <code>invitation.json</code> in the working folder and replace <code>OPERATOR_DIGEST</code> below with the digest the operator sent. Read the <code>inspect</code> output: it identifies the Mac app, Linux image, task files, local paths and resource limits you are about to use.</p>
 <pre><code>python3 -I source/applications/pilot-client/friend.py inspect "$PWD/invitation.json" --sha256 OPERATOR_DIGEST
 python3 -I source/applications/pilot-client/friend.py prepare "$PWD/invitation.json" --sha256 OPERATOR_DIGEST
 python3 -I source/applications/pilot-client/friend.py check "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
-<p>These commands inspect the invitation, prepare its local plan and run admission checks. They do not start the VM. Stop here if a check refuses.</p>
+<p><code>inspect</code> checks the invitation and shows its contents. <code>prepare</code> writes the local run plan from those exact files. <code>check</code> verifies that the plan and files meet the runner’s requirements. None of these commands starts the VM. Continue only if all three succeed; keep any refusal message for the operator.</p>
 </section>
 <section class="section" id="run">
 <h2>6. Run once and retain the result.</h2>
 <pre><code>python3 -I source/applications/pilot-client/friend.py run "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
-<p>The runner launches the selected Linux VM and retains its result. For an interrupted terminal or a status check, use the same invitation:</p>
+<p><code>run</code> starts the Linux VM for this task and saves its execution records and result. If your terminal is interrupted, or you want to inspect the run’s status, use <code>resume</code> with the same invitation:</p>
 <pre><code>python3 -I source/applications/pilot-client/friend.py resume "$PWD/invitation.json" --sha256 OPERATOR_DIGEST</code></pre>
-<p><code>resume</code> observes an attempted run; it does not implicitly launch it again. Preserve the complete original output directory and <code>friend-summary-NATIVE_ID.json</code>. The summary is useful status, not cryptographic proof. Closing Terminal does not confirm that a VM stopped.</p>
+<p><code>resume</code> reports on the existing attempt rather than launching another VM. Keep the entire original output directory and <code>friend-summary-NATIVE_ID.json</code>. The summary tells you what the tools observed; the original files are needed to verify the execution. Closing Terminal alone does not establish that the VM has stopped.</p>
 </section>
 <section class="section" id="evidence">
 <h2>7. Have the original evidence checked.</h2>
-<p>Provide the retained originals through the operator's agreed evidence-transfer route. The selected Linux x86-64 verifier checks the launch and result assertions, output bytes and expected workload outcome. Full verification currently uses that qualified Linux environment; there is no equivalent self-service Mac command in this guide.</p>
-<p>The published starter qualification passed full hardware verification and its fixed 14-test fixture, including 80 admitted logic cases and retained screenshots, videos and traces. Your run needs its own verification result. This diagnostic starter does not submit a bounty or earn a reward.</p>
-<p>Once evidence is preserved and the owned VM/helper is confirmed stopped, coordinate cleanup of disposable scratch disks and staged public copies. Retain the proof originals; do not delete uncertain state. A normally secured fresh-Mac first-open remains unqualified by the published test, so retain any macOS refusal for diagnosis.</p>
+<p>Send the retained original files through the evidence-transfer route agreed with the operator. The operator runs the tested verifier in Linux x86-64 to check the Apple launch and result assertions, the output bytes and the task’s expected outcome. Ask for that verification result before treating the run as checked. This guide does not provide an equivalent self-service Mac verification command.</p>
+<p>The published test of this starter passed full hardware verification and its fixed 14-test fixture, including 80 predefined logic cases. Screenshots, videos and traces were retained for that test. Your Mac’s run still needs its own verification result. Running this diagnostic starter does not submit a bounty or earn a reward.</p>
+<p>After the originals are safely preserved, confirm with the operator that this run’s VM and helper have stopped. Then remove its disposable scratch disks and temporary public input copies through the agreed cleanup procedure. Keep the proof originals and any state whose purpose is uncertain.</p>
+<p>The published test did not establish that first launch works on a different, normally secured fresh Mac. Keep macOS security settings enabled and retain any first-open refusal for diagnosis.</p>
 <div class="buttons">
 <a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Release files and qualification</a>
 <a class="button" href="base-image.html">Understand the VM and container</a>

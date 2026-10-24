@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>App Attest on chain · Dsmack</title>
-<meta name="description" content="Apple App Attest verified in Solidity: Apple's steps mapped to the Dsmack contracts, a live Mac attestation re-checked in your browser, and the reference values.">
+<meta name="description" content="How Dsmack verifies Apple App Attest in Solidity: key enrollment, signed assertions, and a recorded Mac attestation you can inspect in your browser.">
 <link rel="icon" href="assets/abalone.png">
 <link rel="stylesheet" href="assets/operator.css">
 <style>
@@ -138,7 +138,8 @@ main.aa .eyebrow { margin: 0; }
 <section class="attest-intro"><div class="attest-copy">
   <p class="eyebrow">Apple App Attest · Solidity · Base Sepolia</p>
   <h1>App Attest on chain</h1>
-  <p class="lede">What it takes to verify an Apple App Attest attestation in a smart contract instead of on the app developer's server. The page maps Apple's validation steps to the dsmack verifier contracts, re-runs the key checks on a live Mac capture in your browser, and keeps the reference values in one place.</p>
+  <p class="lede">App Attest lets an app create a device-backed signing key and ask Apple to certify it. Dsmack's verifier contracts check that certificate, record the approved key, and use it to verify later signed messages from the app.</p>
+  <p>This page explains that process, then walks through a Mac attestation recorded on 21 October 2026. Your browser recomputes checks on the recorded bytes below. It uses the embedded capture; it does not connect to the Mac or request a fresh attestation.</p>
   <div class="links">
     <a href="https://github.com/amiller/dsmack/tree/ae28913cdb7268cb1ca9ef2c4513a1e1979444d0/app-attest">Source: amiller/dsmack @ ae28913</a>
     <a href="https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server">Apple: Validating apps that connect to your server</a>
@@ -146,20 +147,31 @@ main.aa .eyebrow { margin: 0; }
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini in an abalone shell; not a photograph of the attestation run." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 
 <section>
-  <h2>Four transactions</h2>
-  <p>Apple's attestation object is a CBOR map with a certificate chain, a receipt and authenticator data. The contracts never parse the CBOR. A client splits out the leaf certificate, the authData and the raw clientData, and the intermediate certificate is verified once, separately, then referred to by an entry id. Gas figures are from the live run on Base Sepolia on 21 October 2026.</p>
+  <h2>From an Apple-certified key to a signed action</h2>
+  <p>An <strong>App Attest key</strong> is a signing key created for an app on an Apple device. The app keeps the private key on the device and shares its public key with a verifier. An <strong>attestation</strong> is Apple's signed evidence about that key and app. <strong>Enrollment</strong> is the verifier's one-time check of that evidence before it records the public key. An <strong>assertion</strong> is a later message signed by the enrolled key, binding an action to data chosen by the application.</p>
+  <p>Apple supplies a <strong>certificate chain</strong>: a leaf certificate for the app's key, an intermediate certificate that signed the leaf, and a trusted Apple root above it. Verifying the signatures links the app's public key to that root. The verifier also checks the app's identity, its approved code hash and the data the app asked Apple to bind to enrollment.</p>
+  <p>The application data is called <code>clientData</code>; its hash is <code>clientDataHash</code>. Apple's <code>authData</code> carries identity, key, counter and extension fields. The <strong>CDHash</strong> identifies the signed app's CodeDirectory, which describes its signed code. The deployed adapters compare that hash with their approved-build policy.</p>
+</section>
+
+<section>
+  <h2>Contract setup, enrollment and verification</h2>
+  <p>The four boxes below show the lifecycle, beginning with deployment of the root trust anchor. After deployment, the contract calls are <code>endorseIntermediate</code> once per intermediate, <code>enroll</code> once per app key, and <code>verify</code> for each signed action. A returning key needs the verification call, rather than the whole sequence. Gas figures are measurements from the live Base Sepolia run on 21 October 2026.</p>
+  <p>Apple packages an attestation as a CBOR map, a compact binary data format, containing the certificate chain, a fraud-service receipt and authenticator data. The client extracts the leaf certificate, <code>authData</code> and raw <code>clientData</code> before sending them to the contracts. The contracts use an entry id to refer to the intermediate certificate checked earlier.</p>
+  <p>P-384 and P-256 are the elliptic-curve signature schemes used by the certificate chain and app key. DER is the certificate's binary encoding. The Mac key ACL is its access-control policy. These terms appear in the checks below.</p>
   <div class="flow">
     <div><span class="eyebrow">Pinned</span><b>Apple root</b><span>App Attestation Root CA P-384 key, compiled into <code>AppleEndorsements</code>. Expiry 2045-03-15.</span><span class="gas">deploy only</span></div>
     <div><span class="eyebrow">Once, anyone</span><b>endorseIntermediate</b><span>SHA-384 and P-384 in Solidity check CA 1 against the root. Stores subject hash, key and validity under an entry id.</span><span class="gas">15,141,525 gas</span></div>
     <div><span class="eyebrow">Once per key</span><b>enroll</b><span>Strict-DER leaf parse, nonce, authData, App ID, CDHash, Mac key ACL, P-384 leaf signature. Stores the P-256 key.</span><span class="gas">14,245,575 gas · ZK 4,498,881</span></div>
     <div><span class="eyebrow">Per action</span><b>verify</b><span>Assertion authData, counter strictly increasing, CDHash still admitted, P-256 signature via precompile 0x100.</span><span class="gas">186,290 gas</span></div>
   </div>
-  <p>Two enrollment paths accept the same attestations. <code>enroll</code> does everything in Solidity. <code>enrollLeafProof</code> takes an UltraHonk proof that the Noir leaf circuit ran the same leaf checks, plus 24 public fields the adapter compares against policy; the live leaf proof took 13.9 s and 2.97 GB on a 12-core Linux box.</p>
+  <p><strong>Solidity</strong> is the language used for these Ethereum smart contracts. The <code>enroll</code> path performs the certificate and policy checks directly in contract code. The alternative <strong>zero-knowledge (ZK) proof</strong> path performs the leaf-certificate checks in a Noir circuit, a program whose execution can be proved, and gives the contract an UltraHonk proof to verify. Both enrollment paths accept the same attestations.</p>
+  <p><code>enrollLeafProof</code> verifies that proof and compares its 24 public fields against the adapter's policy. This moves the leaf-check computation out of Solidity while preserving the contract's policy checks. The live leaf proof took 13.9 s and 2.97 GB on a 12-core Linux box.</p>
 </section>
 
 <section>
-  <h2>The live capture</h2>
-  <p>A fresh attestation from the CodeBindingProbe app on a Mac mini running macOS 27.0 (26A428), enrolled on all three deployed adapters on 21 October 2026. Its clientData names the chain and both adapter addresses. This is <code>fixtures/live-apple.json</code> in the repo; key id <span class="mono">617beba0…1a62</span>.</p>
+  <h2>Inspect the recorded Mac attestation</h2>
+  <p>The CodeBindingProbe app generated this attestation on a Mac mini running macOS 27.0 (26A428). The key was enrolled on all three deployed adapters on 21 October 2026. Its <code>clientData</code> names the chain and both adapter addresses. The recorded fixture is <code>fixtures/live-apple.json</code> in the repo; key id <span class="mono">617beba0…1a62</span>.</p>
+  <p>Hover over or tap a labeled field to see its meaning in the 280-byte enrollment <code>authData</code>. The check results underneath are recomputed locally with WebCrypto, your browser's cryptography API. They let you inspect this historical capture without starting the Mac app, connecting a wallet or sending a transaction.</p>
   <div class="sheet">
     <div><span class="eyebrow">Enrollment authData · 280 bytes</span></div>
     <div class="hexwrap"><div class="hex" id="hex"></div></div>
@@ -174,8 +186,8 @@ main.aa .eyebrow { margin: 0; }
 </section>
 
 <section>
-  <h2>Apple's nine steps, and where each happens</h2>
-  <p>Apple's server-side recipe, in Apple's order. The Solidity column names the revert string you get when the check fails, linked to the line. In the ZK column, "circuit" means the Noir leaf circuit asserts it and "adapter" means <code>AppleAttestZK</code> checks a public field.</p>
+  <h2>Reference: Apple's nine validation steps</h2>
+  <p>This table follows Apple's server-side validation recipe in its original order. Each Solidity entry links to the check and names the error returned when it fails. In the ZK column, “circuit” means the Noir leaf circuit enforces the check; “adapter” means the <code>AppleAttestZK</code> contract checks one of the proof's public fields.</p>
   <div class="tablewrap"><table class="steps">
     <thead><tr><th>#</th><th>Apple</th><th>Solidity <code>enroll</code></th><th>ZK <code>enrollLeafProof</code></th></tr></thead>
     <tbody id="steps"></tbody>
@@ -183,7 +195,8 @@ main.aa .eyebrow { margin: 0; }
 </section>
 
 <section>
-  <h2>What the contracts add, and what they skip</h2>
+  <h2>Certificate and policy checks</h2>
+  <p>The contracts enforce the following additional parsing and app-policy rules. The second column records fields and rules outside those checks, so an integrator can see the exact policy implemented by this version. DER is the certificate encoding; an OID is a numeric identifier for a certificate field or extension; an ACL describes the key's access-control policy.</p>
   <div class="two">
     <div class="sheet">
       <h3>Checked beyond Apple's list</h3>
@@ -198,7 +211,7 @@ main.aa .eyebrow { margin: 0; }
       </ul>
     </div>
     <div class="sheet">
-      <h3>Not checked</h3>
+      <h3>Fields and rules outside the checks</h3>
       <ul class="plain">
         <li><strong>OID 1.2.840.113635.100.8.7</strong> (OS version, build, platform). Present in every leaf and skipped as a non-critical extension.</li>
         <li><strong>OID 1.2.840.113635.100.8.5</strong> (holds the App ID string among other fields). Skipped; the App ID is bound through the RP ID hash instead.</li>
@@ -213,13 +226,15 @@ main.aa .eyebrow { margin: 0; }
 </section>
 
 <section>
-  <h2>Assertions</h2>
-  <p><code>verify(context, abi.encode(keyId, authData, r, s))</code> can be called only by the adapter's registry address. <code>context</code> is the clientDataHash the app passed to <code>generateAssertion</code>; the fixtures store its preimage, a short JSON string, and the caller hashes it. The contract checks the key is enrolled and unexpired, runs the same authData rules without the attested-credential part, re-admits the CDHash, requires the counter to go up, then calls P256VERIFY at <code>0x100</code> with <code>sha256(sha256(authData ‖ context))</code>. The live run replayed assertion <code>a1</code> and got <code>assertion replay</code>.</p>
+  <h2>Verifying later assertions</h2>
+  <p>Once a key is enrolled, the app can sign an assertion for an action. The verifier checks the signature and a strictly increasing counter, which prevents the same assertion from being accepted twice. It also checks that the key is still valid and its app build is still approved.</p>
+  <p><code>verify(context, abi.encode(keyId, authData, r, s))</code> can be called only by the adapter's registry address. <code>context</code> is the clientDataHash the app passed to <code>generateAssertion</code>; the fixtures store its preimage, a short JSON string, and the caller hashes it. The contract checks the key is enrolled and unexpired, runs the same authData rules without the attested-credential part, re-admits the CDHash, requires the counter to go up, then calls P256VERIFY at <code>0x100</code> with <code>sha256(sha256(authData ‖ context))</code>. The 21 October 2026 run replayed assertion <code>a1</code> and got <code>assertion replay</code>.</p>
   <p>Because admission runs on every assertion, the registry adapter tracks the code that is approved now. Approving a new build with <code>setBuild</code> makes earlier CDHashes stop resolving, and keys enrolled under them stop verifying. A renamed and re-signed copy of the approved build is admitted through the open <code>registerBuild</code> without an owner transaction.</p>
 </section>
 
 <section>
   <h2>Reference values</h2>
+  <p>Use this table to look up exact identifiers, certificate fields and deployed values. The labels distinguish contract constants, chain observations, capture contents and Apple documentation.</p>
   <div class="chiprow">
     <span><span class="chip pinned">pinned</span> compiled into a deployed contract</span>
     <span><span class="chip chain">on chain</span> read from Base Sepolia</span>
@@ -251,7 +266,7 @@ main.aa .eyebrow { margin: 0; }
 
 <section>
   <h2>Other verifiers on the same captures</h2>
-  <p>We ran three open-source App Attest verifiers on our five captures (three Mac, one iPhone, one Developer ID Mac), with each library's clock set inside the leaf's three-day validity window. None accepts current macOS 27 or iOS 27 output as published.</p>
+  <p>For the October 2026 comparison recorded here, we ran three open-source App Attest verifiers on our five captures (three Mac, one iPhone, one Developer ID Mac). Each library's clock was set inside the leaf's three-day validity window. The versions listed below did not accept the complete macOS 27 or iOS 27 attestation-and-assertion flow as published; the table separates their attestation and assertion results.</p>
   <div class="tablewrap"><table>
     <thead><tr><th>Library</th><th>Attestations</th><th>Assertions</th><th>Why</th></tr></thead>
     <tbody>
@@ -260,19 +275,20 @@ main.aa .eyebrow { margin: 0; }
       <tr><td><a href="https://github.com/bas-d/appattest">bas-d/appattest</a> (Go, last commit 2022)</td><td>all rejected</td><td>Go panic</td><td>Rejects the extension map after the COSE key; slice bounds panic on assertions.</td></tr>
     </tbody>
   </table></div>
-  <p>With two diagnostic workarounds (clearing AT on a parse copy for webauthn4j; an 8-line patch adding the two CDHash keys to takimoto3), both libraries accept every capture our contract accepts and agree with it on chain, nonce, key id, credentialId, RP ID hash, AAGUID, counter and signature. They are looser in four places: neither re-checks the CDHash on assertions, so assertions from a modified build pass; neither compares the authData key with the certificate key; neither stops accepting assertions when the leaf expires; and webauthn4j checks no ACL, category or CDHash. takimoto3 checks the Mac aclBlob (same value as ours) only through an unexported function, and reports the category without enforcing it.</p>
+  <p>With two diagnostic workarounds (clearing AT on a parse copy for webauthn4j; an 8-line patch adding the two CDHash keys to takimoto3), both libraries accept every capture our contract accepts and agree with it on chain, nonce, key id, credentialId, RP ID hash, AAGUID, counter and signature.</p>
+  <p>In that comparison, they were looser in four places: neither re-checks the CDHash on assertions, so assertions from a modified build pass; neither compares the authData key with the certificate key; neither stops accepting assertions when the leaf expires; and webauthn4j checks no ACL, category or CDHash. takimoto3 checks the Mac aclBlob (same value as ours) only through an unexported function, and reports the category without enforcing it.</p>
 </section>
 
 <section>
   <h2>One intermediate, many samples</h2>
-  <p>Apple's PKI pages list the App Attestation root but no intermediate. We decoded about 60 distinct real attestations published in GitHub repos, from August 2020 to October 2026, iOS 14.0 to 27.2 and macOS 27.0 and 27.0.1, development and production. Every one is issued by <strong>Apple App Attestation CA 1</strong>, serial <code>09bac5e1…0854</code>, including Apple's own 2026 sample. A search for "App Attestation CA 2" finds nothing. CA 1 expires on 13 March 2030 and Apple has said nothing about a successor. Leaf certificates used to be valid for 9 to 12 months and have been valid for 3 days since late 2025, so a successor would have to appear before leaves start outliving CA 1. The contract handles that with one more <code>endorseIntermediate</code> transaction.</p>
+  <p>In the research recorded through October 2026, Apple's public-key infrastructure (PKI) pages listed the App Attestation root but no intermediate. We decoded about 60 distinct real attestations published in GitHub repos, from August 2020 to October 2026, iOS 14.0 to 27.2 and macOS 27.0 and 27.0.1, development and production. Every one is issued by <strong>Apple App Attestation CA 1</strong>, serial <code>09bac5e1…0854</code>, including Apple's own 2026 sample. That search found no "App Attestation CA 2". CA 1 expires on 13 March 2030; no successor announcement was found in that research. Leaf certificates used to be valid for 9 to 12 months and have been valid for 3 days since late 2025, so a successor would have to appear before leaves start outliving CA 1. The contract can add a successor through one more <code>endorseIntermediate</code> transaction.</p>
   <p>The receipt has its own chain: Application Attestation Fraud Receipt Signing (valid about 13 months) → Apple Application Integration CA 5 - G1 → Apple Root CA - G3. The contracts don't use it.</p>
   <p>Public macOS attestations: <a href="https://github.com/arkavo-org/authnz-rs/blob/HEAD/tests/fixtures/appattest/attestation.json">arkavo-org/authnz-rs</a> (27.0, category 3), <a href="https://github.com/hellas-ai/hellas/blob/HEAD/crates/attestation/tests/fixtures/real-app-attest.json">hellas-ai/hellas</a> (27.0 beta, category 6 with CDHash, one assertion), <a href="https://github.com/Augustas11/macprovider/blob/HEAD/phase4-coordinator/internal/appattest/testdata/macos27-studio-2026-10-04.json">Augustas11/macprovider</a> (27.0.1, no extensions, two assertions) and <a href="https://github.com/amiller/abalone/blob/HEAD/tests/fixtures/bundle/recorded-runner/attest.json">amiller/abalone</a> (27.0, category 3 with CDHash). iOS 27 samples are in <a href="https://github.com/webauthn4j/webauthn4j/issues/1497">webauthn4j issue 1497</a>, <a href="https://github.com/webauthn4j/webauthn4j/blob/HEAD/webauthn4j-appattest/src/test/resources/apple-app-attest/ios27-sample-attestation-object.b64url">webauthn4j's test resources</a>, <a href="https://github.com/glincker/theauth/blob/HEAD/packages/core/tests/fixtures/apple-app-attest.json">glincker/theauth</a> and <a href="https://github.com/procivis/one-core/blob/HEAD/lib/one-core/src/service/managed_instance/app_integrity/ios.rs">procivis/one-core</a>. Older iOS fixture sets with assertions are in <a href="https://github.com/veehaitch/devicecheck-appattest/tree/HEAD/src/test/resources">veehaitch/devicecheck-appattest</a>, <a href="https://github.com/iansampson/AppAttest/blob/HEAD/Tests/AppAttestTests/TestData.swift">iansampson/AppAttest</a>, <a href="https://github.com/TheDhejavu/appattest-rs/blob/HEAD/src/attestation.rs">appattest-rs</a> and <a href="https://github.com/a-sit-plus/warden-supreme/blob/HEAD/serverside/makoto/src/test/kotlin/IosAssertionTest.kt">warden-supreme</a>.</p>
   <p>Shapes seen in those samples that a strict parser has to decide about: the ED flag is <code>0x40</code> in Apple's sample and in the macOS 27.0.1 sample but <code>0xc0</code> elsewhere; iOS 27 assertions set AT with no credential data (99 bytes); and the macOS 27.0.1 sample has no extensions even though its app opts in to the CDHash. Our contract requires ED and the CDHash, so it would reject the last one.</p>
 </section>
 
 <section>
-  <h2>Open questions</h2>
+  <h2>Questions left by the October 2026 captures</h2>
   <ul class="plain">
     <li>Does macOS 27.0.1 still put the CDHash in authData? The one public 27.0.1 sample has no extensions at all, not even the category. Its app declares the opt-in entitlement as the string <code>"CDhash"</code>, where ours uses the array <code>["CDhash"]</code>, so the entitlement may be the cause rather than the OS. Our captures are 27.0.</li>
     <li>The 8.7 sub-tags. Apple names 8.7 only as DeviceAttestationDeviceOSInformation, in xnu's CoreTrust header. Reverse engineering gives [1400] OS version, [1403] build, [1026] platform and [1029] build variant ("Beta", "Internal"); [1104], [1401] and [1418]–[1420] are unconfirmed.</li>

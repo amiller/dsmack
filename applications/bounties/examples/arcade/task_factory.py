@@ -5,7 +5,7 @@ image, command, authority key, expected outcome or filesystem path.
 """
 import base64,contextlib,copy,datetime,hashlib,io,json,os,re,secrets,subprocess,sys,tarfile
 from pathlib import Path
-source=Path(__file__).with_name('portable.py');p={'__name__':'arcade_portable','__file__':str(source)};exec(compile(source.read_bytes(),str(source),'exec'),p)
+source=Path(__file__).resolve().parents[2]/'runner/portable.py';p={'__name__':'arcade_portable','__file__':str(source)};exec(compile(source.read_bytes(),str(source),'exec'),p)
 need=p['need'];read=p['read'];pin=p['pin'];canonical=p['canonical'];doc=p['document'];exclusive=p['exclusive'];protected=p['protected']
 IMAGE='222c279f5a94a6ad7fdbcf781faf4536cd0d6edd40c18e711b714183dbd58ed3'
 CONFIG='61c8f50f8b46b3badde245be0635dcaa1b530a3e87a8641d3a9ccc648c49ed76'

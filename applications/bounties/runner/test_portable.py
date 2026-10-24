@@ -175,7 +175,7 @@ class Portable(unittest.TestCase):
   self.assertEqual(api.posts[-1][1]['status'],'uncertain');self.assertFalse(api.posts[-1][1]['result']['automatic_retry'])
 class Factory(unittest.TestCase):
  def setUp(self):
-  self.f={'__name__':'factory_test','__file__':str(P/'task_factory.py')};exec(compile((P/'task_factory.py').read_bytes(),str(P/'task_factory.py'),'exec'),self.f)
+  self.f={'__name__':'factory_test','__file__':str(P.parent/'examples/arcade/task_factory.py')};exec(compile((P.parent/'examples/arcade/task_factory.py').read_bytes(),str(P.parent/'examples/arcade/task_factory.py'),'exec'),self.f)
  def test_projection_ignores_candidate_test_and_package_changes(self):
   base={n:b'original'for n in self.f['ALLOWED']};base.update({'package.json':b'trusted','test.js':b'trusted-test'})
   submitted={n:b'new-ui'for n in self.f['ALLOWED']};submitted.update({'package.json':b'process.exit(0)','test.js':b'fake-pass','extra.txt':b'unexecuted'})

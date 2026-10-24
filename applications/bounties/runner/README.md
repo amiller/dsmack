@@ -1,4 +1,4 @@
-# Portable arcade pilot runner
+# Bounty Mac client
 
 The runner checks a contributor's Bounty Arcade board-search commit on a Mac and
 submits the evidence for a deterministic, browser-only testnet bonus. It uses no
@@ -91,11 +91,12 @@ The worker runs only pinned handlers and config. It never repeats an enrollment,
 challenge, verification or signing action whose outcome is uncertain; it can
 re-post a completed result only from its matching cache.
 
-`server_adapter.py` calls the Linux verifier CLI. `task_factory.py` resolves the
+`server_adapter.py` calls the Linux verifier CLI. The configured factory, currently
+[`examples/arcade/task_factory.py`](../examples/arcade/task_factory.py), resolves the
 repository source, freezes checker and runtime inputs and runs the public packer.
 `authority.py` signs only the factory-derived workload admission, using the
 release key kept on Zed and only when its config authorizes signing.
-`prepare_release.py` prepares unsigned manifest, profile and provenance changes
+[`examples/arcade/prepare_release.py`](../examples/arcade/prepare_release.py) prepares unsigned manifest, profile and provenance changes
 around the existing app and base; it does not sign or install.
 
 The full verifier result authenticates execution, and the protected checker plus
@@ -114,3 +115,7 @@ These cover duplicate JSON, unprotected and symlinked paths, HTTPS and origin
 checks, exact original membership, saved-plan binding, no re-execution of
 uncertain jobs, commit projection and the protected checker. They run without a
 VM, key, signature, funds or Apple proof.
+
+## Selecting the task adapter
+
+`configure.py` requires operator-selected `factory` and `guest_driver` source descriptors (`path`, `bytes`, `sha256`) in addition to the publisher inputs. For the working Board-search configuration, select `examples/arcade/task_factory.py` and `examples/arcade/guest_driver.py`. Other task code is selected by the operator, never supplied by an attempt. See the [Arcade example](../examples/arcade/README.md) for its checker and workload inputs.

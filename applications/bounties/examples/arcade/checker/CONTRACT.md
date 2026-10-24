@@ -67,7 +67,7 @@ and their media.
 Offline tests need only the Python standard library:
 
 ```
-python3 -m unittest discover -s applications/arcade-pilot/checker -p test_checker.py
+python3 -m unittest discover -s applications/bounties/examples/arcade/checker -p test_checker.py
 ```
 
 On Zed, use the AMD64 image

@@ -11,12 +11,14 @@ def configure(v,out):
     need(str(out).startswith('/data/')and not out.exists(),'fresh protected Zed configuration directory')
     out.mkdir(mode=0o700);here=Path(__file__).parent
     for name in ('jobs','registrations','attempts'):(out/name).mkdir(mode=0o700)
+    for name in ('factory','guest_driver'):
+        need(pin(protected(v[name]['path']))==v[name],'selected '+name+' source')
     verifier={'root':str(protected(v['verifier_root'],True))}
     # Explicit public root/policy/report-key bytes are selected by their normal
     # descriptors. Private authority files are only named, never opened/hashed.
     authority={k:v[k]for k in ('policy','secret_file','store','replay','signing_key_file','report_key_id')}
-    publisher=dict(v['publisher']);publisher.update(python=v['python'],verifier=verifier,replay=v['replay'],report_key_id=v['report_key_id'],report_verify_key_b64=v['report_verify_key_b64'],attempts_dir=str(out/'attempts'),signing_authorized=False,authority_builder=pin(here/'authority.py'),guest_driver=pin(here/'guest_driver.py'))
-    adapter={'python':v['python'],'state_dir':str(out/'jobs'),'registration_keys_dir':str(out/'registrations'),'verifier':verifier,'authority':authority,'publisher':publisher,'factory':pin(here/'task_factory.py'),'input_auditor':pin(here/'audit_inputs.py')}
+    publisher=dict(v['publisher']);publisher.update(python=v['python'],verifier=verifier,replay=v['replay'],report_key_id=v['report_key_id'],report_verify_key_b64=v['report_verify_key_b64'],attempts_dir=str(out/'attempts'),signing_authorized=False,authority_builder=pin(here/'authority.py'),guest_driver=v['guest_driver'])
+    adapter={'python':v['python'],'state_dir':str(out/'jobs'),'registration_keys_dir':str(out/'registrations'),'verifier':verifier,'authority':authority,'publisher':publisher,'factory':v['factory'],'input_auditor':pin(here/'audit_inputs.py')}
     exclusive(out/'adapter.json',canonical(adapter));binding=pin(out/'adapter.json')
     worker={'python':v['python'],'api_url':v['api_url'],'worker_id':v['worker_id'],'credential_file':v['worker_credential_file'],'state_dir':str(out/'jobs'),'timeout_seconds':1500,'binding':binding,'handlers':{action:pin(here/'server_adapter.py')for action in ('registration','prepareExecution','verifyEvidence')}}
     if 'best_effort_registration'in v:worker['best_effort_registration']=v['best_effort_registration']

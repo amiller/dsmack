@@ -2,9 +2,9 @@
 ARG NODE_IMAGE
 FROM ${NODE_IMAGE}
 WORKDIR /app
-COPY applications/arcade-pilot/service ./service
-COPY applications/arcade-pilot/web ./web
-COPY applications/arcade-pilot/chain ./chain
+COPY applications/bounties/service ./service
+COPY applications/bounties/examples/arcade/web ./examples/arcade/web
+COPY applications/bounties/chain ./chain
 # Reviewed cast executable is a public build input; config pins its SHA256.
 COPY cast /usr/local/bin/cast
 ENV ARCADE_CONFIG=/data/config.json

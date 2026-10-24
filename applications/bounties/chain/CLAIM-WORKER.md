@@ -81,7 +81,7 @@ On Zed, with the existing dependencies:
 
 ```
 /data/amiller/dsmack/bounty-payment-prep-20261022/actor-tools-venv/bin/python -I \
-  applications/arcade-pilot/chain/test_worker.py
+  applications/bounties/chain/test_worker.py
 ```
 
 Tests use synthetic unused keys and mock RPC responses. They cover single

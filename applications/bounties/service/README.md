@@ -1,10 +1,10 @@
-# Arcade testnet pilot service
+# Bounty service
 
-A Node 24 stdlib HTTP and SQLite service for the deterministic board-search
-bonus. No npm install or build. Run tests:
+A Node 24 stdlib HTTP and SQLite service for one operator-configured bounty.
+The implemented example is the deterministic Arcade Board-search bonus. No npm install or build. Run tests:
 
 ```sh
-node --test applications/arcade-pilot/service/core.test.mjs applications/arcade-pilot/chain/work-escrow.test.mjs
+node --test applications/bounties/service/core.test.mjs applications/bounties/chain/work-escrow.test.mjs
 ```
 
 The service stores API state and files. App Attest registration, per-attempt task
@@ -20,12 +20,13 @@ persistent private `/data`, and a mode-0600 JSON `ARCADE_CONFIG` with:
 
 - `dbPath`: `/data/state.sqlite`; `root`: `/data/evidence` (0700).
 - `origin`: exact HTTPS origin, e.g. `https://pod.dstack.soc1024.com`.
+- `webRoot`: optional operator-selected static directory; defaults to `examples/arcade/web`.
 - `basePath`: `/arcade-pilot`; `port`: 8080.
 - `cast`: `{path:"/usr/local/bin/cast",sha256:"<actual64hex>"}`.
 - `worker_token_sha256`: SHA256 of a 32-byte base64url worker token generated
   for the worker. Only the worker holds the token.
 - `task`: public immutable object with `slug`, `policy_sha256`,
-  `app_policy_sha256`, `repository`: `amiller/bounty-arcade`, optional
+  `app_policy_sha256`, `repository`: a fixed `owner/repo` selected by the operator, optional
   `candidates` (display suggestions), `chain_id`: 84532, `contract` (lowercase
   address), `task_id` (receipt-derived decimal string), plus the public terms,
   checker, image, fee, reward and instructions descriptors.

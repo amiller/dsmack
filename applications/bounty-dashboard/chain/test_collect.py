@@ -41,6 +41,17 @@ class Tests(unittest.TestCase):
     fields=m.flatfields(m.ABI['functions']['task' if selector==m.ABI['selectors']['task(uint256)'] else 'assignment']);return '0x'+''.join(word(1 if f['type'] in ['bool','address'] or f['name'] in ['taskId','state'] else 100000000000000 if f['name'] in ['available','completionPay','reserved'] else 0) for f in fields)
    return r(method,p)
   result,state=m.collect_contract(c,rpc,None,1);self.assertEqual(result['contracts'][0]['status'],'observed');self.assertTrue(result['contracts'][0]['coverage']['events_complete']);self.assertEqual(result['tasks'][0]['available_wei'],'100000000000000');self.assertIsNone(result['tasks'][0]['deposited_wei']);self.assertEqual(result['payments'][0]['amount_wei'],'25');self.assertIsNone(result['payments'][0]['task_key']);self.assertEqual(result['payments'][0]['kind'],'withdrawal')
+ def test_rpc_envelope_and_write_methods_refused(self):
+  from unittest.mock import patch
+  class Response:
+   def __enter__(self):return self
+   def __exit__(self,*args):pass
+   def read(self,n):return b'{"jsonrpc":"2.0","id":1,"error":{"code":-1}}'
+  rpc=m.RPC('https://example.invalid')
+  with patch.object(m.urllib.request,'urlopen',return_value=Response()) as fetch:
+   with self.assertRaisesRegex(ValueError,'RPC returned error'):rpc('eth_chainId',[])
+   request=fetch.call_args[0][0];self.assertEqual(request.get_header('User-agent'),'dsmack-arcade-pilot/1')
+  with self.assertRaisesRegex(ValueError,'read method required'):rpc('eth_sendRawTransaction',['0x00'])
  def test_abi_refuses_malformed(self):
   with self.assertRaises(ValueError):m.decode([{'name':'v','type':'uint8'}],'0x'+word(256))
   with self.assertRaises(ValueError):m.decode([{'name':'v','type':'address'}],'0x'+word(2**160))

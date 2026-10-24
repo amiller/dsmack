@@ -23,76 +23,71 @@
 </header>
 <main class="wrap">
 <section class="pagehero architecture-hero">
-<h1>How Dsmack runs a workload<br>and produces evidence.</h1>
-<p class="lead">A signed macOS app checks the selected software, starts a Linux VM through Apple’s hypervisor, and signs statements identifying the launch and returned result.</p>
-<p>The Linux image supplies the guest OS and container runtime. The task container supplies the coding agent, browser tests or other application. A separate verifier checks the evidence against the requested work.</p>
+<h1>From a task request<br>to a signed result.</h1>
+<p class="lead">DsmackRunner is a signed command-line app that runs on an Apple silicon Mac. It starts a Linux virtual machine, runs a task inside it, and uses Apple App Attest to sign statements about the software it loaded and the files it got back.</p>
+<p>For a browser-test task, the task publisher supplies a container with the browser and test tools, the proposed repository changes, and a command to run. The output includes the test results and any requested screenshots. Someone receiving those files can verify the app’s signatures and compare the recorded software and inputs with the task they requested.</p>
 <figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork of Mac minis used to run application workloads." width="1280" height="360" loading="eager" decoding="async"></figure>
-<p><a href="#mac-app">The signed macOS app</a> · <a href="#apple-virtualization">Apple’s virtualization tools</a> · <a href="base-image.html">Linux base-image decisions</a> · <a href="#evidence">Result verification</a></p>
+<p><a href="#mac-app">Preparing and running a task</a> · <a href="#apple-virtualization">libkrun and Apple’s hypervisor</a> · <a href="base-image.html">Inside the Linux image</a> · <a href="#evidence">Verifying the result</a></p>
 </section>
 <section class="section" id="components">
-<h2>Reuse the base image. Customize the containers.</h2>
-<div class="runtime-figure" role="group" aria-label="Reusable signed macOS app and Linux VM, with an application-specific task container inside the VM">
-<div class="lane-label">Shared across applications · reuse the same pinned versions</div>
-<div class="runtime-label">Signed macOS app</div>
-<p>Checks the selected inputs · starts the VM · signs launch and result statements</p>
+<h2>What runs on the Mac?</h2>
+<p>The macOS app manages a Linux virtual machine, or VM: a separate operating system with its own memory and virtual disks. Inside Linux, Docker starts the task’s container, a package containing the application and its dependencies.</p>
+<div class="runtime-figure" role="group" aria-label="The macOS app starts a Linux VM, which runs the task container">
+<div class="runtime-label">DsmackRunner · the signed macOS app</div>
+<p>Checks boot and task files against expected hashes, starts Linux, and signs the execution records after the VM stops.</p>
 <div class="runtime-vm">
-<div class="runtime-label">Reusable Linux VM image</div>
-<p>Guest OS, supervisor and container runtime</p>
+<div class="runtime-label">Linux VM · the reusable base image</div>
+<p>Contains Linux, Docker, and a supervisor program that starts the task and collects its outputs.</p>
 <div class="runtime-container">
-<div class="lane-label">Changes with the application</div>
-<div class="runtime-label">Your task container</div>
-<p>Select the container image, command, task inputs and resource/network settings.</p>
-<div class="runtime-examples" aria-label="Example workloads"><span>Coding agent</span><span>Browser / CI tests</span></div>
-<p>Returns output files and a result record.</p>
+<div class="runtime-label">Task container · supplied for this application</div>
+<p>The task specifies the container image, command, input files, memory limit and network permissions.</p>
+<div class="runtime-examples" aria-label="Example workloads"><span>Coding agent</span><span>Browser tests</span></div>
+<p>The container writes the files requested by the task.</p>
 </div>
 </div>
 </div>
-<p>The signed app and base VM image are application neutral. Review a particular version once, then reuse it for different workloads. Customize the task container, inputs and acceptance checks without rebuilding either. Each run’s evidence identifies the selected components.</p>
-<p>A review applies to the pinned versions you checked. A new container and its requested permissions need their own review.</p>
-
+<p>A browser checker and a coding agent can use the same Linux image. Their tools and dependencies arrive in different containers. Changing the tests or repository files therefore does not require rebuilding Linux or the macOS app.</p>
 </section>
 <section class="section" id="mac-app">
-<h2>What the signed macOS app actually does</h2>
-<p>The reference app, DsmackRunner, packages a Swift command-line executable and a native Rust/libkrun backend. The application client invokes the executable inside the app bundle with a session document, a challenge and an App Attest key identifier. This execution path is driven by scripts; it does not require a desktop control panel.</p>
-<ol class="steps">
-<li><strong>Read and check the selected inputs</strong><p>The app reads the session, image manifest and admission policy. It checks the chosen kernel, initramfs, system image and public workload disk against their expected hashes, and stages verified copies for the run. Supported resource and device settings come from the selected policy.</p></li>
-<li><strong>Configure the virtual machine</strong><p>Swift calls the native backend through a C interface. The backend configures guest memory, virtual CPUs, boot images and virtual block devices. The session can also select an admitted private-input disk and network connection.</p></li>
-<li><strong>Supervise execution and finalize its files</strong><p>The backend runs the VM under the selected deadline, handles termination, and finalizes the result disk and console capture. The app checks the backend’s launch and result records against the admitted session.</p></li>
-<li><strong>Sign and retain the evidence</strong><p>Once execution and finalization have completed, the app uses Apple’s DeviceCheck API to produce two App Attest assertions: one over the launch statement, another over the finalized result envelope. It retains the original assertions and the bytes needed to verify them. The launch assertion describes the launch; this path generates both assertions after the run.</p></li>
-</ol>
-<p>Task discovery, GitHub integration, credential preparation, progress displays and bounty settlement live in application clients outside the signed app. The app’s launch code does not hard-code a particular base-image identity; the session and admission policy select it.</p>
-<p><a href="https://github.com/amiller/dsmack/blob/main/runner-vm/app-src/Sources/mar/V3Launch.swift">Swift launch and assertion flow</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/app-src/Sources/mar/BackendV3.swift">Swift-to-native interface</a> · <a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client">External application client</a></p>
+<h2>Who supplies the task, and what does the app check?</h2>
+<p>The task publisher supplies the container, command, input files and rules for accepting the result. On the Mac, an <strong>application client</strong> prepares these for DsmackRunner. In the current pilot this client is a set of scripts: it checks the release and task signatures, locates the downloaded files, and writes the documents the app will read.</p>
+<p>Those documents answer three different questions:</p>
+<ul>
+<li><strong>Where are the files?</strong> The session document gives local paths to the Linux boot files, task disk, temporary disk templates and output location. It also requests a time limit and, where permitted, a private-input disk or network connection.</li>
+<li><strong>Which exact bytes should they contain?</strong> The image manifest lists the Linux kernel, its startup archive and the system disk, with their SHA-256 hashes. A hash is a fingerprint of a file’s bytes. The session records the expected hashes of the task disk and writable-disk templates.</li>
+<li><strong>Which choices are allowed?</strong> The policy document lists acceptable image-manifest hashes and caps memory, CPU count and running time. The pilot’s client derives it from the authenticated release settings.</li>
+</ul>
+<p>The client invokes the app with that session, an App Attest key identifier, and a fresh <strong>challenge</strong>—a value that ties the evidence to this particular request. The Swift code reads the documents, checks the requested image against the policy, and hashes the actual files. A mismatch stops the launch. It copies the checked system and task disks into the run’s working directory and passes the VM configuration to its native backend.</p>
+<p>The backend runs Linux until it stops or reaches the deadline, then finishes writing the result disk and console log. Swift checks the backend’s records against the configuration it requested. <strong>Only after this finalization does the app produce two signed messages, called App Attest assertions:</strong> one signs the launch record; the other signs a result record containing the output-disk and console-log hashes.</p>
+<p>The app’s file checks establish that it used the supplied configuration. The recipient’s verifier separately compares that configuration with the software and task it expected. That comparison is what connects an authentic run to the requested work.</p>
+<p><a href="https://github.com/amiller/dsmack/blob/main/applications/pilot-client/alpha_coordinator.py">Client preparation code</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/app-src/Sources/mar/V3Launch.swift">Swift checks and signing sequence</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/app-src/Sources/mar/BackendV3.swift">Calls into the native backend</a></p>
 </section>
 <section class="section" id="apple-virtualization">
-<h2>How it uses Apple’s virtualization tools</h2>
-<p>Apple’s <a href="https://developer.apple.com/documentation/hypervisor">Hypervisor.framework</a> exposes hardware-assisted virtual CPUs and guest memory to a macOS process. Dsmack’s native backend uses it through a modified, linked copy of libkrun. The guest is ARM64 Linux running on Apple silicon.</p>
-<pre class="execution-path" aria-label="Calls from the application client to Apple virtualization"><code>Application client / scripts
-  → DsmackRunner: Swift admission and evidence code
-    → Native Rust backend + modified libkrun
-      → Apple Hypervisor.framework
-        → Apple silicon: guest CPUs and memory</code></pre>
-<p>libkrun supplies the virtual-machine monitor: loading the guest kernel and initramfs, setting up memory and virtual devices, and handling the guest’s execution and shutdown. Virtual block devices expose the selected disk files to Linux. When networking is enabled, a virtio-net device connects to a separate gvproxy helper prepared by the client.</p>
-<p>The signed app requires the <code>com.apple.security.hypervisor</code> entitlement. Apple’s separate <a href="https://developer.apple.com/documentation/virtualization">Virtualization.framework</a> offers higher-level VM configuration APIs. The current <code>hvf-v3</code> launch path uses Hypervisor.framework through libkrun; the repository’s older Containerization/Virtualization path is a separate implementation.</p>
-<p>App Attest has a different role: it authenticates the app’s key and signed statements. It does not itself boot Linux or measure the guest. Those input and result bindings are implemented by the signed app and its backend.</p>
-<p><a href="https://github.com/amiller/dsmack/blob/main/runner-vm/native/source-tree/apple-static/src/hvf_consumption_v3.rs">Native VM lifecycle</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/native/source-tree/source/src/hvf/src/lib.rs">Hypervisor API calls</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/packaging/DsmackRunner.entitlements">App entitlements</a></p>
+<h2>What is libkrun, and where does Apple’s hypervisor fit?</h2>
+<p><strong>libkrun is a virtual-machine monitor library.</strong> It provides the machinery for loading Linux, setting up virtual disks and other devices, and managing the VM as it runs. Dsmack includes a modified copy in its native backend, which the Swift app calls through a C interface.</p>
+<p>On an Apple silicon Mac, libkrun uses Apple’s <a href="https://developer.apple.com/documentation/hypervisor">Hypervisor.framework</a>. This macOS API lets a process create virtual CPUs and map memory for a guest operating system. Apple’s APIs provide the CPU and memory virtualization; libkrun supplies the virtual machine around them.</p>
+<pre class="execution-path" aria-label="How the task reaches Apple’s virtualization APIs"><code>Client scripts prepare the task
+  → DsmackRunner checks files and configures the run
+    → Rust backend + libkrun load Linux and attach virtual disks
+      → Hypervisor.framework runs the guest CPUs and memory</code></pre>
+<p>The Linux kernel and startup archive come from the image manifest. Files on the Mac appear inside Linux as virtual block devices—disks the guest can read or write. If the task permits networking, the client also starts <code>gvproxy</code>, a helper that carries traffic between the VM’s virtual network device and the host.</p>
+<p>The app has Apple’s <code>com.apple.security.hypervisor</code> entitlement, which permits these hypervisor calls. This implementation uses Hypervisor.framework directly through libkrun. Apple’s <a href="https://developer.apple.com/documentation/virtualization">Virtualization.framework</a> is a separate, higher-level API used by an older implementation in the repository.</p>
+<p><a href="https://github.com/amiller/dsmack/blob/main/runner-vm/native/source-tree/apple-static/src/hvf_consumption_v3.rs">VM setup, execution and shutdown</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/native/source-tree/source/src/hvf/src/lib.rs">Calls to Apple’s hypervisor</a> · <a href="https://github.com/amiller/dsmack/blob/main/runner-vm/packaging/DsmackRunner.entitlements">App entitlements</a></p>
 </section>
 <section class="section" id="guest">
-<h2>What the Linux VM contributes</h2>
-<p>The reusable image boots a read-only, integrity-checked Linux system. Its supervisor validates the workload, starts the selected container with declared inputs and permissions, then exports a receipt and output files. The current reference is dstack-derived Debian ARM64; its Docker runtime, input channels and sandbox policies belong to the image.</p>
-<div class="disk-row"><div><b>System disk · read-only</b><span>Linux base and guest services</span></div><div><b>Workload disk · read-only</b><span>Container payload, manifest and public inputs</span></div><div><b>Scratch disk · writable</b><span>Disposable container and working state</span></div><div><b>Result disk · writable</b><span>Receipt and retained output files</span></div></div>
-<p>An optional private-input disk is a separate channel. Network access and private inputs depend on the admitted profile. The packaged alpha accepts selected profiles rather than arbitrary Docker Compose settings.</p>
-<a href="base-image.html">Read the Linux base-image design and build decisions →</a>
+<h2>Linux starts the container and collects its files</h2>
+<p>The current base image contains Debian Linux for ARM64, the architecture used by Apple silicon. A supervisor program starts at boot, checks the task package, and asks Docker to run its container. The package describes the command, input files, limits and outputs to collect.</p>
+<div class="disk-row"><div><b>System disk</b><span>The reusable Linux installation, mounted read-only</span></div><div><b>Task disk</b><span>The container image, execution settings and public input files</span></div><div><b>Scratch disk</b><span>Writable storage for Docker and the task’s temporary files</span></div><div><b>Result disk</b><span>The execution record, captured logs and requested outputs</span></div></div>
+<p>Keeping these disks separate lets each run start with fresh working storage while using the same system image. Tasks that need credentials use a separate private-input disk and the corresponding client setup. The browser-test preset uses public inputs with networking disabled.</p>
+<a href="base-image.html">How the Linux image boots, runs containers and exports results →</a>
 </section>
 <section class="section" id="evidence">
-<h2>How a verifier connects the result to the request</h2>
-<p>The app’s assertions bind the challenge, selected workload and execution records to an App Attest key. The result envelope binds the finalized result disk and console capture. The retained files let an independent verifier recompute those hashes and inspect the guest receipt and outputs.</p>
-<p>The verifier checks Apple’s attestation, the admitted app identity, assertion signatures, freshness, expected software and input identities, and the requested workload outcome. The application’s acceptance routine defines success. For bounties, the settlement policy then decides whether the verified result authorizes payment.</p>
-<p>The current Mac prototype trusts the host against tampering with VM storage and plaintext private inputs. The VM isolates guest execution, but App Attest does not turn it into a confidential VM protected from the Mac’s owner.</p>
-<p><a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Full result-verifier source</a> · <a href="app-attest.html">App Attest certificates and on-chain verification</a> · <a href="bounties.html">Bounty acceptance and settlement</a></p>
-</section>
-<section class="section">
-<h2>Follow the implementation</h2>
-<p><a href="https://github.com/amiller/dsmack/tree/main/runner-vm">Signed app and native backend</a> → <a href="base-image.html">Linux image and guest supervisor</a> → <a href="https://github.com/amiller/dsmack/tree/main/applications">Application clients and workloads</a> → <a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Independent verification</a>.</p>
+<h2>What does the recipient verify?</h2>
+<p>The returned evidence contains Apple’s attestation of the app key, the two signed assertions, the launch and result records, and the original output files. The verifier already has the task’s expected software hashes, input hashes, challenge and acceptance rules.</p>
+<p>It first checks Apple’s certificate chain and the app identity allowed by its policy, then the assertion signatures and replay counters. Next it compares the recorded launch with the expected request and recomputes the hashes of the retained result disk and console log. Inside the disk, it checks the guest’s execution record and exported files.</p>
+<p>For the browser example, the final step is to examine the checker’s results against the task’s acceptance rules. A correctly authenticated run can report failing tests. In the bounty application, a passing result must also satisfy the delivery and settlement conditions before payment.</p>
+<p>The current execution prototype assumes the Mac’s owner does not tamper with VM storage. Private inputs are staged in plaintext on that host.</p>
+<p><a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Result-verifier source</a> · <a href="app-attest.html">How App Attest verification works</a> · <a href="bounties.html">Bounty acceptance and payment</a></p>
 <div class="buttons"><a class="button primary" href="build.html">Run the example</a><a class="button" href="base-image.html">Inspect the Linux base image</a></div>
 </section>
 </main>

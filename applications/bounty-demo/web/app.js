@@ -178,7 +178,7 @@
       slot.append(node('p',value.status==='not_configured'?'No onchain mapping configured. Reward funding and payment are unconfirmed.':value.status==='stale'?'Chain information is stale. Current funding and payment are unknown.':'Chain information is unavailable. Current funding and payment are unknown.'));
       return;
     }
-    slot.append(node('p',`${value.network} · observed at ${timestamp(value.observed_at)} · block ${value.block_number} · ${value.minimum_confirmations} confirmations. This RPC observation is not a finality proof.`));
+    slot.append(node('p',`${value.network} · observed at ${timestamp(value.observed_at)} · block ${value.block_number} · ${value.minimum_confirmations} confirmations.`));
     const facts=node('dl',null,'facts');
     fact(facts,'Escrow available (wei)',value.funding.available_wei);fact(facts,'Assignment reserved (wei)',value.funding.reserved_wei);
     fact(facts,'Account credit (wei)',value.credit.withdrawable_wei);fact(facts,'Credit owner',value.credit.account);
@@ -193,7 +193,7 @@
   }
   function renderConnection() {
     const target = $('connection-status'); if (!target) return;
-    target.textContent = detailUnavailable ? `Updates unavailable. Showing retained service state${lastDetailCheck ? ` last checked ${new Date(lastDetailCheck).toLocaleTimeString()}` : ''}. Refresh to reconnect; this does not mean the Mac or agent stopped.` : `Service state last checked ${lastDetailCheck ? new Date(lastDetailCheck).toLocaleTimeString() : 'just now'}. This page does not connect directly to your Mac.`;
+    target.textContent = detailUnavailable ? `Updates unavailable. Showing retained service state${lastDetailCheck ? ` last checked ${new Date(lastDetailCheck).toLocaleTimeString()}` : ''}. Refresh to reconnect.` : `Service state last checked ${lastDetailCheck ? new Date(lastDetailCheck).toLocaleTimeString() : 'just now'}.`;
     target.className = `small ${detailUnavailable ? 'connection-stale' : 'muted'}`;
   }
   function readinessPanel(task, attempt) {
@@ -201,15 +201,15 @@
     let title, description;
     if(detail.annotation){
       const note=detail.annotation;
-      p.append(node('h4','Retired pilot · operator note'),node('p','The operator has stopped work under these terms because the broker transport is incompatible with the planned long-response generation stage. Do not start another worker run. Original terms, evidence and actual assignment state remain unchanged.'),node('p','This note does not establish a failed model job, acceptance, refund eligibility or payment. Inspect the independent chain observation below.','small muted'),node('p',`Operator note recorded ${timestamp(note.noted_at)}`,'small muted'));
+      p.append(node('h4','Retired pilot · operator note'),node('p','The operator has stopped work under these terms because the broker transport is incompatible with the planned long-response generation stage. Do not start another worker run. Assignment and refund state are in the chain observation below.'),node('p',`Operator note recorded ${timestamp(note.noted_at)}`,'small muted'));
       if(note.replacement)p.append(button('Open replacement task',()=>selectTask(note.replacement.task_id).catch(e=>notice(message(e),true))));
       return p;
     }
     if (!attempt) { title = 'Inspect the task, then request an invitation'; description = 'Open the issue and frozen terms. Check the chain panel for funding before spending subscription allowance. Ask the operator for the reviewed runner, diagnostic and exact launch recipe before spending subscription allowance.'; }
-    else if (attempt.state === 'verified') { title = 'Review the accepted result'; description = 'The configured verification authority accepted this result. Keep the attempt record and evidence. Acceptance does not establish payment; inspect the separate chain observation for credit and withdrawals.'; }
+    else if (attempt.state === 'verified') { title = 'Review the accepted result'; description = 'The configured verification authority accepted this result. Keep the attempt record and evidence. Credit and withdrawals are in the chain observation.'; }
     else if (attempt.state === 'failed') { title = 'Inspect the recorded verification failure'; description = 'Ask the operator to identify a candidate failure, missing evidence or verification infrastructure problem. Retain the same candidate and evidence for inspection; do not start another model job just to reconnect.'; }
-    else if (attempt.state === 'submitted') { title = 'Await independent verification'; description = 'Your candidate identities are submitted. Keep the evidence and saved attempt record. Verification retries should use retained outputs; refreshing this page does not launch another coding run.'; }
-    else if (capabilities.has(attempt.id)) { title = 'Continue with your local runner'; description = 'This tab has an attempt capability. Use the separately reviewed local launch recipe, then review its candidate and submit the retained source and evidence identities below. The browser cannot tell whether your Mac is ready or launch it for you.'; }
+    else if (attempt.state === 'submitted') { title = 'Await verification'; description = 'Your candidate identities are submitted. Keep the evidence and saved attempt record. Verification reuses the retained outputs.'; }
+    else if (capabilities.has(attempt.id)) { title = 'Continue with your local runner'; description = 'This tab has an attempt capability. Run the local launch recipe on your Mac, review its candidate, then submit the retained source and evidence digests below.'; }
     else { title = 'Reconnect your saved attempt'; description = 'Use Open saved attempt above to reopen the protected CLI record for this server. If the record says claim-requested, retry the identical CLI claim with the same file first. A public task ID cannot restore a lost capability.'; }
     p.append(node('h4', title), node('p', description));
     const facts = node('dl', null, 'readiness-grid');
@@ -265,7 +265,7 @@
     const grid = node('div', null, 'verdict-grid');
     const verification = node('div', null, 'verdict-cell'); verification.append(node('h3', attempt.state === 'verified' ? 'Verified result' : attempt.state === 'failed' ? 'Result not accepted' : 'Verification pending'));
     verification.append(node('p', attempt.state === 'verified' ? 'The service accepted a certificate from its configured verification authority.' : attempt.state === 'failed' ? 'The service recorded a failed verification outcome. Ask the operator to inspect the authenticated verdict.' : 'Worker submissions and progress cannot set a verified outcome. Await the configured verification adapter.'));
-    const payment = node('div', null, 'verdict-cell'); payment.append(node('h3', 'Payment is separate'), node('p', 'See the onchain observation for escrow, account credit and withdrawals. Verification alone does not establish payment.'));
+    const payment = node('div', null, 'verdict-cell'); payment.append(node('h3', 'Payment'), node('p', 'Escrow, account credit and withdrawals are in the onchain observation.'));
     grid.append(verification, payment); outcomes.append(grid); article.append(outcomes);
   }
   function claimPanel(task) {
@@ -289,7 +289,7 @@
     }); }); advanced.append(form); p.append(advanced); return p;
   }
   function submissionPanel(attempt) {
-    const p = panel('Submit a candidate', 'Use the exact source-content and retained evidence-bundle digests. This sends a submission; it does not verify the result.');
+    const p = panel('Submit a candidate', 'Enter the source-content and evidence-bundle digests.');
     if (!capabilities.has(attempt.id)) {
       const connect = node('form', null, 'inline-form');
       const input = field(connect, 'Existing attempt capability', 'capability', {type: 'password', placeholder: 'Paste a capability you already hold'});
@@ -324,7 +324,7 @@
     if (last) {
       const age = Number.isFinite(last.received_at) ? (Date.now() / 1000 - last.received_at) : null;
       const freshness = age === null ? 'Last signal time unavailable' : age < -30 ? 'Signal timestamp is ahead of this browser’s clock' : age > 30 ? `Last advisory signal ${Math.floor(age)} seconds ago · may be stale` : `Last advisory signal ${Math.max(0, Math.floor(age))} seconds ago`;
-      target.append(node('p', freshness, `signal-status small${age > 30 ? ' connection-stale' : ' muted'}`), node('p', 'Signals come from the worker or host observer. A heartbeat shows the observer is responding; it does not prove model progress. Missing signals do not prove the run stopped.', 'small muted'));
+      target.append(node('p', freshness, `signal-status small${age > 30 ? ' connection-stale' : ' muted'}`), node('p', 'Signals come from the worker or host observer. A heartbeat means the observer is responding.', 'small muted'));
     }
     if (!events.length) { target.append(node('p', 'No progress events yet. The worker’s agent can report advisory events through its attempt API.', 'small muted')); return; }
     const timeline = node('ol', null, 'timeline');
@@ -373,7 +373,7 @@
     body.issue_number = Number(values.issue_number); body.reward = {amount: values.amount.trim(), asset: values.asset.trim(), chain: values.chain.trim()};
     await api('/api/tasks', {method: 'POST', token: operatorToken, body});
     $('task-dialog').close(); form.reset(); selectedId = body.id; detailKey = '';
-    await loadBoard(); await refreshDetail(); notice('Task created with unfunded reward terms. No money moved.');
+    await loadBoard(); await refreshDetail(); notice('Task created with unfunded reward terms.');
   }); });
   $('retired-toggle').addEventListener('click',()=>{showRetired=!showRetired;renderBoard();});
   $('refresh').addEventListener('click', () => loadBoard().then(refreshDetail).catch((e) => notice(message(e), true)));

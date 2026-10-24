@@ -1,147 +1,155 @@
-# Arcade deterministic testnet pilot service
+# Arcade testnet pilot service
 
-Node24 stdlib HTTP/SQLite service. No npm install/build. Run tests:
+A Node 24 stdlib HTTP and SQLite service for the deterministic board-search
+bonus. No npm install or build. Run tests:
 
 ```sh
 node --test applications/arcade-pilot/service/core.test.mjs applications/arcade-pilot/chain/work-escrow.test.mjs
 ```
 
-This is a new deterministic browser bonus, not the old three-agent acceptance
-protocol. The service does not interpret worker booleans as a verdict. App Attest
-registration, per-attempt task preparation, original21 evidence verification and
-WorkEscrow authority run on a separately configured trusted Zed worker. The pod
-stores durable API state/files; no existing deployer/report/worker-wallet secret
-belongs in the pod. Its public bridge is explicitly trusted EOA settlement.
+The service stores API state and files. App Attest registration, per-attempt task
+preparation, verification of the 21 original evidence files and WorkEscrow
+authority run on a trusted Zed worker, which reports verdicts through the worker
+API. The pod holds no deployer, report or worker-wallet secret. Settlement goes
+through a trusted EOA bridge.
 
-## Deployment inputs (operator selects; never supplied by participants)
+## Deployment inputs
 
-Node24, the reviewed `cast` executable and its SHA256, persistent private `/data`,
-and a mode0600 JSON `ARCADE_CONFIG`. Fields:
+The operator supplies Node 24, the reviewed `cast` executable and its SHA256, a
+persistent private `/data`, and a mode-0600 JSON `ARCADE_CONFIG` with:
 
 - `dbPath`: `/data/state.sqlite`; `root`: `/data/evidence` (0700).
 - `origin`: exact HTTPS origin, e.g. `https://pod.dstack.soc1024.com`.
-- `basePath`: `/arcade-pilot`; `port`:8080.
+- `basePath`: `/arcade-pilot`; `port`: 8080.
 - `cast`: `{path:"/usr/local/bin/cast",sha256:"<actual64hex>"}`.
-- `worker_token_sha256`: SHA256 of a separately generated32-byte base64url worker
-  token. The worker stores that token privately; no browser/participant receives it.
+- `worker_token_sha256`: SHA256 of a 32-byte base64url worker token generated
+  for the worker. Only the worker holds the token.
 - `task`: public immutable object with `slug`, `policy_sha256`,
-  `app_policy_sha256`, `repository`: `amiller/bounty-arcade`, optional `candidates` (display suggestions only), `chain_id`:84532,
-  `contract` (lowercase address), `task_id` (actual receipt-derived decimalstring),
-  plus selected public terms/checker/image/fee/reward/instructions descriptors.
+  `app_policy_sha256`, `repository`: `amiller/bounty-arcade`, optional
+  `candidates` (display suggestions), `chain_id`: 84532, `contract` (lowercase
+  address), `task_id` (receipt-derived decimal string), plus the public terms,
+  checker, image, fee, reward and instructions descriptors.
 
-Task changes against the same SQLite state refuse. Store actual funding receipt
-and immutable task terms in that public task object, not an invented funded flag.
-The sample has no selected financial authority or task ID. The coordinator must
-create/fund the new bonus, assign the wallet through its selected allocator and
-configure the selected runtime worker before deployment is runnable.
+The task is fixed for a given SQLite state; changing it is refused. Put the
+funding receipt and task terms in the task object. The sample config has no
+financial authority or task ID: the coordinator creates and funds the bonus,
+assigns the wallet through its allocator and configures the runtime worker
+before deployment.
 
-Build from a selected source-only context containing the three directories and
-reviewed `cast`; pass `--build-arg NODE_IMAGE=node@sha256:<selecteddigest>`.
-Mount persistent named volume `/data`; do not publish it. Configure proxy body
-limits at least4MiB for chunks, HTTPS and a persistent process. No Mini SSH from
-this HTTP container. No shell is used for wallet verification. The pinned cast
-performs real EIP191 recovery, not a service callback that accepts client claims.
+Build from a source-only context containing the three directories and the
+reviewed `cast`, passing `--build-arg NODE_IMAGE=node@sha256:<digest>`. Mount a
+persistent named volume at `/data` without publishing it. The proxy needs body
+limits of at least 4 MiB for chunks, HTTPS and a persistent process. The pinned
+`cast` performs EIP-191 signature recovery directly, without a shell.
 
 ## Participant HTTP API
 
-JSON body limit512KiB; original file chunks4MiB. All attempt writes use
-`Authorization: Bearer <client-generated32-byte-base64url capability>`.
-The capability is private, never in URLs/public status. Same-origin browser
-writes only; CLI can omit Origin. Agent discovery: `GET /agent.json`.
+JSON bodies are limited to 512 KiB and original file chunks to 4 MiB. Attempt
+writes use `Authorization: Bearer <client-generated 32-byte base64url capability>`.
+The capability stays private: it never appears in URLs or public status. Browser
+writes must be same-origin; the CLI can omit Origin. Agent discovery: `GET /agent.json`.
 
-1. `GET /api/task`: immutable published selection.
-2. `POST /api/authorization-challenges` exact
+1. `GET /api/task`: the published task.
+2. `POST /api/authorization-challenges`
    `{request_id,purpose:"attempt"|"registration",payee,candidate_commit}`;
-   registration uses candidate_commit:null. Returns
-   `{authorization_id,message,expires_at}`. Sign **that exact** message locally
-   with EIP191/personal_sign. Message binds origin, task/policy, purpose, wallet,
-   candidate, request ID, fresh nonce and expiry. No private key upload.
+   registration uses `candidate_commit:null`. Returns
+   `{authorization_id,message,expires_at}`. Sign that exact message locally with
+   EIP-191 `personal_sign`. The message binds origin, task and policy, purpose,
+   wallet, commit, request ID, a fresh nonce and expiry.
 3. `POST /api/attempts`
    `{request_id,candidate_commit,payee,authorization_id,wallet_authorization:{signature},capability}`.
-   Any lowercase40hex candidate commit may register against the fixed published repository. The trusted factory must resolve that exact immutable commit from this repository/its PR refs, prove the required base39-file projection and permit changes only to the three board files before preparing execution. No arbitrary repository, URL, branch, ref or path is accepted from an HTTP caller. Exact request retries recover the same attempt; altered retries/replays refuse.
+   Any lowercase 40-hex commit in the published repository can be registered.
+   The task factory resolves that commit from the repository or its PR refs,
+   builds the base39 projection and accepts changes only to the three board
+   files. Callers cannot pass a repository, URL, branch, ref or path. An exact
+   retry returns the same attempt; altered retries and replays are refused.
 4. `POST /api/registrations/challenge`
    `{request_id,payee,authorization_id,wallet_authorization:{signature},node_capability}`.
-   Client generates/preserves private32-byte-base64url node_capability. Returns
-   `{schema,registration_id,challenge_b64,expires_at,app_policy_sha256}`.
+   The client generates and keeps a private 32-byte base64url `node_capability`.
+   Returns `{schema,registration_id,challenge_b64,expires_at,app_policy_sha256}`.
 5. `POST /api/registrations`
-   `{registration_id,key_id,attestation_b64,client_data_b64,payee}` queues native
-   attestation verification. `GET /api/registrations/:id` returns state and
-   public enrollment package only. The worker compares exact canonical native
-   enrollment clientData against the original challenge before verifying Apple.
+   `{registration_id,key_id,attestation_b64,client_data_b64,payee}` queues
+   attestation verification. `GET /api/registrations/:id` returns the state and
+   public enrollment package. The worker checks the canonical enrollment
+   clientData against the original challenge before verifying with Apple.
 6. `POST /api/attempts/:id/execution`
-   `{request_id,mode:"self"|"best_effort",key_id}`. self uses an enrolled key;
-   best_effort may use null. Returns pending_job_id, then public attempt status
-   contains a server-selected execution packet after preparation. No user-selected
-   trust root, command, policy, file path or verifier override.
+   `{request_id,mode:"self"|"best_effort",key_id}`. `self` uses an enrolled key;
+   `best_effort` may pass null. Returns `pending_job_id`; once prepared, the
+   attempt status contains the server-selected execution packet. Trust root,
+   command, policy, file paths and verifier are all fixed by the server.
 7. `POST /api/attempts/:id/evidence`
-   `{request_id,files:[{name,bytes,sha256}]}` exact21 original app files only.
-   Returns submission_id/chunk_bytes. Sequential PUT
-   `/api/attempts/:id/evidence/:submission_id/:name`, rawbody and
-   `Content-Range: bytes START-END/TOTAL`. Full file hashes checked.
-   Complete with POST samepath `/complete` `{request_id}`. Unknown partial writes
-   retain residue and refuse implicit overwrites. Final verify is once-only;
-   errors remain errors, not retried as a successful run.
-8. `GET /api/attempts/:id` gives safe status. GET `/claim` is read-only and returns current claim data/status. Capability-authenticated POST `/claim` `{request_id}` queues a fresh once-journaled chain observation only after full bound functional success; exact retries recover the same job. This supports submitting the immutable commitments first, obtaining signatures only after actual Submitted state, then resolve/withdraw/received progression. No prospective signature or fabricated receipt is implied. Signature issuance still requires fresh actual
-   chain/task/assignment/payee/commitment/deadline checks in the selected actor.
+   `{request_id,files:[{name,bytes,sha256}]}` lists exactly the 21 original app
+   files and returns `submission_id` and `chunk_bytes`. Upload each with
+   sequential `PUT /api/attempts/:id/evidence/:submission_id/:name`, raw body and
+   `Content-Range: bytes START-END/TOTAL`; full file hashes are checked. Finish
+   with `POST` to the same path plus `/complete` `{request_id}`. A partial write
+   with unknown outcome is kept and blocks overwrites. Final verification runs
+   once; an error stays an error.
+8. `GET /api/attempts/:id` returns public status. `GET /claim` returns current
+   claim data and status. Capability-authenticated `POST /claim` `{request_id}`
+   queues a fresh, journaled chain observation once the attempt has a full
+   passing verdict; exact retries return the same job. The flow is: submit the
+   commitments, get signatures once the task is actually Submitted, then
+   resolve, withdraw and received. Signatures are issued only after fresh checks
+   of chain, task, assignment, payee, commitments and deadline.
 
-The public site connects a local browser wallet, signs authorization and displays
-safe status. Its submit/resolve/withdraw wallet buttons require the fixed84532
-chain/contract/payee/value. Broadcast hashes are explicitly pending, not receipt
-or received-payment claims. Service does not auto-fund, send transactions or run
-unselected models.
+The public site connects a browser wallet, signs authorizations and shows
+status. Its submit, resolve and withdraw buttons require chain 84532 and the
+fixed contract, payee and value. A broadcast hash shows as pending until escrow
+records it. The service never funds, sends transactions or runs models.
 
-## Privileged worker API
+## Worker API
 
-Separate worker Bearer token, fixed task, HTTPS:
+Uses the separate worker Bearer token, the fixed task and HTTPS:
 
-- POST `/api/worker/lease` `{worker_id,capabilities:[registration|prepareExecution|verifyEvidence|claim]}`.
-  204 if no job; else `{job_id,lease_id,lease_expires_at,action,input,input_sha256}`.
-  Digest is SHA256 of canonical **wire** input. A job is leased once; expiry does
-  not cause blind redelivery. Worker persists intent/cached result before any
-  nonce/enrollment/signing action. Uncertain state requires reconciliation.
-- POST `/api/worker/jobs/:id/result`
+- `POST /api/worker/lease` `{worker_id,capabilities:[registration|prepareExecution|verifyEvidence|claim]}`.
+  Returns 204 if there is no job, else
+  `{job_id,lease_id,lease_expires_at,action,input,input_sha256}`, where the
+  digest is SHA256 of the canonical wire input. Each job is leased once; an
+  expired lease is not redelivered. The worker persists its intent and cached
+  result before any nonce, enrollment or signing action, and reconciles any
+  uncertain state.
+- `POST /api/worker/jobs/:id/result`
   `{lease_id,input_sha256,status:"completed"|"uncertain"|"failed",result}`.
-  Exact cached retries idempotent; conflicting result refused.
-- Evidence files GET `/api/worker/jobs/:id/files/:name` with worker token.
-  No private pod paths in wire input. Verify original bytes against descriptors.
-- Preparation artifacts POST `/api/worker/jobs/:id/artifacts`
-  `{lease_id,files:[{name,bytes,sha256}]}` then sequential4MiB PUT
-  `/api/worker/jobs/:id/artifacts/:name`. Exactly five public artifacts:
-  checker-context.json, closure-context.json, workload-admission.json,
-  workload.sig, workload.img. Only complete rehashed files become packet URLs
-  `/api/artifacts/:job/:name`.
+  Exact cached retries are idempotent; a conflicting result is refused.
+- `GET /api/worker/jobs/:id/files/:name` fetches evidence files. Wire inputs
+  contain no pod paths; the worker checks bytes against the descriptors.
+- `POST /api/worker/jobs/:id/artifacts` `{lease_id,files:[{name,bytes,sha256}]}`
+  then sequential 4 MiB `PUT /api/worker/jobs/:id/artifacts/:name` uploads the
+  five preparation artifacts: checker-context.json, closure-context.json,
+  workload-admission.json, workload.sig, workload.img. Complete, rehashed files
+  are served at `/api/artifacts/:job/:name`.
 
 An accepted verification publishes the attempt's 21 originals plus the signed
 `report.json` and the key's `enrollment.json` at
 `/api/artifacts/:submission_id/:name`. The host calls `backfillEvidence()` at
-startup to publish attempts accepted before this existed.
+startup to publish attempts accepted earlier.
 
-Registration output has registered_key_id/enrollment_sha256/publicpackage.
-Execution output binds market attempt_id and selected key_id, plus separate
-native_execution_id and fixed packet/artifacts defined by the runner lane.
-Verification output binds attempt_id/payee/candidate_commit/policy_sha256/
-manifest_sha256/report_sha256, verification_level:"full", accepted boolean.
-A true verdict additionally requires apple_verified/outputs_verified/
-functional_pass:true, expected_exit_code:0, receipt_status:"completed".
-The trusted worker must itself derive these from genuine full verification and
-recomputed checker/input/output correspondence; this API is not an alternate
-certificate-only acceptance policy.
+Registration output has `registered_key_id`, `enrollment_sha256` and the public
+package. Execution output binds the market `attempt_id` and `key_id`, plus a
+`native_execution_id` and the packet and artifacts defined by the runner.
+Verification output binds `attempt_id`, `payee`, `candidate_commit`,
+`policy_sha256`, `manifest_sha256`, `report_sha256`, `verification_level:"full"`
+and `accepted`. An accepted verdict also requires `apple_verified`,
+`outputs_verified` and `functional_pass` true, `expected_exit_code:0` and
+`receipt_status:"completed"`. The worker derives these from full verification
+and recomputed checker, input and output correspondence.
 
-Normal Mac nodes use private node capability at POST `/api/nodes/lease`
-`{key_id,request_id,capability}` (fresh client-generated attempt upload capability).
-This returns one prepared best-effort packet bound to that enrolled node, or204.
-Exact lease retry recovers the same packet; client still uses its own durable
-once-run journal. Node capability is never a service-authority token. Participant
-payee/candidate remain immutable even when the chosen node has another owner.
-No available node is a truthful queued state, not an execution guarantee.
+Mac nodes lease with their private node capability at `POST /api/nodes/lease`
+`{key_id,request_id,capability}`, where `capability` is a fresh upload
+capability for the attempt. It returns one prepared best-effort packet bound to
+that node, or 204. An exact retry returns the same packet; the client keeps its
+own run-once journal. The node capability grants no service authority, and the
+participant's payee and commit stay fixed whoever owns the node. With no node
+available, the attempt stays queued.
 
-## Bounds and retention
+## Limits and retention
 
-Default20 attempts,100 registrations,1000 authorizations/jobs,8GiB aggregate
-submitted evidence,1.5GiB/attempt,1GiB max result image,32MiB other original file.
-Disk checks and reserved-descriptor quota precede uploads. These limits can be
-lowered in protected configuration. Expired authorization records remain to
-preserve replay history; maintenance is an explicit operator action. No evidence
-or uncertain scratch is automatically deleted. Wallet/capability/token contents
-must not appear in public logs. Private volume backup and HTTPS availability are
-operator responsibilities; this is not a storage permanence promise.
+Defaults: 20 attempts, 100 registrations, 1000 authorizations and jobs, 8 GiB
+total submitted evidence, 1.5 GiB per attempt, 1 GiB per result image and 32 MiB
+per other original file. Disk and reserved-descriptor quota are checked before
+uploads. Protected configuration can lower these limits. Expired authorizations
+are kept as replay history and removed only by explicit operator maintenance.
+Evidence and uncertain scratch are never deleted automatically. Wallet,
+capability and token values stay out of public logs. The operator is
+responsible for backing up the private volume and keeping HTTPS up.

@@ -6,7 +6,7 @@ export class RewardFlow{
   this.claim=c;if(c.stage||['failed','uncertain'].includes(c.status)){this.record.claimRequest=null;this.persist(this.record);}const pending=this.record.pendingWallet;
   if(pending&&order[c.stage]>order[pending.stage]){this.record.pendingWallet=null;this.persist(this.record);}
   const waiting=!!c.pending_job_id||c.status==='pending';
-  let label='Prepare my reward steps',text='This checks escrow and prepares the next step. It does not send a wallet transaction.';
+  let label='Prepare my reward steps',text='This checks escrow and prepares the next step without sending a wallet transaction.';
   if(waiting){label='Check reward preparation';text='The escrow observation is in progress. This button reads its status.';}
   else if(c.stage==='received'&&c.payment_received===true){label='View confirmed withdrawal';text='The verifier observed a successful withdrawal. No further wallet transaction is needed.';}
   else if(c.transactions?.[c.stage]&&walletSteps[c.stage]){label=this.record.pendingWallet?'Check my submitted transaction':'Check for an updated reward step';text=this.record.pendingWallet?'A wallet request has already been made. Do not submit it again. Check escrow to see whether it was recorded.':walletSteps[c.stage].description;}

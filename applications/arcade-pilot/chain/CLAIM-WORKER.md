@@ -1,10 +1,10 @@
-# Zed claim worker — selected source, not activated authority
+# Zed claim worker
 
-`claim_handler.py` plugs into the existing privileged pull worker's `claim`
-handler. Its stdin is exactly `{action:"claim",input,job_dir,input_sha256}` and
-stdout exactly `{public_result:<claim packet>,artifacts:[]}`. It receives the
-same protected `--config`/`--config-sha256` binding as the other worker actions.
-That binding selects a separate `claim_bridge` descriptor:
+`claim_handler.py` is the `claim` handler for the privileged pull worker. Its
+stdin is exactly `{action:"claim",input,job_dir,input_sha256}` and its stdout
+exactly `{public_result:<claim packet>,artifacts:[]}`. It receives the same
+protected `--config`/`--config-sha256` binding as the other worker actions, which
+selects a `claim_bridge` descriptor:
 
 ```
 claim_bridge: {
@@ -13,81 +13,81 @@ claim_bridge: {
 }
 ```
 
-The bridge validator references a **separate immutable runtime adapter config**
-without the claim_bridge descriptor, avoiding cyclic config digests. It calls
-the runtime adapter's `settlementBinding` action, with a fresh owned job directory
-under that adapter's selected state_dir. The adapter must authenticate the
-original report, verify retained outputs, recompute the fixed checker/input
-binding and rehash the candidate delivery on every claim observation. No
-certificate-only or worker-selected trust root is substituted.
+The bridge validator points at an immutable runtime adapter config that has no
+claim_bridge descriptor, which keeps the config digests acyclic. On every claim
+observation it calls the adapter's `settlementBinding` action in a fresh job
+directory under the adapter's state_dir. The adapter authenticates the original
+report, verifies retained outputs, recomputes the checker/input binding and
+rehashes the delivered commit.
 
-Bridge config fields (operator fills actual values after task receipt/review):
+## Bridge config
 
-- schema `dsmack-arcade-claim-worker/1`; chain_id84532; contract
+The operator fills these in after the task receipt; this source contains no
+working config or keys.
+
+- schema `dsmack-arcade-claim-worker/1`; chain_id 84532; contract
   `0x62fedc157f275abb8f8b4543696e6f0c717d391b`; runtime_sha256
   `dd3596a61b94402a0161b950319d726fed7ffd0fd384774fa562d07b06aa6daa`.
-- task_id actual positive decimalstring >=10; task_created_block actual hexblock;
-  package_hash/policy_hash lowercase64hex; requester lowercase address;
-  payout_wei positive decimalstring; rpc_url selected HTTPS Base Sepolia transport.
-- terms: effort_pay `"0"`, completion_pay matching payout_wei,
-  submit_seconds/review_seconds/adjudication_seconds actual integers,
-  adjudicator selected lowercase address. Every onchain term must match.
-- roles: allocator/execution/review/delivery each `{address,key_file}`. Keys remain
-  in their existing private Zed0700 directory; each0600 JSON has exactly
-  `{address,private_key}`. Scalars are read in memory by eth_account only and
-  never supplied in argv/environment/logs or returned to the service.
-- journal_root private0700 directory, separate from web state; max_allocator_fee_wei
-  positive <=10^15 (bounds signed L2 gas plus actual Base L1/operator fee quotes).
-- validator: `{python,script,script_sha256,config,config_sha256,job_root}`.
-  Use the existing qualified actor-tools-venv interpreter; no dependency install.
+- task_id: positive decimal string >= 10; task_created_block: hex block;
+  package_hash/policy_hash: lowercase 64-hex; requester: lowercase address;
+  payout_wei: positive decimal string; rpc_url: HTTPS Base Sepolia endpoint.
+- terms: effort_pay `"0"`, completion_pay equal to payout_wei,
+  submit_seconds/review_seconds/adjudication_seconds integers, adjudicator
+  lowercase address. Every term must match the chain.
+- roles: allocator/execution/review/delivery, each `{address,key_file}`. Keys
+  stay in their private 0700 Zed directory; each 0600 JSON is exactly
+  `{address,private_key}`. Keys are read into memory by eth_account only, never
+  passed in argv or environment, logged or returned to the service.
+- journal_root: private 0700 directory, separate from web state.
+  max_allocator_fee_wei: positive, <= 10^15 (covers signed L2 gas plus Base L1
+  and operator fee quotes).
+- validator: `{python,script,script_sha256,config,config_sha256,job_root}`, using
+  the existing actor-tools-venv interpreter.
 
-No operative config/key is supplied in this source. New task terms must explicitly
-state the current experimental trusted-host assumption. This bridge cannot cure
-or upgrade native execution integrity, and does not assert an untrusted-host
-production guarantee.
+Task terms must state that execution trusts the Mac host.
 
 ## State progression
 
-Each cap-authenticated POST claim refresh queues a new observation; exact request
-retries reuse the same service job. The bridge serializes access to its task/key
-journal with a nonblocking file lock.
+Each capability-authenticated `POST /claim` queues a new observation; exact
+retries reuse the same service job. A nonblocking file lock serializes access to
+the task/key journal.
 
-1. Repeat genuine runtime/delivery validation and fresh chain/runtime/task checks.
-2. If unassigned, sign one allocator transaction, recover its signer, check actual
-   signed rollup fees and late nonce/block equality. Persist signed transaction
-   privately and fsync a broadcast intent **before one send**. A lost response
-   only observes that same hash on later calls; no resign/new nonce/resend.
-3. Require a canonical successful Assigned receipt and fresh task/assignment
-   parent/payee/reservation state. Return a wallet-signed `submit` packet only.
-4. Only actual Submitted state with exact candidate/evidence/delivery commitments
-   and live reviewer window can issue the three EIP712 Decision v2 signatures.
-   Repeat genuine validation immediately before signing; compare the derived
-   digest to deployed decisionDigest. Cache signatures and recover every role
-   again on cache reads. Return relayable resolve calldata.
-5. Actual Completion Resolved event for this assignment/payout is mandatory
-   before withdraw is offered. Zero withdrawable credit alone never means paid.
-   Received status requires a canonical successful worker-signed Withdrawn event
-   after that resolution, with amount at least the selected payout.
+1. Repeat runtime and delivery validation and fresh chain, runtime and task checks.
+2. If unassigned, sign one allocator transaction, recover its signer, check the
+   signed rollup fees and that nonce and block are unchanged. Store the signed
+   transaction privately and fsync a broadcast intent before sending once. After
+   a lost response, later calls look for that same hash; they never re-sign, take
+   a new nonce or resend.
+3. Require a successful canonical Assigned receipt and current task, assignment,
+   parent, payee and reservation state, then return a `submit` packet for the
+   participant's wallet to sign.
+4. Once the task is Submitted with the expected commit, evidence and delivery
+   commitments inside the review window, issue the three EIP-712 Decision v2
+   signatures. Validation runs again immediately before signing, and the derived
+   digest is compared with the deployed `decisionDigest`. Signatures are cached,
+   and every role is recovered again on cache reads. Returns relayable resolve
+   calldata.
+5. Withdraw is offered after a Completion Resolved event for this assignment and
+   payout. Received status requires a successful canonical Withdrawn event signed
+   by the worker after that resolution, for at least the payout.
 
-Canonical inclusion is explicitly reported as inclusion, not economic finality.
-The current worker uses a selected HTTPS RPC transport; it is not a consensus
-light client. Public claim packets contain no raw signed allocator transaction,
-private key, journal path or service credential.
+"Included" means canonical inclusion as seen through the configured HTTPS RPC
+endpoint; the worker does not run a light client. Public claim packets contain
+no raw allocator transaction, private key, journal path or service credential.
 
-## Offline checks
+## Tests
 
-On Zed with existing qualified dependencies:
+On Zed, with the existing dependencies:
 
 ```
 /data/amiller/dsmack/bounty-payment-prep-20261022/actor-tools-venv/bin/python -I \
   applications/arcade-pilot/chain/test_worker.py
 ```
 
-Tests use synthetic known-unused keys and mock RPC responses only. They cover
-once allocation/lost broadcast response, actual Submitted prerequisite, real
-synthetic role recovery, wrong chain/runtime/funding/oldtask refusal, invalid
-report/payee, digest/deadline rejection, cached-signature corruption, lock
-contention, exact runtime/worker JSON envelopes and Completion/Withdrawn receipt
-progression. No operational config, key, RPC, funding or transaction is used.
-The runtime fixture is the reviewed WorkEscrow deployed bytecode (7657bytes),
-matching the exact onchain runtime SHA above; no compilation is needed.
+Tests use synthetic unused keys and mock RPC responses. They cover single
+allocation and lost broadcast response, the Submitted prerequisite, role
+recovery, wrong chain/runtime/funding/old-task refusal, invalid report or payee,
+digest and deadline rejection, cached-signature corruption, lock contention, the
+runtime and worker JSON envelopes, and Completion/Withdrawn progression. The
+runtime fixture is the deployed WorkEscrow bytecode (7657 bytes), matching the
+runtime SHA above.

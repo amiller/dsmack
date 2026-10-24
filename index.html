@@ -33,15 +33,10 @@
 </section>
 <section class="section" id="what-is-app-attest">
 <h2>What is App Attest?</h2>
-<p class="intro">Apple’s App Attest lets an app create a signing key and obtain Apple’s certificate identifying that key and the app. Later, the app can sign messages that someone else can check using the certificate.</p>
-<div class="grid3">
-<article class="card"><div class="num">1 · CREATE A KEY</div><h3>A key stays on the device</h3><p>The app creates a key in the Secure Enclave, the device’s security processor. The private key stays there. The app asks the system to use it to sign a message.</p></article>
-<article class="card"><div class="num">2 · ATTEST THE KEY</div><h3>Apple certifies its origin</h3><p>Apple returns certificates linking the public key to the app on genuine Apple hardware. The recipient checks Apple’s signatures and compares the app identifier and code hash with the program it expects.</p></article>
-<article class="card"><div class="num">3 · SIGN STATEMENTS</div><h3>Check later messages locally</h3><p>The app signs a hash—a fingerprint of a message’s bytes—to produce an assertion. The recipient checks the signature and message. A request-specific challenge and an increasing counter help it reject reused assertions.</p></article>
-</div>
-<p>DsmackRunner uses those messages to identify a task’s software, inputs and returned files. The app records the execution; the task’s acceptance checks determine whether the work succeeded.</p>
-<p>Apple designed this for an app developer’s server to recognize its own app. Dsmack makes the verification rules available to peers and smart contracts, across accepted builds from different developer accounts.</p>
-<a href="app-attest.html">Follow the certificates, signatures and on-chain verification →</a> · <a href="https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server">Apple’s App Attest explanation →</a>
+<p class="intro">App Attest lets a recipient verify that a signed message came from a particular app on genuine Apple hardware.</p>
+<p>Dsmack uses it for records of a task run: which software and input files were used, and what results came back. A requester can check those records against the task’s requirements, even when someone else operates the Mac.</p>
+<p>Apple designed App Attest for an app developer’s server to recognize its own app. Dsmack makes these checks available to peers and smart contracts, including apps signed under different developer accounts.</p>
+<a href="app-attest.html">How the signatures and verification work →</a>
 </section>
 <section class="section">
 <h2>How can different developer accounts run the same approved code?</h2>

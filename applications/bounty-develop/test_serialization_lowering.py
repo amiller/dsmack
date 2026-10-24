@@ -1,5 +1,5 @@
 """Offline actual-public-byte lowering; claim/IDs are explicit synthetic fixtures."""
-import argparse,copy,hashlib,importlib.util,json,pathlib,sys,tempfile,unittest
+import copy,hashlib,importlib.util,json,pathlib,sys,tempfile,unittest
 HERE=pathlib.Path(__file__).parent;ROOT=HERE.parents[1]
 sys.path[:0]=[str(HERE),str(ROOT/'applications/bounty-runtime'),str(ROOT/'base-vm/browser-sandbox-v1/source/runner-content/lib')]
 import serialization_inputs as h
@@ -9,6 +9,7 @@ from project import project
 from dsmack_compose_contract.manifest import validate_manifest_bytes
 sha=lambda b:hashlib.sha256(b).hexdigest()
 canonical=lambda v:json.dumps(v,sort_keys=True,separators=(',',':'),ensure_ascii=False).encode()
+DATA=HERE/'fixtures/serialization-paid480';ORIGINALS=HERE/'fixtures/paid480/originals'
 class Controls(unittest.TestCase):
  def setUp(self):
   paths={'policy':DATA/'policy.json','terms':DATA/'terms.json','qualified_base':ORIGINALS/'qualified-base.json'};self.docs={k:p.read_bytes()for k,p in paths.items()};self.config=canonical({'schema':'dsmack-serialization-paid480-requester-selection/1','files':{k:{'path':str(p.resolve()),'bytes':len(self.docs[k]),'sha256':sha(self.docs[k])}for k,p in paths.items()}});self.selected=h.Selected(self.config,sha(self.config),self.docs)
@@ -97,5 +98,4 @@ class Controls(unittest.TestCase):
   self.assertEqual(recipe['generator_source_sha256'],'e761cf4509069c4c6f4ffe545ea7a1546b4f5bd87dee03671e3434370f5886b7')
  def test_builder_is_exact_new_image_and_config(self):
   m=delivery.selected('build');self.assertEqual(m.IMAGE,delivery.IMAGE);self.assertEqual(m.CONFIG,delivery.CONFIG)
-if __name__=='__main__':
- ap=argparse.ArgumentParser();ap.add_argument('--data',type=pathlib.Path,default=HERE/'fixtures/serialization-paid480');a=ap.parse_args();DATA=a.data;ORIGINALS=HERE/'fixtures/paid480/originals';unittest.main(argv=[sys.argv[0]])
+if __name__=='__main__':unittest.main()

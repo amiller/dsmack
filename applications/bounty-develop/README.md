@@ -142,14 +142,11 @@ python3 -B applications/bounty-develop/test_generation_reliability.py
 ## paid480 fixtures
 
 `fixtures/paid480/` holds the public task documents and the bounty-arcade source
-projection so the constructor tests run from this repository alone.
-`SHA256.json` records their bytes; `policy.json` and `terms.json` select the
-paid480 version. The tests create synthetic claim IDs and nonces in memory.
+projection so the lowering tests run from this repository alone.
+`policy.json` and `terms.json` select the paid480 version. The tests create synthetic claim IDs and nonces in memory.
 
 ```sh
-python3 -B applications/bounty-develop/test_paid480_policy.py
 python3 -B applications/bounty-develop/test_paid480_lowering.py
 ```
 
-`--originals` and `--data` point at another fixture directory. Both commands run
-offline and remove their temporary files on exit.
+It runs offline and removes its temporary files on exit.

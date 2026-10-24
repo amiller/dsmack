@@ -1,0 +1,363 @@
+{
+  "schema": "workescrow-read-codec/1",
+  "selectors": {
+    "assignment(uint256)": "c806bb2c",
+    "nextAssignment()": "89d613e3",
+    "nextTask()": "375188dc",
+    "task(uint256)": "17751a21"
+  },
+  "functions": {
+    "assignment": [
+      {
+        "name": "taskId",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "worker",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "state",
+        "type": "uint8",
+        "internalType": "enum WorkEscrow.State"
+      },
+      {
+        "name": "reserved",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "submitBy",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "reviewBy",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "candidate",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "evidence",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      },
+      {
+        "name": "delivery",
+        "type": "bytes32",
+        "internalType": "bytes32"
+      }
+    ],
+    "task": [
+      {
+        "name": "requester",
+        "type": "address",
+        "internalType": "address"
+      },
+      {
+        "name": "open",
+        "type": "bool",
+        "internalType": "bool"
+      },
+      {
+        "name": "available",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "activeAssignment",
+        "type": "uint256",
+        "internalType": "uint256"
+      },
+      {
+        "name": "terms",
+        "type": "tuple",
+        "internalType": "struct WorkEscrow.Terms",
+        "components": [
+          {
+            "name": "packageHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "policyHash",
+            "type": "bytes32",
+            "internalType": "bytes32"
+          },
+          {
+            "name": "allocator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "executionVerifier",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "reviewer",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "deliveryVerifier",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "adjudicator",
+            "type": "address",
+            "internalType": "address"
+          },
+          {
+            "name": "effortPay",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "completionPay",
+            "type": "uint96",
+            "internalType": "uint96"
+          },
+          {
+            "name": "submitSeconds",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "reviewSeconds",
+            "type": "uint32",
+            "internalType": "uint32"
+          },
+          {
+            "name": "adjudicationSeconds",
+            "type": "uint32",
+            "internalType": "uint32"
+          }
+        ]
+      }
+    ]
+  },
+  "events": [
+    {
+      "type": "event",
+      "name": "Assigned",
+      "inputs": [
+        {
+          "name": "assignmentId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "taskId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "worker",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "reserved",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        },
+        {
+          "name": "submitBy",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0xc3e68b06d87a16c5f46c453173e52bc33b8250efd5d62e742702f1e258fee280"
+    },
+    {
+      "type": "event",
+      "name": "Expired",
+      "inputs": [
+        {
+          "name": "assignmentId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0xf80dbaea4785589e52984ca36a31de106adc77759539a5c7d92883bf49692fe9"
+    },
+    {
+      "type": "event",
+      "name": "Resolved",
+      "inputs": [
+        {
+          "name": "assignmentId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "outcome",
+          "type": "uint8",
+          "indexed": false,
+          "internalType": "enum WorkEscrow.Outcome"
+        },
+        {
+          "name": "payout",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0x9e8270be22c213149f278b5bf643fc5f79654f93c3751cae4912cf8c445552ac"
+    },
+    {
+      "type": "event",
+      "name": "ReviewExpired",
+      "inputs": [
+        {
+          "name": "assignmentId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "returned",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0x9bec640a674147b284862a38537c2492048c9d4c94552d04106dd68fa74b5e0a"
+    },
+    {
+      "type": "event",
+      "name": "Submitted",
+      "inputs": [
+        {
+          "name": "assignmentId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "candidate",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "evidence",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "delivery",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "reviewBy",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0x6d72663dc1b3a5b0483b999e3fd4aba578de5b8f6f5d71dcd4df4363a3f8d510"
+    },
+    {
+      "type": "event",
+      "name": "TaskClosed",
+      "inputs": [
+        {
+          "name": "taskId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "reclaimed",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0xe31eb033942fcbd12ae4a23e2ec0917b2818a7b539c55f083e897e21e0ce219b"
+    },
+    {
+      "type": "event",
+      "name": "TaskCreated",
+      "inputs": [
+        {
+          "name": "taskId",
+          "type": "uint256",
+          "indexed": true,
+          "internalType": "uint256"
+        },
+        {
+          "name": "requester",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "packageHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "policyHash",
+          "type": "bytes32",
+          "indexed": false,
+          "internalType": "bytes32"
+        },
+        {
+          "name": "funding",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0x07ac3fb1085d6fdbf9a1527cea6bf23ff6fb16825736c0ad6cbc87ce5e5f6b7e"
+    },
+    {
+      "type": "event",
+      "name": "Withdrawn",
+      "inputs": [
+        {
+          "name": "account",
+          "type": "address",
+          "indexed": true,
+          "internalType": "address"
+        },
+        {
+          "name": "amount",
+          "type": "uint256",
+          "indexed": false,
+          "internalType": "uint256"
+        }
+      ],
+      "anonymous": false,
+      "topic": "0x7084f5476618d8e60b11ef0d7d3f06914655adb8793e28ff7f018d4c76d505d5"
+    }
+  ]
+}

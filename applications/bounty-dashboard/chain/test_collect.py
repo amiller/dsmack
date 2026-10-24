@@ -3,12 +3,12 @@ s=importlib.util.spec_from_file_location('collect',pathlib.Path(__file__).with_n
 C=json.loads((m.HERE/'registry.json').read_text())['contracts'][0]
 def word(n):return format(n,'064x')
 class Mock:
- def __init__(self):self.ranges=[];self.chain=84532;self.badreceipt=False;self.logs=[]
+ def __init__(self):self.ranges=[];self.chain=84532;self.badreceipt=False;self.logs=[];self.receipt_to=C['address']
  def __call__(self,method,p):
   if method=='eth_chainId':return hex(self.chain)
   if method=='eth_getBlockByNumber':return {'number':p[0],'hash':'0x'+'a'*64,'timestamp':'0x1'}
   if method=='eth_getLogs':self.ranges.append(p[0]);return self.logs
-  if method=='eth_getTransactionReceipt':return {'status':'0x0' if self.badreceipt else '0x1','blockHash':'0x'+'a'*64,'transactionHash':'0x'+'b'*64,'to':C['address'],'logs':self.logs}
+  if method=='eth_getTransactionReceipt':return {'status':'0x0' if self.badreceipt else '0x1','blockHash':'0x'+'a'*64,'transactionHash':'0x'+'b'*64,'to':self.receipt_to,'logs':self.logs}
   raise ValueError('RPC failure')
 class Tests(unittest.TestCase):
  def test_pagination_resume(self):
@@ -27,6 +27,7 @@ class Tests(unittest.TestCase):
   result,_=m.collect_contract(C,lambda *args:(_ for _ in ()).throw(ValueError('provider error')),None,0);self.assertEqual(result['contracts'][0]['status'],'unknown')
  def test_receipt_provenance(self):
   r=Mock();e=next(x for x in m.ABI['events'] if x['name']=='Withdrawn');r.logs=[{'address':C['address'],'topics':[e['topic'],'0x'+word(1)],'data':'0x'+word(25),'blockNumber':hex(C['deployment_block']),'blockHash':'0x'+'a'*64,'transactionHash':'0x'+'b'*64,'logIndex':'0x0'}]
+  r.receipt_to='0x'+'c'*40
   state,_=m.scan(r,C,C['deployment_block'],None,1);self.assertEqual(state['events'][0]['fields']['amount'],'25');r.badreceipt=True
   with self.assertRaisesRegex(ValueError,'receipt mismatch'):m.scan(r,C,C['deployment_block'],None,1)
  def test_snapshot_amounts_and_pooled_payment(self):

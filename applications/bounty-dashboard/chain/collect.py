@@ -59,7 +59,7 @@ def scan(r,c,head,state,max_pages):
   for log in logs:
    e=event(log,c);need(start<=e['block_number']<=end,'event outside requested range')
    block=r('eth_getBlockByNumber',[hex(e['block_number']),False]);need(block and block['hash']==e['block_hash'],'noncanonical log')
-   receipt=r('eth_getTransactionReceipt',[e['transaction_hash']]);need(receipt and receipt['status']=='0x1' and receipt['blockHash']==e['block_hash'] and receipt['transactionHash']==e['transaction_hash'] and receipt['to'].lower()==c['address'],'event receipt mismatch')
+   receipt=r('eth_getTransactionReceipt',[e['transaction_hash']]);need(receipt and receipt['status']=='0x1' and receipt['blockHash']==e['block_hash'] and receipt['transactionHash']==e['transaction_hash'],'event receipt mismatch')
    need(any(x==log for x in receipt['logs']),'event missing from receipt');e['timestamp']=int(block['timestamp'],16);batch.append(e)
   anchor=r('eth_getBlockByNumber',[hex(end),False]);need(anchor,'missing event anchor');events.extend(batch);through=end;throughhash=anchor['hash'];start=end+1;pages+=1
  return {'contract_id':str(c['chain_id'])+':'+c['address'],'through_block':through,'through_hash':throughhash,'events':events,'reorg_reset':reorg},pages

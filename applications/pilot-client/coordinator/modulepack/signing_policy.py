@@ -31,7 +31,7 @@ REQUIRED_ENTITLEMENTS = (
 # carries OU=DC9JH5DRMY (its CN suffix QJUJ9F2UE4 is a per-certificate identifier, not a
 # team), and every provisioning profile on the Mini carries TeamIdentifier DC9JH5DRMY
 # with application-identifier DC9JH5DRMY.dev.dsmack.provider. No current profile carries
-# com.apple.security.hypervisor -- see packet/sign-production.md for the endorsement
+# com.apple.security.hypervisor -- see runner-vm/packaging/sign-production.md for the endorsement
 # constraint that follows from that. NOT yet Astra-approved: admission under this profile
 # requires an independent review of the exact policy text and the entitlements plist.
 HVF_REQUIRED_ENTITLEMENTS = (

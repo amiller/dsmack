@@ -5,7 +5,17 @@ It recognizes independently signed copies of the same Mac program, so developers
 can build and sign the software under their own Apple accounts. Peers can then
 verify the app behind a signed message.
 
-Two uses motivate the project:
+[Website](https://amiller.github.io/dsmack/) ·
+[Architecture](docs/architecture.md) ·
+[Run a task](docs/running.md) ·
+[App Attest verifiers](app-attest/README.md)
+
+<p align="center">
+  <a href="https://amiller.github.io/dsmack/bounties.html"><img src="docs/images/bounty-flow.webp" width="680" alt="A requester funds a smart contract; a Mac mini submits a result and execution evidence; the worker claims the reward."></a>
+</p>
+<p align="center"><em>The bounty application: fund a task, submit work with evidence, and claim the reward.</em></p>
+
+## Applications
 
 - **Peer-to-peer services:** authenticate the software on another Mac before
   exchanging requests or secrets.
@@ -17,9 +27,12 @@ implementation, and DsmackRunner—a signed macOS app that runs workloads inside
 Linux VM. The bounty application uses that runtime to check submitted code.
 Arcade's Board-search task is its first example.
 
-[Protocol discussion draft](https://amiller.github.io/dsmack/protocol.html) ·
-[How execution works](docs/architecture.md) ·
-[Run a task](docs/running.md)
+DsmackRunner reads the Linux image and task configuration at launch. The tools
+and dependencies for each task go in its container, so different workloads can
+reuse the same macOS app and Linux image.
+
+<details>
+<summary>VM execution path</summary>
 
 ```text
 App Attest policy + approved code + signed messages       app-attest/, contracts/
@@ -28,11 +41,11 @@ App Attest policy + approved code + signed messages       app-attest/, contracts
             └─ bounty checks and reward decisions        applications/bounties/
 ```
 
-DsmackRunner reads the Linux image and task configuration at launch. The tools
-and dependencies for each task go in its container, so different workloads can
-reuse the same macOS app and Linux image.
-[docs/architecture.md](docs/architecture.md) explains the VM, disks and execution
-records; [docs/running.md](docs/running.md) gives installation and run commands.
+[Architecture](docs/architecture.md) explains the VM, disks and execution
+records. [Running a task](docs/running.md) covers installation, execution,
+verification and cleanup.
+
+</details>
 
 ## Repository map
 

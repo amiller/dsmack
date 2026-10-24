@@ -35,7 +35,8 @@ document (`request`, `results`, and ten `originals` stages with `report`,
 
 ```sh
 # Anvil escrow rehearsal: settlement, duplicate resolution, withdrawal, timeout refund.
-node applications/bounty-settlement/rehearse-local.mjs /path/to/WorkEscrow.json /new/output-directory
+forge build --root contracts/work-escrow --offline
+node applications/bounty-settlement/rehearse-local.mjs contracts/work-escrow/out/WorkEscrow.sol/WorkEscrow.json /new/output-directory
 # HTTP walkthrough of the acceptance service with synthetic stage proofs.
 node applications/bounty-settlement/walkthrough-local.mjs
 ```

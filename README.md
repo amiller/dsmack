@@ -11,7 +11,7 @@ verify the app behind a signed message.
 [App Attest verifiers](app-attest/README.md)
 
 <p align="center">
-  <a href="https://amiller.github.io/dsmack/bounties.html"><img src="docs/images/bounty-flow.webp" width="680" alt="A requester funds a smart contract; a Mac mini submits a result and execution evidence; the worker claims the reward."></a>
+  <a href="https://amiller.github.io/dsmack/bounties.html"><img src="docs/images/bounty-flow-transparent.webp" width="680" alt="A requester funds a smart contract; a Mac mini submits a result and execution evidence; the worker claims the reward."></a>
 </p>
 <p align="center"><em>The bounty application: fund a task, submit work with evidence, and claim the reward.</em></p>
 

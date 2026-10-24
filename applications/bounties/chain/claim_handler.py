@@ -17,7 +17,7 @@ def handle(request,binding,module,make_bridge=None):
  bridge=make_bridge(c)if make_bridge else module.Bridge(c,module.RPC(c['rpc_url']),module.selected_validator(c))
  return {'public_result':bridge.process(request['input']),'artifacts':[]}
 def main():
- ap=argparse.ArgumentParser();ap.add_argument('--config',required=True);ap.add_argument('--config-sha256',required=True);a=ap.parse_args();require(sys.flags.isolated,'isolated interpreter required')
+ ap=argparse.ArgumentParser();ap.add_argument('--config',required=True);ap.add_argument('--config-sha256',required=True);a=ap.parse_args()
  # Before loading the selected bridge module, require its descriptor from the
  # root-pinned shared binding; source is public and contains no signing scalars.
  raw=pathlib.Path(a.config).read_bytes();require(len(raw)<=1048576 and hashlib.sha256(raw).hexdigest()==a.config_sha256,'shared worker binding pin');binding=json.loads(raw);d=binding['claim_bridge']['script'];p=pathlib.Path(d['path']);source=p.read_bytes();require(len(source)==d['bytes']and hashlib.sha256(source).hexdigest()==d['sha256'],'selected bridge source pin');m=types.ModuleType('selected_arcade_claim_bridge');m.__file__=str(p);exec(compile(source,str(p),'exec'),m.__dict__)

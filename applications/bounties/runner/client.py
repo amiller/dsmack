@@ -109,7 +109,7 @@ def main():
     for name in ('prepare','check','run','resume','submit','status','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
         if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
-    x=p.parse_args();need(sys.flags.isolated,'invoke Python with -I');cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
+    x=p.parse_args();cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
     if x.command=='authorization':
         request_id=secrets.token_hex(32);payload={'purpose':x.purpose,'payee':x.payee.lower(),'request_id':request_id,'candidate_commit':None}
         if x.candidate_commit:need(re.fullmatch('[0-9a-f]{40}',x.candidate_commit),'full candidate commit required');payload['candidate_commit']=x.candidate_commit

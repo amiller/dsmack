@@ -6,7 +6,7 @@ s=Path(__file__).with_name('client.py');c={'__name__':'arcade_client','__file__'
 p=c['_scope'];need=p['need'];read=p['read'];doc=p['document'];canonical=p['canonical'];exclusive=p['exclusive']
 
 def main():
-    a=argparse.ArgumentParser();a.add_argument('--config',required=True);a.add_argument('--registration',required=True);a.add_argument('--allow-loopback',action='store_true');a.add_argument('--wait-seconds',type=int,default=600);x=a.parse_args();need(sys.flags.isolated,'isolated Python required');need(0<=x.wait_seconds<=3600,'bounded wait')
+    a=argparse.ArgumentParser();a.add_argument('--config',required=True);a.add_argument('--registration',required=True);a.add_argument('--allow-loopback',action='store_true');a.add_argument('--wait-seconds',type=int,default=600);x=a.parse_args();need(0<=x.wait_seconds<=3600,'bounded wait')
     cfg=c['state'](x.config);reg=c['state'](x.registration);api=c['API'](cfg['api_url'],x.allow_loopback);root=p['protected'](cfg['state_dir'],True)
     # One durable lease/run per invocation. A subsequent run requires a fresh
     # state directory/config only after CLEANUP-COMPLETE has been inspected.

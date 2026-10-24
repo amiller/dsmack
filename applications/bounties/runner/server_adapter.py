@@ -110,7 +110,7 @@ def settlement_binding(config,value,job):
     exclusive(job/'SETTLEMENT-BINDING.json',canonical(binding));return {'public_result':binding,'artifacts':[]}
 
 def main():
-    a=argparse.ArgumentParser();a.add_argument('--config',required=True);a.add_argument('--config-sha256',required=True);x=a.parse_args();need(sys.flags.isolated,'isolated Python required')
+    a=argparse.ArgumentParser();a.add_argument('--config',required=True);a.add_argument('--config-sha256',required=True);x=a.parse_args()
     raw=read(x.config);need(hashlib.sha256(raw).hexdigest()==x.config_sha256,'selected adapter config changed');config=doc(raw)
     raw=sys.stdin.buffer.read((1<<20)+1);need(len(raw)<=1<<20,'job input cap');request=doc(raw);need(set(request)=={'action','input','job_dir','input_sha256'},'job contract')
     job=protected(request['job_dir'],True);need(job.is_relative_to(protected(config['state_dir'],True)),'job outside owned state')

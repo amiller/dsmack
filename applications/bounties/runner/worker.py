@@ -65,7 +65,7 @@ def run_one(config,api):
 
 def main():
     a=argparse.ArgumentParser();a.add_argument('--config',required=True);a.add_argument('--config-sha256',required=True);a.add_argument('--once',action='store_true');a.add_argument('--allow-loopback',action='store_true');x=a.parse_args()
-    need(sys.flags.isolated,'invoke Python with -I');raw=read(x.config);need(hashlib.sha256(raw).hexdigest()==x.config_sha256,'independently selected worker config required');config=doc(raw)
+    raw=read(x.config);need(hashlib.sha256(raw).hexdigest()==x.config_sha256,'independently selected worker config required');config=doc(raw)
     need(type(config['timeout_seconds'])is int and 0<config['timeout_seconds']<=1800,'bounded handler lifetime');api=c['API'](config['api_url'],x.allow_loopback)
     while True:
         ran=run_one(config,api)

@@ -38,7 +38,7 @@ def state_directory(root,override=None):
     return state
 
 def main():
-    a=argparse.ArgumentParser();a.add_argument('--api',required=True);a.add_argument('--home',required=True);a.add_argument('--state-dir');a.add_argument('--node',required=True);a.add_argument('--public-key',required=True);a.add_argument('--allow-loopback',action='store_true');x=a.parse_args();need(sys.flags.isolated,'isolated Python required')
+    a=argparse.ArgumentParser();a.add_argument('--api',required=True);a.add_argument('--home',required=True);a.add_argument('--state-dir');a.add_argument('--node',required=True);a.add_argument('--public-key',required=True);a.add_argument('--allow-loopback',action='store_true');x=a.parse_args()
     root=Path(x.home).expanduser();need(root.is_absolute()and not root.exists(),'fresh local installation destination; never overwrite partial state');protected(root.parent,True)
     state=state_directory(root,x.state_dir)
     public=read(x.public_key,4096);need(hashlib.sha256(public).hexdigest()==ROOT_SHA,'independently selected maintainer key fingerprint required')

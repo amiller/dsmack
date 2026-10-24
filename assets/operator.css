@@ -103,3 +103,5 @@ body{background:radial-gradient(ellipse at 90% 0,#19302D 0,transparent 40rem),va
 
 /* Workload examples sit inside the application-specific container. */
 .runtime-examples{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.runtime-examples span{padding:10px 14px;border:1px solid var(--line);border-radius:6px;color:var(--green)}
+
+.execution-path{white-space:pre-wrap;overflow-wrap:anywhere}

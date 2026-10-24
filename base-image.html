@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="The signed Mac runner, reusable Linux VM, task container, input disks, outputs and App Attest evidence.">
-<title>Base-image architecture · Dsmack</title>
+<meta name="description" content="Design decisions in the reusable Debian ARM64 guest: verified boot, storage, Docker runtime, workload policies, inputs, outputs and image builds.">
+<title>Linux base image · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
@@ -13,7 +13,7 @@
 <a class="brand" href="index.html">dsmack</a>
 <div class="links">
 <a href="index.html">Overview</a>
-<a href="base-image.html" aria-current="page">Runtime</a>
+<a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>
 <a href="app-attest.html">App Attest</a>
@@ -23,153 +23,63 @@
 </header>
 <main class="wrap">
 <section class="pagehero architecture-hero">
-<h1>How the base image<br>runs a task.</h1>
-<p class="lead">The Mac app is the launcher. The Linux base is the reusable execution environment. The task container supplies the program to run.</p>
-<p>A task does not need its own Mac application. It selects a compatible container, execution manifest and inputs, which the existing app and VM base can run.</p>
-<figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork showing several Mac minis; a visual introduction to reusable runner hardware." width="1280" height="360" loading="eager" decoding="async"></figure>
+<h1>Inside the reusable<br>Linux base image.</h1>
+<p class="lead">The base image supplies Linux, the guest supervisor and the container runtime. Application code arrives separately in a task container.</p>
+<p>The current reference is a dstack-derived Debian trixie ARM64 image. The signed macOS app selects its kernel, initramfs and system image by their recorded identities. This page explains the choices inside that guest; <a href="architecture.html">the architecture guide</a> follows the macOS app and Apple’s hypervisor.</p>
+<figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork of Mac minis that can reuse the same Linux guest image." width="1280" height="360" loading="eager" decoding="async"></figure>
+<p><a href="#boot">Boot and system integrity</a> · <a href="#storage">Storage</a> · <a href="#containers">Container policies</a> · <a href="#build">Build and versioning</a></p>
 </section>
-<section class="section">
-<h2>Reuse the base image. Customize the containers.</h2>
-<div class="runtime-figure" role="group" aria-label="Reusable signed macOS app and Linux VM, with an application-specific task container inside the VM">
-<div class="lane-label">Shared across applications · reuse the same pinned versions</div>
-<div class="runtime-label">Signed macOS app</div>
-<p>Checks the selected inputs · starts the VM · signs launch and result statements</p>
-<div class="runtime-vm">
-<div class="runtime-label">Reusable Linux VM image</div>
-<p>Guest OS, supervisor and container runtime</p>
-<div class="runtime-container">
-<div class="lane-label">Changes with the application</div>
-<div class="runtime-label">Your task container</div>
-<p>Select the container image, command, task inputs and resource/network settings.</p>
-<div class="runtime-examples" aria-label="Example workloads"><span>Coding agent</span><span>Browser / CI tests</span></div>
-<p>Returns output files and a result record.</p>
-</div>
-</div>
-</div>
-<p>The signed app and base VM image are application neutral. Review a particular version once, then reuse it for different workloads. Customize the task container, inputs and acceptance checks without rebuilding either. Each run’s evidence identifies the selected components.</p>
-<p>A review applies to the pinned versions you checked. A new container and its requested permissions need their own review.</p>
-<p class="note">Current Mac path: Swift / libkrun / Hypervisor.framework. This is the VM runner, separate from the older Containerization-based node application.</p>
+<section class="section" id="choices">
+<h2>What belongs in the base image?</h2>
+<p>The base establishes how workloads are admitted, executed and exported. A coding-agent CLI, browser-test harness, repository checkout or bounty’s acceptance routine belongs in the selected container and task inputs. Changing those does not inherently require a new Linux image or a new signed macOS app.</p>
+<div class="tablewrap"><table><thead><tr><th>Base-image choice</th><th>Current implementation</th><th>Effect on applications</th></tr></thead><tbody>
+<tr><td data-label="">Guest platform</td><td data-label="Current implementation">Debian trixie, ARM64, derived from dstack</td><td data-label="Effect on applications">Containers must support the guest architecture and selected runtime.</td></tr>
+<tr><td data-label="">System integrity</td><td data-label="Current implementation">Explicit boot-image hashes; dm-verity and a read-only squashfs system</td><td data-label="Effect on applications">Workloads write to separate storage rather than modifying the base.</td></tr>
+<tr><td data-label="">Guest startup</td><td data-label="Current implementation">Initramfs starts the trusted supervisor directly, without systemd</td><td data-label="Effect on applications">The supervisor controls workload admission, execution and export.</td></tr>
+<tr><td data-label="">Container interface</td><td data-label="Current implementation">Docker plus a validated Compose subset</td><td data-label="Effect on applications">Workloads declare images, commands, input slots and supported settings.</td></tr>
+<tr><td data-label="">Isolation and network settings</td><td data-label="Current implementation">Selected runtime and security profiles</td><td data-label="Effect on applications">A task must fit an admitted profile; arbitrary Docker flags are not accepted.</td></tr>
+<tr><td data-label="">Result transport</td><td data-label="Current implementation">A separate writable result disk, receipt and export index</td><td data-label="Effect on applications">Outputs can be retained and checked after the VM stops.</td></tr>
+</tbody></table></div>
+<p>The recipe is a reference selection. A different distribution, kernel or guest runtime would be a new image requiring its own review and qualification. The macOS app can admit a different compatible image without embedding that image into the app.</p>
 </section>
-<section class="section">
-<h2>What goes into the VM</h2>
-<div class="grid3">
-<article class="card">
-<h3>Boot bundle</h3>
-<p>Selected kernel, initrd and protected Linux system image. These supply the reusable base rather than a particular task.</p>
-</article>
-<article class="card">
-<h3>Public workload disk</h3>
-<p>The pinned OCI image, execution manifest and public task files. The current delivery format packages them together; their identities and bindings are checked.</p>
-</article>
-<article class="card">
-<h3>Private inputs, if used</h3>
-<p>A separately selected input channel supplies only the data allowed by that profile. The credential-free starter has none.</p>
-</article>
-</div>
-</section>
-<section class="section">
-<h2>What happens after launch</h2>
+<section class="section" id="boot">
+<h2>How the guest boots a checked system</h2>
 <ol class="steps">
-<li>
-<strong>Boot the protected system</strong>
-<p>The guest verifies and mounts its system image read-only.</p>
-</li>
-<li>
-<strong>Check the workload</strong>
-<p>The supervisor validates the selected public payload, manifest and OCI identity before running it.</p>
-</li>
-<li>
-<strong>Run in disposable storage</strong>
-<p>The container uses separate scratch space for Docker state and working data. The task runs under the selected limits and network profile.</p>
-</li>
-<li>
-<strong>Export the result</strong>
-<p>The guest writes outputs and a receipt to the result disk. The Mac app retains the launch assertion and a result assertion bound to the finalized result envelope.</p>
-</li>
+<li><strong>The macOS app selects the boot files</strong><p>The image manifest identifies the kernel, initramfs and system-disk bytes. The app checks their hashes and the selected admission policy before using them in the VM.</p></li>
+<li><strong>The initramfs opens the verified system disk</strong><p>The boot command line specifies the system device, expected verity root hash and data size. The init script opens a dm-verity mapping with corruption configured to panic, then mounts the squashfs filesystem read-only.</p></li>
+<li><strong>The supervisor takes control</strong><p>The init script switches into that filesystem and runs the guest supervisor directly. The supervisor prepares writable disks, validates the workload payload and starts the selected container runner.</p></li>
 </ol>
-<div class="disk-row">
-<div>
-<b>System disk</b>
-<span>Read-only Linux base</span>
-</div>
-<div>
-<b>Workload disk</b>
-<span>Public program + task inputs</span>
-</div>
-<div>
-<b>Scratch disk</b>
-<span>Disposable working state</span>
-</div>
-<div>
-<b>Result disk</b>
-<span>Retained outputs + receipt</span>
-</div>
-</div>
+<p>dm-verity checks system blocks as Linux reads them. The expected root hash connects those checks to the chosen image identity. This checks guest system integrity; it does not encrypt VM memory or private inputs against the host.</p>
+<p><a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/guest/init-dstack-arm64.sh">Boot init script</a> · <a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/guest/supervisor-dstack-trixie.sh">Guest supervisor</a></p>
 </section>
-<section class="section">
-<h2>What the evidence binds</h2>
-<p>The run has selected identities for the app, base, workload, manifest and task inputs. The guest receipt records workload and output commitments. The app’s App Attest assertions bind its launch and finalized result statements.</p>
-<p>The full verifier checks those relationships against independently selected expectations and original retained bytes. It checks both execution validity and the task’s expected outcome. A summary JSON is not a substitute for that evidence.</p>
-<p>Apple authenticates the app’s key and assertions; it does not directly measure the Linux VM or judge the code. The runner and verification protocol supply the execution bindings.</p>
+<section class="section" id="storage">
+<h2>Keep the reusable system separate from each run’s data</h2>
+<div class="disk-row"><div><b>vda · System</b><span>Read-only, verity-checked Linux filesystem</span></div><div><b>vdb · Scratch</b><span>Writable ext4 disk for ephemeral Docker and working state</span></div><div><b>vdc · Workload</b><span>Read-only public payload: OCI image, manifest and declared inputs</span></div><div><b>vdd · Result</b><span>Writable ext4 disk for exported files and the receipt</span></div></div>
+<p>The guest also uses tmpfs for transient runtime files. An optional private-input disk, vde, is admitted separately; private credentials do not belong in the public workload disk. Its contents are not included in the app’s public input measurement.</p>
+<p>Each run gets disposable working storage and a result destination. Reusing the same base identity does not mean reusing a previous task’s writable state. Outputs and verification records are preserved before temporary disks are cleaned up.</p>
 </section>
-<section class="section">
-<h2>What can change independently?</h2>
-<div class="tablewrap">
-<table>
-<thead>
-<tr>
-<th>Change</th>
-<th>What must be selected again</th>
-<th>New Mac app?</th>
-</tr>
-</thead>
-<tbody>
-<tr>
-<td data-label="">Task or candidate code</td>
-<td data-label="What must be selected again">Task/input identities and acceptance context</td>
-<td data-label="New Mac app?">No, within the supported contract</td>
-</tr>
-<tr>
-<td data-label="">Agent or test container</td>
-<td data-label="What must be selected again">OCI digest, execution manifest and workload policy</td>
-<td data-label="New Mac app?">No, within the supported contract</td>
-</tr>
-<tr>
-<td data-label="">Linux kernel or guest runtime</td>
-<td data-label="What must be selected again">Base identity and qualification</td>
-<td data-label="New Mac app?">Not inherently</td>
-</tr>
-<tr>
-<td data-label="">Native launcher or entitlements</td>
-<td data-label="What must be selected again">App build, signature, identity and qualification</td>
-<td data-label="New Mac app?">Yes</td>
-</tr>
-</tbody>
-</table>
-</div>
-<p>The compose format is a validated subset with digest-pinned images, declared files and bounded resources. It is not unrestricted Docker Compose.</p>
+<section class="section" id="containers">
+<h2>How the base admits and runs a container</h2>
+<p>The supervisor validates the public workload archive’s structure before extraction, then checks its payload hashes before execution. The execution manifest selects the OCI image, command, declared inputs, resource bounds and supported security settings. The Compose runner validates this contract before lowering it to Docker Compose configuration.</p>
+<div class="split"><div><h3>Container runtime</h3><p>The implementation supports explicit registrations for runc and gVisor runsc profiles, including a runsc hostnet profile. A requested runtime must be available with the selected runtime closure; the runner refuses an unavailable registration instead of silently falling back. The gVisor selection requires its systrap platform.</p></div><div><h3>Network and sandbox policy</h3><p>The contract has network-none, NAT and gVisor hostnet modes. Published TCP ports bind to loopback. The guest NAT configuration does not establish a LAN or egress-isolation policy by itself. Which routes a workload can use depends on the selected profile and network setup.</p></div></div>
+<p>The credential-free browser preset is more specific: network disabled, no credential broker, a read-only container root, nonprivileged execution and pinned seccomp, capability and resource settings. The broader runtime options in the source are not a claim that every combination has been qualified.</p>
+<p>A container can bring a coding agent or browser tools without putting them in the base image. Task-specific dependencies, prompts and acceptance checks stay with that workload.</p>
+<p><a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/runner-content/lib/dsmack_compose_contract/security.py">Security profiles</a> · <a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/runner-content/lib/dsmack_compose_contract/lowering.py">Compose and network settings</a> · <a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/runner.py">Container runner</a></p>
 </section>
-<section class="section">
-<h2>Current implementation and source</h2>
-<p>The released B44 base and flat starter container have completed actual hardware-backed execution and full result verification on the qualification Mac. Fresh normally secured Mac first-open is not yet qualified. Current private-input staging trusts the Mac’s owner; this is not an encrypted-VM guarantee against host root.</p>
-<ul class="source-list">
-<li>
-<a href="https://github.com/amiller/dsmack/tree/main/runner-vm">Signed runner source</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1/source">Guest boot, supervisor and container contract</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client/verifier">Full result verifier</a>
-</li>
-<li>
-<a href="https://github.com/amiller/dsmack/blob/main/docs/base-image-architecture.md">Architecture source guide</a>
-</li>
-</ul>
-<div class="buttons">
-<a class="button primary" href="build.html">Run the example</a>
-<a class="button" href="app-attest.html">App Attest on-chain</a>
-</div>
+<section class="section" id="outputs">
+<h2>How inputs become checkable outputs</h2>
+<p>Public input envelopes are bound to the selected manifest and its declared file slots. For profiles using subscription credentials, a separate private-input and broker route supplies the permitted data. The current staging path trusts the Mac’s owner with plaintext private inputs.</p>
+<p>After the workload, the guest exporter captures the requested files, records their hashes in an index and receipt, and writes the export-complete marker last. A failed or cancelled workload can also produce evidence; completion of export does not mean the task succeeded.</p>
+<p>The macOS app finalizes and hashes the result disk, then binds the result envelope in an App Attest assertion. The independent verifier checks those original bytes against the requested outcome. <a href="architecture.html#evidence">Follow the complete evidence path →</a></p>
+<p><a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1/source/runner-content/dsmack_guest_io">Guest input/output transport</a> · <a href="https://github.com/amiller/dsmack/blob/main/base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/export_outputs.py">Output exporter</a></p>
+</section>
+<section class="section" id="build">
+<h2>How the current image is built and versioned</h2>
+<p>The supported recipe derives an image from an existing pinned base. It checks the selected source lock, parent artifacts, builder and disk templates; overlays the reviewed guest files; then assembles a new verity-protected image and metadata. This is an existing-base derivation, not a clean rebuild of Debian, Linux and every dependency from source.</p>
+<p>The current B44 reference is a broker-timeout derivative of the earlier browser-sandbox base. It changes two broker timeout constants, keeps the selected kernel and templates, and produces a new system image, verity root and OS image identity. The broker still buffers responses. That guest-service change does not change the signed macOS app or put a coding-agent CLI into the base.</p>
+<p>Changes to the kernel, initramfs, system filesystem or guest services require selecting and qualifying the new base identity. A different task container or task input selects new workload identities while retaining the same base. A native app change requires a new app build and identity.</p>
+<p><a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1">Parent image source and derivation instructions</a> · <a href="https://github.com/amiller/dsmack/tree/main/base-vm/broker-timeout-v1">B44 derivative recipe</a> · <a href="https://github.com/amiller/dsmack/blob/main/docs/base-image-architecture.md">Source inspection guide</a></p>
+<div class="buttons"><a class="button primary" href="architecture.html">Back to the execution architecture</a><a class="button" href="build.html">Run the example</a></div>
 </section>
 </main>
 <footer>
@@ -177,7 +87,7 @@
 <p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
 
 <a href="index.html">Overview</a>
-<a href="base-image.html">Runtime</a>
+<a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>
 <a href="app-attest.html">App Attest</a>

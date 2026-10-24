@@ -10,7 +10,7 @@
 <body>
 <header><nav class="wrap" aria-label="Main"><a class="brand" href="index.html">dsmack</a><div class="links">
 <a href="index.html" aria-current="page">Overview</a>
-<a href="base-image.html">Runtime</a>
+<a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>
 <a href="app-attest.html">App Attest</a>
@@ -27,7 +27,7 @@
 <section class="section" id="applications">
 <h2>Shared Mac compute and open bounties.</h2>
 <div class="split">
-<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>Mac owners could offer unused compute and let other people run agreed software using services available through their accounts. A permissionless network would let operators bring their own Macs and verify each other’s execution evidence under a common policy.</p><p>Dsmack supplies the verification and runner components for building such a network.</p><a href="#layers">How the Mac runner works →</a></article>
+<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>Mac owners could offer unused compute and let other people run agreed software using services available through their accounts. A permissionless network would let operators bring their own Macs and verify each other’s execution evidence under a common policy.</p><p>Dsmack supplies the verification and runner components for building such a network.</p><a href="architecture.html#mac-app">How the signed macOS app works →</a></article>
 <article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward and publishes the task’s checks. Anyone can submit work, run those checks and claim payment by presenting the required evidence.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a Base Sepolia testnet reward. An off-chain verifier checked the evidence and signed the decision accepted by the escrow contract.</p><a href="bounties.html">Explore the bounty application →</a></article>
 </div>
 </section>
@@ -71,7 +71,7 @@
 </div>
 <p>The signed app and base VM image are application neutral. Review a particular version once, then reuse it for different workloads. Customize the task container, inputs and acceptance checks without rebuilding either. Each run’s evidence identifies the selected components.</p>
 <p>A review applies to the pinned versions you checked. A new container and its requested permissions need their own review.</p>
-<a href="base-image.html">Inspect the runtime, disks and input channels →</a>
+<a href="architecture.html">Follow the macOS app, Apple hypervisor and guest execution →</a>
 </section>
 <section class="section">
 <h2>Connect the result to the requested work.</h2>
@@ -90,7 +90,7 @@
 </main>
 <footer><div class="wrap"><p>Dsmack · Attested applications on independently operated Macs · Alpha.</p>
 <a href="index.html">Overview</a>
-<a href="base-image.html">Runtime</a>
+<a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>
 <a href="app-attest.html">App Attest</a>

@@ -4,6 +4,7 @@ cd "$(dirname "$0")"
 python3 -m pytest -q tests
 . app-attest/circuit/env.sh
 forge test --root contracts --offline --use "$SOLC"
+forge test --root contracts/work-escrow --offline --use "$SOLC"
 forge test --root app-attest/contracts --offline --use "$SOLC"
 app-attest/circuit/prove-leaf.sh
 python3 app-attest/circuit/negative-leaf.py

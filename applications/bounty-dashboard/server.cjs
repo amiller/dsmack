@@ -26,7 +26,7 @@ function project(row,kind){
  const out={};for(const k of FIELDS[kind].split(' '))if(row[k]!==undefined)out[k]=row[k];
  for(const k of ['url','issue_url','explorer_url','source_url'])if(k in out)out[k]=publicURL(out[k]);
  if(kind==='attempts'){
-  out.verification=pick(row.verification,'accepted level apple_verified functional_pass report_sha256');
+  out.verification=pick(row.verification,'accepted level apple_verified functional_pass functional_check_sha256 report_sha256');
   out.upload=pick(row.upload,'file_count bytes complete');out.inputs=pick(row.inputs,'file_count bytes complete');out.deadline=pick(row.deadline,'expires_at expired');
   out.artifacts=(Array.isArray(row.artifacts)?row.artifacts:[]).map(x=>{const a=pick(x,'name bytes sha256 visibility category');if(x.visibility==='public')a.url=publicURL(x.url);return a;});
  }

@@ -64,7 +64,3 @@ The live capture [live-apple.json](../app-attest/contracts/fixtures/live-apple.j
 enrolled in `0x6e4b6ccc2a8fe7e8d72ad50db673b74f75c2f0378eae4fd37b9989298e629f78`
 (14,255,800 gas) and its `a1` assertion verified in
 `0xdb21e46ffa14de4bb5da72a35dafe5d3480b86ad5b32940018dc97936dc8e5db` (195,952).
-
-Superseded the same day: the first pair, whose `setBuild` took the load-command
-offsets as arguments, at CDRegistry `0x6e0f02366c2f09a70da88726910390baeef9f6d8`
-and AppleAttestRegistryV1 `0xe49530aa82ddbf157b1cb47825712197ddc5ed5b`.

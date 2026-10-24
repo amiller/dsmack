@@ -3,9 +3,9 @@
 Before deploying an adapter:
 
 - Record the chain, AppleEndorsements address and `extcodehash` of its deployed
-  runtime. Match that runtime to the reviewed production `AppleEndorsements`
-  artifact with the recorded compiler settings. Reject test subclasses: `_rootKey`
-  is virtual. An address with code alone does not establish the Apple root.
+  runtime. Match that runtime to the production `AppleEndorsements` artifact
+  built with the recorded compiler settings. Reject test subclasses: `_rootKey`
+  is virtual, so a subclass can override the Apple root.
 - Check the adapter's endorsement address, policy/registry, platform profile,
   category and ACL, and the deployed verifier and linked ZKTranscriptLib against
   their reviewed artifacts. Record addresses and runtime code hashes.
@@ -14,16 +14,14 @@ Before deploying an adapter:
   `circuit/prove-leaf.sh` checks the VK and generated Solidity against the
   committed copies. Use Foundry 1.8.5; application solc 0.8.21, optimizer
   200/via IR; verifier solc 0.8.27, optimizer 1/no IR.
-- Run `./test.sh` against this candidate and record revision, machine and results.
-
-This checklist does not authorize deployment.
+- Run `./test.sh` and record revision, machine and results.
 
 ## Read-only code checks
 
 Run the builds and tests in [CONTRIBUTING.md](../CONTRIBUTING.md) first. Set
 `RPC`, `BLOCK`, `ENDORSEMENTS`, `VERIFIER`, `TRANSCRIPT` and adapter addresses
-from the deployment record. Pin `BLOCK` for all comparisons. These commands
-only read or simulate; they do not send transactions. Run all blocks in the
+from the deployment record. Pin `BLOCK` for all comparisons. The commands read
+state or simulate calls. Run all blocks in the
 same Bash shell, from the checkout root, with failure stopping enabled:
 
 ```sh
@@ -34,14 +32,11 @@ AppleEndorsements has no constructor arguments or immutables. Its expected
 runtime hash is produced directly from the production artifact. With the pinned
 settings above, expected runtime keccak256 is
 `0x2adc383e4a8a9cb9f369baa61e342e1331a3e52f24778411a14ff54d985f474d`.
-The check also pins this value so a different local artifact fails.
-The pin identifies the reproducible forced full build used for deployment; it
-does not claim bytecode equality across layouts. Read the
-artifact from this exact build: `forge inspect` may recompile a smaller source
-set, producing different optimized bytecode with solc 0.8.21/via IR. Runtime
-bytecode depends on the compilation unit: AppleEndorsements compiled alone
-differs from the full `src` build. Source verification must use the same full
-build and compiler settings.
+The check pins this value, so a different local artifact fails. The value comes
+from the forced full `src` build used for deployment. Runtime bytecode depends on
+the compilation unit: with solc 0.8.21/via IR, AppleEndorsements compiled alone
+(as `forge inspect` may do) differs from the full build. Read the artifact from
+the full build, and source-verify with the same build and compiler settings.
 
 ```sh
 forge build --force --root app-attest/contracts --offline --use "$SOLC"
@@ -142,8 +137,7 @@ takes `(address,address,bytes32,bytes32,bytes16,uint32,bool,address)`, appending
 the reviewed verifier address to MacAppAttestV1's arguments. Run the adapter
 block for each of these two contracts.
 Record complete arguments, linked addresses, expected and observed hashes
-with the revision. A failed `test`, simulation or build terminates the shell;
-do not continue past a failed check.
+with the revision. A failed `test`, simulation or build terminates the shell.
 
 ## Base Sepolia (chain 84532), 2026-10-21
 

@@ -56,11 +56,11 @@ App Attest enrollment.
 App Attest binds each assertion to a key that only the enrolled, signed app can
 use. With SIP and the hardened runtime, no process on the Mac, root included,
 can read the runner process, which holds the VM's memory. Physical memory probing
-and kernel exploits are outside this model. Private inputs are currently staged
+and kernel exploits are outside this model. Private inputs are staged
 as plaintext disk files on the host.
 
-The guest's compose receipt is not itself an Apple attestation. The outer app
-produces two assertions: one over the launch, one over the finalized result
+The guest writes a compose receipt onto the result disk; the outer app produces
+the two Apple assertions, one over the launch and one over the finalized result
 envelope. An authentic run can report a failed workload; the verifier reports
 evidence validity and task success separately.
 

@@ -108,7 +108,7 @@ python3 -I -B "$CAPSULE/stage_private.py" \
 ```
 
 The exporter copies only the OAuth fields, not settings, hooks, MCP config or
-history. See [JIT-PREPARATION.md](../applications/bounty-develop/JIT-PREPARATION.md).
+history. See [Preparing a run](../applications/bounty-develop/README.md#preparing-a-run).
 
 ## Verify
 

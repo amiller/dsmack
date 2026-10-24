@@ -29,19 +29,25 @@
 <figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork showing several Mac minis; a visual introduction to reusable runner hardware." width="1280" height="360" loading="eager" decoding="async"></figure>
 </section>
 <section class="section">
-<h2>The three layers</h2>
-<div class="runtime-figure" role="group" aria-label="Task container inside a reusable Linux VM inside the signed Mac runner">
-<div class="runtime-label">Mac · Signed runner app</div>
-<p>Admit selected boot/workload inputs · launch through Apple’s hypervisor · retain launch and result assertions</p>
+<h2>Reuse the base image. Customize the containers.</h2>
+<div class="runtime-figure" role="group" aria-label="Reusable signed macOS app and Linux VM, with an application-specific task container inside the VM">
+<div class="lane-label">Shared across applications · reuse the same pinned versions</div>
+<div class="runtime-label">Signed macOS app</div>
+<p>Checks the selected inputs · starts the VM · signs launch and result statements</p>
 <div class="runtime-vm">
-<div class="runtime-label">Reusable Linux VM base</div>
-<p>Kernel + initrd + verity-protected system disk<br>Guest supervisor · container runtime · input/output transport</p>
+<div class="runtime-label">Reusable Linux VM image</div>
+<p>Guest OS, supervisor and container runtime</p>
 <div class="runtime-container">
-<div class="runtime-label">Task container · pinned OCI image</div>
-<p>Coding agent, test harness or acceptance routine<br>Selected command, declared inputs and resource/network profile</p>
+<div class="lane-label">Changes with the application</div>
+<div class="runtime-label">Your task container</div>
+<p>Select the container image, command, task inputs and resource/network settings.</p>
+<div class="runtime-examples" aria-label="Example workloads"><span>Coding agent</span><span>Browser / CI tests</span></div>
+<p>Returns output files and a result record.</p>
 </div>
 </div>
 </div>
+<p>The signed app and base VM image are application neutral. Review a particular version once, then reuse it for different workloads. Customize the task container, inputs and acceptance checks without rebuilding either. Each run’s evidence identifies the selected components.</p>
+<p>A review applies to the pinned versions you checked. A new container and its requested permissions need their own review.</p>
 <p class="note">Current Mac path: Swift / libkrun / Hypervisor.framework. This is the VM runner, separate from the older Containerization-based node application.</p>
 </section>
 <section class="section">

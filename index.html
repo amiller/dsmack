@@ -51,16 +51,26 @@
 <a href="app-attest.html">Inspect both verifier paths and the live reference capture →</a>
 </section>
 <section class="section" id="layers">
-<h2>Run application workloads on a Mac.</h2>
-<p class="intro">The reference runner is a signed Mac app that starts a Linux virtual machine, runs the chosen workload and signs statements about its launch and result. The app, Linux image and workload can be distributed separately.</p>
-<div class="runtime-figure" role="group" aria-label="Signed Mac runner containing the selected Linux VM and application workload">
-<div class="runtime-label">Signed Mac runner</div>
-<p>Check the chosen inputs · launch the VM · sign launch and result statements with the App Attest key</p>
-<div class="runtime-vm"><div class="runtime-label">Linux VM image selected by its hash</div><p>Kernel, verified system disk, guest supervisor and container runtime</p>
-<div class="runtime-container"><div class="runtime-label">Application workload</div><p>Container + execution settings + task inputs<br>Produces a result record and the requested output files</p></div>
+<h2>Reuse the base image. Customize the containers.</h2>
+<p class="intro">A signed macOS app starts a Linux virtual machine and signs statements about its launch and result. The VM provides a reusable environment for application-specific containers.</p>
+<div class="runtime-figure" role="group" aria-label="Reusable signed macOS app and Linux VM, with an application-specific task container inside the VM">
+<div class="lane-label">Shared across applications · reuse the same pinned versions</div>
+<div class="runtime-label">Signed macOS app</div>
+<p>Checks the selected inputs · starts the VM · signs launch and result statements</p>
+<div class="runtime-vm">
+<div class="runtime-label">Reusable Linux VM image</div>
+<p>Guest OS, supervisor and container runtime</p>
+<div class="runtime-container">
+<div class="lane-label">Changes with the application</div>
+<div class="runtime-label">Your task container</div>
+<p>Select the container image, command, task inputs and resource/network settings.</p>
+<div class="runtime-examples" aria-label="Example workloads"><span>Coding agent</span><span>Browser / CI tests</span></div>
+<p>Returns output files and a result record.</p>
 </div>
 </div>
-<p>A new task can supply a different container or inputs while keeping the same Mac runner. The execution settings specify resource limits, network access and the files to return.</p>
+</div>
+<p>The signed app and base VM image are application neutral. Review a particular version once, then reuse it for different workloads. Customize the task container, inputs and acceptance checks without rebuilding either. Each run’s evidence identifies the selected components.</p>
+<p>A review applies to the pinned versions you checked. A new container and its requested permissions need their own review.</p>
 <a href="base-image.html">Inspect the runtime, disks and input channels →</a>
 </section>
 <section class="section">

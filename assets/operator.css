@@ -100,3 +100,6 @@ body{background:radial-gradient(ellipse at 90% 0,#19302D 0,transparent 40rem),va
 .aa .attest-copy{display:flex;flex-direction:column;gap:20px;min-width:0}
 .aa .attest-copy h1{font-size:clamp(42px,5.2vw,68px)}
 @media(max-width:850px){.image-hero,.aa .attest-intro{grid-template-columns:1fr;gap:28px}.mac-art.hero-art img,.mac-art.desk-art img{aspect-ratio:16/9}.mac-art.banner-art img{aspect-ratio:16/7}.image-hero{padding-top:40px}.hero-copy h1,.aa .attest-copy h1{font-size:clamp(40px,8vw,58px)}}
+
+/* Workload examples sit inside the application-specific container. */
+.runtime-examples{display:flex;flex-wrap:wrap;gap:10px;margin:18px 0}.runtime-examples span{padding:10px 14px;border:1px solid var(--line);border-radius:6px;color:var(--green)}

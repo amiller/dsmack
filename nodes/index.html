@@ -3,7 +3,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="referrer" content="no-referrer">
-<title>Dsmack nodes</title>
+<title>Earlier shared-key node directory · Dsmack</title>
 <link rel="icon" href="../assets/abalone.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="../assets/site.css">
@@ -30,19 +30,21 @@
 <nav class="nav" aria-label="Main">
 <a class="mark" href="../">Dsmack</a>
 <ul class="navlinks">
-<li><a href="../#join">Join</a></li>
+<li><a href="../index.html">Overview</a></li><li><a href="../architecture.html">Architecture</a></li>
 <li><a href="./" aria-current="page">Nodes</a></li>
-<li><a href="../build.html">Build it yourself</a></li>
+<li><a href="../build.html">Setup</a></li>
 <li><a href="../app-attest.html">App Attest</a></li>
-<li><a href="../#redeem">Redeem a coupon</a></li>
+<li><a href="../bounties.html">Bounties</a></li>
 </ul>
 </nav>
 </header>
 </div>
 <img class="banner" src="../assets/nodes-banner.jpg" width="1280" height="360" alt="Mac minis seen from above on dark slate, joined by thin threads of light, with abalone shells among them">
 <main class="wrap">
-  <h1>Nodes</h1>
-  <p class="intro">Base Sepolia registry plus relay check-ins · refresh every 30 seconds · a check-in older than 90 seconds is stale · <a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout</a></p>
+  <h1>Earlier shared-key node directory</h1>
+  <p class="intro">This directory belongs to the <a href="../legacy-node.html">Node 0.3.0 shared-key experiment</a>. It reads that experiment’s Base Sepolia registry and relay, when available. A listed node is a participant in the earlier key-sharing network. For current task attempts, checks and payments, open the <a href="../bounties.html">bounty dashboard</a>.</p>
+  <p class="intro">The page refreshes its registry and relay observations every 30 seconds. A check-in older than 90 seconds is stale. Source status appears below. · <a href="https://base-sepolia.blockscout.com/address/0xd4B33C83576a6049d29c6B849ec73491e52781a0">Registry on Blockscout</a></p>
+  <p class="intro"><strong>Online</strong> means the relay verified a signed check-in within 90 seconds. <strong>Admitted</strong> means the observed app build meets the registry’s current code policy. <strong>Key epoch</strong> identifies the shared-key generation reported by the node. These fields describe a check-in and key-sharing state; they do not reserve a runner or report a completed task.</p>
   <section aria-labelledby="members-title">
     <h2 id="members-title">Members <span class="badge" id="chain-state">unknown</span></h2>
     <p id="summary">Loading the registry.</p>
@@ -55,7 +57,7 @@
     <p id="directory-message">Loading the relay directory.</p>
     <small>Check-ins are opt-in. The relay verifies each App Attest assertion and receipt; this page displays its report. Members without a check-in show their last registry event instead.</small>
   </section>
-  <p class="note">The table lists members with a relay check-in still in the directory or a registry event in the last 24 hours; the button shows every member ever registered. "Online" is a verified relay check-in under 90 seconds old. Joining the registry requires an App Attest attestation; any Apple team may join, so it does not identify who runs the node. "Admitted" reads the CDHash of the member's last App Attest assertion from its category's adapter; for the measured category it is admitted while the <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a> has an open window for that build's M at the current block.</p>
+  <p class="note">The table lists members with a relay check-in still in the directory or a registry event in the last 24 hours; the button shows every member ever registered. "Online" is a verified relay check-in under 90 seconds old. Joining the registry requires an App Attest attestation; any Apple team may join, so it does not identify who runs the node. "Admitted" reads the CDHash of the member's last App Attest assertion from its category's adapter; for the measured category it is admitted while the <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a> has an open window for that build's M, its signer-independent code measurement, at the current block.</p>
   <noscript><p>This page needs JavaScript to read the registry.</p></noscript>
   <footer>
     <div><div class="display">Dsmack</div><div class="dim">Base Sepolia testnet</div></div>

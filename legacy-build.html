@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Build the Mac app under your own team · Dsmack</title>
+<title>Build historical Node 0.3.0 · Dsmack</title>
 <link rel="icon" href="assets/abalone.png">
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,300;9..144,400&family=IBM+Plex+Mono:wght@400&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
 <link rel="stylesheet" href="assets/site.css">
@@ -14,21 +14,22 @@
 <nav class="nav" aria-label="Main">
 <a class="mark" href="./">Dsmack</a>
 <ul class="navlinks">
-<li><a href="./#join">Join</a></li>
+<li><a href="index.html">Overview</a></li><li><a href="architecture.html">Architecture</a></li><li><a href="build.html">Current setup</a></li>
 <li><a href="nodes/">Nodes</a></li>
-<li><a href="build.html" aria-current="page">Build it yourself</a></li>
+<li><a href="legacy-build.html" aria-current="page">Historical build</a></li>
 <li><a href="app-attest.html">App Attest</a></li>
-<li><a href="./#redeem">Redeem a coupon</a></li>
+<li><a href="bounties.html">Bounties</a></li>
 </ul>
 </nav>
 </header>
 <main class="prose">
 <p class="eyebrow">Mirrors <a href="https://github.com/amiller/dsmack/blob/main/docs/build.md">docs/build.md</a></p>
-<h1>Build the Mac app under your own team</h1>
-<p>You can build the Mac node from source, sign it with your own Apple developer
-team, and check that it is the same program as the build the network admits.
-The signature, team and app name will differ from ours. The code must not.</p>
-<h2>What gets compared</h2>
+<h1>Build the historical Node 0.3.0 app</h1>
+<p>This guide belongs to the earlier <a href="legacy-node.html">shared-key Node experiment</a>. It records how an independently signed copy could produce the same admitted code measurement. To build or run the current VM runner, use the <a href="build.html">current setup guide</a>; the <a href="architecture.html">architecture page</a> explains its components.</p>
+<p>The Node 0.3.0 workflow built the Mac node from source, signed it with a participant’s own Apple developer
+team, and compared its program measurement with the build admitted by the earlier network.
+The signature, team and app name could differ; the code and relevant permissions had to match.</p>
+<h2>How the historical measurement worked</h2>
 <p>Every signed Mac app carries a code directory: a hash of each page of the
 program, plus hashes of its settings and entitlements. Apple hashes that
 directory again to get the CDHash, which is what App Attest reports. Your
@@ -44,7 +45,7 @@ code with the same permissions. The
 <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a>
 on Base Sepolia admits builds by M, so a build whose M is admitted can join
 whoever signed it.</p>
-<h2>What you need</h2>
+<h2>Requirements for reproducing Node 0.3.0</h2>
 <ul>
 <li>An Apple Silicon Mac on macOS 27.</li>
 <li>The exact Xcode, SDK and Swift versions in
@@ -54,7 +55,7 @@ whoever signed it.</p>
   explicit App ID with the App Attest capability, and a Developer ID
   provisioning profile for that App ID.</li>
 </ul>
-<h2>Build and sign</h2>
+<h2>Reproduce the historical build and signature</h2>
 <p>Check out the commit of the release you are reproducing, then use an output
 directory that does not exist yet:</p>
 <pre><code class="language-sh">python3 scripts/release/build_mac.py --gui --out build/mine \
@@ -87,7 +88,7 @@ else: an extra entitlement changes M.</p>
 release; the <a href="https://github.com/amiller/dsmack/releases/tag/node-v0.3.0">0.3.0 release notes</a>
 list <code>0xe361800e…b09cf4</code> for the app. If it does not match, the usual causes are a different commit, a different toolchain, a
 different flavor (<code>--gui</code> or not), or a change to the entitlements.</p>
-<h2>Try it without an Apple account</h2>
+<h2>Reproduce the measurement comparison locally</h2>
 <pre><code class="language-sh">scripts/release/measure_two_teams.sh build/two-teams
 </code></pre>
 <p>This builds the command-line node from two checkouts at different paths under
@@ -97,8 +98,7 @@ deliberately modified version. It passes only if the two honest builds share
 one M, the modified build has a different M, and all three CDHashes differ. The
 certificates live in a temporary keychain inside the output directory and are
 deleted when the script ends. Self-signed copies cannot use App Attest, so this
-only checks the measurement. The same check runs on every change to the Mac
-code in the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
+only checks the measurement. The comparison was also run by the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
 <a href="https://github.com/amiller/dsmack/actions/runs/38381216545">here is the run</a>
 for the 0.3.0 source commit <code>ad3855f</code>.</p>
 <section></section>

@@ -24,29 +24,29 @@
 <main class="wrap">
 <section class="pagehero image-hero"><div class="hero-copy">
 <h1>Development bounties<br>verified with App Attest.</h1>
-<p class="lead">A task creator funds a reward and fixes the acceptance rules. A contributor submits code and evidence that the required checks ran on it. The pilot’s verifier bridge authorizes settlement through an escrow contract.</p>
-<p>The board-search pilot runs acceptance checks in a Linux VM and retains App Attest evidence about that execution. Its Base Sepolia journey completed verification, settlement and withdrawal using a controlled test wallet. The coding session was separate from the attested checker run.</p>
+<p class="lead">Someone funds a code change. A worker supplies a patch and runs the agreed checks on a Mac. A verifier checks the execution evidence, then signs a decision that lets the worker claim the reward from a smart contract.</p>
+<p>The first pilot adds card search to Board, a small app in the public Bounty Arcade repository. A completed demonstration checked the patch and paid a Base Sepolia testnet reward to a controlled test wallet. App Attest evidence covers the checker run; the code was written separately.</p>
 <div class="buttons">
-<a class="button primary" href="base-image.html">How the runner works</a>
+<a class="button primary" href="architecture.html">How the runner works</a>
 <a class="button" href="build.html">Run a task on your Mac</a>
 </div>
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini nestled in an abalone shell." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 <section class="section" id="flow">
 <h2>The task, the execution and the escrow.</h2>
-<p>The repository, task instructions, code and execution stay off-chain. The contract holds funds and applies the settlement rules. The deployed pilot checks execution evidence off-chain and sends signed settlement decisions to the contract.</p>
+<p>The requester publishes the change and the checks a patch must pass, then deposits the reward into an escrow contract—a program that holds the money until its payment rules are satisfied. The worker submits a repository commit and runs the checker. Verification happens outside the blockchain; the contract checks the verifier’s signatures before allowing payment.</p>
 <div class="boundary-flow" role="group" aria-label="Three stages showing off-chain work and on-chain settlement">
 <article class="flow-stage">
 <h3>1. Define and fund</h3>
 <div class="offchain">
 <span class="lane-label">Off-chain · Creator / GitHub</span>
 <strong>Publish the task</strong>
-<p>Repository and starting commit, acceptance code, environment, reward terms and delivery requirements.</p>
+<p>Name the repository, starting code, browser checks, reward and files the worker must deliver.</p>
 </div>
-<div class="bridge">↓ Creator transaction: funds + terms commitment</div>
+<div class="bridge">↓ Requester deposits the reward and records hashes of the task rules</div>
 <div class="onchain">
 <span class="lane-label">On-chain · Smart contract</span>
 <strong>Hold the reward</strong>
-<p>Record the reward and a hash committing to the task’s settlement terms.</p>
+<p>Hold the reward and record hashes of the rules. A hash identifies the exact file contents the parties agreed to use.</p>
 </div>
 </article>
 <article class="flow-stage">
@@ -54,7 +54,7 @@
 <div class="offchain">
 <span class="lane-label">Off-chain · Worker’s Mac</span>
 <strong>Build and check a candidate</strong>
-<p>Run the pinned acceptance routine on the candidate. Retain result files and App Attest execution evidence.</p>
+<p>Run the agreed browser checks on the submitted code in a Linux VM. Save their results and the Mac app’s App Attest evidence.</p>
 </div>
 <div class="bridge quiet">No transaction needed while the work runs</div>
 <div class="onchain">
@@ -68,37 +68,38 @@
 <div class="offchain">
 <span class="lane-label">Off-chain · Submission</span>
 <strong>Deliver code and result files</strong>
-<p>Publish or deliver the candidate and the required artifacts. Evidence binds them to the task and its checker.</p>
+<p>Submit the code commit and result files. The verifier compares their hashes with the task, checker and execution records.</p>
 </div>
-<div class="bridge">↓ Resolve transaction: signed decision + task / result bindings</div>
+<div class="bridge">↓ Submit the verifier’s signed decision for this task and result</div>
 <div class="onchain">
 <span class="lane-label">On-chain · Smart contract</span>
 <strong>Verify the decision and credit the worker</strong>
-<p>Verify the selected execution, review and delivery roles’ signatures over the task, assignment, payee and result commitments. Credit the worker; withdrawal transfers the reward.</p>
+<p>Check the required signatures and that they name the same task, assignment, worker address and result hashes. Record the worker’s credit; a separate withdrawal transaction transfers the reward.</p>
 </div>
 </article>
 </div>
-<p class="note">The Base Sepolia pilot uses WorkEscrow with a trusted EOA verifier bridge. The bridge checks Apple and runtime evidence, acceptance and delivery off-chain. WorkEscrow verifies the signed decision and credits the assigned payee. Full source and result files remain off-chain.</p>
+<p class="note">In this pilot, verifier software checks the Apple evidence, execution records, browser results and delivered code outside the blockchain. Operator-controlled signing keys authorize the decision. The WorkEscrow contract checks those signatures; it does not itself verify Apple certificates or run the browser checks.</p>
 </section>
 <section class="section">
 <div class="split">
 <div>
 <h2>The worker’s checker run</h2>
-<p>A signed Mac app boots a reusable Linux VM. Inside it, a selected container runs the coding agent or acceptance routine. Separate inputs identify the task and candidate; separate outputs retain the results.</p>
-<p>The app produces launch and result assertions. A verifier checks the original evidence against the expected app, base image, workload and task bindings.</p>
-<a href="base-image.html">See the base image, disks and evidence path →</a>
+<p>The Board task asks for a search box that filters cards by a trimmed, case-insensitive substring. Searching for “  AP  ” should show “Apple pie” and hide “Banana”. An empty search shows every card.</p>
+<p>The seven browser checks also exercise saving cards, exporting the full board while a filter is active, moving the correct filtered card, and reloading with the search cleared. The checker runs outside the submitted code, so the patch cannot replace the tests with its own passing result.</p>
+<a href="https://github.com/amiller/bounty-arcade/issues/66">Read the Board search task →</a>
 </div>
 <div>
-<h2>A bound settlement decision</h2>
-<p>App Attest authenticates the app’s key and assertions. The task’s pinned acceptance routine defines success. The contract’s verification rules must bind that passing result to this task and the worker being paid, and reject replay.</p>
-<p>Apple authenticates the app-key evidence. The acceptance routine checks the patch. The verifier bridge binds the passing result to the task and the worker’s settlement decision.</p>
-<a href="app-attest.html">Explore the separate App Attest verifier work →</a>
+<h2>From a passing check to payment</h2>
+<p>A signed Mac app starts the Linux VM and signs statements about its inputs and returned files. The verifier checks Apple’s evidence and those signatures, then compares the recorded software and input hashes with the task’s expected files. It also reads the browser results to determine whether the patch passed.</p>
+<p>A passing run is only part of the payment decision. The verifier checks the delivered code and worker address too. Its signed decision names the task and result; the contract prevents that decision from being used to pay a different worker or claim the same assignment again.</p>
+<a href="architecture.html">Follow the app, VM and verification steps →</a>
 </div>
 </div>
 </section>
 <section class="section">
 <h2>Try the testnet pilot</h2>
-<p>The public board-search pilot accepts a candidate commit, prepares a signed checker workload and verifies the uploaded execution evidence. The self-run rehearsal and funded best-effort route both passed the fixed seven-check acceptance suite on the existing Mac mini. The funded route withdrew a real Base Sepolia testnet reward under the experimental trusted-host policy.</p>
+<p>The public pilot lets a participant submit a Board code commit and follow the checker-and-claim process. The dashboard lists observed tasks, attempts and payments; the claim page handles an individual attempt. Check the displayed task and available reward before starting.</p>
+<p>The completed demonstration used two real VM runs on the existing Mac mini: a self-run rehearsal and a funded worker run. Both passed the seven checks. The funded run withdrew 0.0001 Base Sepolia test ETH. That recorded payment is separate from the current availability of the public pilot. This prototype trusts the Mac’s host against tampering with VM storage.</p>
 <div class="buttons">
 <a class="button primary" href="https://pod.dstack.soc1024.com/bounties/">Open the bounty dashboard</a>
 <a class="button" href="https://pod.dstack.soc1024.com/arcade-pilot/">Try a claim</a>

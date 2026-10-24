@@ -1,8 +1,0 @@
-{
-  "cases": [
-    "halted_console_complete",
-    "halted_console_truncated"
-  ],
-  "manifest_file": "manifest.bin",
-  "schema": "dsmack-general-launcher/golden-vectors/1"
-}

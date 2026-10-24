@@ -21,7 +21,6 @@
 // supplied, using only the sprint's public root certificate.
 import CryptoKit
 import Foundation
-import marControl
 
 /// sha256 (hex) of the DER inside the operator-pinned Apple App Attestation
 /// Root PEM — identical to verifier/approval_policy.APPLE_APP_ATTEST_ROOT_SHA256.
@@ -216,7 +215,7 @@ public enum DER {
         guard let der = Data(base64Encoded: body, options: .ignoreUnknownCharacters),
               !der.isEmpty
         else { throw AppAttestError.der("root pem body is not base64") }
-        return SHA256.hex(der)
+        return sha256(der).map { String(format: "%02x", $0) }.joined()
     }
 }
 
@@ -249,7 +248,7 @@ enum Authenticator {
     /// `attestation` selects the attested-credential-data layout.
     static func parse(_ data: Data, policy: AttestPolicy, attestation: Bool) throws -> AuthenticatorParse {
         guard data.count >= 37 else { throw AppAttestError.shortAuthenticator(data.count) }
-        guard data.prefix(32) == Data(marControl.SHA256.digest(Data(policy.appId.utf8))) else {
+        guard data.prefix(32) == Data(sha256(Data(policy.appId.utf8))) else {
             throw AppAttestError.wrongAppId
         }
         let flags = data[data.startIndex + 32]
@@ -336,7 +335,7 @@ public enum AppAttestVerify {
         let (point, nonceExt) = try DER.parseLeafCertificate(leaf)
         let kid = try unbase64(keyId)
         guard kid.count == 32, parsed.credentialId == kid else { throw AppAttestError.credentialIdMismatch }
-        guard Data(marControl.SHA256.digest(point)) == kid else { throw AppAttestError.keyIdMismatch }
+        guard Data(sha256(point)) == kid else { throw AppAttestError.keyIdMismatch }
         // COSE key must be exactly the certified point: {1:2, 3:-7, -1:1, -2:X, -3:Y}
         guard case .map(let cose)? = parsed.coseKey,
               cose[.int(1)] == .unsigned(2), cose[.int(3)] == .negative(-7),
@@ -346,7 +345,7 @@ public enum AppAttestVerify {
         else { throw AppAttestError.coseKeyMismatch }
         guard let nonce = nonceExt else { throw AppAttestError.missingNonceExtension }
         var expected = Data([0x30, 0x24, 0xa1, 0x22, 0x04, 0x20])
-        expected.append(Data(marControl.SHA256.digest(authData + Data(marControl.SHA256.digest(enrollClientData)))))
+        expected.append(Data(sha256(authData + Data(sha256(enrollClientData)))))
         guard nonce == expected else { throw AppAttestError.attestationNonceMismatch }
         return VerifiedEnrollment(publicPoint: point, keyId: keyId, appId: appId,
                                   counterAtEnrollment: parsed.counter)
@@ -379,8 +378,8 @@ public enum AppAttestVerify {
         // argument here is exactly attest_core's DATA (empirically confirmed
         // against both rig families' verifier-admitted signatures).
         var nonce = authData
-        nonce.append(Data(marControl.SHA256.digest(clientData)))
-        let message = Data(marControl.SHA256.digest(nonce))
+        nonce.append(Data(sha256(clientData)))
+        let message = Data(sha256(nonce))
         // This SDK's CryptoKit P256.Signing.PublicKey.rawRepresentation is the
         // RAW 64-byte X||Y — NOT the x9.63 point. publicPoint IS x9.63
         // (0x04 || X || Y, the certificate COSE form), so strip the prefix.
@@ -404,3 +403,5 @@ public enum AppAttestVerify {
         }
     }
 }
+
+private func sha256(_ d: Data) -> Data { Data(SHA256.hash(data: d)) }

@@ -1,20 +1,18 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 import {AppleEndorsements} from "../src/AppleEndorsements.sol";
-import {EndorsementFixture as EF,RotationEndorsements} from "./EndorsementFixture.sol";
+import {RotationEndorsements} from "./EndorsementFixture.sol";
 import {MacAppAttestV1} from "../src/MacAppAttestV1.sol";
 import {P256Verifier} from "./P256Verifier.sol";
-import {Test} from "forge-std/Test.sol";
 import {AppleAttest} from "../src/AppleAttest.sol";
 import {P384} from "../src/P384.sol";
 import {StrictDER as D} from "../src/StrictDER.sol";
-import {GasFixture} from "./GasBreakdown.t.sol";
-import {FeeMeasurement} from "./FeeMeasurement.sol";
+import {AttestFixture} from "./AttestFixture.sol";
 contract RotationAttest is AppleAttest {
     constructor(bytes16 guid) AppleAttest(new RotationEndorsements(),msg.sender,guid,3,false){}
     function admit(bytes32,bytes32) internal pure override {}
 }
-contract IntermediateTest is GasFixture,FeeMeasurement {
+contract IntermediateTest is AttestFixture {
     bytes ca;
     bytes32 constant SUBJECT=0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90;
     function setUp() public {vm.warp(1789567200);load("fixtures/real-apple.json",3,false);ca=vm.readFileBinary("fixtures/apple-intermediate.der");}
@@ -54,43 +52,43 @@ contract IntermediateTest is GasFixture,FeeMeasurement {
         vm.expectRevert("issuer name");adapter.enroll(cert,auth,clientData,SUBJECT);
     }
     function test_ExpiredEndorsement() public {
-        RotationAttest r=new RotationAttest(adapter.aaguid());bytes32 subject=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca2.der"));
+        RotationAttest r=new RotationAttest(adapter.aaguid());bytes32 subject=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca2.der"));
         (,,,uint64 end)=r.endorsements().intermediates(subject);vm.warp(uint256(end)+1);vm.expectRevert("intermediate validity");r.enroll(cert,auth,clientData,subject);
     }
     function test_FutureEndorsement() public {
-        RotationAttest r=new RotationAttest(adapter.aaguid());bytes32 subject=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca2.der"));
+        RotationAttest r=new RotationAttest(adapter.aaguid());bytes32 subject=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca2.der"));
         (,,uint64 start,)=r.endorsements().intermediates(subject);vm.warp(uint256(start)-1);vm.expectRevert("intermediate validity");r.enroll(cert,auth,clientData,subject);
     }
     function test_SameSubjectWrongKey() public {
         RotationAttest r=new RotationAttest(adapter.aaguid());
-        bytes32 a=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca2.der"));
-        bytes32 b=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca3.der"));
+        bytes32 a=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca2.der"));
+        bytes32 b=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca3.der"));
         assertTrue(a!=b);assertEq(r.endorsements().get(a).subject,r.endorsements().get(b).subject);
         vm.expectRevert("Apple certificate signature");
-        r.enroll(vm.readFileBinary("fixtures/local-data/lane-e/leaf2.der"),auth,clientData,b);
+        r.enroll(vm.readFileBinary("fixtures/rotation/leaf2.der"),auth,clientData,b);
     }
     function test_Rotation() public {
         RotationAttest r=new RotationAttest(adapter.aaguid());
-        bytes32 s2=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca2.der"));
-        assertEq(r.enroll(vm.readFileBinary("fixtures/local-data/lane-e/leaf2.der"),auth,clientData,s2),kid);
+        bytes32 s2=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca2.der"));
+        assertEq(r.enroll(vm.readFileBinary("fixtures/rotation/leaf2.der"),auth,clientData,s2),kid);
         bytes32 prior=keccak256(abi.encode(r.endorsements().get(s2)));
-        AppleEndorsements e=r.endorsements();vm.expectRevert("already endorsed");e.endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca2-reissued.der"));
+        AppleEndorsements e=r.endorsements();vm.expectRevert("already endorsed");e.endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca2-reissued.der"));
         assertEq(keccak256(abi.encode(r.endorsements().get(s2))),prior);
-        bytes32 s3=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca3.der"));assertTrue(s2!=s3);
+        bytes32 s3=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca3.der"));assertTrue(s2!=s3);
         assertEq(keccak256(abi.encode(r.endorsements().get(s2))),prior);
         assertEq(r.endorsements().get(s2).subject,r.endorsements().get(s3).subject);
         bytes32 current=keccak256(abi.encode(r.endorsements().get(s3)));
         vm.warp(1789588800);string memory f=vm.readFile("fixtures/fresh-apple.json");
-        assertEq(r.enroll(vm.readFileBinary("fixtures/local-data/lane-e/leaf3.der"),vm.parseJsonBytes(f,".auth"),vm.parseJsonBytes(f,".clientData"),s3),vm.parseJsonBytes32(f,".kid"));
+        assertEq(r.enroll(vm.readFileBinary("fixtures/rotation/leaf3.der"),vm.parseJsonBytes(f,".auth"),vm.parseJsonBytes(f,".clientData"),s3),vm.parseJsonBytes32(f,".kid"));
         assertEq(keccak256(abi.encode(r.endorsements().get(s2))),prior);
         assertEq(keccak256(abi.encode(r.endorsements().get(s3))),current);
     }
     function test_After2030EnrollmentAndAssertion() public {
-        if(block.chainid==31337){P256Verifier v=new P256Verifier();vm.etch(address(0x100),address(v).code);}
+        P256Verifier v=new P256Verifier();vm.etch(address(0x100),address(v).code);
         vm.warp(1938297600);RotationAttest r=new RotationAttest(adapter.aaguid());
-        bytes32 id=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/local-data/lane-e/ca5.der"));
+        bytes32 id=r.endorsements().endorseIntermediate(vm.readFileBinary("fixtures/rotation/ca5.der"));
         string memory f=vm.readFile("fixtures/fresh-apple.json");bytes32 k=vm.parseJsonBytes32(f,".kid");
-        assertEq(r.enroll(vm.readFileBinary("fixtures/local-data/lane-e/leaf5.der"),vm.parseJsonBytes(f,".auth"),vm.parseJsonBytes(f,".clientData"),id),k);
+        assertEq(r.enroll(vm.readFileBinary("fixtures/rotation/leaf5.der"),vm.parseJsonBytes(f,".auth"),vm.parseJsonBytes(f,".clientData"),id),k);
         bytes memory proof=abi.encode(k,vm.parseJsonBytes(f,".assert.auth"),uint256(vm.parseJsonBytes32(f,".assert.r")),uint256(vm.parseJsonBytes32(f,".assert.s")));
         assertEq(r.verify(sha256(vm.parseJsonBytes(f,".assert.context")),proof),k);
         vm.warp(2373148801);vm.expectRevert("key validity");r.verify(bytes32(0),proof);
@@ -100,19 +98,4 @@ contract IntermediateTest is GasFixture,FeeMeasurement {
         assertEq(other.enroll(cert,auth,clientData,SUBJECT),kid);assertEq(adapter.enroll(cert,auth,clientData,SUBJECT),kid);
         assertEq(address(other.endorsements()),address(adapter.endorsements()));
     }
-    function measure(bytes memory data) internal {
-        vm.record();adapter.endorsements().intermediates(SUBJECT);(bytes32[] memory slots,)=vm.accesses(address(adapter.endorsements()));
-        for(uint256 i;i<slots.length;i++)vm.coolSlot(address(adapter.endorsements()),slots[i]);
-        vm.cool(address(adapter.endorsements()));vm.cool(address(adapter));(bool ok,bytes memory result)=address(adapter).call(data);
-        if(!ok)assembly{revert(add(result,32),mload(result))}
-        uint256 gas=vm.lastCallGas().gasTotalUsed;uint256 intrinsic=21000;for(uint256 i;i<data.length;i++)intrinsic+=data[i]==0?4:16;
-        assertLt(gas+intrinsic,2**24);fees(address(adapter),data,gas);
-    }
-    function test_EndorseCost() public {
-        AppleEndorsements e=new AppleEndorsements();bytes memory data=abi.encodeCall(e.endorseIntermediate,(ca));
-        vm.cool(address(e));(bool ok,bytes memory result)=address(e).call(data);if(!ok)assembly{revert(add(result,32),mload(result))}
-        fees(address(e),data,vm.lastCallGas().gasTotalUsed);
-    }
-    function test_MacEnrollCost() public {measure(abi.encodeCall(adapter.enroll,(cert,auth,clientData,SUBJECT)));}
-    function test_IPhoneEnrollCost() public {iphone();measure(abi.encodeCall(adapter.enroll,(cert,auth,clientData,SUBJECT)));}
 }

@@ -1,5 +1,5 @@
 // DstackIdentity.swift — contract10 image identity + external admission for
-// the v2 launch path (mac-app-join lane, 2026-10-21). Swift port of the
+// the launch path. Swift port of the
 // APPROVED contract10 candidate's lib/dsmack_compose_contract/image_admission.py
 // identity surfaces (the parse/verify/admit parts; not the verity tree
 // recomputation, which is the guest's in-initrd dm-verity job plus the
@@ -15,7 +15,7 @@
 //   spec_sha256            = sha256(canonical launch-spec document bytes) —
 //                            the launcher-world consumed-tuple digest the
 //                            backend records in its receipt (it is NEITHER
-//                            of the other two; see LaunchSpecBuilder.swift).
+//                            of the other two; see LaunchSpecBuilderV3.swift).
 //
 // The bridge between the first two worlds is the image manifest's
 // `provenance.os_image_hash` field — and it is VERIFIED here against the

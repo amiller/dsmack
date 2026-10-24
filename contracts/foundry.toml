@@ -5,7 +5,7 @@ solc_version = "0.8.21"
 optimizer = true
 optimizer_runs = 200
 via_ir = true
-libs = ["lib", "../app-attest/contracts/lib"]
+libs = ["../app-attest/contracts/lib"]
 fs_permissions = [{ access = "read", path = "./fixtures" }, { access = "read", path = "../app-attest/contracts/fixtures" }]
-remappings = ["forge-std/=../app-attest/contracts/lib/forge-std/src/", "openzeppelin-contracts/=lib/openzeppelin-contracts/", "attest/=../app-attest/contracts/src/", "attest-test/=../app-attest/contracts/test/"]
+remappings = ["forge-std/=../app-attest/contracts/lib/forge-std/src/", "attest/=../app-attest/contracts/src/", "attest-test/=../app-attest/contracts/test/"]
 allow_paths = ["../app-attest/contracts"]

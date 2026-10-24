@@ -1,8 +1,6 @@
 [workspace]
 members = [
     "src/libkrun",
-    "init/init-blob",
-    "bindings/init-blob-via-cdylib",
     "src/input",
     "src/display",
     "src/utils",
@@ -16,12 +14,6 @@ members = [
     "src/devices",
     "src/aws_nitro",
     "src/whp",
-    "bindings/libkrun-via-cdylib-weak",
-]
-exclude = [
-    "examples/gtk_display",
-    "init/init-binary",
-    "init/aws-nitro",
 ]
 resolver = "2"
 #panic = "abort"

@@ -4,6 +4,4 @@ node_modules/
 Prover.toml
 *.log
 __pycache__/
-gas/out/
-gas/cache/
 Tampered.toml

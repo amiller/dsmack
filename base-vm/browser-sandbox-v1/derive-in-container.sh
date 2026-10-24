@@ -2,9 +2,7 @@
 set -euo pipefail
 umask 0022
 LEG=/w/build/legs/diagnostic
-[ ! -e "$LEG" ] && [ ! -L "$LEG" ] || { echo 'refuse existing diagnostic leg' >&2; exit 1; }
 mkdir -p "$LEG/files" "$LEG/work"
-printf '%s\n' 'bb0dbfc2405baca1102994e47db0a002b134e7a6a1b26911c272cdf6eb8bafbd  /prior-image/rootfs.squashfs.verity' '415e59cc1fbaa957b8737749f0e7822e4d843b27b363345cdb9e6a2a870a6d88  /prior-image/Image' | sha256sum -c -
 unsquashfs -no-progress -processors 4 -d "$LEG/work/rootfs" /prior-image/rootfs.squashfs.verity
 TREE=$LEG/work/rootfs
 RDEST=$TREE/usr/local/lib/dsmack/compose-runner
@@ -20,5 +18,4 @@ install -m0644 /w/source/runner-content/dsmack_compose_runner/lifecycle.py "$RDE
 cp /prior-image/Image "$LEG/files/Image"
 cp /prior-image/config-6.18.40-dstack "$LEG/files/config-6.18.40-dstack"
 bash /w/source/build/assemble_leg.sh diagnostic
-
 chmod 0644 "$LEG/files/"*

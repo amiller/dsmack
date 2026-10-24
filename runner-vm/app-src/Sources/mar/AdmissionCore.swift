@@ -1,10 +1,6 @@
-// AdmissionCore.swift — the app-side admission core for the v2 launch path
-// (mac-app-join lane, 2026-10-21). Swift port of the mac-general-prep
-// launcher core (launcher/admission.py + image_manifest.py +
-// launch_config.py), fable-native-audit F7 seam: this is the code the
-// retired v1 hvf-control mode refused to approximate.
+// AdmissionCore.swift — the app-side admission core (Swift port of the
+// launcher admission.py + image_manifest.py + launch_config.py).
 //
-// Architecture (user-confirmed ledger reconciliation, unchanged):
 //   * the signed app is a GENERAL VM launcher/attestor with ZERO compiled-in
 //     image identity. Base images are selected by an EXTERNAL image
 //     manifest, admitted by an EXTERNAL policy document, and bound by

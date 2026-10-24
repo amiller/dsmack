@@ -23,9 +23,23 @@ from runresult_ref.extraction import SafeExtractor
 from runresult_ref.frozen import canonical_bytes, core, load_json_bytes, validate_receipt_bytes
 
 
+def _parent_fd(root, rel, create=False):
+    fd = os.dup(root)
+    try:
+        for part in rel.split("/")[:-1]:
+            if create:
+                try: os.mkdir(part, 0o700, dir_fd=fd)
+                except FileExistsError: pass
+            child = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=fd)
+            os.close(fd); fd = child
+        return fd
+    except BaseException:
+        os.close(fd)
+        raise
+
+
 def _write(root, rel, data):
     # root is a newly created private tree; parent components remain descriptor confined.
-    from tools.evidence_transfer import _parent_fd
     parent = _parent_fd(root, rel, create=True)
     try:
         fd = os.open(rel.split('/')[-1], os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=parent)
@@ -71,7 +85,6 @@ def _named_paths(values, code):
 
 def _copy(root, name, dest_root, target, cap):
     """Stream one admitted regular descriptor; hash exactly the retained bytes."""
-    from tools.evidence_transfer import _parent_fd
     fd = None
     parent = None
     source_parent = None
@@ -224,7 +237,6 @@ def _extract_retained(bundle_dir, report_path, context, retained_dir, extract_di
         extracted = {}
         src = os.open(bundle_dir, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
         try:
-            from tools.evidence_transfer import _parent_fd
             for current in sorted(expected_selectors):
                 prefix = 'attachments/' if current == selector else 'attachments/selectors/' + current + '/'
                 parent = _parent_fd(src, prefix + 'manifest')
@@ -256,7 +268,6 @@ def _extract_retained(bundle_dir, report_path, context, retained_dir, extract_di
                           ('report.json', reader.read_regular_file(report_path, protocol.MAX_REQUEST_BYTES, 'report'))]:
             _write(dest, rel, data)
         if private is not None: _write(dest, 'runtime_envelope_private', private)
-        from tools.evidence_transfer import _parent_fd
         outputs_parent = _parent_fd(dest, 'outputs/.sentinel', create=True)
         os.close(outputs_parent)
         for label, (path, declared) in collected.items():
@@ -266,7 +277,6 @@ def _extract_retained(bundle_dir, report_path, context, retained_dir, extract_di
         _write(dest, 'retained-selectors.json', canonical_bytes({'schema': 'dsmack-retained-selectors/1', 'selectors': sorted(extracted)}))
         for current, (current_manifest, current_private, current_receipt, current_index, current_outputs) in sorted(extracted.items()):
             prefix = 'selectors/' + current + '/'
-            from tools.evidence_transfer import _parent_fd
             outputs_parent = _parent_fd(dest, prefix + 'outputs/.sentinel', create=True)
             os.close(outputs_parent)
             for name, data in [('manifest', current_manifest), ('receipt.json', current_receipt), ('export-index.json', current_index)]:

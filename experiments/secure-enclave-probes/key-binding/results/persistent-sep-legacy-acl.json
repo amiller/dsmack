@@ -1,5 +1,0 @@
-{
-  "combinedLegacyAndSEPAccessControlCreated" : false,
-  "error" : "Error Domain=NSOSStatusErrorDomain Code=-50 \"failed to add key to keychain: <SecKeyRef:('com.apple.setoken') 0x1011661e0>\" (paramErr: error in user parameter list) UserInfo={numberOfErrorsDeep=0, NSDescription=failed to add key to keychain: <SecKeyRef:('com.apple.setoken') 0x1011661e0>}",
-  "legacyAccessCreateStatus" : 0
-}

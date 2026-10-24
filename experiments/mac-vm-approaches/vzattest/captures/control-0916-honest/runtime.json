@@ -1,8 +1,0 @@
-{
-  "bundle" : "dev.dsmack.provider",
-  "executable" : "<home>\/vz-attest-spike-20261008\/control-0916-honest\/CodeBindingProbe.app\/Contents\/MacOS\/probe",
-  "mode" : "enroll",
-  "operation_result" : 4,
-  "os" : "Version 27.0 (Build 26A428)",
-  "supported" : true
-}

@@ -1,87 +1,24 @@
-# Selected full VM evidence verifier (Linux operator)
+# Linux run-result verifier
 
-This source package relocates the actual reviewed v3-aware production consumer.
-It includes original statement/result-assertion authentication, full native/guest
-and output-closure checks, replay/enrollment handling, signed report verification
-and the independently pinned Apple core/contract library. It does not replace
-these with the older standalone Apple verifier or a browser-supplied verdict.
-`SOURCE-IMPORT.json` records original and selected bytes. Only `frozen.py` changes
-original implementation bytes, to replace build-host paths with package-relative
-locations while preserving every dependency digest and exact membership guard.
-The launcher and explicit tools package are separate packaging additions.
+`../verifier-browser/` is the server-side verifier for Mac runs. It authenticates
+the App Attest launch and result assertions, the guest receipt and statement,
+extracts the result disk in a Linux namespace sandbox and checks the retained
+outputs, then signs a report. It imports the compose contract library from
+`base-vm/browser-sandbox-v1/source/runner-content/lib` and the App Attest core
+from `verifier/core.py`, so run it from a full checkout.
 
-The current deployment target is the qualified Linux x86-64 verifier environment,
-not macOS. `QUALIFIED-LINUX-ENVIRONMENT.json` records exact Python, OpenSSL,
-unshare/debugfs/true tool bytes, cryptography/backend module bytes, versions and
-origins. It is a selected reference environment, not a dependency installer,
-security update policy or hermetic OS image. No dependency is downloaded by these
-commands. A changed environment needs its own reviewed lock/qualification; do not
-edit a hash to force an unexplained mismatch through. The selected source and
-environment manifests themselves require independent approval.
-
-Stage the whole package under an owned 0700 directory with no symlink or
-group/world-writable ancestors. Inspect/select the launcher
-and complete source first. With the selected `/usr/bin/python3`, use `-I`:
-
-```sh
-/usr/bin/python3 -I /absolute/private/verifier/verify.py \
-  --source-manifest-sha256 INDEPENDENT_RAW_SOURCE_MANIFEST_SHA256 \
-  --environment-sha256 INDEPENDENT_RAW_ENVIRONMENT_MANIFEST_SHA256 doctor
-```
-
-The capitalized digests are required independent selections, not published
-release values. The launcher verifies complete source membership and all bytes,
-then the environment, before importing the selected implementation. Unlisted
-files, bytecode caches, extension-loader alternatives and writable/symlinked
-source descendants refuse. Imports use a fresh owned empty cache prefix and
-suppress bytecode writes so installed dependency caches cannot bypass source
-pins; `-B` alone would not provide that protection. It clears
-inherited environment variables and fixes PATH for the original OpenSSL call.
-Doctor runs the original credential-free Linux namespace probe; it never opens
-operator authority, enrollment/replay stores or credentials. Readiness means this
-local parser/extraction runtime is available, not that any task is verified.
-
-The same prefix delegates the original entrypoints without changing arguments:
+`verify.py` is the launcher. It checks the deployed tree against
+`SOURCE-PINS.json` and the host against `QUALIFIED-LINUX-ENVIRONMENT.json`
+(both supplied by the deployment, selected by SHA-256), then dispatches:
 
 ```text
-... operator --help
-... prepare --help
-... transfer --help
+V="/usr/bin/python3 -I verifier-browser/verify.py --source-manifest-sha256 SOURCE_PINS_SHA256 --environment-sha256 ENV_SHA256"
+$V operator enroll ...           # App Attest enrollment ceremony
+$V operator issue-challenge ...  # fresh replay challenge
+$V prepare prepare --app-out DIR --enrollment FILE --context FILE --bundle NEW_DIR
+$V prepare verify --bundle DIR --context FILE --retained NEW_DIR ...
+$V operator check ...            # relying-party check of a signed report
 ```
 
-For an operator-selected original retained output directory, the actual prepare
-interface is:
-
-```text
-... prepare prepare --app-out /absolute/original-retained-output \
-  --enrollment /absolute/public-enrollment-package.json \
-  --context /absolute/independent-checker-context.json \
-  --bundle /absolute/fresh-bundle
-```
-
-Preparing a bundle is not verification and does not consume replay authority.
-The original `operator verify` and full `operator check` interfaces are separate
-and require protected external authority and independent context. Root/operator
-must select those exact inputs and preserve replay floors. No demo enrollment
-store, replay DB, private key, report key or operator secret is shipped here.
-Do not reset replay or issue a replacement challenge to hide a failed check.
-The checker exposes execution validity and workload/task success separately.
-Application acceptance and settlement require additional task-specific policy.
-
-## Mac evidence delivery and remaining qualification
-
-The Mac participant uses the protected coordinator, not this Linux extraction
-runtime. Transfer the exact original 21 retained AppOUT evidence files through an
-independently reviewed finite, no-follow transport. Preserve additional original
-VM residues on the Mac without reading/hashing/copying scratch or private state.
-This package's `transfer` entrypoint handles the original prepared-bundle format;
-it is not a new raw-AppOUT upload API and must not be substituted for the reviewed
-Mac-to-verifier transport. No unrestricted tar extraction fallback is allowed.
-
-A deployment must still independently bind the original selected final handoff,
-source inventory, extraction tool, signed app and VM/guest configuration, context,
-complete retained evidence and authenticated delivery digest. This package does
-not provide a general network service, discovery, private-state backup or payment
-certificate. A fresh friend-Mac run and fresh production verification using this
-relocated package remain runtime gates until explicitly demonstrated. Source
-packaging cannot inherit a historical run's replay authorization.
+`applications/arcade-pilot/runner/server_adapter.py` and `authority.py` show the
+exact arguments used by the live Arcade service.

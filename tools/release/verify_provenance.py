@@ -12,7 +12,6 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from inspect_runner import read_regular
 
 
 def command(gh, artifact, repository, workflow, tag, commit):
@@ -72,7 +71,7 @@ def main():
         match = re.match(r"gh version (\d+)\.(\d+)\.(\d+)(?:\s|$)", version.stdout)
         if not match or tuple(map(int, match.groups())) < (2, 102, 0):
             raise ValueError("require stable gh >=2.102.0; earlier policy checks had identity/ref bugs")
-        payload = read_regular(opts.artifact)
+        payload = Path(opts.artifact).read_bytes()
         actual = hashlib.sha256(payload).hexdigest()
         if actual != opts.expected_sha256:
             raise ValueError("artifact differs from independently obtained SHA-256 pin")

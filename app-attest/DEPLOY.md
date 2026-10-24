@@ -10,15 +10,11 @@ Before deploying an adapter:
   category and ACL, and the deployed verifier and linked ZKTranscriptLib against
   their reviewed artifacts. Record addresses and runtime code hashes.
 - Rebuild the leaf circuit with nargo 1.0.0-beta.17 and bb 3.0.3. The VK binary's
-  SHA256 must be `c808cbc75a32156fc145f53024033ae5499971203cd835b657d7c6f8c7f72587`.
-  [pin.json](circuit/verifier/pin.json) also pins the generated Solidity
-  source. Use Foundry 1.8.5; application solc 0.8.21, optimizer 200/via IR;
-  verifier solc 0.8.27, optimizer 1/no IR.
-- Run the default suite (including VerifierPinTest), both rule corpora, and both
-  real-proof suites against this candidate. Record revision, commands, machine,
-  fixtures and results. See [validation commands](../CONTRIBUTING.md).
-  `CompareLeafTest` checks Mac/iPhone proofs and all public-input mutations;
-  `LeafEnrollmentTest` checks enrollment and matching fresh-Mac/iPhone assertions.
+  SHA256 must be `c808cbc75a32156fc145f53024033ae5499971203cd835b657d7c6f8c7f72587`;
+  `circuit/prove-leaf.sh` checks the VK and generated Solidity against the
+  committed copies. Use Foundry 1.8.5; application solc 0.8.21, optimizer
+  200/via IR; verifier solc 0.8.27, optimizer 1/no IR.
+- Run `./test.sh` against this candidate and record revision, machine and results.
 
 This checklist does not authorize deployment.
 

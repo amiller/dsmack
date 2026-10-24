@@ -1,5 +1,0 @@
-{
-  "log-driver": "json-file",
-  "log-opts": {"max-size": "100m", "max-file": "10"},
-  "insecure-registries": ["127.0.0.1:5005"]
-}

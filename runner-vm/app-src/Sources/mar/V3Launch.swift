@@ -1,27 +1,15 @@
-// V3Launch.swift — `mar hvf-v3`: the COMPLETE generic v3 launch entry point
-// (loop40-swift-repair1 lane, 2026-10-22; SWIFT03/SWIFT04). It is the v3 sibling
-// of V2Launch.swift: the same EXTERNAL admitted-input pipeline (admission policy,
-// image manifest, dstack checksum manifest + metadata, contract10 admission
-// document, compose manifest, workload disk, session) through the app-side
-// admission core, but driving the v3 backend (BackendV3.swift) with the
-// five-role disk set (vda/vdb/vdc/vdd + optional vde) and an OPTIONAL bounded
-// virtio-net fd, then composing BOTH authenticated assertions:
+// V3Launch.swift — `mar hvf-v3 <out> <session.json> <challenge> <keyId>`.
+// External admitted inputs (admission policy, image manifest, dstack checksum
+// manifest + metadata, contract admission, compose manifest, workload disk,
+// session) go through the app-side admission core and drive the v3 backend
+// (BackendV3.swift) with the five-role disk set (vda/vdb/vdc/vdd + optional vde)
+// and an optional virtio-net fd.
 //
-//   mar hvf-v3 <out> <session.json> <challenge> <keyId>
-//
-// LIFECYCLE (v3 RETURNING split): init -> vm_new_v3 -> receipt (read + mapped +
-// cross-checked BEFORE run) -> run_v3 (proven halt) -> finalize_v3 (CHECKED
-// flush/sync + exact-length result/console hash) -> result_v3 -> compose the
-// run-result ENVELOPE + the REAL result assertion. Only after ALL evidence is
-// durably retained (fsync'd + re-read) is scratch residue reported as deferred
-// (SWIFT04 "gate cleanup on durable complete retention").
-//
-// GENERIC APP DISCIPLINES (unchanged from the v1/v2 modes): zero compiled-in
-// image identity; every statement field computed from bytes this process read
-// or observed; fail-closed refusals before anything exists; no envelope/
-// assertion on any failure path. The vde private input is genuinely UNMEASURED
-// — its path is handed to the backend read-only and NEVER hashed or staged by
-// the app, so no content digest/length enters any evidence.
+// Lifecycle: init -> vm_new_v3 -> receipt (mapped + cross-checked before run)
+// -> run_v3 -> finalize_v3 -> result_v3 -> run-result envelope + result
+// assertion. Scratch residue is reported only after all evidence is durably
+// retained. The vde private input is handed to the backend read-only and never
+// hashed or staged by the app.
 
 #if canImport(Darwin)
 import CryptoKit
@@ -30,13 +18,13 @@ import DeviceCheck
 import Foundation
 
 let v3SessionSchema = "dsmack-general-launcher/session/3"
-// Distinct from the v2 statement schema (whose protocol.py STATEMENT_KEYS is an
-// EXACT set): the v3 statement additionally carries the result_assertion + v3
-// output digests, so it must not claim the v2 exact-key contract.
 let v3StatementSchema = "dsmack-general-launcher/v3-run-statement/1"
 let v3ScratchTemplateMaxBytes = V3TemplateCapacity.scratchMaxBytes
 let v3ResultTemplateMaxBytes = V3TemplateCapacity.resultMaxBytes
 let v3PrivateMaxProbeBytes = 1 << 30      // vde size sanity bound (presence only; never hashed)
+let workloadMaxBytes = 1 << 32   // 4 GiB staged-copy cap (compose image tars)
+let composeManifestMaxBytes = 1 << 20
+let pathMaxBytes = 1024
 
 func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String) async throws {
     // Covers preparation refusals as well as execution/retention. Inner lifecycle
@@ -65,7 +53,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
               "admission_path", "compose_manifest_path", "workload_disk_path",
               "scratch_template_path", "result_template_path"] {
         let p = try requireNonEmptyString(s, k, "session")
-        guard printableASCII(p, maxBytes: v2PathMaxBytes), p.hasPrefix("/") else {
+        guard printableASCII(p, maxBytes: pathMaxBytes), p.hasPrefix("/") else {
             throw Fail("session.\(k): absolute printable-ASCII path required")
         }
         docPaths[k] = p
@@ -76,7 +64,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
     func optionalPath(_ k: String) throws -> String? {
         let p = try requireStringAllowingEmpty(s, k, "session")
         if p.isEmpty { return nil }
-        guard printableASCII(p, maxBytes: v2PathMaxBytes), p.hasPrefix("/") else {
+        guard printableASCII(p, maxBytes: pathMaxBytes), p.hasPrefix("/") else {
             throw Fail("session.\(k): absolute printable-ASCII path required (or empty for none)")
         }
         return p
@@ -118,11 +106,11 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
     let checksumData = try read(docPaths["checksum_manifest_path"]!, max: maxChecksumManifestBytes)
     let metadataData = try read(docPaths["metadata_path"]!, max: maxMetadataBytes)
     let admissionData = try read(docPaths["admission_path"]!, max: maxAdmissionBytes)
-    let composeManifestData = try read(docPaths["compose_manifest_path"]!, max: v2ComposeManifestMaxBytes)
+    let composeManifestData = try read(docPaths["compose_manifest_path"]!, max: composeManifestMaxBytes)
     let composeManifestSha256 = sha256hex(composeManifestData)
     try trace("compose_manifest_bound", ["compose_manifest_sha256": composeManifestSha256])
 
-    // ---- app-side admission core (identical pipeline to v2) ----
+    // ---- app-side admission core ----
     let policy = try parseAdmissionPolicy(policyData)
     let manifest = try parseImageManifest(manifestData)
     let admitted = try admitImage(policy: policy, manifestSha256: manifest.sha256, manifestImageId: manifest.imageId)
@@ -161,7 +149,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                                              maxBytes: 1 << 34, wantSha256: manifest.systemDisk.sha256,
                                              wantBytes: manifest.systemDisk.bytes)
     let workloadStaged = try stageVerifiedCopy(out, "workload.img.staged", src: docPaths["workload_disk_path"]!,
-                                               maxBytes: v2WorkloadMaxBytes, wantSha256: workloadSha, wantBytes: nil)
+                                               maxBytes: workloadMaxBytes, wantSha256: workloadSha, wantBytes: nil)
     // vdb/vdd ADMITTED blank templates: staged + verified by digest AND size.
     let scratchTemplateStaged = try stageVerifiedCopy(out, "scratch-template.img.staged", src: docPaths["scratch_template_path"]!,
                                                        maxBytes: v3ScratchTemplateMaxBytes, wantSha256: scratchTemplateSha, wantBytes: scratchTemplateBytes)
@@ -268,7 +256,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                                     "console_sha256": parsed.consoleSha256, "console_bytes": parsed.consoleBytes,
                                     "console_truncated": parsed.consoleTruncated])
 
-        // ---- LAUNCH assertion: contract10 receipt-evidence (same path as v2) ----
+        // ---- LAUNCH assertion: contract10 receipt-evidence ----
         let evidenceBody = launcherEvidenceBody(
             baseVm: mapped.fragment["base_vm"] as! [String: Any],
             baseVmLaunch: mapped.fragment["base_vm_launch"] as! [String: Any],
@@ -295,7 +283,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
         let resultAssertion = try await svc.generateAssertion(keyId, clientDataHash: Data(SHA256.hash(data: resultClientData)))
         let resultCounter = try assertionCounter(resultAssertion)
 
-        // ---- the app statement (diagnostics + bound digests; same shape family as v2) ----
+        // ---- the app statement (diagnostics + bound digests) ----
         let statement = try canonicalJSONData([
             "schema": v3StatementSchema,
             "challenge": challengeHex,
@@ -491,5 +479,86 @@ func connectUnixStream(_ path: String) throws -> Int32 {
 // saveDurable / verifyRetainedFile / fsyncDir moved to RetentionV3.swift (SWIFT04
 // repair3) so the durable-retention sequence is one testable unit; they are
 // dir-parameterized there and called via performDurableRetention above.
+
+/// OWNED-COPY staging: read-once chunked copy into a fresh O_EXCL 0600 file
+/// inside the private out dir, hashing THE COPY while it is written, then a
+/// chunked read-back re-hash of the staged file (belt and braces). Refuses
+/// on any size/digest mismatch; `wantBytes == nil` skips the size
+/// expectation (the digest still binds the bytes).
+func stageVerifiedCopy(_ dir: URL, _ name: String, src: String, maxBytes: Int,
+                       wantSha256: String, wantBytes: Int?) throws -> (path: String, sha256: String, bytes: Int) {
+    let path = dir.appendingPathComponent(name).path
+    guard !FileManager.default.fileExists(atPath: path) else { throw Fail("\(path) already exists") }
+    let fd = open(path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+    guard fd >= 0 else { throw Fail("cannot create \(path): \(String(cString: strerror(errno)))") }
+    // Register as soon as creation succeeds, including every partial-copy refusal.
+    // This is a possible namespace residue, never a claim of inode ownership.
+    _ = own(URL(fileURLWithPath: path))
+    var verified = false
+    defer {
+        if !verified { reportDeferredResidue(paths: [path]) }
+    }
+    var h = SHA256()
+    var total = 0
+    do {
+        let srcFd = open(src, O_RDONLY)
+        guard srcFd >= 0 else { throw Fail("cannot open \(src): \(String(cString: strerror(errno)))") }
+        defer { close(srcFd) }
+        var st = stat()
+        guard fstat(srcFd, &st) == 0, (st.st_mode & S_IFMT) == S_IFREG else {
+            throw Fail("\(src) is not a regular file")
+        }
+        let file = FileHandle(fileDescriptor: srcFd, closeOnDealloc: false)
+        while true {
+            try checkCancellation()
+            let chunk = try file.read(upToCount: 1 << 20) ?? Data()
+            if chunk.isEmpty { break }
+            total += chunk.count
+            guard total <= maxBytes else { throw Fail("\(src) exceeds the \(maxBytes)-byte staging cap") }
+            h.update(data: chunk)
+            try chunk.withUnsafeBytes { p in
+                var written = 0
+                while written < p.count {
+                    let n = write(fd, p.baseAddress!.advanced(by: written), p.count - written)
+                    guard n > 0 else { throw Fail("short write staging \(path)") }
+                    written += n
+                }
+            }
+        }
+        guard fsync(fd) == 0 else { throw Fail("cannot sync staged copy \(path): errno \(errno)") }
+        close(fd)
+    } catch {
+        close(fd)
+        throw error
+    }
+    let digest = h.finalize().map { String(format: "%02x", $0) }.joined()
+    if let want = wantBytes, total != want {
+        throw Fail("\(name): staged copy is \(total) bytes, manifest says \(want)")
+    }
+    guard digest == wantSha256 else {
+        throw Fail("\(name): staged copy sha256 \(digest) != expected \(wantSha256)")
+    }
+    // Chunked read-back re-hash of the staged file (the bytes the backend
+    // will open) — no full in-memory read of multi-gigabyte disks.
+    let rehashed = try sha256File(path)
+    guard rehashed == wantSha256 else {
+        throw Fail("\(name): staged copy changed after write (re-hash \(rehashed) != \(wantSha256))")
+    }
+    verified = true
+    return (path, digest, total)
+}
+
+/// Chunked sha256 over a file's bytes (no full in-memory read).
+func sha256File(_ path: String) throws -> String {
+    let file = try FileHandle(forReadingFrom: URL(fileURLWithPath: path))
+    defer { try? file.close() }
+    var h = SHA256()
+    while true {
+        let chunk = try file.read(upToCount: 1 << 20) ?? Data()
+        if chunk.isEmpty { break }
+        h.update(data: chunk)
+    }
+    return h.finalize().map { String(format: "%02x", $0) }.joined()
+}
 
 #endif

@@ -10,8 +10,8 @@ def main():
     x=a.parse_args();need(sys.flags.isolated,'isolated original imports required');root=p['protected'](x.verifier,True)
     raw=read(root/'verify.py',262144);ns={'__name__':'arcade_selected_verifier','__file__':str(root/'verify.py')};exec(compile(raw,str(root/'verify.py'),'exec'),ns)
     ns['source_check'](x.source_manifest_sha256);ns['prepare_source_imports']();ns['environment_check'](x.environment_sha256)
-    sys.path.insert(0,str(root/'contract-lib'))
-    from dsmack_compose_contract.receipt import validate_receipt_bytes
+    sys.path.insert(0,str(root))
+    from runresult_ref.frozen import validate_receipt_bytes
     statement=doc(read(x.statement));need(statement['consumed']['observed_workload_sha256']==x.workload_sha256 and statement['workload']['sha256']==x.workload_sha256 and statement['workload']['bytes']==int(x.workload_bytes),'authenticated native workload differs from issued task')
     result=validate_receipt_bytes(read(x.manifest),read(x.receipt),read(x.projection,33554432))
     need(result['runtime_inputs_commitment_status']=='bound-to-validated-envelope','independent public input commitment failed')

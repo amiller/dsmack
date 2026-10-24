@@ -1,49 +1,13 @@
-// Swift v3 binding for the general backend (dsmack_ctl_join_v3.h, ABI 3).
+// Swift binding for the v3 backend C ABI (dsmack_ctl_join_v3.h).
 //
-// loop40-swift-repair1 lane, 2026-10-22 (repair of speculative-native-swift-join).
-// INTEGRATED app-join glue: compiled into the general `mar` executable target.
-// It is still INERT on a host/mock build — it requires Darwin + the CJoin system
-// library + an independently reviewed v3 apple-static archive linked in, plus the
-// Hypervisor/DeviceCheck frameworks. Nothing here executes a VM, signs, or touches
-// AppAttest. It is staged for the later Mac (Zed cross-build or Mini) compile AFTER
-// an independent exact-source review.
-//
-// Relationship to BackendV2.swift:
-//   * The E01 heap-pointer discipline (native-canonical-probe-repair1 /
-//     mac-runtime-seam-repair) is PRESERVED VERBATIM here: every `const char *`
-//     field handed to the backend points at an owned, null-terminated HEAP copy
-//     that lives (defer-freed) for the WHOLE duration of the vm_new_v3 call, so
-//     no borrowed pointer escapes its closure. Do NOT regress this to the
-//     `cX.withUnsafeBufferPointer { $0.baseAddress }` form.
-//   * The kernel/initrd BYTE-BUFFER lifetime is now also correct: the native
-//     call runs INSIDE both `withUnsafeBytes` closures so neither base pointer
-//     escapes its closure (SWIFT01 repair — see backendV3VmNew).
-//   * controlFd/netFd ownership moves into the archive on EVERY native return;
-//     a caller-side refusal BEFORE the native call closes them here, exactly
-//     once, in a defer (SWIFT02 repair — see backendV3VmNew).
-//   * v3 adds the RETURNING lifecycle split: run_v3 (proven halt) THEN a
-//     SEPARATE checked finalize_v3 (R06) THEN result_v3. v2 fused these.
-//   * v3 adds the five-role disk set (vda/vdb/vdc/vdd + optional vde) with
-//     ADMITTED blank-template copies for the two fresh RW disks (vdb/vdd), and
-//     an OPTIONAL bounded virtio-net descriptor (net_fd == -1 => no NIC).
-//   * v3 uses the VERSIONED probe symbols (F06): dsmack_ctl_join_abi_version_v3
-//     / dsmack_ctl_join_err_cap_min_v3, so a single archive can carry both the
-//     frozen v2 and the v3 backend objects without a duplicate symbol. This is
-//     the cross-lane-verified direction (CROSS-LANE-VERIFIED-FINDINGS abi_state:
-//     "Version ABI probe symbols_v3/header/Swift calls ...; no duplicateexports").
-//     SWIFT03 repair2: these names are the EXACT symbols the native-nat
-//     implementer exports (backend-v3/src/ctl_capi_v3.rs:561,566 —
-//     `dsmack_ctl_join_abi_version_v3` / `dsmack_ctl_join_err_cap_min_v3`). The
-//     rejected repair1 called `dsmack_ctl_join_v3_abi_version` /
-//     `dsmack_ctl_join_v3_err_cap_min` (the `_v3` infix form), which the archive
-//     does NOT export — a guaranteed unresolved-symbol link failure. Reconciled
-//     to the implementer's exported set; the vendored header is now the
-//     implementer's byte-identical dsmack_ctl_join_v3.h.
-//
-// The app stays GENERAL: it carries no Claude/OAuth/marketplace/task/model
-// policy. The caller resolves the admitted launch_spec from the EXTERNAL
-// admission policy + image manifest and hands verified bytes + spec + the disk
-// set to the backend, which re-verifies and refuses before any guest runs.
+//   * Every `const char *` handed to the backend points at an owned,
+//     null-terminated heap copy that lives for the whole vm_new_v3 call.
+//   * The native call runs inside both kernel/initrd `withUnsafeBytes` closures.
+//   * controlFd/netFd ownership moves into the archive on every native return;
+//     a refusal before the native call closes them here exactly once.
+//   * Lifecycle: run_v3 (proven halt), then checked finalize_v3, then result_v3.
+//   * Five-role disk set (vda/vdb/vdc/vdd + optional vde) and an optional
+//     virtio-net descriptor (net_fd == -1 => no NIC).
 
 #if canImport(Darwin)
 import CJoin
@@ -58,14 +22,12 @@ struct BackendV3Refused: Error, CustomStringConvertible {
     }
 }
 
-/// IG-01 (reported interface gap): the v3 header declares NO receipt/result
-/// cap-min probe (v2 had `dsmack_ctl_join_receipt_cap_min`), yet mandates
+/// The v3 header declares no receipt/result cap-min probe, yet mandates
 /// "too-small out_cap is a refusal (-1)". The v3 receipt/result JSON is pure
 /// metadata (digests, lengths, lifecycle) — the 16 MiB console and result BYTES
 /// are never inlined, only their sha256+length — so a fixed, generous bound is
 /// safe. We DO NOT retry-grow on -1, because -1 is overloaded (also "finalize
-/// not run"): growing would mask a genuine refusal. If a reviewed v3 archive
-/// later adds a cap-min probe, switch to it. See RESULT.md IG-01.
+/// not run"): growing would mask a genuine refusal.
 private let kV3MetaJsonCap = 64 * 1024
 
 /// Initialize the linked archive's v3 consumption factory (krun HVF on aarch64
@@ -131,7 +93,7 @@ func backendV3VmNew(kernel: Data, initrd: Data?,
         }
     }
 
-    // E01 lifetime repair (PRESERVED from BackendV2.swift): own null-terminated
+    // Own null-terminated
     // HEAP copies that live until this function returns, so every `const char *`
     // the backend reads for the full duration of dsmack_ctl_join_vm_new_v3
     // points at valid, immovable bytes — no borrowed pointer escapes a closure.

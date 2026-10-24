@@ -2,7 +2,7 @@
 name = "dsmack-backend-v3"
 version = "0.3.0"
 edition = "2021"
-description = "Generic native backend for the dsmack general launcher: control-profile ABI v3 (external admitted launch_spec, owned-buffer verified boot R1-R5, vda/vdb/vdc/vdd/vde device set, fresh template-copy scratch+result, checked R06 result finalization, bounded allowlisted generic virtio-net option, unmeasured vde private input). native-v3-backend lane 2026-10-21. PROSPECTIVE source pending independent review: no Mac build/sign/VM/network/credentials in this lane; the HVF consumption and libkrun block/net/builder changes are source-change proposals."
+description = "dsmack v3 native backend: admitted launch spec, verified boot, five-role disk set, result finalization, optional virtio-net."
 
 [dependencies]
 sha2 = "0.10.9"
@@ -10,9 +10,7 @@ thiserror = "2.0"
 libc = "0.2"
 
 [features]
-# Declared only so the vendored owned_verified.rs `cfg(feature="ffi")` attribute
-# (carried verbatim from upstream, retains license/revision) is a known cfg.
-# Never enabled here: `ffier` is not a dependency of this prospective crate.
+# owned_verified.rs carries a cfg(feature = "ffi") attribute from upstream.
 ffi = []
 
 [lib]

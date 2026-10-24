@@ -1,26 +1,11 @@
-// Direct AppAttestVerify unit coverage — assertion verification, key
-// representation, challenge (client-data) binding, enrollment nonce binding,
-// and root-pin mechanics — imported from the overnight glm-attestation-path
-// lane (its AppAttestVerifyTests ran green there, 8 tests) and adapted to THIS
-// candidate's committed fixture layout.
-//
-// The variants fixture (Fixtures/appattest-variants.json) is generated from
-// the ACTUAL verifier rig (evidence/gen-appattest-variants.py:
-// deterministic_rig == the committed enrollment's leaf scalar 0x2001/P-256)
-// with three python-side anchors asserted at generation: rig key_id == the
-// committed fixture key_id; the rebuilt statement == the committed
-// hvf-control-statement.bin; the positive counter-1 variant verifies through
-// the REAL hvf_control.verify_receipt (verified_task_success, counter 1)
-// while the counter-2 variant is refused counter_binding. NO DeviceCheck, NO
-// keychain: every case here is offline verification of rig bytes.
+// Offline AppAttestVerify coverage over rig-generated enrollment/assertion bytes
+// (Fixtures/appattest-variants.json): assertion verification, key representation,
+// counter and client-data binding, enrollment nonce binding and root-pin mechanics.
 import CryptoKit
 import XCTest
 
-import marControl
 @testable import marAttest
 
-/// Loads Fixtures/appattest-variants.json (same #filePath pattern as
-/// HvFFixture: no resource-bundle dependency).
 private struct VariantsFixture {
     let json: [String: Any]
     init() throws {
@@ -44,26 +29,22 @@ private struct VariantsFixture {
 
 final class AppAttestVerifyTests: XCTestCase {
 
-    // Positive: the committed enrollment verifies locally and the rig's
-    // counter-1 assertion over the EXACT committed statement bytes verifies
-    // with the certified point (the python verifier admitted these bytes —
-    // generation anchor 3).
+    // The enrollment verifies and the counter-1 assertion over the statement
+    // bytes verifies with the certified point.
     func testAdmittedEnrollmentAndAssertionVerifyLocally() throws {
-        let fx = try HvFFixture()
         let v = try VariantsFixture()
-        let appId = fx.identity["app_id"]!
+        let appId = v.str("app_id")
         let enroll = try AppAttestVerify.verifyEnrollment(
-            enrollmentCbor: fixtureData(fx, "enrollment_hex"),
-            keyId: fx.enroll["key_id"] as! String,
+            enrollmentCbor: v.data("enrollment_hex"),
+            keyId: v.str("key_id"),
             appId: appId,
-            enrollClientData: fixtureData(fx, "client_data_hex"))
+            enrollClientData: v.data("enroll_client_data_hex"))
         XCTAssertEqual(Data(SHA256.hash(data: enroll.publicPoint)),
-                       Data(base64: fx.enroll["key_id"] as! String),
+                       Data(base64Encoded: v.str("key_id"))!,
                        "keyId must be sha256(certificate public point)")
         XCTAssertEqual(enroll.counterAtEnrollment, 0, "enrollment counter is 0")
 
-        let statement = fx.expectedStatement
-        XCTAssertEqual(SHA256.hex(statement), v.str("statement_sha256"))
+        let statement = v.data("statement_hex")
         let counter = try AppAttestVerify.verifyAssertion(
             assertionCbor: v.data("assertion_positive_hex"),
             clientData: statement,
@@ -87,8 +68,7 @@ final class AppAttestVerifyTests: XCTestCase {
         XCTAssertEqual(key.rawRepresentation, point.dropFirst())
         XCTAssertEqual(Data([0x04]) + key.rawRepresentation, point)
         // and the public key derived from the fixture scalar matches BOTH forms
-        let fx = try HvFFixture()
-        let scalar = fixtureScalar(fx)
+        let scalar = v.data("leaf_private_scalar_hex")
         XCTAssertEqual(scalar.count, 32)
         let fromScalar = try P256.Signing.PrivateKey(rawRepresentation: scalar)
         XCTAssertEqual(fromScalar.publicKey.x963Representation, point)
@@ -103,7 +83,7 @@ final class AppAttestVerifyTests: XCTestCase {
         let v = try VariantsFixture()
         XCTAssertThrowsError(try AppAttestVerify.verifyAssertion(
             assertionCbor: v.data("assertion_counter2_hex"),
-            clientData: try HvFFixture().expectedStatement,
+            clientData: v.data("statement_hex"),
             publicPoint: v.data("public_point_hex"),
             appId: v.str("app_id"),
             expectedCounter: 1)) { error in
@@ -121,7 +101,7 @@ final class AppAttestVerifyTests: XCTestCase {
         let v = try VariantsFixture()
         XCTAssertThrowsError(try AppAttestVerify.verifyAssertion(
             assertionCbor: v.data("assertion_other_client_hex"),
-            clientData: try HvFFixture().expectedStatement,
+            clientData: v.data("statement_hex"),
             publicPoint: v.data("public_point_hex"),
             appId: v.str("app_id"),
             expectedCounter: 1)) { error in
@@ -137,7 +117,7 @@ final class AppAttestVerifyTests: XCTestCase {
         let v = try VariantsFixture()
         XCTAssertThrowsError(try AppAttestVerify.verifyAssertion(
             assertionCbor: v.data("assertion_foreign_key_hex"),
-            clientData: try HvFFixture().expectedStatement,
+            clientData: v.data("statement_hex"),
             publicPoint: v.data("public_point_hex"),
             appId: v.str("app_id"),
             expectedCounter: 1)) { error in
@@ -150,13 +130,12 @@ final class AppAttestVerifyTests: XCTestCase {
     // Enrollment nonce binding: an attestation whose nonce extension is not
     // sha256(authData ‖ sha256(enroll client data)) is refused.
     func testEnrollmentNonceNotBoundToClientDataRefused() throws {
-        let fx = try HvFFixture()
         let v = try VariantsFixture()
         XCTAssertThrowsError(try AppAttestVerify.verifyEnrollment(
             enrollmentCbor: v.data("enrollment_wrong_nonce_hex"),
-            keyId: fx.enroll["key_id"] as! String,
-            appId: fx.identity["app_id"]!,
-            enrollClientData: fixtureData(fx, "client_data_hex"))) { error in
+            keyId: v.str("key_id"),
+            appId: v.str("app_id"),
+            enrollClientData: v.data("enroll_client_data_hex"))) { error in
             guard case AppAttestError.attestationNonceMismatch = error else {
                 return XCTFail("expected attestationNonceMismatch, got \(error)")
             }
@@ -176,7 +155,7 @@ final class AppAttestVerifyTests: XCTestCase {
             i = hi
         }
         pem += "-----END CERTIFICATE-----\n"
-        XCTAssertEqual(try DER.pemDERSha256(Data(pem.utf8)), SHA256.hex(der))
+        XCTAssertEqual(try DER.pemDERSha256(Data(pem.utf8)), SHA256.hash(data: der).map { String(format: "%02x", $0) }.joined())
     }
 
     func testRootPinMismatchRefused() throws {
@@ -187,11 +166,5 @@ final class AppAttestVerifyTests: XCTestCase {
                 return XCTFail("expected rootPinMismatch, got \(error)")
             }
         }
-    }
-}
-
-extension Data {
-    init(base64: String) {
-        self = Data(base64Encoded: base64) ?? Data()
     }
 }

@@ -113,7 +113,7 @@ only.
 ## Entitlements for signing (policy v2)
 
 Use `DsmackRunner.entitlements` verbatim — the exact five keys admitted by
-`check_entitlements_version(..., POLICY_VERSION_HVF)`:
+`check_entitlements(...)`:
 
 - `com.apple.application-identifier` = `DC9JH5DRMY.dev.dsmack.provider`
 - `com.apple.developer.team-identifier` = `DC9JH5DRMY`
@@ -183,7 +183,7 @@ shasum -a 256 DsmackRunner.app/Contents/MacOS/dsmack-runner    # the SIGNED byte
 ```
 
 Admission checks on the signed extraction (as in `app/build.sh`):
-`check_entitlements_version(entitlements-signed.plist, POLICY_VERSION_HVF)` and
+`check_entitlements(entitlements-signed.plist)` and
 `check_metadata(codesign-signed.txt)` must both pass. Record: codesign output,
 signed entitlements, the signed-bytes digest, `CandidateCDHashFull`, the
 signing timestamp, and a signed-bundle manifest (every file + sha256).

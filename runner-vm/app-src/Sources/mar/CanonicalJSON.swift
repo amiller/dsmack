@@ -1,7 +1,7 @@
 // CanonicalJSON.swift — deterministic JSON emission + strict scalar rules
-// for the v2 launcher core (mac-app-join lane, 2026-10-21).
+// for the launcher core.
 //
-// The v2 launch binds identity by DIGESTS OF EXACT BYTES (spec_sha256 over
+// The launch binds identity by DIGESTS OF EXACT BYTES (spec_sha256 over
 // the canonical launch-spec document, admission over exact manifest/policy
 // bytes, AND the contract10 receipt-evidence digest), so emission must be
 // byte-deterministic AND byte-exact with the contract10 canonical profile

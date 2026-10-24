@@ -88,27 +88,14 @@ def main(argv=None):
  parser=argparse.ArgumentParser(description=__doc__)
  parser.add_argument('--source-manifest-sha256',required=True)
  parser.add_argument('--environment-sha256',required=True)
- parser.add_argument('command',choices=('doctor','operator','prepare','transfer'))
+ parser.add_argument('command',choices=('operator','prepare'))
  parser.add_argument('args',nargs=argparse.REMAINDER)
  a=parser.parse_args(argv)
- try:
-  count=source_check(a.source_manifest_sha256);prepare_source_imports();env=environment_check(a.environment_sha256)
-  # No selected implementation imported before all source/environment checks.
-  sys.path.insert(0,str(ROOT))
-  from runresult_ref.extraction import sandbox_available
-  sandbox=sandbox_available()
-  if a.command=='doctor':
-   need(not a.args,'doctor has no extra options')
-   print(json.dumps({'schema':'dsmack-full-verifier-doctor/1','source_files_checked':count,'qualified_environment_matches':True,'namespace_sandbox_available':sandbox,'platform':env['system'],'architecture':env['machine'],'runtime_ready':sandbox,'authority_ready':False,'enrollment_checked':False,'replay_opened':False,'private_inputs_read':False,'execution_verified':False,'task_accepted':False,'payment_received':False},sort_keys=True));return 0 if sandbox else 2
-  need(sandbox,'Linux namespace sandbox unavailable; no extraction fallback')
-  if a.command=='operator':
-   from runresult_ref.operator_cli import main as entry
-  elif a.command=='prepare':
-   from tools.prepare_app_evidence import main as entry
-  else:
-   from tools.evidence_transfer import main as entry
-  return entry(a.args)
- except (Refused,OSError,ValueError,ImportError,KeyError) as e:
-  # Avoid printing candidate data or private paths on a failed operation.
-  print('Verifier package preflight refused; preserve original evidence and inspect protected local configuration.',file=sys.stderr);return 2
+ source_check(a.source_manifest_sha256);prepare_source_imports();environment_check(a.environment_sha256)
+ sys.path.insert(0,str(ROOT))
+ from runresult_ref.extraction import sandbox_available
+ need(sandbox_available(),'Linux namespace sandbox unavailable')
+ if a.command=='operator':from runresult_ref.operator_cli import main as entry
+ else:from tools.prepare_app_evidence import main as entry
+ return entry(a.args)
 if __name__=='__main__':sys.exit(main())

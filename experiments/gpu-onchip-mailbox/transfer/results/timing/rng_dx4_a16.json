@@ -1,1 +1,0 @@
-TIMING {"tag":"rng_dx4_a16","mode":"rng","alphabet":16,"d0_ns":10000,"delta_ns":1012,"n_symbols":10000,"done":10000,"kernel_status":"done","trips_done":10000,"max_count":205,"min_count":34,"cb_errored":0,"completed_in_bound":1,"cpu_lost":0,"lost_at":0,"wall_s":0.193297,"gpu_dispatch_s":0.190980,"symbols_per_s":51733.9}

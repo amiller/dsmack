@@ -128,7 +128,10 @@ python3 applications/pilot-client/verifier-browser/verify.py \
 
 Exit 0: valid evidence, task succeeded. Exit 3: valid evidence, task failed.
 Exit 2: refused. The JSON output has `evidence_valid`, `verification_level`
-(`full` for a complete VM-result check) and `task_success`. See the
+(`full` for a complete VM-result check) and `task_success`. The check also
+verifies the App Attest chain against `trust/apple-app-attestation-root.pem` and
+both assertions directly, so it does not rely on the report key for the Apple
+step (`apple_assertions_valid`). See the
 [verifier README](../applications/pilot-client/verifier/README.md).
 
 ## Clean up

@@ -60,7 +60,7 @@ import time
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric import ed25519
 
-from . import protocol, schemas
+from . import protocol, schemas, statement as statement_mod
 from . import checker as checker_mod
 from . import enrollment_store as enrollment_store_mod
 from . import retained_evidence
@@ -68,7 +68,7 @@ from .enrollment_store import (AuthenticatedEnrollmentStore,
                                TRUST_TIER_HARDWARE, root_der_sha256)
 from .errors import Refusal, need
 from .extraction import SafeExtractor
-from .frozen import canonical_bytes, core
+from .frozen import REPO, canonical_bytes, core
 from .replay import ReplayStore
 from .verifier import verify as verify_bundle
 
@@ -424,6 +424,38 @@ def _load_check_evidence(evidence_dir):
     return retained_evidence.load_retained_check_evidence(evidence_dir)
 
 
+def _check_apple(enrollment, subject, launch_b64, result_b64):
+    """Verify the enrollment's App Attest chain to the repo's Apple root and
+    both assertions over client data rebuilt from the report subject, so the
+    Apple step does not rest on the report key."""
+    policy = core.Policy(app_id=enrollment["app_id"],
+                         environment=enrollment["environment"])
+    try:
+        key = core.verify_attestation(
+            base64.b64decode(enrollment["apple_attestation_b64"]),
+            enrollment["key_id_b64"],
+            base64.b64decode(enrollment["provenance"]["attestation_challenge"]),
+            policy, (REPO / "trust/apple-app-attestation-root.pem").read_bytes())["public_key"]
+        need(key == enrollment["assertion_public_key"]["key_b64"],
+             "apple_public_key_mismatch")
+        launch = core.verify_assertion(
+            base64.b64decode(launch_b64),
+            statement_mod.launch_client_data(subject["manifest_sha256"],
+                                             subject["launch_evidence_sha256"],
+                                             subject["challenge"]),
+            key, 0, policy)["counter"]
+        result = core.verify_assertion(
+            base64.b64decode(result_b64),
+            statement_mod.result_client_data(subject["launch_evidence_sha256"],
+                                             subject["envelope_sha256"],
+                                             subject["challenge"]),
+            key, launch, policy)["counter"]
+    except core.Reject as exc:
+        raise Refusal("apple_check_rejected", str(exc)) from exc
+    need((launch, result) == (subject["launch_counter"], subject["result_counter"]),
+         "apple_counter_mismatch")
+
+
 def cmd_check(args):
     """Relying-party check: trust ONLY the INDEPENDENTLY admitted expected
     context (read from ``--context``, NOT reconstructed from the submitted
@@ -442,6 +474,8 @@ def cmd_check(args):
     evidence["result_assertion_b64"] = args.result_assertion_b64
 
     result = checker_mod.check(report_bytes, context, evidence)
+    _check_apple(evidence["enrollment_obj"], result["subject"],
+                 args.launch_assertion_b64, args.result_assertion_b64)
     summary = {
         "checked": result["checked"],
         "evidence_valid": True,
@@ -453,6 +487,7 @@ def cmd_check(args):
         "receipt_environment": result["receipt_environment"],
         "task_success": result["task_success"],
         "key_id_b64": result["subject"]["key_id_b64"],
+        "apple_assertions_valid": True,
     }
     print(json.dumps(summary, sort_keys=True))
     # Evidence is valid (no Refusal).  Exit 0 only when the attested workload

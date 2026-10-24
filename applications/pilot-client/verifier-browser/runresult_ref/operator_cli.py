@@ -435,7 +435,9 @@ def _check_apple(enrollment, subject, launch_b64, result_b64):
             base64.b64decode(enrollment["apple_attestation_b64"]),
             enrollment["key_id_b64"],
             base64.b64decode(enrollment["provenance"]["attestation_challenge"]),
-            policy, (REPO / "trust/apple-app-attestation-root.pem").read_bytes())["public_key"]
+            policy, (REPO / "trust/apple-app-attestation-root.pem").read_bytes(),
+            # Apple leaf certs live ~3 days; check the chain as of enrollment.
+            enrollment["provenance"]["verified_at_unix_s"])["public_key"]
         need(key == enrollment["assertion_public_key"]["key_b64"],
              "apple_public_key_mismatch")
         launch = core.verify_assertion(

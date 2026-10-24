@@ -36,7 +36,7 @@ def flatfields(fields):
 def decode(fields,data):
  fields=flatfields(fields);w=words(data);need(len(w)==len(fields),'ABI field count mismatch');return {f['name']:val(x,f['type']) for f,x in zip(fields,w)}
 def call(r,c,name,i=None,block='latest'):
- sig=name+('(uint256)' if i is not None else '()');data='0x'+ABI['selectors'][sig]+('' if i is None else format(i,'064x'))
+ sig=name+('(address)' if name=='withdrawable' else '(uint256)' if i is not None else '()');data='0x'+ABI['selectors'][sig]+('' if i is None else format(i,'064x'))
  return r('eth_call',[{'to':c['address'],'data':data},block])
 def event(log,c):
  need(log.get('address','').lower()==c['address'] and not log.get('removed',False),'foreign/removed event')
@@ -66,7 +66,7 @@ def scan(r,c,head,state,max_pages):
 
 def collect_contract(c,r,state,max_pages):
  cid=str(c['chain_id'])+':'+c['address'];meta={k:c[k] for k in ['network','testnet','address','explorer_url']};meta.update(id=cid,chain_id=c['chain_id'],observed_at=now(),status='unknown',coverage={},error=None)
- result={'contracts':[meta],'tasks':[],'assignments':[],'payments':[],'activity':[],'sources':[]};newstate=None
+ result={'contracts':[meta],'tasks':[],'assignments':[],'payments':[],'activity':[],'sources':[],'credits':[]};newstate=None
  try:
   need(c.get('codec')==ABI['schema'],'unsupported contract codec')
   need(int(r('eth_chainId',[]),16)==c['chain_id'],'wrong RPC chain')
@@ -75,13 +75,15 @@ def collect_contract(c,r,state,max_pages):
   nt=int(decode([{'name':'n','type':'uint256'}],call(r,c,'nextTask',block=tag))['n']);na=int(decode([{'name':'n','type':'uint256'}],call(r,c,'nextAssignment',block=tag))['n']);need(1<=nt<=10000 and 1<=na<=10000,'getter ID budget exceeded')
   tasks=[];assignments=[]
   for i in range(1,nt):
-   d=decode(ABI['functions']['task'],call(r,c,'task',i,tag));tasks.append({'key':cid+':'+str(i),'id':str(i),'contract_id':cid,'chain_id':c['chain_id'],'package_hash':d['packageHash'],'policy_hash':d['policyHash'],'requester':d['requester'],'reward_wei':d['completionPay'],'available_wei':d['available'],'reserved_wei':'0','deposited_wei':None,'state':'open' if d['open'] else 'closed','created_tx':None,'created_at':None,'active_assignment_id':d['activeAssignment'],'block_number':number,'block_hash':head['hash']})
+   d=decode(ABI['functions']['task'],call(r,c,'task',i,tag));tasks.append({'key':cid+':'+str(i),'id':str(i),'contract_id':cid,'chain_id':c['chain_id'],'package_hash':d['packageHash'],'policy_hash':d['policyHash'],'requester':d['requester'],'reward_wei':d['completionPay'],'effort_wei':d['effortPay'],'roles':{'allocator':d['allocator'],'execution_verifier':d['executionVerifier'],'reviewer':d['reviewer'],'delivery_verifier':d['deliveryVerifier'],'adjudicator':d['adjudicator']},'windows':{'submit_seconds':d['submitSeconds'],'review_seconds':d['reviewSeconds'],'adjudication_seconds':d['adjudicationSeconds']},'available_wei':d['available'],'reserved_wei':'0','deposited_wei':None,'state':'open' if d['open'] else 'closed','created_tx':None,'created_at':None,'active_assignment_id':d['activeAssignment'],'block_number':number,'block_hash':head['hash']})
   for i in range(1,na):
    d=decode(ABI['functions']['assignment'],call(r,c,'assignment',i,tag));s=int(d['state']);need(s<len(STATES),'unknown assignment state');assignments.append({'key':cid+':assignment:'+str(i),'id':str(i),'task_key':cid+':'+d['taskId'],'contract_id':cid,'worker':d['worker'],'state':STATES[s],'candidate_hash':d['candidate'],'evidence_hash':d['evidence'],'delivery_hash':d['delivery'],'reserved_wei':d['reserved'],'payout_wei':None,'deadlines':{'submit_by':d['submitBy'],'review_by':d['reviewBy']},'txlinks':[]})
   for t in tasks:t['reserved_wei']=str(sum(int(a['reserved_wei']) for a in assignments if a['task_key']==t['key'] and a['state'] in ['reserved','submitted']))
+  accounts=sorted({t['requester'] for t in tasks}|{a['worker'] for a in assignments})
+  credits=[{'contract_id':cid,'chain_id':c['chain_id'],'account':account,'withdrawable_wei':decode([{'name':'value','type':'uint256'}],call(r,c,'withdrawable',int(account,16),tag))['value'],'block_number':number,'block_hash':head['hash']} for account in accounts]
   # All reads at one height; detect a reorg that happened during the getter pass.
   need(r('eth_getBlockByNumber',[tag,False])['hash']==head['hash'],'snapshot block reorged')
-  result.update(tasks=tasks,assignments=assignments);meta['status']='observed';meta['coverage']['getters']='all IDs at pinned block'
+  result.update(tasks=tasks,assignments=assignments,credits=credits);meta['status']='observed';meta['coverage']['getters']='all IDs at pinned block'
   try:
    newstate,pages=scan(r,c,number,state,max_pages);events=newstate['events'];meta['coverage'].update(events_from=c['deployment_block'],events_through=newstate['through_block'],events_complete=newstate['through_block']==number,pages_this_run=pages,reorg_reset=newstate['reorg_reset'])
    for e in events:
@@ -93,22 +95,23 @@ def collect_contract(c,r,state,max_pages):
      a=next((a for a in assignments if a['id']==d['assignmentId']),None)
      if a:
       a['txlinks'].append({'event':e['event'],'url':tx,'transaction_hash':e['transaction_hash']})
-      if e['event']=='Resolved':a['payout_wei']=d['payout']
+      if e['event']=='Resolved':
+       outcome=int(d['outcome']);need(outcome<3,'unknown resolved outcome');a.update(payout_wei=d['payout'],outcome=['Reject','Effort','Completion'][outcome])
     if e['event']=='Withdrawn':result['payments'].append({'key':cid+':'+e['transaction_hash']+':'+str(e['log_index']),'contract_id':cid,'account':d['account'],'recipient':d['account'],'amount_wei':d['amount'],'kind':'withdrawal','task_key':None,'assignment_key':None,'transaction_hash':e['transaction_hash'],'explorer_url':tx,'block_number':e['block_number'],'created_at':e['timestamp'],'attribution':'Account-level pull payment; task allocation unproven'})
   except Exception as ex:meta['coverage'].update(events_complete=False);meta['error']='event scan incomplete: '+str(ex)[:180]
   need(r('eth_getBlockByNumber',[tag,False])['hash']==head['hash'],'snapshot block reorged during scan')
   result['sources'].append({'contract_id':cid,'rpc':c['rpc'],'runtime_sha256':c['runtime_sha256'],'deployment_tx':c['deployment_tx'],'deployment_block':c['deployment_block'],'provenance':c['provenance']})
  except Exception as ex:
   meta['status']='unknown';meta['error']=str(ex)[:180]
-  for k in ['tasks','assignments','payments','activity']:result[k]=[]
+  for k in ['tasks','assignments','payments','activity','credits']:result[k]=[]
   newstate=None
  return result,newstate
 
 def main():
- p=argparse.ArgumentParser();p.add_argument('--registry',type=pathlib.Path,default=HERE/'registry.json');p.add_argument('--state-dir',type=pathlib.Path,required=True);p.add_argument('--out',type=pathlib.Path,required=True);p.add_argument('--event-pages',type=int,default=20);a=p.parse_args();need(0<=a.event_pages<=10000,'event page budget invalid');registry=json.loads(a.registry.read_text());out={'schema':'bounty-dashboard-chain/1','built_at':now(),**{k:[] for k in ['contracts','tasks','assignments','payments','activity','sources']}}
+ p=argparse.ArgumentParser();p.add_argument('--registry',type=pathlib.Path,default=HERE/'registry.json');p.add_argument('--state-dir',type=pathlib.Path,required=True);p.add_argument('--out',type=pathlib.Path,required=True);p.add_argument('--event-pages',type=int,default=20);a=p.parse_args();need(0<=a.event_pages<=10000,'event page budget invalid');registry=json.loads(a.registry.read_text());out={'schema':'bounty-dashboard-chain/1','built_at':now(),**{k:[] for k in ['contracts','tasks','assignments','payments','activity','sources','credits']}}
  for c in registry['contracts']:
   need(re.fullmatch('0x[0-9a-f]{40}',c['address']) and isinstance(c['chain_id'],int),'invalid registry identity');path=a.state_dir/(str(c['chain_id'])+'-'+c['address']+'.json');state=json.loads(path.read_text()) if path.exists() else None;r,new=collect_contract(c,RPC(c['rpc']),state,a.event_pages)
-  for k in ['contracts','tasks','assignments','payments','activity','sources']:out[k].extend(r[k])
+  for k in ['contracts','tasks','assignments','payments','activity','sources','credits']:out[k].extend(r[k])
   if new:atomic(path,new)
  atomic(a.out,out)
 if __name__=='__main__':main()

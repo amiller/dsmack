@@ -19,3 +19,5 @@ Event queries use inclusive windows of at most200blocks (the official Base Sepol
 `abi.json` contains only the selected read methods and static event ABI from the reviewed WorkEscrow artifact. It includes fixed selectors/event topics so runtime collection needs no Keccak dependency. Registry/source provenance identifies the actual successful deployment; the default registry has one confirmed bounty escrow on Base Sepolia and makes no mainnet claim. Other issuer/attestation deployments are not bounty escrows.
 
 Tests: `python3 -m unittest discover -s applications/bounty-dashboard/chain -p 'test_*.py'`.
+
+Task snapshots also expose the exact getter roles, effort/completion amounts and submission/review/adjudication windows. `credits[]` reads `withdrawable(address)` at the same pinned block for every unique task requester and assignment worker; these account balances are **unwithdrawn credits**, separate from `payments[]`. This is coverage of known escrow participants, not all possible Ethereum accounts. Assignment outcome labels come only from original `Resolved` events (`Reject`, `Effort`, `Completion`); unresolved or not-yet-indexed outcomes remain absent.

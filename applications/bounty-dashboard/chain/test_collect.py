@@ -32,16 +32,19 @@ class Tests(unittest.TestCase):
   with self.assertRaisesRegex(ValueError,'receipt mismatch'):m.scan(r,C,C['deployment_block'],None,1)
  def test_snapshot_amounts_and_pooled_payment(self):
   c=copy.deepcopy(C);c['runtime_sha256']=m.hashlib.sha256(b'\x01').hexdigest();r=Mock();head=c['deployment_block'];e=next(x for x in m.ABI['events'] if x['name']=='Withdrawn');r.logs=[{'address':c['address'],'topics':[e['topic'],'0x'+word(1)],'data':'0x'+word(25),'blockNumber':hex(head),'blockHash':'0x'+'a'*64,'transactionHash':'0x'+'b'*64,'logIndex':'0x0'}]
+  resolved=next(x for x in m.ABI['events'] if x['name']=='Resolved');r.logs.append({'address':c['address'],'topics':[resolved['topic'],'0x'+word(1)],'data':'0x'+word(2)+word(500),'blockNumber':hex(head),'blockHash':'0x'+'a'*64,'transactionHash':'0x'+'b'*64,'logIndex':'0x1'})
   def rpc(method,p):
    if method=='eth_getBlockByNumber':return {'number':hex(head),'hash':'0x'+'a'*64,'timestamp':'0x1'}
    if method=='eth_getCode':return '0x01'
    if method=='eth_call':
     selector=p[0]['data'][2:10]
+    if selector==m.ABI['selectors']['withdrawable(address)']:
+     self.assertEqual(p[0]['data'],'0x'+m.ABI['selectors']['withdrawable(address)']+word(1));return '0x'+word(250)
     for name in ['nextTask','nextAssignment']:
      if selector==m.ABI['selectors'][name+'()']:return '0x'+word(2)
     fields=m.flatfields(m.ABI['functions']['task' if selector==m.ABI['selectors']['task(uint256)'] else 'assignment']);return '0x'+''.join(word(1 if f['type'] in ['bool','address'] or f['name'] in ['taskId','state'] else 100000000000000 if f['name'] in ['available','completionPay','reserved'] else 0) for f in fields)
    return r(method,p)
-  result,state=m.collect_contract(c,rpc,None,1);self.assertEqual(result['contracts'][0]['status'],'observed');self.assertTrue(result['contracts'][0]['coverage']['events_complete']);self.assertEqual(result['tasks'][0]['available_wei'],'100000000000000');self.assertIsNone(result['tasks'][0]['deposited_wei']);self.assertEqual(result['payments'][0]['amount_wei'],'25');self.assertIsNone(result['payments'][0]['task_key']);self.assertEqual(result['payments'][0]['kind'],'withdrawal')
+  result,state=m.collect_contract(c,rpc,None,1);self.assertEqual(result['contracts'][0]['status'],'observed');self.assertTrue(result['contracts'][0]['coverage']['events_complete']);self.assertEqual(result['tasks'][0]['available_wei'],'100000000000000');self.assertIsNone(result['tasks'][0]['deposited_wei']);self.assertEqual(result['payments'][0]['amount_wei'],'25');self.assertIsNone(result['payments'][0]['task_key']);self.assertEqual(result['payments'][0]['kind'],'withdrawal');self.assertEqual(result['credits'][0]['withdrawable_wei'],'250');self.assertEqual(result['tasks'][0]['roles']['allocator'],'0x'+'0'*39+'1');self.assertEqual(result['tasks'][0]['effort_wei'],'0');self.assertEqual(result['tasks'][0]['windows']['submit_seconds'],'0');self.assertEqual(result['assignments'][0]['outcome'],'Completion');self.assertEqual(result['assignments'][0]['payout_wei'],'500')
  def test_rpc_envelope_and_write_methods_refused(self):
   from unittest.mock import patch
   class Response:

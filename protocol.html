@@ -1,0 +1,59 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="A discussion draft for admitting independently signed Mac applications with App Attest, then verifying their signed messages.">
+<title>Dsmack protocol draft</title>
+<link rel="icon" type="image/svg+xml" href="assets/favicon-shell.svg">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-shell-32.png">
+<link rel="stylesheet" href="assets/operator.css">
+</head>
+<body>
+<header><nav class="wrap" aria-label="Main"><a class="brand" href="index.html">dsmack</a><div class="links">
+<a href="index.html">Overview</a><a href="architecture.html">Architecture</a><a href="bounties.html">Bounties</a><a href="build.html">Setup</a><a href="app-attest.html">App Attest</a><a href="https://github.com/amiller/dsmack">Source</a>
+</div></nav></header>
+<main class="wrap">
+<section class="pagehero">
+<p class="eyebrow">Discussion draft</p>
+<h1>Dsmack protocol draft</h1>
+<p class="lead">A developer should be able to build and sign an approved Mac application under their own Apple developer identity, then send messages that another party can verify. Dsmack combines a policy for recognizing that code with Apple App Attest enrollment and signed assertions.</p>
+<p>The contracts already implement these checks. This draft explains their roles and proposes a common specification around them. The exact interoperable message formats and version rules still need to be collected and agreed.</p>
+<figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork of Macs participating in a shared application protocol." width="1280" height="360" loading="eager" decoding="async"></figure>
+</section>
+<section class="section">
+<h2>Participants and approved code</h2>
+<p>The <strong>policy owner</strong> chooses an approved build. A <strong>developer</strong> signs a copy under their Apple team. The <strong>app</strong> creates an App Attest key on its Mac. A <strong>recipient</strong> decides which policy and signed messages it accepts. Apple certifies the app key; the verifier checks that certification and later signatures.</p>
+<p>Signing the same program under another team changes its <strong>CDHash</strong>, the hash of its signed CodeDirectory. Dsmack's <a href="https://github.com/amiller/dsmack/blob/main/contracts/src/CDRegistry.sol">CDRegistry</a> compares a normalized measurement instead: code pages, selected executable headers and entitlements, with specified signer-dependent fields excluded. The source defines the precise comparison.</p>
+<p>The owner calls <code>setBuild</code> to select that measurement. Anyone can call <code>registerBuild</code> with a matching copy's CodeDirectory and required inputs. Registration records its full CDHash and app identity. A new approved build makes registrations under the previous build stop resolving. Developers can therefore share a code policy across signing identities. Worker wallets and payment recipients belong to the application using this mechanism.</p>
+</section>
+<section class="section">
+<h2>Enroll a key, then verify actions</h2>
+<p><strong>Enrollment</strong> checks Apple's evidence before recording a public key. The app creates its key and obtains an attestation containing a leaf certificate and authenticator data. The certificate chain connects that key to an Apple intermediate and the trusted Apple root. The app also supplies <code>clientData</code>, application-chosen bytes whose hash is bound into the attestation.</p>
+<p>The existing <a href="https://github.com/amiller/dsmack/blob/main/app-attest/contracts/src/AppleEndorsements.sol">endorsement registry</a> checks an intermediate against the root once. <a href="https://github.com/amiller/dsmack/blob/main/app-attest/contracts/src/AppleAttest.sol">Enrollment</a> then checks the leaf signature, certificate encoding and validity, app identity, code admission and platform policy. It records the key and expiry, and rejects enrollment of an already enrolled key.</p>
+<p>An <strong>assertion</strong> is a later signature by that key. Its <code>context</code> is the hash of the application data supplied to Apple's <code>generateAssertion</code>. The contract's configured registry calls <code>verify</code> with the expected context and assertion proof. Verification checks the enrolled key, expiry, current code admission and signature, then requires the assertion counter to exceed the last accepted counter.</p>
+</section>
+<section class="section">
+<h2>What a recipient checks</h2>
+<p>The recipient selects the verifier and approved-code policy it trusts. It determines the expected application data independently, including the action, intended recipient or deployment, and freshness challenge where needed. It then checks the signature against that context and maintains the required replay state. The counter prevents reusing an accepted assertion; application-specific context binds the signature to the intended action.</p>
+<p>A successful assertion identifies an enrolled app key running admitted code. The application defines what the signed data means. For example, a VM runner describes its inputs and returned files; a bounty service additionally checks those files against a task's acceptance rules.</p>
+</section>
+<section class="section">
+<h2>Two verification paths, one policy</h2>
+<p>The direct Solidity path performs the leaf-certificate checks in contract code. The zero-knowledge path proves those checks in a <a href="https://github.com/amiller/dsmack/tree/main/app-attest/circuit">Noir circuit</a>; its adapter verifies the proof and binds 24 public fields to the policy, certificate chain and client data. Both paths verify later assertions with the P-256 precompile.</p>
+<p>The <a href="app-attest.html">App Attest reference</a> explains the checks and recorded measurements. <a href="https://github.com/amiller/dsmack/tree/main/app-attest/contracts/fixtures">Real Apple captures</a>, <a href="https://github.com/amiller/dsmack/blob/main/app-attest/contracts/test/MacAppAttestV1.t.sol">Solidity tests</a> and <a href="https://github.com/amiller/dsmack/blob/main/app-attest/contracts/test/zk/Leaf.t.sol">proof-path tests</a> provide starting conformance examples. A shared specification should state precisely which inputs both paths accept or reject.</p>
+</section>
+<section class="section">
+<h2>Execution and bounty profiles</h2>
+<p>The <a href="https://github.com/amiller/dsmack/tree/main/runner-vm">VM execution profile</a> adds a session document and two assertions: one binds launch evidence; the other binds the finalized result envelope. Current producer formats include <code>dsmack-general-launcher/session/3</code> and <code>dsmack-general-launcher/v3-run-statement/1</code>. The <a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client">client and verifier</a> handle retained files and result checking.</p>
+<p>The <a href="https://github.com/amiller/dsmack/blob/main/applications/bounty-demo/PROTOCOL.md">bounty application protocol</a> adds tasks, attempts, delivery and acceptance. <a href="https://github.com/amiller/dsmack/tree/main/contracts/work-escrow">WorkEscrow</a> handles settlement. The current arcade pilot uses an off-chain verifier and a trusted signer bridge to authorize escrow decisions.</p>
+</section>
+<section class="section">
+<h2>What to specify next</h2>
+<p>Start with the admission core: actors, policy changes, enrollment inputs, assertion encoding and replay rules. Then publish exact byte encodings, domain separators, integer bounds and test vectors for each supported version. The execution profile needs a producer/verifier version map: older verifier constants and newer producer statements coexist today.</p>
+<p>Open decisions include how policies identify excluded bundle metadata, how recipients scope challenges, and how independent implementations demonstrate conformance. These are discussion points for the draft; existing contract rules remain available to inspect in <a href="https://github.com/amiller/dsmack/tree/main/app-attest">the implementation</a>.</p>
+</section>
+</main>
+<footer><div class="wrap"><p>Dsmack · App Attest verification and Mac execution · Alpha.</p><a href="index.html">Overview</a> <a href="architecture.html">Architecture</a> <a href="bounties.html">Bounties</a> <a href="build.html">Setup</a> <a href="app-attest.html">App Attest</a> <a href="https://github.com/amiller/dsmack">Source</a></div></footer>
+</body>
+</html>

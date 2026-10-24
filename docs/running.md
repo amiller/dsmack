@@ -1,7 +1,7 @@
 # Running a task on a Mac
 
 The Arcade pilot automates every step below: see
-[`applications/arcade-pilot/runner`](../applications/arcade-pilot/runner/README.md).
+[`applications/bounties/runner`](../applications/bounties/runner/README.md).
 This page lists the underlying commands. The Mac needs Apple silicon, macOS 27
 or later, Python 3 and Node 24. Never disable Gatekeeper, strip quarantine or
 re-sign the app.
@@ -92,7 +92,12 @@ python3 -I applications/pilot-client/friend.py run invitation.json --sha256 "$DI
 ## Private inputs
 
 Coding tasks need a subscription credential. Both processes run on the
-participant's Mac; the credential travels only through the pipe:
+participant's Mac; the credential travels only through the pipe. The helper
+folder is `applications/pilot-client/workload`:
+
+```sh
+CAPSULE="$PWD/applications/pilot-client/workload"
+```
 
 ```sh
 python3 -I -B "$CAPSULE/export_subscription.py" \
@@ -108,7 +113,7 @@ python3 -I -B "$CAPSULE/stage_private.py" \
 ```
 
 The exporter copies only the OAuth fields, not settings, hooks, MCP config or
-history. See [Preparing a run](../applications/bounty-develop/README.md#preparing-a-run).
+history. See the [workload helpers](../applications/pilot-client/workload/README.md).
 
 ## Verify
 

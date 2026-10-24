@@ -2,7 +2,7 @@
 
 Host-side pieces that install a signed alpha runtime on a participant's Mac, run
 one task in the `browser-sandbox-v1` guest, verify the evidence on Linux and
-retire scratch disks afterwards. `applications/arcade-pilot/runner` drives these
+retire scratch disks afterwards. `applications/bounties/runner` drives these
 pieces for the live Arcade task.
 
 | Path | Role |
@@ -20,11 +20,11 @@ pieces for the live Arcade task.
 Arcade setup invokes bootstrap and staging:
 
 ```sh
-python3 -I applications/arcade-pilot/runner/setup.py --api URL --home DIR \
+python3 -I applications/bounties/runner/setup.py --api URL --home DIR \
   --node /path/to/node --public-key maintainer.pem
 ```
 
-Scratch retirement, as run by `arcade-pilot/runner/cleanup.py`:
+Scratch retirement, as run by `bounties/runner/cleanup.py`:
 
 ```sh
 node applications/pilot-client/retire-scratch.mjs /abs/selection.json SELECTION_SHA256
@@ -37,5 +37,5 @@ node --test applications/pilot-client/*.test.mjs
 python3 -m pytest applications/pilot-client
 ```
 
-`PRIVATE-DEVELOP.md` describes the `dsmack-alpha-profile/3` develop/generate
-profiles used by the bounty lane.
+`workload/` prepares public workload disks and private credential inputs.
+See its [README](workload/README.md).

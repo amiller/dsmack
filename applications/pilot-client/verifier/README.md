@@ -18,5 +18,5 @@ $V prepare verify --bundle DIR --context FILE --retained NEW_DIR ...
 $V operator check ...            # relying-party check of a signed report
 ```
 
-`applications/arcade-pilot/runner/server_adapter.py` and `authority.py` show the
+`applications/bounties/runner/server_adapter.py` and `authority.py` show the
 exact arguments used by the live Arcade service.

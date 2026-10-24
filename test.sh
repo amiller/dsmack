@@ -2,11 +2,11 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Same-named test modules live in different directories, so collect each separately.
-for d in tests tools base-vm runner-vm applications/{arcade-pilot,bounty-dashboard,bounty-develop,bounty-judges,bounty-recipes,bounty-runtime,bounty-settlement,pilot-client}; do
-    python3 -m pytest -q -p no:cacheprovider --ignore=applications/arcade-pilot/runner "$d"
+for d in tests tools base-vm runner-vm applications/{bounties,bounty-dashboard,pilot-client}; do
+    python3 -m pytest -q -p no:cacheprovider --ignore=applications/bounties/runner "$d"
 done
 # The runner entry points require python3 -I, which hides a user-site pytest.
-for t in applications/arcade-pilot/runner/test_*.py; do python3 -I "$t"; done
+for t in applications/bounties/runner/test_*.py; do python3 -I "$t"; done
 node --test $(find applications -name node_modules -prune -o -name primary-original -prune -o \( -name '*.test.mjs' -o -name '*.test.cjs' -o -name 'test_*.mjs' \) -print)
 . app-attest/circuit/env.sh
 forge test --root contracts --offline --use "$SOLC"

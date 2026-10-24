@@ -1,9 +1,0 @@
-{
-  "name": "dsmack-board-search-checker-toolchain",
-  "version": "0.0.0",
-  "private": true,
-  "type": "module",
-  "devDependencies": {
-    "@playwright/test": "1.64.0"
-  }
-}

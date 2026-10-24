@@ -1,44 +1,43 @@
-# dsmack
+# Dsmack
 
-dsmack runs a Linux workload in a VM on an Apple silicon Mac and produces Apple
-App Attest evidence of what ran and what it output. A verifier on another machine
-checks that evidence against the expected image, workload and inputs. An
-application on top decides what a result means, for example whether a bounty
-task passed and should pay out.
+Dsmack provides a protocol and reference verifiers for Apple App Attest evidence
+across developer accounts. An application chooses which code to accept. Operators
+can sign copies under their own Apple developer accounts, and recipients can
+check the app identity, approved code and signed messages. See the
+[protocol discussion draft](https://amiller.github.io/dsmack/protocol.html) and
+[App Attest implementation](app-attest/README.md).
+
+The signed messages can serve different applications: a peer can authenticate a
+network request, while a batch worker can identify the environment and result of
+a completed job. DsmackRunner is the included batch-execution runtime: a signed
+macOS app that runs a Linux workload in a VM and signs launch and result records.
+The bounty application uses that runtime to check code changes before payment.
 
 ```text
-Mac: DsmackRunner.app (Swift + libkrun/HVF)                runner-vm/
-  └─ Linux ARM64 VM: measured kernel, initrd, verity rootfs   base-vm/browser-sandbox-v1/
-       └─ guest supervisor + compose runner
-            └─ digest-pinned OCI workload → result disk
-Mac: App Attest assertions over launch and result
-Linux: run-result verifier                                 applications/pilot-client/verifier-browser/
-Apps: task board, acceptance, settlement                   applications/
-Chain: App Attest enrollment and assertion verification    app-attest/, contracts/
+App Attest policy + approved code + signed messages       app-attest/, contracts/
+  └─ VM execution runtime                                runner-vm/
+       └─ Linux base + task container                    base-vm/
+            └─ bounty checks and reward decisions        applications/bounties/
 ```
 
-The signed app carries no image identity. It admits a base image against a
-policy, boots it with the workload disk, and signs two assertions: one over the
-launch and one over the finalized result. A new task, container or base image
-needs no new app build. With SIP and the hardened runtime, no process on the Mac,
-root included, can read the runner's memory, which holds the VM's memory.
-[docs/architecture.md](docs/architecture.md) covers the disks, what is bound into
-the evidence, and the trust model.
+The app admits a base image against an external policy. A different task,
+container or compatible base image does not require rebuilding the app.
+[docs/architecture.md](docs/architecture.md) explains the VM, disks and execution
+records; [docs/running.md](docs/running.md) gives installation and run commands.
 
 ## Repository map
 
 | Path | Role |
 |---|---|
-| [`runner-vm/`](runner-vm/README.md) | DsmackRunner.app: Swift app, libkrun/HVF backend, packaging and signing |
-| [`base-vm/browser-sandbox-v1/`](base-vm/browser-sandbox-v1/README.md) | Linux guest image source: supervisor, compose runner, I/O transport, sandbox preset |
-| [`applications/pilot-client/`](applications/pilot-client/README.md) | Mac-side install, coordinator and launch; Linux run-result verifier |
-| [`applications/arcade-pilot/`](applications/arcade-pilot/runner/README.md) | Testnet bounty pilot: service, worker runner, checker, escrow |
-| [`applications/bounty-demo/`](applications/bounty-demo/README.md) | Task board, claims and submission API |
-| `applications/bounty-{develop,judges,recipes,runtime,settlement}/` | Agent development workload, judges, shared request protocol, stage adapters, acceptance and settlement |
-| [`app-attest/`](app-attest/README.md) | On-chain App Attest verification, in Solidity and as a Noir circuit |
-| [`contracts/`](contracts/DEPLOY.md) | Build and App Attest key registries |
+| [`app-attest/`](app-attest/README.md) | App Attest verification in Solidity and a Noir proof circuit |
+| [`contracts/`](contracts/DEPLOY.md) | Approved-code and App Attest key registries; bounty escrow in `work-escrow/` |
+| [`runner-vm/`](runner-vm/README.md) | Signed macOS app and its libkrun/Apple Hypervisor backend |
+| [`base-vm/browser-sandbox-v1/`](base-vm/browser-sandbox-v1/README.md) | Linux guest, container runtime and input/output transport |
+| [`applications/pilot-client/`](applications/pilot-client/README.md) | Shared Mac installation, launch, workload preparation and Linux verification tools |
+| [`applications/bounties/`](applications/bounties/README.md) | Bounty service, worker tools and settlement; Arcade tasks under `examples/arcade/` |
+| [`applications/bounty-dashboard/`](applications/bounty-dashboard/README.md) | Read-only view of contracts, tasks, attempts and payments |
 | `verifier/` | Python App Attest verification |
-| [`trust/`](trust/README.md) | Apple App Attestation root certificate |
+| [`trust/`](trust/README.md) | Apple's App Attestation root certificate |
 | `tools/release/` | Runner executable inspection |
 
 ## Build
@@ -61,8 +60,8 @@ Signing and release steps are in [docs/release/runner-release.md](docs/release/r
 
 ## Run
 
-The [Arcade pilot runner](applications/arcade-pilot/runner/README.md) sets up a
-Mac, enrolls it and runs a task end to end. [docs/running.md](docs/running.md)
+The [bounty worker tools](applications/bounties/runner/README.md) set up a
+Mac, enroll it and run a task end to end. [docs/running.md](docs/running.md)
 gives the underlying install, enroll, run, verify and cleanup commands.
 
 ## Test

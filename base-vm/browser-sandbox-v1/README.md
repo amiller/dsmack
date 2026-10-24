@@ -19,7 +19,7 @@ The host verifier (`applications/pilot-client/verifier-browser`) and the bounty
 applications import the contract library from this directory, so guest and
 verifier validate manifests and receipts with the same code.
 `source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
-by `applications/bounty-develop/transport_loader.py`.
+by `applications/pilot-client/workload/transport_loader.py`.
 
 ## Derive the image
 

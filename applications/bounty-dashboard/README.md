@@ -1,6 +1,6 @@
 # Bounty dashboard
 
-Read-only tables for configured bounty contracts, service attempts, uploaded file metadata, verification results, withdrawable balances and withdrawal transactions. The interactive Arcade pilot lives in `applications/arcade-pilot`.
+Read-only tables for configured bounty contracts, service attempts, uploaded file metadata, verification results, withdrawable balances and withdrawal transactions. The interactive Arcade pilot lives in `applications/bounties`.
 
 `server.cjs` exports `createHandler(config)` for an HTTP host. Its GET routes serve the dashboard and combined data; an authenticated PUT route accepts the operator's public read model. Private host configuration supplies `data_dir`, `base_path`, `ingest_token_sha256`, `expected_feed_ids` and `stores`. Each store has a stable `id`, `db_path` and optional public task mapping. The ingest token stays with the collector; browsers receive no credential.
 

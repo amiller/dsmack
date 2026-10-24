@@ -1,5 +1,15 @@
 # Architecture
 
+## App Attest messages and applications
+
+The core protocol authenticates app identities, approved code and signed messages.
+It does not require a VM or a file-based result. A peer-to-peer application can
+use those messages for peer authentication and service requests. The runtime
+described below implements a bounded VM job and signs launch and result records.
+A persistent worker service could use it to execute individual jobs; discovery,
+scheduling and live service authentication belong to that service.
+
+
 ## What runs where
 
 ```text

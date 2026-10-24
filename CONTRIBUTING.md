@@ -24,4 +24,4 @@ real-proof enrollment tests.
 
 Documentation changes need link checks and `git diff --check`.
 
-Release signing and download inspection: [docs/release/runner-release.md](docs/release/runner-release.md).
+Release signing and download inspection: [docs/release/releasing.md](docs/release/releasing.md).

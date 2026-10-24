@@ -83,3 +83,4 @@ Collected so far:
 - Tags: drop the per-component series (`runner-v…`, `native-v…`, `arcade-browser-v…`,
   `node-v…`) in favour of `vX.Y.Z`. The browser checker image is a workload and is
   published by digest only.
+- Add the release-inventory writer to the repo; today only the checker is here.

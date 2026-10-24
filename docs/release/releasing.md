@@ -1,4 +1,8 @@
-# Releasing and inspecting DsmackRunner
+# Releasing and inspecting Dsmack
+
+What a release is, and when to cut one, is in [versioning.md](../versioning.md). A
+release `vX.Y.Z` ships the signed Mac app, the base images it admits, and the
+verifier that reads its evidence.
 
 ## Maintainer
 
@@ -8,10 +12,17 @@
 3. Sign with `runner-vm/packaging/sign.sh` and the five-key
    `DsmackRunner.entitlements`. Record the signed executable hash, the full
    SHA-256 CodeDirectory digest, Team ID, bundle ID and provisioning profile.
-   Re-signing changes the app identity, so enrollments must be redone.
-4. Notarize and staple, then publish the archive with a provenance attestation
+   Re-signing changes the app identity, so every Mac re-enrolls.
+4. Write the release inventory (`dsmack-alpha-release/2`): the app identity and the
+   admitted base-image profiles. Sign it with the Ed25519 release key. Installs
+   check it with `applications/pilot-client/alpha-release.mjs`; the inventory is
+   currently written outside this repo.
+5. Notarize and staple, then publish the archive with a provenance attestation
    over the final signed bytes, the release inventory and its signature. No OAuth
    keys, private disks, device keys or signing secrets go in the release.
+6. List the evidence format numbers the release writes and reads in the release notes.
+
+A new workload or a new task needs none of this; it names the release it runs on.
 
 ## Inspecting a download before running it
 

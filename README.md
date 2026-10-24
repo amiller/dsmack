@@ -78,7 +78,7 @@ The guest image, on a Linux builder:
 python3 base-vm/browser-sandbox-v1/derive.py --base-bundle BASE --templates TEMPLATES --out OUT
 ```
 
-Signing and release steps are in [docs/release/runner-release.md](docs/release/runner-release.md).
+Signing and release steps are in [docs/release/releasing.md](docs/release/releasing.md).
 
 ## Run
 

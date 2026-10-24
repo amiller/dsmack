@@ -106,4 +106,4 @@ body{background:radial-gradient(ellipse at 90% 0,#19302D 0,transparent 40rem),va
 
 .execution-path{white-space:pre-wrap;overflow-wrap:anywhere}
 
-.work-exchange{max-width:820px;margin:0 auto 40px;border:1px solid var(--line);border-radius:16px;overflow:hidden;background:#0e211b}.work-exchange img{display:block;width:100%;height:auto}.work-exchange figcaption{padding:16px 22px;font-size:16px;line-height:1.6;color:var(--muted)}
+.work-exchange{max-width:820px;margin:0 auto 40px}.work-exchange img{display:block;width:100%;height:auto}.work-exchange figcaption{padding:16px 22px;font-size:16px;line-height:1.6;color:var(--muted)}

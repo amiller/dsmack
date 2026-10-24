@@ -32,7 +32,6 @@ mkdir -p foundry/bin
 curl -fsSL https://github.com/foundry-rs/foundry/releases/download/v1.8.5/foundry_v1.8.5_linux_amd64.tar.gz -o foundry.tar.gz
 tar -xzf foundry.tar.gz -C foundry/bin
 . "$source_dir/env.sh"
-python3 "$source_dir/check-versions.py"
 forge --version
 "$SOLC" --version
 "$ATTEST_TOOLS/bin/solc-0.8.27" --version

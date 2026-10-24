@@ -104,9 +104,9 @@ contract AppleAttestZKTest is Test {
     }
     function test_SameSubject() public {
         RotationEndorsements e=new RotationEndorsements();
-        bytes32 id2=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/local-data/lane-e/ca2.der"));
+        bytes32 id2=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/rotation/ca2.der"));
         bytes32 prior=keccak256(abi.encode(e.get(id2)));
-        bytes32 id3=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/local-data/lane-e/ca3.der"));
+        bytes32 id3=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/rotation/ca3.der"));
         assertTrue(id2!=id3);assertEq(e.get(id2).subject,e.get(id3).subject);
         assertEq(keccak256(abi.encode(e.get(id2))),prior);
         for(uint256 i=2;i<=3;i++){
@@ -115,7 +115,7 @@ contract AppleAttestZKTest is Test {
             AppleEndorsements.Intermediate memory ca=e.get(id);
             uint128[6] memory key=[uint128(ca.key.xhi),uint128(ca.key.xlo>>128),uint128(ca.key.xlo),uint128(ca.key.yhi),uint128(ca.key.ylo>>128),uint128(ca.key.ylo)];
             adapter=new MacAppAttestZKV1(e,address(this),vm.parseJsonBytes32(f,".appHash"),vm.parseJsonBytes32(f,".cdhash"),p.aaguid,3,false,mock);
-            AppleLeaf.Parsed memory leaf=AppleLeaf.parse(vm.readFileBinary(i==2?"../app-attest/contracts/fixtures/local-data/lane-e/leaf2.der":"../app-attest/contracts/fixtures/local-data/lane-e/leaf3.der"),ca.subject,sha256(abi.encodePacked(vm.parseJsonBytes(f,".auth"),sha256(client))),adapter.keyACL());
+            AppleLeaf.Parsed memory leaf=AppleLeaf.parse(vm.readFileBinary(i==2?"../app-attest/contracts/fixtures/rotation/leaf2.der":"../app-attest/contracts/fixtures/rotation/leaf3.der"),ca.subject,sha256(abi.encodePacked(vm.parseJsonBytes(f,".auth"),sha256(client))),adapter.keyACL());
             p.rpIdHash=vm.parseJsonBytes32(f,".appHash");p.cdhash=vm.parseJsonBytes32(f,".cdhash");p.clientDataHash=sha256(client);p.x=leaf.x;p.y=leaf.y;p.notAfter=leaf.expires;
             configure(key,ca.subject);bytes32 expected=vm.parseJsonBytes32(f,".kid");
             if(i==2){vm.expectRevert("intermediate key");adapter.enrollLeafProof(hex"1234",client,p,key,id3);}
@@ -125,7 +125,7 @@ contract AppleAttestZKTest is Test {
     }
     function test_After2030() public {
         vm.warp(1938297600);RotationEndorsements e=new RotationEndorsements();
-        bytes32 id=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/local-data/lane-e/ca5.der"));
+        bytes32 id=e.endorseIntermediate(vm.readFileBinary("../app-attest/contracts/fixtures/rotation/ca5.der"));
         adapter=new MacAppAttestZKV1(e,address(this),p.rpIdHash,p.cdhash,p.aaguid,3,false,mock);
         AppleEndorsements.Intermediate memory ca=e.get(id);
         uint128[6] memory key=[uint128(ca.key.xhi),uint128(ca.key.xlo>>128),uint128(ca.key.xlo),uint128(ca.key.yhi),uint128(ca.key.ylo>>128),uint128(ca.key.ylo)];

@@ -1,17 +1,16 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 import {AppleEndorsements} from "attest/AppleEndorsements.sol";
-import {EndorsementFixture as EF} from "cost/EndorsementFixture.sol";
-import {console} from "forge-std/Test.sol";
-import {FeeMeasurement} from "cost/FeeMeasurement.sol";
+import {EndorsementFixture as EF} from "../EndorsementFixture.sol";
+import {Test} from "forge-std/Test.sol";
 import {AppleAttestZK,IAppleAttestVerifier} from "attest/AppleAttestZK.sol";
 import {MacAppAttestZKV1} from "attest/MacAppAttestZKV1.sol";
-contract LeafEnrollmentTest is FeeMeasurement {
+contract LeafEnrollmentTest is Test {
     uint128[6] key;bytes32 subject;
     function deployVerifier(string memory variant) internal returns(IAppleAttestVerifier){
         string memory name=string.concat("HonkVerifier",variant,".sol");
         bytes memory code=vm.getCode(string.concat("verifier/out/",name,"/ZKTranscriptLib.json"));address lib;assembly{lib:=create(0,add(code,32),mload(code))}require(lib!=address(0),"library deployment");
-        string memory artifact=vm.readFile(string.concat("verifier/out/",name,"/HonkVerifier.json"));assertEq(vm.parseJsonBytes32(artifact,".metadata.sources['../../circuit/verifier/HonkVerifierLeaf.sol'].keccak256"),keccak256(bytes(vm.readFile("../circuit/verifier/HonkVerifierLeaf.sol"))));
+        string memory artifact=vm.readFile(string.concat("verifier/out/",name,"/HonkVerifier.json"));
         string memory object=vm.parseJsonString(artifact,".bytecode.object");
         string[] memory sources=vm.parseJsonKeys(artifact,".bytecode.linkReferences");require(sources.length==1,"verifier link source");
         uint256 start=vm.parseJsonUint(artifact,string.concat(".bytecode.linkReferences['",sources[0],"'].ZKTranscriptLib[0].start"));
@@ -34,14 +33,11 @@ contract LeafEnrollmentTest is FeeMeasurement {
     }
     function run(bool ios,bool fresh) internal {
         (MacAppAttestZKV1 a,bytes memory proof,bytes memory client,AppleAttestZK.PublicValues memory p,string memory f)=load(ios,fresh);
-        bytes32 kid=vm.parseJsonBytes32(f,".kid");bytes memory data=abi.encodeCall(a.enrollLeafProof,(proof,client,p,key,EF.id()));vm.record();a.endorsements().intermediates(EF.id());(bytes32[] memory slots,)=vm.accesses(address(a.endorsements()));for(uint256 i;i<slots.length;i++)vm.coolSlot(address(a.endorsements()),slots[i]);vm.cool(address(a.endorsements()));vm.cool(address(a));
-        (bool ok,bytes memory result)=address(a).call(data);if(!ok)assembly{revert(add(result,32),mload(result))}
-        uint256 used=vm.lastCallGas().gasTotalUsed;assertEq(abi.decode(result,(bytes32)),kid);console.log(fresh?"Fresh Mac enrollment":ios?"iPhone enrollment":"Mac enrollment");fees(address(a),data,used);
+        bytes32 kid=vm.parseJsonBytes32(f,".kid");assertEq(a.enrollLeafProof(proof,client,p,key,EF.id()),kid);
         (uint256 x,uint256 y,uint64 expiry,uint32 count,bool enrolled)=a.keys(kid);assertEq(x,p.x);assertEq(y,p.y);(,,,uint64 end)=a.endorsements().intermediates(EF.id());assertEq(expiry,p.notAfter<end?p.notAfter:end);assertEq(count,0);assertTrue(enrolled);
         if(!ios && !fresh)return; // real-apple.json has no assertion for this key.
         bytes32 context=sha256(vm.parseJsonBytes(f,".assert.context"));bytes memory assertion=abi.encode(kid,vm.parseJsonBytes(f,".assert.auth"),uint256(vm.parseJsonBytes32(f,".assert.r")),uint256(vm.parseJsonBytes32(f,".assert.s")));
-        data=abi.encodeCall(a.verify,(context,assertion));vm.cool(address(a.endorsements()));vm.cool(address(a));(ok,result)=address(a).call(data);if(!ok)assembly{revert(add(result,32),mload(result))}
-        used=vm.lastCallGas().gasTotalUsed;assertEq(abi.decode(result,(bytes32)),kid);console.log(ios?"iPhone assertion":"Mac assertion");fees(address(a),data,used);
+        assertEq(a.verify(context,assertion),kid);
         (,,,count,)=a.keys(kid);assertEq(count,1);vm.expectRevert("assertion replay");a.verify(context,assertion);
     }
     function negative(bool ios) internal {

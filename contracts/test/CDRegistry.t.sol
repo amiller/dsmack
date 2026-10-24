@@ -180,41 +180,4 @@ contract CDRegistryTest is Test {
         (cd, page0, ent) = json("node-modified");
         vm.expectRevert("code slots"); r.registerBuild(cd, page0, ent);
     }
-    function synth(uint256 n) internal view returns (bytes memory cd, bytes memory page0) {
-        page0 = rd("A-original", ".page0");
-        uint256 off = 0x60 + 20 + 11 + 7 * 32;
-        cd = new bytes(off + 32 * n);
-        bytes memory h = abi.encodePacked(uint32(0xfade0c02), uint32(cd.length), uint32(0x20500), uint32(0), uint32(off), uint32(0x60), uint32(7), uint32(n), uint32(n * 16384));
-        h = bytes.concat(h, new bytes(0x30 - h.length), bytes4(uint32(0x74)), new bytes(0x60 - 0x34), "dev.dsmack.provider\x00DC9JH5DRMY\x00");
-        for (uint256 i; i < h.length; i++) cd[i] = h[i];
-        cd[0x24] = 0x20; cd[0x25] = 0x02; cd[0x27] = 0x0e;
-        bytes memory ea = vm.readFileBinary(string.concat(D, "A-original.ent"));
-        bytes32 e = sha256(abi.encodePacked(uint32(0xfade7172), uint32(ea.length + 8), ea));
-        for (uint256 i; i < 32; i++) cd[off - 224 + i] = e[i];
-        bytes32 s0 = sha256(page0);
-        for (uint256 i; i < 32; i++) cd[off + i] = s0[i];
-        for (uint256 i = 32; i < 32 * n; i++) cd[off + i] = bytes1(uint8(uint256(keccak256(abi.encode(i / 32))) >> (8 * (i % 32))));
-    }
-    function measure(uint256 n) internal {
-        (bytes memory cd, bytes memory page0) = synth(n);
-        bytes memory ent = rd("A-original", ".ent");
-        CDRegistry r = registry(cd, page0, ent);
-        r.registerBuild(cd, page0, ent);
-        uint256 exec = vm.lastCallGas().gasTotalUsed;
-        bytes memory d = abi.encodeCall(CDRegistry.registerBuild, (cd, page0, ent));
-        uint256 z;
-        for (uint256 i; i < d.length; i++) if (d[i] == 0) z++;
-        uint256 nz = d.length - z;
-        uint256 std = 16 * nz + 4 * z;
-        uint256 floor = 10 * (4 * nz + z);
-        emit log_named_uint("slots", n);
-        emit log_named_uint("calldata bytes", d.length);
-        emit log_named_uint("exec", exec);
-        emit log_named_uint("calldata std", std);
-        emit log_named_uint("calldata floor", floor);
-        emit log_named_uint("tx total", 21000 + (std + exec > floor ? std + exec : floor));
-    }
-    function test_gas1280() public { measure(1280); }
-    function test_gas3200() public { measure(3200); }
-    function test_gas6400() public { measure(6400); }
 }

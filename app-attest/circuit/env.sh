@@ -1,5 +1,3 @@
-LANE_Z_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
-export LANE_Z_ROOT
 : "${ATTEST_TOOLS:?Set ATTEST_TOOLS to an absolute toolchain directory}"
 [[ "$ATTEST_TOOLS" = /* ]] || { echo "ATTEST_TOOLS must be absolute" >&2; return 1; }
 export ATTEST_TOOLS

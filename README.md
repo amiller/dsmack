@@ -1,17 +1,25 @@
 # Dsmack
 
-Dsmack provides a protocol and reference verifiers for Apple App Attest evidence
-across developer accounts. An application chooses which code to accept. Operators
-can sign copies under their own Apple developer accounts, and recipients can
-check the app identity, approved code and signed messages. See the
-[protocol discussion draft](https://amiller.github.io/dsmack/protocol.html) and
-[App Attest implementation](app-attest/README.md).
+Dsmack brings Apple App Attest verification to peer networks and smart contracts.
+It recognizes independently signed copies of the same Mac program, so developers
+can build and sign the software under their own Apple accounts. Peers can then
+verify the app behind a signed message.
 
-The signed messages can serve different applications: a peer can authenticate a
-network request, while a batch worker can identify the environment and result of
-a completed job. DsmackRunner is the included batch-execution runtime: a signed
-macOS app that runs a Linux workload in a VM and signs launch and result records.
-The bounty application uses that runtime to check code changes before payment.
+Two uses motivate the project:
+
+- **Peer-to-peer services:** authenticate the software on another Mac before
+  exchanging requests or secrets.
+- **Development bounties:** verify a contributor's execution evidence and test
+  results before authorizing payment from a smart contract.
+
+The repository includes verifiers written in Solidity, a zero-knowledge proof
+implementation, and DsmackRunner—a signed macOS app that runs workloads inside a
+Linux VM. The bounty application uses that runtime to check submitted code.
+Arcade's Board-search task is its first example.
+
+[Protocol discussion draft](https://amiller.github.io/dsmack/protocol.html) ·
+[How execution works](docs/architecture.md) ·
+[Run a task](docs/running.md)
 
 ```text
 App Attest policy + approved code + signed messages       app-attest/, contracts/
@@ -20,8 +28,9 @@ App Attest policy + approved code + signed messages       app-attest/, contracts
             └─ bounty checks and reward decisions        applications/bounties/
 ```
 
-The app admits a base image against an external policy. A different task,
-container or compatible base image does not require rebuilding the app.
+DsmackRunner reads the Linux image and task configuration at launch. The tools
+and dependencies for each task go in its container, so different workloads can
+reuse the same macOS app and Linux image.
 [docs/architecture.md](docs/architecture.md) explains the VM, disks and execution
 records; [docs/running.md](docs/running.md) gives installation and run commands.
 

@@ -19,40 +19,41 @@
 <main class="wrap">
 <section class="pagehero image-hero"><div class="hero-copy">
 <h1>App Attest for<br>permissionless applications.</h1>
-<p class="lead">Dsmack is a protocol and policy for checking Apple App Attest evidence without making one developer account the system’s trust authority.</p>
-<p>Applications choose which code to accept. Independently operated Macs can run approved builds signed under different developer accounts, and peers can check the resulting evidence using shared rules.</p>
-<p>The reference implementation provides Solidity verifiers and zero-knowledge proofs for App Attest, plus DsmackRunner, a signed macOS app that runs tasks in a Linux virtual machine.</p>
+<p class="lead">Dsmack is a protocol for verifying Apple App Attest evidence across developer accounts. An application can recognize approved code on someone else’s Mac, including copies signed by other developers.</p>
+<p>For example, a bounty can require a particular test program. A contributor runs it on their Mac and returns its results with signed evidence identifying the app, test environment and task files. The verifier compares those records with the bounty’s requirements.</p>
+<p>The repository includes smart-contract verifiers written in Solidity, a zero-knowledge proof implementation, and DsmackRunner—the macOS app that runs tasks in a Linux virtual machine.</p>
 <div class="buttons"><a class="button primary" href="#applications">Explore the applications</a><a class="button" href="app-attest.html">See the reference verifiers</a></div>
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini nestled in an abalone shell." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 <section class="section" id="applications">
 <h2>Shared Mac compute and open bounties.</h2>
 <div class="split">
-<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>Mac owners could offer unused compute and let other people run agreed software using services available through their accounts. A permissionless network would let operators bring their own Macs and verify each other’s execution evidence under a common policy.</p><p>Dsmack supplies the verifier and the macOS execution app for building such a network.</p><a href="architecture.html#mac-app">How the signed macOS app works →</a></article>
-<article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward and publishes the task’s checks. Anyone can submit work, run those checks and claim payment by presenting the required evidence.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a Base Sepolia testnet reward. An off-chain verifier checked the evidence and signed the decision accepted by the escrow contract.</p><a href="bounties.html">Explore the bounty application →</a></article>
+<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>A Mac owner could run a coding agent for someone else using spare machine time and their own subscription. The requester would receive the output and evidence identifying the program and inputs used. Participants could use their own Macs and developer accounts.</p><p>The app and verification code provide components for this network; a public service for matching requests to available Macs is still to be built.</p><a href="architecture.html#mac-app">How the signed macOS app works →</a></article>
+<article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward in a contract and publishes the tests a change must pass. A contributor submits a patch and evidence from running those tests. The contract pays according to the task’s verification rules.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a reward on Base Sepolia, an Ethereum test network. A verifier running outside the blockchain checked the evidence and signed the decision the payment contract accepted.</p><a href="bounties.html">Explore the bounty application →</a></article>
 </div>
 </section>
 <section class="section" id="what-is-app-attest">
 <h2>What is App Attest?</h2>
-<p class="intro">When a remote machine sends you a result, how do you know which app produced it? Apple’s App Attest gives an app a hardware-backed signing key and evidence about the app that can use it.</p>
+<p class="intro">Apple’s App Attest lets an app create a signing key and obtain Apple’s certificate identifying that key and the app. Later, the app can sign messages that someone else can check using the certificate.</p>
 <div class="grid3">
-<article class="card"><div class="num">1 · CREATE A KEY</div><h3>A key stays on the device</h3><p>The app creates a key in the Secure Enclave. Its private key stays there; the app asks the system to sign with it.</p></article>
-<article class="card"><div class="num">2 · ATTEST THE KEY</div><h3>Apple certifies its origin</h3><p>Apple issues an attestation linking the public key to an app instance on genuine Apple hardware. A verifier checks Apple’s certificate chain and the app identity and code measurements it accepts.</p></article>
-<article class="card"><div class="num">3 · SIGN STATEMENTS</div><h3>Check later messages locally</h3><p>The app uses that key to sign hashes of messages, producing assertions. A verifier checks their signatures, the expected message and freshness without asking Apple to certify each message.</p></article>
+<article class="card"><div class="num">1 · CREATE A KEY</div><h3>A key stays on the device</h3><p>The app creates a key in the Secure Enclave, the device’s security processor. The private key stays there. The app asks the system to use it to sign a message.</p></article>
+<article class="card"><div class="num">2 · ATTEST THE KEY</div><h3>Apple certifies its origin</h3><p>Apple returns certificates linking the public key to the app on genuine Apple hardware. The recipient checks Apple’s signatures and compares the app identifier and code hash with the program it expects.</p></article>
+<article class="card"><div class="num">3 · SIGN STATEMENTS</div><h3>Check later messages locally</h3><p>The app signs a hash—a fingerprint of a message’s bytes—to produce an assertion. The recipient checks the signature and message. A request-specific challenge and an increasing counter help it reject reused assertions.</p></article>
 </div>
 <p>DsmackRunner uses those messages to identify a task’s software, inputs and returned files. The app records the execution; the task’s acceptance checks determine whether the work succeeded.</p>
 <p>Apple designed this for an app developer’s server to recognize its own app. Dsmack makes the verification rules available to peers and smart contracts, across accepted builds from different developer accounts.</p>
 <a href="app-attest.html">Follow the certificates, signatures and on-chain verification →</a> · <a href="https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server">Apple’s App Attest explanation →</a>
 </section>
 <section class="section">
-<h2>Choose the accepted code through a shared policy.</h2>
-<p class="intro">Apple’s evidence identifies an app key and the software associated with it. Dsmack separates checking that evidence from deciding which software an application accepts. Its admission policy checks the measured code and app identity, including builds registered under different developer accounts.</p>
-<p>This lets a network or smart contract apply common verification rules across operators. App identities remain part of the check; the policy defines which ones qualify.</p>
-<div class="split"><div><h3>Direct Solidity verification</h3><p>Smart contracts check Apple’s certificate chain, enroll the attested app key and verify its signed statements, called assertions.</p></div><div><h3>Zero-knowledge verification</h3><p>A zero-knowledge proof establishes that the app key’s attestation certificate passed the required checks. A Solidity contract verifies the proof against the application’s policy, then checks subsequent assertions.</p></div></div>
-<a href="app-attest.html">Inspect both verifier paths and the live reference capture →</a>
+<h2>How can different developer accounts run the same approved code?</h2>
+<p>Apple’s evidence includes the app’s identity and a hash of its signed code directory, called its <strong>CDHash</strong>. Signing the same program under another developer account changes that identity and hash.</p>
+<p>Dsmack’s code registry compares a measurement of the program that leaves out specified account and signing fields while retaining the code pages and specified security settings. Another developer can register a renamed, re-signed copy of an approved build by showing that this measurement matches. The verifier still checks the copy’s App Attest identity and CDHash.</p>
+<p>Applications decide which program measurements to accept. That decision can be recorded in a public smart contract, so participants can inspect the same list of approved code.</p>
+<div class="split"><div><h3>Check the certificates in Solidity</h3><p>Smart contracts verify Apple’s certificate signatures and store the app’s public key. Later transactions check messages signed by that key.</p></div><div><h3>Prove the certificate checks were performed</h3><p>A computer runs the certificate checks and produces a zero-knowledge proof that the required calculations passed. A contract verifies that proof instead of repeating all those calculations. It then checks the app’s later signed messages.</p></div></div>
+<a href="app-attest.html">See the certificate checks, example transactions and proof implementation →</a>
 </section>
 <section class="section" id="layers">
 <h2>How a task runs on the Mac</h2>
-<p class="intro">A signed macOS app starts a Linux virtual machine and signs statements about its launch and result. The VM provides a reusable environment for application-specific containers.</p>
+<p class="intro">A signed macOS app starts a Linux virtual machine and signs statements about its launch and result. Linux runs the task in a container: a package containing the program and its dependencies.</p>
 <div class="runtime-figure" role="group" aria-label="Reusable signed macOS app and Linux VM, with an application-specific task container inside the VM">
 <div class="runtime-label">DsmackRunner · the signed macOS app</div>
 <p>Checks boot and task files against expected hashes, starts Linux, and signs the execution records after the VM stops.</p>
@@ -67,25 +68,17 @@
 </div>
 </div>
 </div>
-<p>A browser checker and a coding agent can use the same Linux image, with their tools in different containers. The client prepares the task files; the macOS app checks and runs them; the recipient verifies the recorded software and inputs against its request.</p>
+<p>A browser checker and a coding agent can use the same Linux image, with their tools in different containers. Scripts on the Mac prepare the task files. The app checks their hashes, runs the task, and signs the execution records. The recipient compares those records and outputs with its original request.</p>
 <a href="architecture.html">Follow the macOS app, Apple hypervisor and guest execution →</a>
 </section>
+
 <section class="section">
-<h2>Connect the result to the requested work.</h2>
-<div class="grid3">
-<article class="card"><div class="num">1 · SELECT</div><h3>Specify the work</h3><p>The request identifies the accepted runner, Linux image, workload and inputs. It includes a fresh challenge to distinguish this run and rules for accepting the result.</p></article>
-<article class="card"><div class="num">2 · EXECUTE</div><h3>Sign the launch and result</h3><p>The Mac app creates two assertions. They bind the run’s challenge to statements about the chosen inputs and returned results.</p></article>
-<article class="card"><div class="num">3 · VERIFY</div><h3>Check the evidence</h3><p>The verifier checks Apple’s attestation, the app’s signatures, replay protection and the expected identities and file hashes. The application applies its acceptance rules to the result.</p></article>
-</div>
-<a href="app-attest.html">Follow the App Attest verification path →</a>
-</section>
-<section class="section">
-<h2>Start with the reference implementation.</h2>
-<p>The App Attest contracts demonstrate direct and ZK verification on-chain. The current bounty pilot uses a separate off-chain verifier that signs settlement decisions for its escrow contract. The Mac execution prototype assumes the host does not tamper with VM storage.</p>
-<div class="buttons"><a class="button primary" href="build.html">Runner setup</a><a class="button" href="https://github.com/amiller/dsmack">Source and verification code</a></div>
+<h2>Try a task or inspect the verifier code</h2>
+<p>The setup guide walks through a browser task on your Mac. The bounty pilot adds testnet payments: its verifier checks the run outside the blockchain and signs a decision for the payment contract. The App Attest contract examples demonstrate certificate verification directly on-chain. The Mac execution prototype currently trusts the owner not to tamper with VM storage.</p>
+<div class="buttons"><a class="button primary" href="build.html">Run the example</a><a class="button" href="https://github.com/amiller/dsmack">Source and verification code</a></div>
 </section>
 </main>
-<footer><div class="wrap"><p>Dsmack · Attested applications on independently operated Macs · Alpha.</p>
+<footer><div class="wrap"><p>Dsmack · App Attest verification and Mac execution · Alpha.</p>
 <a href="index.html">Overview</a>
 <a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>

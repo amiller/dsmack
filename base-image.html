@@ -79,13 +79,13 @@
 <p>The current recipe starts with an existing base image and verifies the source and artifact hashes listed by that recipe. It extracts the parent filesystem, replaces the specified guest files, and assembles a new system disk and dm-verity hash tree. The kernel and disk templates are reused when the recipe leaves them unchanged.</p>
 <p><strong>B44</strong> is the name of the current reference revision. Its change is to the guest’s credential broker, a service that forwards authorized requests to an external provider. It raises two request-handling timeouts from 40 to 210 seconds and from 50 to 220 seconds. Responses are still buffered before delivery. This change produces a new system disk and verity root hash while keeping the kernel and macOS app.</p>
 <p>A change to a guest program belongs in a new base-image revision. A new browser, coding agent or test suite belongs in a task container. A new repository snapshot is a task input. The request and verifier must agree on the corresponding hashes, so each run can be traced to the actual files it used.</p>
-<p><a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1">Parent image recipe</a> · <a href="https://github.com/amiller/dsmack/tree/main/base-vm/broker-timeout-v1">B44 timeout change and recipe</a> · <a href="https://github.com/amiller/dsmack/blob/main/docs/base-image-architecture.md">Source inspection guide</a></p>
+<p><a href="https://github.com/amiller/dsmack/tree/main/base-vm/browser-sandbox-v1">Parent image recipe</a> · <a href="https://github.com/amiller/dsmack/tree/18b06e03fd0eb7aa2b99f13dc07075228f20b73c/base-vm/broker-timeout-v1">B44 timeout change and recipe</a> · <a href="https://github.com/amiller/dsmack/blob/main/docs/architecture.md">Source inspection guide</a></p>
 <div class="buttons"><a class="button primary" href="architecture.html">Back to the execution architecture</a><a class="button" href="build.html">Run the example</a></div>
 </section>
 </main>
 <footer>
 <div class="wrap">
-<p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
+<p>Dsmack · App Attest verification and Mac execution · Alpha.</p>
 
 <a href="index.html">Overview</a>
 <a href="architecture.html">Architecture</a>

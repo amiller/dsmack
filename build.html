@@ -23,13 +23,14 @@
 </header>
 <main class="wrap">
 <section class="smallhero image-hero"><div class="hero-copy">
-<div class="eyebrow">Mac alpha · Credential-free starter</div>
+<div class="eyebrow">Mac alpha · Browser-test starter</div>
 <h1>Run a task on your Mac.</h1>
-<p class="lead">Install the signed runner, run a small browser task inside its Linux VM, and keep the original execution evidence. This starter needs no coding-agent subscription or payment.</p>
-<p>You need an Apple silicon Mac running macOS 27.0 or later, Python 3, a trusted Node 24 runtime, and at least 32 GiB of free disk space for download, installation and working disks.</p>
+<p class="lead">Install DsmackRunner, the signed macOS app, together with its Linux image and client scripts. Run a fixed browser-test fixture in the VM and save the test results and signed execution records. You need no coding-agent subscription or payment for this starter.</p>
+<p>You need an Apple silicon Mac running macOS 27.0 or later, Python 3, Node.js 24, and at least 32 GiB of free disk space for download, installation and working disks.</p>
+<p>Arrange the task handoff with an alpha operator before installing. This release needs the operator to check your Mac’s App Attest registration, send the task files in step 5, and verify the returned evidence in step 7.</p>
 </div><figure class="mac-art desk-art"><img src="assets/home.jpg" alt="Mac mini on a wooden desk, used as setup-page artwork." width="1600" height="610" loading="eager" decoding="async"></figure></section>
 <section class="section" id="download">
-<h2>1. Download and extract the runtime.</h2>
+<h2>1. Download the app, Linux image and scripts.</h2>
 <p>From the <a href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">runner-v0.1.0-alpha.1 release</a>, download <a href="https://github.com/amiller/dsmack/releases/download/runner-v0.1.0-alpha.1/dsmack-runner-macos-arm64-alpha.1.zip">dsmack-runner-macos-arm64-alpha.1.zip</a> (about 869 MB). Extract it into a folder you own. The optional source-offer archives are separate; you do not need them to run the starter.</p>
 <p>Open Terminal in the extracted folder containing <code>FRIEND-START-HERE.txt</code>, <code>release-public.pem</code> and <code>source/</code>. All commands below start in that folder. Read <code>FRIEND-START-HERE.txt</code> and <code>source/docs/pilot/friend-invitation.md</code>; the bundled source is commit <code>b068448d7983d67b827ced6d7286c7f4fc9252e7</code>.</p>
 <pre><code>pwd
@@ -93,18 +94,18 @@ python3 -I source/applications/pilot-client/friend.py check "$PWD/invitation.jso
 </section>
 <section class="section" id="evidence">
 <h2>7. Have the original evidence checked.</h2>
-<p>Send the retained original files through the evidence-transfer route agreed with the operator. The operator runs the tested verifier in Linux x86-64 to check the Apple launch and result assertions, the output bytes and the task’s expected outcome. Ask for that verification result before treating the run as checked. This guide does not provide an equivalent self-service Mac verification command.</p>
+<p>Send the retained original files through the evidence-transfer route agreed with the operator. The operator runs the tested verifier in Linux x86-64 to check the app’s App Attest launch and result assertions, the output bytes and the task’s expected outcome. Ask for that verification result before treating the run as checked. This guide does not provide an equivalent self-service Mac verification command.</p>
 <p>The published test of this starter passed full hardware verification and its fixed 14-test fixture, including 80 predefined logic cases. Screenshots, videos and traces were retained for that test. Your Mac’s run still needs its own verification result. Running this diagnostic starter does not submit a bounty or earn a reward.</p>
 <p>After the originals are safely preserved, confirm with the operator that this run’s VM and helper have stopped. Then remove its disposable scratch disks and temporary public input copies through the agreed cleanup procedure. Keep the proof originals and any state whose purpose is uncertain.</p>
 <p>The published test did not establish that first launch works on a different, normally secured fresh Mac. Keep macOS security settings enabled and retain any first-open refusal for diagnosis.</p>
 <div class="buttons">
 <a class="button" href="https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.1">Release files and qualification</a>
-<a class="button" href="base-image.html">Understand the VM and container</a>
+<a class="button" href="architecture.html">How the app runs the VM</a>
 <a class="button" href="app-attest.html">Understand the evidence</a>
 </div>
 </section>
 </main>
-<footer><div class="wrap"><p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
+<footer><div class="wrap"><p>Dsmack · App Attest verification and Mac execution · Alpha.</p>
 <a href="index.html">Overview</a>
 <a href="architecture.html">Architecture</a>
 <a href="bounties.html">Bounties</a>

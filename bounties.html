@@ -27,12 +27,12 @@
 <p class="lead">Someone funds a code change. A worker supplies a patch and runs the agreed checks on a Mac. A verifier checks the execution evidence, then signs a decision that lets the worker claim the reward from a smart contract.</p>
 <p>The first pilot adds card search to Board, a small app in the public Bounty Arcade repository. A completed demonstration checked the patch and paid a Base Sepolia testnet reward to a controlled test wallet. App Attest evidence covers the checker run; the code was written separately.</p>
 <div class="buttons">
-<a class="button primary" href="architecture.html">How the runner works</a>
+<a class="button primary" href="architecture.html">How the Mac app runs the checks</a>
 <a class="button" href="build.html">Run a task on your Mac</a>
 </div>
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini nestled in an abalone shell." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 <section class="section" id="flow">
-<h2>The task, the execution and the escrow.</h2>
+<h2>How a code change earns the reward</h2>
 <p>The requester publishes the change and the checks a patch must pass, then deposits the reward into an escrow contract—a program that holds the money until its payment rules are satisfied. The worker submits a repository commit and runs the checker. Verification happens outside the blockchain; the contract checks the verifier’s signatures before allowing payment.</p>
 <div class="boundary-flow" role="group" aria-label="Three stages showing off-chain work and on-chain settlement">
 <article class="flow-stage">
@@ -85,7 +85,7 @@
 <div>
 <h2>The worker’s checker run</h2>
 <p>The Board task asks for a search box that filters cards by a trimmed, case-insensitive substring. Searching for “  AP  ” should show “Apple pie” and hide “Banana”. An empty search shows every card.</p>
-<p>The seven browser checks also exercise saving cards, exporting the full board while a filter is active, moving the correct filtered card, and reloading with the search cleared. The checker runs outside the submitted code, so the patch cannot replace the tests with its own passing result.</p>
+<p>The seven browser checks also exercise saving cards, exporting the full board while a filter is active, moving the correct filtered card, and reloading with the search cleared. The tests are supplied separately from the candidate patch. The verifier checks the test program’s identity and reads its recorded results.</p>
 <a href="https://github.com/amiller/bounty-arcade/issues/66">Read the Board search task →</a>
 </div>
 <div>
@@ -110,7 +110,7 @@
 </main>
 <footer>
 <div class="wrap">
-<p>Dsmack · Mac runner and verifiable development work · Alpha, 23 October 2026.</p>
+<p>Dsmack · App Attest verification and Mac execution · Alpha.</p>
 
 <a href="index.html">Overview</a>
 <a href="architecture.html">Architecture</a>

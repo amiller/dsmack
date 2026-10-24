@@ -23,7 +23,7 @@
 </nav>
 </header>
 <main class="prose">
-<p class="eyebrow">Mirrors <a href="https://github.com/amiller/dsmack/blob/main/docs/build.md">docs/build.md</a></p>
+<p class="eyebrow">Mirrors <a href="https://github.com/amiller/dsmack/blob/node-v0.3.0/docs/build.md">docs/build.md</a></p>
 <h1>Build the historical Node 0.3.0 app</h1>
 <p>This guide belongs to the earlier <a href="legacy-node.html">shared-key Node experiment</a>. It records how an independently signed copy could produce the same admitted code measurement. To build or run the current VM runner, use the <a href="build.html">current setup guide</a>; the <a href="architecture.html">architecture page</a> explains its components.</p>
 <p>The Node 0.3.0 workflow built the Mac node from source, signed it with a participant’s own Apple developer
@@ -40,8 +40,7 @@ out. It keeps every code page, the hardened-runtime flags, the first page of
 the program with its signature sizes blanked, and every entitlement except the
 four that name a team or app (<code>application-identifier</code>,
 <code>com.apple.application-identifier</code>, <code>com.apple.developer.team-identifier</code>,
-<code>keychain-access-groups</code>). Two builds have the same M only if they run the same
-code with the same permissions. The
+<code>keychain-access-groups</code>). Matching M values mean the normalized code pages and settings described above match. The
 <a href="https://base-sepolia.blockscout.com/address/0x976C2F9DF2bab0616f25D07CEC77cab7C5272203">measurement registry</a>
 on Base Sepolia admits builds by M, so a build whose M is admitted can join
 whoever signed it.</p>
@@ -49,7 +48,7 @@ whoever signed it.</p>
 <ul>
 <li>An Apple Silicon Mac on macOS 27.</li>
 <li>The exact Xcode, SDK and Swift versions in
-  <a href="https://github.com/amiller/dsmack/blob/main/node/mac/toolchain.json">node/mac/toolchain.json</a>. The build stops if
+  <a href="https://github.com/amiller/dsmack/blob/node-v0.3.0/node/mac/toolchain.json">node/mac/toolchain.json</a>. The build stops if
   they differ.</li>
 <li>An Apple developer team with a Developer ID Application certificate, an
   explicit App ID with the App Attest capability, and a Developer ID
@@ -67,7 +66,7 @@ directory that does not exist yet:</p>
 <code>--sdk-runner</code> value (the M_runner its notes list as compiled in).
 Omit <code>--gui</code> for the command-line node. Besides the unsigned <code>Node.app</code>, the
 build writes <code>build/mine/entitlements.plist</code> from
-<a href="https://github.com/amiller/dsmack/blob/main/node/mac/Entitlements.template.plist">node/mac/Entitlements.template.plist</a>.
+<a href="https://github.com/amiller/dsmack/blob/node-v0.3.0/node/mac/Entitlements.template.plist">node/mac/Entitlements.template.plist</a>.
 The only things your Team ID and bundle ID change are <code>Info.plist</code> and that
 entitlements file; the program file is byte-for-byte the same as ours.</p>
 <p>Sign with your certificate and profile:</p>
@@ -98,7 +97,7 @@ deliberately modified version. It passes only if the two honest builds share
 one M, the modified build has a different M, and all three CDHashes differ. The
 certificates live in a temporary keychain inside the output directory and are
 deleted when the script ends. Self-signed copies cannot use App Attest, so this
-only checks the measurement. The comparison was also run by the <a href="https://github.com/amiller/dsmack/blob/main/.github/workflows/mac-build.yml">Mac build workflow</a>;
+only checks the measurement. The comparison was also run by the <a href="https://github.com/amiller/dsmack/blob/node-v0.3.0/.github/workflows/mac-build.yml">Mac build workflow</a>;
 <a href="https://github.com/amiller/dsmack/actions/runs/38381216545">here is the run</a>
 for the 0.3.0 source commit <code>ad3855f</code>.</p>
 <section></section>
@@ -110,7 +109,7 @@ for the 0.3.0 source commit <code>ad3855f</code>.</p>
 <li><a href="https://github.com/amiller/dsmack">Source</a></li>
 <li><a href="https://github.com/amiller/dsmack/releases">Releases</a></li>
 <li><a href="nodes/">Nodes</a></li>
-<li><a href="https://github.com/amiller/dsmack/blob/main/docs/node-details.md">Node details</a></li>
+<li><a href="https://github.com/amiller/dsmack/blob/node-v0.3.0/docs/node-details.md">Node details</a></li>
 <li><a href="https://github.com/amiller/abalone">Abalone</a></li>
 </ul>
 </nav>

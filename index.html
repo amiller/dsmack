@@ -3,13 +3,13 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="A protocol and policy for permissionless App Attest applications, with reference ZK and Solidity verifiers and an attested Mac runner.">
+<meta name="description" content="A protocol for verifying Apple App Attest evidence across developer accounts, with Solidity and ZK verifiers for shared Mac compute and open bounties.">
 <title>App Attest for permissionless applications · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
 </head>
 <body>
 <header><nav class="wrap" aria-label="Main"><a class="brand" href="index.html">dsmack</a><div class="links">
-<a href="index.html" aria-current="page">Architecture</a>
+<a href="index.html" aria-current="page">Overview</a>
 <a href="base-image.html">Runtime</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>
@@ -19,55 +19,55 @@
 <main class="wrap">
 <section class="pagehero image-hero"><div class="hero-copy">
 <h1>App Attest for<br>permissionless applications.</h1>
-<p class="lead">Dsmack is a protocol and policy for checking Apple App Attest evidence without depending on a particular developer account.</p>
-<p>Its reference implementation includes zero-knowledge proofs and Solidity verifiers. Applications can use shared verification rules to accept evidence from independently operated Macs.</p>
+<p class="lead">Dsmack is a protocol and policy for checking Apple App Attest evidence without making one developer account the system’s trust authority.</p>
+<p>Applications choose which code to accept. Independently operated Macs can run approved builds signed under different developer accounts, and peers can check the resulting evidence using shared rules.</p>
+<p>The reference implementation provides Solidity verifiers and zero-knowledge proofs for App Attest, plus a Mac runner for executing application workloads.</p>
 <div class="buttons"><a class="button primary" href="#applications">Explore the applications</a><a class="button" href="app-attest.html">See the reference verifiers</a></div>
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini nestled in an abalone shell." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 <section class="section" id="applications">
-<h2>Two applications of the same policy.</h2>
+<h2>Shared Mac compute and open bounties.</h2>
 <div class="split">
-<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>Mac minis sharing compute and account capabilities.</h3><p>A peer-to-peer network could let Mac mini operators offer unused compute and access to account capabilities through agreed applications. Peers would use attestation policies to check the software and the work performed.</p><p>Operators bring their own machines; the application supplies the rules for accepting execution evidence.</p><a href="#layers">The reference execution stack →</a></article>
-<article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Open bounties enforced by a smart contract.</h3><p>A requester funds a task and fixes the checks. Anyone can submit a candidate under those rules, run the checker and present a bound claim for the reward.</p><p>The board-search pilot completed verification and a real Base Sepolia withdrawal. Its escrow currently uses decisions signed by an off-chain verifier bridge.</p><a href="bounties.html">Explore the bounty application →</a></article>
+<article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>Mac owners could offer unused compute and let other people run agreed software using services available through their accounts. A permissionless network would let operators bring their own Macs and verify each other’s execution evidence under a common policy.</p><p>Dsmack supplies the verification and runner components for building such a network.</p><a href="#layers">How the Mac runner works →</a></article>
+<article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward and publishes the task’s checks. Anyone can submit work, run those checks and claim payment by presenting the required evidence.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a Base Sepolia testnet reward. An off-chain verifier checked the evidence and signed the decision accepted by the escrow contract.</p><a href="bounties.html">Explore the bounty application →</a></article>
 </div>
 </section>
 <section class="section">
-<h2>Verification rules applications can share.</h2>
-<p class="intro">The application chooses its admission policy: accepted code and app identities, the execution context and the result bindings. The verifier checks Apple’s evidence against that policy.</p>
-<div class="split"><div><h3>Direct Solidity verification</h3><p>The contracts check the Apple certificate chain, attested app key and assertions. An application can enforce the resulting evidence in its own protocol.</p></div><div><h3>Zero-knowledge verification</h3><p>A proof establishes the attestation-leaf checks. The Solidity adapter checks the proof’s public values against the same policy, then verifies subsequent assertions.</p></div></div>
+<h2>Choose the accepted code through a shared policy.</h2>
+<p class="intro">Apple’s evidence identifies an app key and the software associated with it. Dsmack separates checking that evidence from deciding which software an application accepts. Its admission policy checks the measured code and app identity, including builds registered under different developer accounts.</p>
+<p>This lets a network or smart contract apply common verification rules across operators. App identities remain part of the check; the policy defines which ones qualify.</p>
+<div class="split"><div><h3>Direct Solidity verification</h3><p>Smart contracts check Apple’s certificate chain, enroll the attested app key and verify its signed statements, called assertions.</p></div><div><h3>Zero-knowledge verification</h3><p>A zero-knowledge proof establishes that the app key’s attestation certificate passed the required checks. A Solidity contract verifies the proof against the application’s policy, then checks subsequent assertions.</p></div></div>
 <a href="app-attest.html">Inspect both verifier paths and the live reference capture →</a>
 </section>
 <section class="section" id="layers">
-<h2>A reference runner for attested application execution.</h2>
-<p class="intro">The reference Mac runner turns a selected application workload into a run with launch and result evidence. Its signed app, Linux image and application payload are separate layers.</p>
+<h2>Run application workloads on a Mac.</h2>
+<p class="intro">The reference runner is a signed Mac app that starts a Linux virtual machine, runs the chosen workload and signs statements about its launch and result. The app, Linux image and workload can be distributed separately.</p>
 <div class="runtime-figure" role="group" aria-label="Signed Mac runner containing the selected Linux VM and application workload">
 <div class="runtime-label">Signed Mac runner</div>
-<p>Use the App Attest key · check admitted inputs · launch the VM · retain launch and result evidence</p>
-<div class="runtime-vm"><div class="runtime-label">External, pinned Linux VM image</div><p>Kernel, verified system disk, guest supervisor and container runtime</p>
-<div class="runtime-container"><div class="runtime-label">Application workload</div><p>Selected OCI container + execution manifest + task inputs<br>Produces the result receipt and declared output files</p></div>
+<p>Check the chosen inputs · launch the VM · sign launch and result statements with the App Attest key</p>
+<div class="runtime-vm"><div class="runtime-label">Linux VM image selected by its hash</div><p>Kernel, verified system disk, guest supervisor and container runtime</p>
+<div class="runtime-container"><div class="runtime-label">Application workload</div><p>Container + execution settings + task inputs<br>Produces a result record and the requested output files</p></div>
 </div>
 </div>
-<p>Compatible application changes travel as pinned workloads and inputs while the Mac runner identity stays stable. Resource limits, network access and output rules belong to the selected execution profile.</p>
+<p>A new task can supply a different container or inputs while keeping the same Mac runner. The execution settings specify resource limits, network access and the files to return.</p>
 <a href="base-image.html">Inspect the runtime, disks and input channels →</a>
 </section>
 <section class="section">
-<h2>Evidence binds the run to the application.</h2>
+<h2>Connect the result to the requested work.</h2>
 <div class="grid3">
-<article class="card"><div class="num">1 · SELECT</div><h3>Fix the expected inputs</h3><p>The verifier’s context names the admitted app and runtime, workload and input commitments, a fresh challenge and the application’s result rules.</p></article>
-<article class="card"><div class="num">2 · EXECUTE</div><h3>Retain two assertions</h3><p>The Mac app creates a launch assertion and a result assertion. Their signed digests bind the challenge and execution statements, including the selected inputs and returned result envelope.</p></article>
-<article class="card"><div class="num">3 · VERIFY</div><h3>Check the original evidence</h3><p>The verifier checks Apple’s app-key attestation, assertion signatures and counters, expected identities and result hashes. The application’s checks determine whether the result is acceptable.</p></article>
+<article class="card"><div class="num">1 · SELECT</div><h3>Specify the work</h3><p>The request identifies the accepted runner, Linux image, workload and inputs. It includes a fresh challenge to distinguish this run and rules for accepting the result.</p></article>
+<article class="card"><div class="num">2 · EXECUTE</div><h3>Sign the launch and result</h3><p>The Mac app creates two assertions. They bind the run’s challenge to statements about the chosen inputs and returned results.</p></article>
+<article class="card"><div class="num">3 · VERIFY</div><h3>Check the evidence</h3><p>The verifier checks Apple’s attestation, the app’s signatures, replay protection and the expected identities and file hashes. The application applies its acceptance rules to the result.</p></article>
 </div>
-<p class="note">App Attest authenticates the app key and assertions. The selected runner and runtime policy define the execution statements being relied on.</p>
 <a href="app-attest.html">Follow the App Attest verification path →</a>
 </section>
 <section class="section">
-<h2>Operators run the application. Verifiers apply its rules.</h2>
-<p>Enrollment establishes an app key. Fresh challenges and assertion counters bind each subsequent run. The application’s acceptance checks determine whether the returned result qualifies for its service or settlement action.</p>
-<p>The current execution prototype uses an experimental trusted-host policy. The bounty pilot checks Apple and runtime evidence off-chain, while the reference App Attest contracts demonstrate direct and ZK verification on-chain.</p>
+<h2>Start with the reference implementation.</h2>
+<p>The App Attest contracts demonstrate direct and ZK verification on-chain. The current bounty pilot uses a separate off-chain verifier that signs settlement decisions for its escrow contract. The Mac execution prototype assumes the host does not tamper with VM storage.</p>
 <div class="buttons"><a class="button primary" href="build.html">Runner setup</a><a class="button" href="https://github.com/amiller/dsmack">Source and verification code</a></div>
 </section>
 </main>
 <footer><div class="wrap"><p>Dsmack · Attested applications on independently operated Macs · Alpha.</p>
-<a href="index.html">Architecture</a>
+<a href="index.html">Overview</a>
 <a href="base-image.html">Runtime</a>
 <a href="bounties.html">Bounties</a>
 <a href="build.html">Setup</a>

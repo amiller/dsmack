@@ -31,6 +31,18 @@
 <article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward and publishes the task’s checks. Anyone can submit work, run those checks and claim payment by presenting the required evidence.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a Base Sepolia testnet reward. An off-chain verifier checked the evidence and signed the decision accepted by the escrow contract.</p><a href="bounties.html">Explore the bounty application →</a></article>
 </div>
 </section>
+<section class="section" id="what-is-app-attest">
+<h2>What is App Attest?</h2>
+<p class="intro">When a remote machine sends you a result, how do you know which app produced it? Apple’s App Attest gives an app a hardware-backed signing key and evidence about the app that can use it.</p>
+<div class="grid3">
+<article class="card"><div class="num">1 · CREATE A KEY</div><h3>A key stays on the device</h3><p>The app creates a key in the Secure Enclave. Its private key stays there; the app asks the system to sign with it.</p></article>
+<article class="card"><div class="num">2 · ATTEST THE KEY</div><h3>Apple certifies its origin</h3><p>Apple issues an attestation linking the public key to an app instance on genuine Apple hardware. A verifier checks Apple’s certificate chain and the app identity and code measurements it accepts.</p></article>
+<article class="card"><div class="num">3 · SIGN STATEMENTS</div><h3>Check later messages locally</h3><p>The app uses that key to sign hashes of messages, producing assertions. A verifier checks their signatures, the expected message and freshness without asking Apple to certify each message.</p></article>
+</div>
+<p>Dsmack’s runner uses those messages to identify the requested workload and its returned result. The runner code defines how it observes execution; the task’s acceptance checks define whether the work succeeded.</p>
+<p>Apple designed this for an app developer’s server to recognize its own app. Dsmack makes the verification rules available to peers and smart contracts, across accepted builds from different developer accounts.</p>
+<a href="app-attest.html">Follow the certificates, signatures and on-chain verification →</a> · <a href="https://developer.apple.com/documentation/devicecheck/validating-apps-that-connect-to-your-server">Apple’s App Attest explanation →</a>
+</section>
 <section class="section">
 <h2>Choose the accepted code through a shared policy.</h2>
 <p class="intro">Apple’s evidence identifies an app key and the software associated with it. Dsmack separates checking that evidence from deciding which software an application accepts. Its admission policy checks the measured code and app identity, including builds registered under different developer accounts.</p>

@@ -4,12 +4,13 @@ const {pathToFileURL}=require('node:url');
 const MAX=8*1024*1024;
 const FIELDS={
  contracts:'id name chain_id network testnet address explorer_url asset_symbol block_number block_hash observed_at status coverage error runtime_sha256 deployment_block deployment_tx',
- tasks:'key id contract_id chain_id title issue_url package_hash policy_hash requester reward_wei available_wei reserved_wei deposited_wei state created_tx created_at active_assignment_id submit_window review_window challenge_window',
+ tasks:'key id contract_id chain_id title issue_url package_hash policy_hash requester reward_wei available_wei reserved_wei deposited_wei effort_wei roles windows state created_tx created_at active_assignment_id submit_window review_window challenge_window',
  assignments:'key id task_key contract_id chain_id worker state candidate_hash evidence_hash delivery_hash payout_wei reserved_wei submitted_at resolved_at created_at deadlines tx transactions txlinks outcome',
  payments:'id kind tx transaction_hash contract_id task_key chain_id recipient amount_wei block_number block_hash timestamp created_at observed_at explorer_url attribution assignment_key',
  activity:'id timestamp kind task_key attempt_id contract_id tx transaction_hash message event fields block_number block_hash log_index explorer_url',
- attempts:'id source_id task_key repository candidate_commit payee execution_mode state created_at updated_at verification upload artifacts source_url error_code needs_attention assignment_id reported_state expires_at task_title task_slug',
- sources:'id name kind status count counts observed_at updated_at scope coverage block_number block_hash error error_code complete from_block to_block indexed_to'
+ attempts:'id source_id task_key repository candidate_commit payee execution_mode state created_at updated_at verification upload artifacts source_url error_code needs_attention assignment_id reported_state expires_at task_title task_slug historical inputs deadline',
+ credits:'contract_id chain_id account withdrawable_wei block_number block_hash',
+ sources:'id name kind status count counts observed_at updated_at scope coverage block_number block_hash error error_code complete from_block to_block indexed_to attempt_count task_count invalid_record_count latest_record_created_at'
 };
 const FORBIDDEN=/^(capability|cap_hash|execution_cap_hash|node_capability|wallet_authorization|authorization|private_key|secret|access_token|refresh_token|token|password|db_path|stdout|stderr|raw)$/i;
 function checkPublic(value,depth=0){
@@ -26,9 +27,10 @@ function project(row,kind){
  for(const k of ['url','issue_url','explorer_url','source_url'])if(k in out)out[k]=publicURL(out[k]);
  if(kind==='attempts'){
   out.verification=pick(row.verification,'accepted level apple_verified functional_pass report_sha256');
-  out.upload=pick(row.upload,'file_count bytes complete');
-  out.artifacts=(Array.isArray(row.artifacts)?row.artifacts:[]).map(x=>{const a=pick(x,'name bytes sha256 visibility');if(x.visibility==='public')a.url=publicURL(x.url);return a;});
+  out.upload=pick(row.upload,'file_count bytes complete');out.inputs=pick(row.inputs,'file_count bytes complete');out.deadline=pick(row.deadline,'expires_at expired');
+  out.artifacts=(Array.isArray(row.artifacts)?row.artifacts:[]).map(x=>{const a=pick(x,'name bytes sha256 visibility category');if(x.visibility==='public')a.url=publicURL(x.url);return a;});
  }
+ if(kind==='tasks'){out.roles=pick(row.roles,'allocator execution_verifier reviewer delivery_verifier adjudicator');out.windows=pick(row.windows,'submit_seconds review_seconds adjudication_seconds');}
  return out;
 }
 function pick(o,fields){const r={};if(o&&typeof o==='object')for(const k of fields.split(' '))if(o[k]!==undefined)r[k]=o[k];return r;}
@@ -38,8 +40,8 @@ function validateSnapshot(v){
  for(const k of ['contracts','tasks','assignments','payments','activity','sources'])if(!Array.isArray(v.chain[k]))throw Error('chain arrays required');
  if(!v.chain.sources.length||v.chain.sources.some(x=>!x.id||!x.kind||!x.status))throw Error('explicit chain coverage required');
  checkPublic(v);const out={schema:v.schema,observed_at:v.observed_at,chain:{},feeds:[]};
- for(const k of ['contracts','tasks','assignments','payments','activity','sources']){const a=v.chain[k]??[];if(!Array.isArray(a)||a.length>50000)throw Error('snapshot array bound');out.chain[k]=a.map(x=>project(x,k));}
- for(const f of v.feeds??[]){if(!Array.isArray(f.attempts)||!Array.isArray(f.sources)||f.attempts.length>20000)throw Error('feed bound');out.feeds.push({attempts:f.attempts.map(x=>project(x,'attempts')),sources:f.sources.map(x=>project(x,'sources'))});}
+ for(const k of ['contracts','tasks','assignments','payments','activity','sources','credits']){const a=v.chain[k]??[];if(!Array.isArray(a)||a.length>50000)throw Error('snapshot array bound');out.chain[k]=a.map(x=>project(x,k));}
+ for(const f of v.feeds??[]){if(!Array.isArray(f.attempts)||!Array.isArray(f.sources)||f.attempts.length>20000)throw Error('feed bound');out.feeds.push({attempts:f.attempts.map(x=>project(x,'attempts')),sources:f.sources.map(x=>project(x,'sources')),task_metadata:(f.task_metadata??[]).map(x=>pick(x,'task_key title issue_url repository source_id'))});}
  return out;
 }
 async function body(req){let size=0,parts=[];for await(const b of req){size+=b.length;if(size>MAX)throw Error('body limit');parts.push(b);}return JSON.parse(Buffer.concat(parts).toString('utf8'));}
@@ -58,10 +60,13 @@ function createHandler(config){
   catch{s={chain:{contracts:[],tasks:[],assignments:[],payments:[],activity:[],sources:[{id:'chain-index',kind:'chain',status:'unavailable',error_code:'no_valid_snapshot'}]},feeds:[]};}
   const live=await feeds(),all=[...s.feeds,...live],attempts=all.flatMap(f=>f.attempts??[]).map(a=>project(a,'attempts'));
   const unique=[...new Map(attempts.map(a=>[(a.source_id??'')+':'+a.id,a])).values()];
+  const metadata=all.flatMap(f=>f.task_metadata??[]);for(const t of s.chain.tasks??[]){const m=metadata.filter(x=>x.task_key===t.key);for(const k of ['title','issue_url','repository']){const vals=[...new Set(m.map(x=>x[k]).filter(x=>typeof x==='string'&&x.length<=500))];if(vals.length===1)t[k]=k==='issue_url'?publicURL(vals[0]):vals[0];}}
   const sources=[...(s.chain.sources??[]),...all.flatMap(f=>f.sources??[])].map(x=>project(x,'sources'));
   for(const x of sources)if(x.kind==='chain'&&(stale||!x.observed_at||Date.now()-Date.parse(x.observed_at)>5*60*1000)&&['ok','indexing','observed'].includes(x.status))x.status='stale';
   for(const c of s.chain.contracts??[])if(!c.observed_at||Date.now()-Date.parse(c.observed_at)>5*60*1000)c.status=c.status==='unknown'?'unknown':'stale';
-  return {schema:'dsmack-bounty-dashboard/1',built_at:new Date().toISOString(),snapshot_observed_at:s.observed_at??null,...s.chain,attempts:unique,sources};
+  const attemptSources=sources.filter(x=>x.kind!=='chain');for(const id of config.expected_feed_ids??[])if(!attemptSources.some(x=>x.id===id)){const x={id,kind:'attempt-store',status:'unavailable',error_code:'no_feed_snapshot'};sources.push(x);attemptSources.push(x);}
+  const anyAttempts=attemptSources.some(x=>['ok','partial'].includes(x.status));const coverage={tasks_complete:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.getters==='all IDs at pinned block'),attempts_complete:attemptSources.length>0&&attemptSources.every(x=>x.status==='ok'),payments_complete:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.events_complete===true)};
+  return {schema:'dsmack-bounty-dashboard/1',built_at:new Date().toISOString(),snapshot_observed_at:s.observed_at??null,...s.chain,credits:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.credit_balances==='all observed recipients at pinned block')?s.chain.credits:null,tasks:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.tasks:null,assignments:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.assignments:null,attempts:anyAttempts?unique:null,sources,coverage};
  }
  async function handler(req,res){
   if(!req&&!res)return;

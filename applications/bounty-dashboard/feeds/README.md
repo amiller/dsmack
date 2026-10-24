@@ -38,3 +38,17 @@ record creation timestamp, **not** a claim of a recent status update. Source
 results, not independent re-verification by the dashboard.
 
 Run focused controls with `node --test applications/bounty-dashboard/feeds/project.test.mjs`.
+
+Each attempt includes `source_id`; historical Store attempts additionally set
+`historical: true`. Prepared input descriptors and received evidence are separate:
+`inputs` and `upload` each report their own counts/received bytes/completion.
+Artifacts have `category: input|evidence` and `visibility: public|metadata_only`;
+only a recognized existing public artifact URL earns `public`. Unknown evidence
+counts remain null. Input completion is joined to the stored upload manifest,
+not inferred from an execution descriptor. `updated_at` is optional and only
+copied from an actual stored update or verifier timestamp.
+
+Set `funded: false` for rehearsals: task keys deliberately remain null and task
+metadata is labelled `Unfunded rehearsal`. If `task` is omitted, the ArcadePilot
+reader projects selected fields from the read-only `records(config, task)` row;
+missing chain/contract mapping remains unknown rather than guessed.

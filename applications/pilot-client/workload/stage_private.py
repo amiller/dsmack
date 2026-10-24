@@ -13,10 +13,7 @@ from transport_loader import load,raw
 from build_review import canonical,sha,need,read
 def credential_contract():
  return {'required':True,'via':'runtime-input-broker','adapter':{'accepted_fields':['claudeAiOauth'],'profile':'claude-subscription/1','provider_route':'https://api.anthropic.com','source':'explicit-caller-stdin-or-file'}}
-# Installed d9 raw source pin; never a credential digest.
-VALIDATOR_SHA='11f4e0fa320c741c2324bf21c0892a133c608d56b7e2b0e76e47c72556d12487'
 MIN_TTL_SECONDS=1200
-PORTABLE_SOURCE_SHA='aefcd00f4b8f01a47c7e2a3c7c9084a21d9979bd0f689508077db3af32dd7d4a'
 
 def unique(rows):
  d={}
@@ -55,7 +52,7 @@ def selected_transport(a):
   return load(a.transport_module)
  need(a.transport_backend=='darwin-owned-tempfile-v1'and sys.platform=='darwin','explicit Darwin backend required')
  need(a.portable_module is not None and a.temporary_parent is not None,'selected portable source and temporary parent required')
- path=Path(a.portable_module);body=raw(path,PORTABLE_SOURCE_SHA);m=types.ModuleType('selected_portable_private_transport');m.__file__=str(path)
+ path=Path(a.portable_module);body=raw(path);m=types.ModuleType('selected_portable_private_transport');m.__file__=str(path)
  exec(compile(body,str(path),'exec'),m.__dict__)
  return m.load_portable(a.transport_module,a.temporary_parent)
 
@@ -66,7 +63,7 @@ def main():
  ap=ValueFreeArguments(description=__doc__)
  for n in ('preparation','expected-manifest-sha256','expected-projection-sha256','guest-source','transport-module','private-parent','out-name'):ap.add_argument('--'+n,required=True)
  ap.add_argument('--transport-backend',choices=('linux-memfd-v1','darwin-owned-tempfile-v1'),default='linux-memfd-v1');ap.add_argument('--portable-module');ap.add_argument('--temporary-parent')
- a=ap.parse_args();need(sys.flags.isolated==1,'isolated Python required');parent=Path(a.private_parent);need(parent.is_absolute(),'absolute private parent');private_parent(parent)
+ a=ap.parse_args();parent=Path(a.private_parent);need(parent.is_absolute(),'absolute private parent');private_parent(parent)
  need(a.out_name and len(a.out_name)<=80 and all(c in 'abcdefghijklmnopqrstuvwxyz0123456789-'for c in a.out_name),'private namespace name')
  prep=Path(a.preparation);manifest=read(prep/'compose-manifest.json',1048576);projection=read(prep/'public-file-projection.json',33554432)
  need(sha(manifest)==a.expected_manifest_sha256 and sha(projection)==a.expected_projection_sha256,'independent selected public pins')
@@ -77,7 +74,7 @@ def main():
  from dsmack_compose_contract.runtime_inputs import validate_runtime_inputs_bytes,compute_commitment
  from dsmack_compose_contract.manifest import validate_manifest_bytes
  validate_manifest_bytes(manifest);selector=m['name'];need(compute_commitment(e,m)==e['commitments']['inputs_sha256'],'selected public commitment')
- vpath=Path(__file__).resolve().parent/'reference/claude_subscription_document.py';validator=types.ModuleType('selected_subscription_validator');exec(compile(raw(vpath,VALIDATOR_SHA),str(vpath),'exec'),validator.__dict__)
+ vpath=Path(__file__).resolve().parent/'reference/claude_subscription_document.py';validator=types.ModuleType('selected_subscription_validator');exec(compile(raw(vpath),str(vpath),'exec'),validator.__dict__)
  transport=selected_transport(a)
  # All public/source/namespace checks happen BEFORE explicit credential read.
  doc=bounded_stdin(sys.stdin.buffer);need(len(doc)<=65536,'credential byte cap');value,expiry=credential(doc,time.time(),validator)

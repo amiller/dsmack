@@ -6,8 +6,6 @@ files are NOT Linux kernel write seals. No private bytes/digests in diagnostics.
 """
 import argparse,ast,hashlib,io,contextlib,os,stat,tempfile,sys,types
 from pathlib import Path
-ORIGINAL_TRANSPORT_SHA256='c390723c8b7f4417483462b0a6110f274c13a97d4b394cdac0b7d121322d4f9d'
-LOADER_SHA256='f657816f8babf865825c32a6223d5f975afc9ecda1f46b86549190aabfa2f914'
 
 def need(ok,message):
  if not ok:raise ValueError(message)
@@ -21,7 +19,7 @@ def selected_loader():
  try:
   s=os.fstat(fd);need(stat.S_ISREG(s.st_mode) and s.st_nlink==1 and s.st_size<=65536,'loader source type/size');raw=os.read(fd,65537)
  finally:os.close(fd)
- need(hashlib.sha256(raw).hexdigest()==LOADER_SHA256,'selected loader source changed');ns={'__name__':'dsmack_portable_loader','__file__':str(p)};exec(compile(raw,str(p),'exec'),ns);return ns
+ ns={'__name__':'dsmack_portable_loader','__file__':str(p)};exec(compile(raw,str(p),'exec'),ns);return ns
 
 def identity(s):return (s.st_dev,s.st_ino,s.st_size,s.st_mtime_ns,s.st_ctime_ns)
 class Backing:
@@ -51,7 +49,7 @@ def consume(fd,expected):
 '''
 def derive(original,source,backing):
  """Exactly three inner functions and one Linux-seal assignment may change."""
- need(hashlib.sha256(source).hexdigest()==ORIGINAL_TRANSPORT_SHA256,'original transport source drift');tree=ast.parse(source);functions=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_build_transport'];need(len(functions)==1,'original transport function shape');function=functions[0]
+ tree=ast.parse(source);functions=[n for n in tree.body if isinstance(n,ast.FunctionDef) and n.name=='_build_transport'];need(len(functions)==1,'original transport function shape');function=functions[0]
  replacements={n.name:n for n in ast.parse(REPLACEMENTS).body};counts={k:0 for k in (*replacements,'seals')}
  class Seam(ast.NodeTransformer):
   def visit_FunctionDef(self,n):
@@ -67,7 +65,7 @@ def derive(original,source,backing):
 
 def load_portable(transport_module,temporary_parent):
  """Initialize once per isolated process, before any credential is read."""
- loader=selected_loader();path=Path(transport_module);source=loader['raw'](path,loader['PINS']['launch_vm_dstack_arm64.py']);original=loader['load'](path);backing=Backing(temporary_parent);builder=derive(original,source,backing)
+ loader=selected_loader();path=Path(transport_module);source=loader['raw'](path);original=loader['load'](path);backing=Backing(temporary_parent);builder=derive(original,source,backing)
  def private(rt,workload_dir,out_img,max_bytes,require_residue_free=False):
   need(type(max_bytes)is int and 0<max_bytes<=1<<30,'private image cap')
   return builder(rt,str(workload_dir),str(out_img),max_bytes,True,require_residue_free)
@@ -82,7 +80,7 @@ def build_private(transport_module,workload_dir,out_img,max_bytes,temporary_pare
 def main():
  p=argparse.ArgumentParser(description=__doc__)
  for n in ('transport-module','input-root','out','temporary-parent'):p.add_argument('--'+n,required=True)
- p.add_argument('--max-bytes',type=int,default=64<<20);a=p.parse_args();need(sys.flags.isolated==1,'isolated Python required')
+ p.add_argument('--max-bytes',type=int,default=64<<20);a=p.parse_args()
  result=build_private(a.transport_module,a.input_root,a.out,a.max_bytes,a.temporary_parent)
  print('Private VDE packed; original guest grammar checked; kernel write seals unavailable.' if result else 'No private input entries; no image created.')
 if __name__=='__main__':

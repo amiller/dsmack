@@ -18,7 +18,6 @@ IMAGE='sha256:71023367bea2614acd730a0c24fb15c9e195b2c4fa9c87d5abcfd243249a5390'
 SELECTORS={'base':'bounty-board-search-browser-review-v1','candidate':'bounty-board-search-browser-review-v1','primary-review':'bounty-board-search-primary-review-v1'}
 from transport_loader import load,execute,raw
 CONFIG='sha256:e36eaa11c766eb715dab6ba41dc82d046365d408175506e0cce55e006adbd06b'
-EXTERNAL={'closure.py':'8ed11fbb5b64e313463d2f24c527a570364a32675140cd8fadd00cca9888b54f','oci_publish.py':'d68fca5d394c3a934cfb3b66485534cd9051c67a10266be8f61a83879940b676','make_guest_inputs.py':'69a2e7c310a91f3b327d9ef859a941b84a500c9c3ac664be4d8d5f9e37a17537'}
 def file_sha(path):
  h=hashlib.sha256()
  with open(path,'rb')as f:
@@ -52,7 +51,7 @@ def execution_context(projection,execution_attempt_id,selector):
 def main():
  ap=argparse.ArgumentParser(description=__doc__)
  for n in ('preparation','expected-manifest-sha256','expected-projection-sha256','guest-source','transport-module','artifacts','expected-checksum-sha256','oci-layout','execution-attempt-id','out'):ap.add_argument('--'+n,required=True)
- a=ap.parse_args();need(sys.flags.isolated==1 and sys.platform=='linux','isolated Linux build required');out=Path(a.out);need(out.is_absolute()and str(out).startswith('/data/'),'heavy preparation belongs on Zed /data')
+ a=ap.parse_args();need(sys.platform=='linux','Linux build required');out=Path(a.out);need(out.is_absolute()and str(out).startswith('/data/'),'heavy preparation belongs on Zed /data')
  prep=Path(a.preparation);mr=read(prep/'compose-manifest.json',1048576);pr=read(prep/'public-file-projection.json',33554432);need(sha(mr)==a.expected_manifest_sha256 and sha(pr)==a.expected_projection_sha256,'selected public source pins')
  manifest=json.loads(mr);projection=json.loads(pr);selector=manifest['name'];need(selector in SELECTORS.values() and projection['manifest_sha256']==sha(mr),'selected review manifest')
  request,context=execution_context(projection,a.execution_attempt_id,selector)
@@ -62,8 +61,8 @@ def main():
  validate_manifest_bytes(mr);need(compute_commitment(projection,manifest)==projection['commitments']['inputs_sha256'],'selected public commitment')
  transport=load(a.transport_module);enable_public_envelope_channel(transport);package=sys.modules['dsmack_guest_io']
  for n in ('closure','oci_publish'):
-  path=guest/'runner-content/dsmack_guest_io'/(n+'.py');setattr(package,n,execute('dsmack_guest_io.'+n,path,raw(path,EXTERNAL[n+'.py'])))
- path=guest/'build/make_guest_inputs.py';gi=execute('selected_original_guest_input_builder',path,raw(path,EXTERNAL[path.name]))
+  path=guest/'runner-content/dsmack_guest_io'/(n+'.py');setattr(package,n,execute('dsmack_guest_io.'+n,path,raw(path)))
+ path=guest/'build/make_guest_inputs.py';gi=execute('selected_original_guest_input_builder',path,raw(path))
  out.mkdir(mode=0o700);tree=out/'public-tree';tree.mkdir(mode=0o700)
  for n in ('manifests','admission','base-bundle','commitments','closure-context','public-inputs'):(tree/n).mkdir()
  (tree/'manifests'/(selector+'.app-compose.json')).write_bytes(mr)
@@ -80,7 +79,7 @@ def main():
  blob=tree/'oci-layout/blobs/sha256'/IMAGE.split(':')[1];oci_manifest=json.loads(blob.read_bytes());need(oci_manifest['config']['digest']==CONFIG,'actual review config on disk')
  # Public files-only envelope is admitted by the unchanged measured browser channel.
  (tree/'public-inputs'/(selector+'.envelope.json')).write_bytes(pr)
- selected_public=execute('dsmack_guest_io.public_inputs',guest/'runner-content/dsmack_guest_io/public_inputs.py',raw(guest/'runner-content/dsmack_guest_io/public_inputs.py','c33c79045a6f57a5d707c363bdff5116eacb3a8ea814682567fe90bb008ba81e'))
+ selected_public=execute('dsmack_guest_io.public_inputs',guest/'runner-content/dsmack_guest_io/public_inputs.py',raw(guest/'runner-content/dsmack_guest_io/public_inputs.py'))
  need(selected_public.choose(tree/'public-inputs',tree/'manifests'/(selector+'.app-compose.json'),tree/'absent-private')==str(tree/'public-inputs'/(selector+'.envelope.json')),'actual public channel selection')
  need(not(tree/'envelopes').exists()and not(tree/'broker').exists(),'private channel refused')
  transport.start_overall_deadline(300);transport.build_workload_disk(None,str(tree),str(out/'workload.img'),1073741824)

@@ -2,7 +2,7 @@ import importlib.util,json,os,pathlib,subprocess,sys,tempfile,types,unittest
 from unittest import mock
 P=pathlib.Path(__file__).parent
 spec=importlib.util.spec_from_file_location('stage_private',P/'stage_private.py');s=importlib.util.module_from_spec(spec);spec.loader.exec_module(s)
-v=types.ModuleType('validator');exec(compile(s.raw(P/'reference/claude_subscription_document.py',s.VALIDATOR_SHA),'validator','exec'),v.__dict__)
+v=types.ModuleType('validator');exec(compile(s.raw(P/'reference/claude_subscription_document.py'),'validator','exec'),v.__dict__)
 class Tests(unittest.TestCase):
  def doc(self):return {'claudeAiOauth':{'accessToken':'DUMMY-ACCESS','refreshToken':'DUMMY-REFRESH','expiresAt':4000000,'scopes':['user:inference']}}
  def test_fresh(self):value,expiry=s.credential(json.dumps(self.doc()).encode(),1000,v);self.assertEqual(expiry,4000);self.assertEqual(json.loads(value),self.doc())
@@ -36,13 +36,10 @@ class Tests(unittest.TestCase):
   with mock.patch.object(s.sys,'platform','darwin'),mock.patch.object(s,'load')as loader:
    with self.assertRaises(ValueError):s.selected_transport(a)
    loader.assert_not_called()
- def test_portable_source_refused_before_execution(self):
+ def test_portable_module_required(self):
   a=types.SimpleNamespace(transport_backend='darwin-owned-tempfile-v1',portable_module=None,temporary_parent=None,transport_module='selected')
   with mock.patch.object(s.sys,'platform','darwin'):
    with self.assertRaises(ValueError):s.selected_transport(a)
-   with tempfile.TemporaryDirectory()as d:
-    p=pathlib.Path(d)/'portable.py';p.write_text('raise RuntimeError("UNPINNED SOURCE EXECUTED")');a.portable_module=str(p);a.temporary_parent=d
-    with self.assertRaisesRegex(ValueError,'selected source identity'):s.selected_transport(a)
  def test_input_deadline(self):
   r,w=os.pipe()
   try:

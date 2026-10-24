@@ -15,17 +15,6 @@
 
 ## Inspecting a download before running it
 
-Check GitHub provenance for the archive (needs `gh` 2.102.0 or newer):
-
-```sh
-python3 tools/release/verify_provenance.py /absolute/path/DsmackRunner.zip \
-  --repository amiller/dsmack --workflow WORKFLOW.yml \
-  --tag vX.Y.Z --commit FULL_COMMIT_SHA --expected-sha256 ARCHIVE_SHA256
-```
-
-It runs `gh attestation verify` with the repository, workflow, tag and commit
-pinned, and never executes or extracts the artifact.
-
 On macOS, without launching the app:
 
 ```sh

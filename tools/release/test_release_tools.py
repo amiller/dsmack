@@ -11,7 +11,6 @@ import unittest
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
 from inspect_runner import inspect
-from verify_provenance import command, checked_result
 SPEC = importlib.util.spec_from_file_location('cd_args', HERE.parents[1] / 'contracts/cd_args.py')
 CD = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(CD)
@@ -95,35 +94,5 @@ class InspectionTests(unittest.TestCase):
         b = bytearray(fixture()[0])
         struct.pack_into('>I', b, 32781 + 36 + 44, 1)
         with self.assertRaisesRegex(ValueError, 'scatter'): CD.inspect_bytes(b)
-
-
-class ProvenanceTests(unittest.TestCase):
-    def test_identity_policy_pins_all_boundaries(self):
-        argv = command('/trusted/gh', '/tmp/artifact', 'amiller/dsmack', 'release.yml', 'v0.1.0', 'a'*40)
-        self.assertIn('https://github.com/amiller/dsmack/.github/workflows/release.yml@refs/tags/v0.1.0', argv)
-        for flag in ('--source-ref', '--source-digest', '--signer-digest', '--deny-self-hosted-runners',
-                     '--cert-identity', '--cert-oidc-issuer', '--predicate-type'):
-            self.assertIn(flag, argv)
-
-    def test_empty_wrong_or_failed_verification_is_not_success(self):
-        for result, rc in [('[]', 0), ('{}', 0), ('[{}]', 0), ('null', 0), ('[]', 1),
-                           ('[{"verificationResult":{}}]', 0)]:
-            with self.assertRaises(ValueError): checked_result(subprocess.CompletedProcess([], rc, result), 'a'*64)
-
-    def test_verified_statement_must_cover_actual_artifact(self):
-        result = [{'verificationResult': {'signature': {'certificate': {'trusted': 'from-gh'}},
-                    'verifiedTimestamps': [{'type': 'tlog'}],
-                    'statement': {'predicateType': 'https://slsa.dev/provenance/v1',
-                                  'subject': [{'digest': {'sha256': 'a'*64}}]}}}]
-        process = subprocess.CompletedProcess([], 0, json.dumps(result))
-        self.assertEqual(result, checked_result(process, 'a'*64))
-        with self.assertRaisesRegex(ValueError, 'wrong artifact'):
-            checked_result(process, 'b'*64)
-
-    def test_policy_injection_and_unpinned_source_rejected(self):
-        for repo, workflow, tag, commit in [('a/b', '../release.yml', 'v1.0.0', 'a'*40),
-                ('a/b', 'release.yml', 'main', 'a'*40), ('a/b', 'release.yml', 'v1.0.0', 'short')]:
-            with self.assertRaises(ValueError): command('gh', '/tmp/artifact', repo, workflow, tag, commit)
-
 
 if __name__ == '__main__': unittest.main()

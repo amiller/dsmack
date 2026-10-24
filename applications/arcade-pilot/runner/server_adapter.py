@@ -10,11 +10,8 @@ source=Path(__file__).with_name('portable.py');p={'__name__':'arcade_portable','
 need=p['need'];read=p['read'];doc=p['document'];canonical=p['canonical'];exclusive=p['exclusive'];pin=p['pin'];protected=p['protected']
 
 def guarded(config,args,log):
-    v=config['verifier'];root=protected(v['root'],True)
-    for name in ('verify.py','SOURCE-PINS.json','QUALIFIED-LINUX-ENVIRONMENT.json'):
-        need(pin(root/name)==v['pins'][name],'selected verifier changed')
-    need(v['pins']['SOURCE-PINS.json']['sha256']==v['source_manifest_sha256'] and v['pins']['QUALIFIED-LINUX-ENVIRONMENT.json']['sha256']==v['environment_sha256'],'verifier authority mismatch')
-    result=subprocess.run([config['python'],'-I','-B',str(root/'verify.py'),'--source-manifest-sha256',v['source_manifest_sha256'],'--environment-sha256',v['environment_sha256'],*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=300,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
+    root=Path(config['verifier']['root'])
+    result=subprocess.run([config['python'],'-I','-B',str(root/'verify.py'),*args],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=300,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
     exclusive(Path(str(log)+'.stdout'),result.stdout);exclusive(Path(str(log)+'.stderr'),result.stderr)
     need(result.returncode in (0,3) and len(result.stdout)<=1<<20,'original verifier refused')
     return [doc(x)for x in result.stdout.splitlines()if x.strip()]
@@ -72,7 +69,7 @@ def verify_evidence(config,value,job):
     # receipt/index, compare candidate/base/checker commitments and typed outcomes;
     # it cannot accept worker status booleans. Failure never becomes acceptance.
     auditor=config['input_auditor'];need(pin(auditor['path'])==auditor,'selected input auditor changed')
-    v=config['verifier'];audit=subprocess.run([config['python'],'-I','-B',auditor['path'],'--verifier',v['root'],'--source-manifest-sha256',v['source_manifest_sha256'],'--environment-sha256',v['environment_sha256'],'--manifest',selected['compose_manifest']['path'],'--projection',selected['projection']['path'],'--receipt',str(retained/'receipt.json'),'--statement',str(retained/'statement.json'),'--workload-sha256',selected['workload_disk']['sha256'],'--workload-bytes',str(selected['workload_disk']['bytes'])],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
+    v=config['verifier'];audit=subprocess.run([config['python'],'-I','-B',auditor['path'],'--verifier',v['root'],'--manifest',selected['compose_manifest']['path'],'--projection',selected['projection']['path'],'--receipt',str(retained/'receipt.json'),'--statement',str(retained/'statement.json'),'--workload-sha256',selected['workload_disk']['sha256'],'--workload-bytes',str(selected['workload_disk']['bytes'])],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
     exclusive(job/'INPUT-AUDIT.stdout',audit.stdout);exclusive(job/'INPUT-AUDIT.stderr',audit.stderr);need(audit.returncode==0 and doc(audit.stdout).get('public_envelope_commitment_recomputed')is True,'independent input binding failed')
     outcome=factory(config,'check_authenticated_outputs',{'selection':selected,'full_result':full,'retained':str(retained),'manifest':manifest},job)
     need(set(outcome)=={'functional_passed','report_sha256','checker_sha256','candidate_sha256'} and type(outcome['functional_passed'])is bool and outcome['candidate_sha256']==selected['candidate_sha256'],'functional join contract')
@@ -97,7 +94,7 @@ def settlement_binding(config,value,job):
     checked=guarded(config,args,job/'relying-check');need(len(checked)==1 and checked[0].get('checked')is True and checked[0].get('task_success')is True,'original report relying check failed')
     # Recheck exact workload and public file commitment, independently of HTTP flags.
     auditor=config['input_auditor'];need(pin(auditor['path'])==auditor,'selected input auditor changed');v=config['verifier']
-    result=subprocess.run([config['python'],'-I','-B',auditor['path'],'--verifier',v['root'],'--source-manifest-sha256',v['source_manifest_sha256'],'--environment-sha256',v['environment_sha256'],'--manifest',selected['compose_manifest']['path'],'--projection',selected['projection']['path'],'--receipt',str(retained/'receipt.json'),'--statement',str(retained/'statement.json'),'--workload-sha256',selected['workload_disk']['sha256'],'--workload-bytes',str(selected['workload_disk']['bytes'])],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
+    result=subprocess.run([config['python'],'-I','-B',auditor['path'],'--verifier',v['root'],'--manifest',selected['compose_manifest']['path'],'--projection',selected['projection']['path'],'--receipt',str(retained/'receipt.json'),'--statement',str(retained/'statement.json'),'--workload-sha256',selected['workload_disk']['sha256'],'--workload-bytes',str(selected['workload_disk']['bytes'])],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
     exclusive(job/'INPUT-AUDIT.stdout',result.stdout);exclusive(job/'INPUT-AUDIT.stderr',result.stderr);need(result.returncode==0,'settlement input audit failed')
     outcome=factory(config,'check_authenticated_outputs',{'selection':selected,'full_result':full,'retained':str(retained),'manifest':doc(read(selected['compose_manifest']['path']))},job);need(outcome['functional_passed']is True,'protected checker does not pass')
     projection=doc(read(selected['projection']['path'],33554432));rows=[x for x in projection['files']if x['slot']=='candidate'];need(len(rows)==1,'one candidate projection')

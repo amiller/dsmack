@@ -119,8 +119,7 @@ the full verification once, against its replay state, and returns a signed
 report. Anyone can then check that report on Linux:
 
 ```sh
-/usr/bin/python3 -I applications/pilot-client/verifier-browser/verify.py \
-  --source-manifest-sha256 "$SOURCE_PINS_SHA256" --environment-sha256 "$ENV_SHA256" \
+python3 applications/pilot-client/verifier-browser/verify.py \
   operator check --context "$CHECKER_CONTEXT" --report "$SIGNED_REPORT" \
   --evidence "$RETAINED_EVIDENCE" \
   --launch-assertion-b64 "$LAUNCH_ASSERTION_B64" \

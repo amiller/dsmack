@@ -7,12 +7,10 @@ outputs, then signs a report. It imports the compose contract library from
 `base-vm/browser-sandbox-v1/source/runner-content/lib` and the App Attest core
 from `verifier/core.py`, so run it from a full checkout.
 
-`verify.py` is the launcher. It checks the deployed tree against
-`SOURCE-PINS.json` and the host against `QUALIFIED-LINUX-ENVIRONMENT.json`
-(both supplied by the deployment, selected by SHA-256), then dispatches:
+`verify.py` is the launcher:
 
 ```text
-V="/usr/bin/python3 -I verifier-browser/verify.py --source-manifest-sha256 SOURCE_PINS_SHA256 --environment-sha256 ENV_SHA256"
+V="/usr/bin/python3 -I verifier-browser/verify.py"
 $V operator enroll ...           # App Attest enrollment ceremony
 $V operator issue-challenge ...  # fresh replay challenge
 $V prepare prepare --app-out DIR --enrollment FILE --context FILE --bundle NEW_DIR

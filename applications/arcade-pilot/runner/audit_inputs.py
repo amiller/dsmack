@@ -6,10 +6,8 @@ s=Path(__file__).with_name('portable.py');p={'__name__':'arcade_portable','__fil
 need=p['need'];read=p['read'];doc=p['document'];pin=p['pin']
 def main():
     a=argparse.ArgumentParser()
-    for n in ('verifier','source-manifest-sha256','environment-sha256','manifest','projection','receipt','statement','workload-sha256','workload-bytes'):a.add_argument('--'+n,required=True)
+    for n in ('verifier','manifest','projection','receipt','statement','workload-sha256','workload-bytes'):a.add_argument('--'+n,required=True)
     x=a.parse_args();need(sys.flags.isolated,'isolated original imports required');root=p['protected'](x.verifier,True)
-    raw=read(root/'verify.py',262144);ns={'__name__':'arcade_selected_verifier','__file__':str(root/'verify.py')};exec(compile(raw,str(root/'verify.py'),'exec'),ns)
-    ns['source_check'](x.source_manifest_sha256);ns['prepare_source_imports']();ns['environment_check'](x.environment_sha256)
     sys.path.insert(0,str(root))
     from runresult_ref.frozen import validate_receipt_bytes
     statement=doc(read(x.statement));need(statement['consumed']['observed_workload_sha256']==x.workload_sha256 and statement['workload']['sha256']==x.workload_sha256 and statement['workload']['bytes']==int(x.workload_bytes),'authenticated native workload differs from issued task')

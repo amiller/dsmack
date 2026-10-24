@@ -39,7 +39,7 @@ the evidence, and the trust model.
 | [`contracts/`](contracts/DEPLOY.md) | Build and App Attest key registries |
 | `verifier/` | Python App Attest verification |
 | [`trust/`](trust/README.md) | Apple App Attestation root certificate |
-| `tools/release/` | Release provenance and executable inspection |
+| `tools/release/` | Runner executable inspection |
 
 ## Build
 

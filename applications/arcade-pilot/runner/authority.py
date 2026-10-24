@@ -31,9 +31,8 @@ def issue(config,attempt,key,native,context,disk,directory):
     need(len(sig)==64,'Ed25519 signature length');exclusive(directory/'workload.sig',sig)
     # The current original verifier stores the exact result-context challenge,
     # not an arbitrary worker-supplied nonce. Run only its selected frozen CLI.
-    v=config['verifier'];root=Path(v['root'])
-    for n in ('verify.py','SOURCE-PINS.json','QUALIFIED-LINUX-ENVIRONMENT.json'):need(pin(root/n)==v['pins'][n],'selected verifier changed')
-    cmd=[config['python'],'-I','-B',str(root/'verify.py'),'--source-manifest-sha256',v['source_manifest_sha256'],'--environment-sha256',v['environment_sha256'],'operator','issue-challenge','--replay',config['replay'],'--key-id',key,'--manifest-sha256',config['manifest_sha256'],'--ttl','7200','--challenge',challenge.hex()]
+    root=Path(config['verifier']['root'])
+    cmd=[config['python'],'-I','-B',str(root/'verify.py'),'operator','issue-challenge','--replay',config['replay'],'--key-id',key,'--manifest-sha256',config['manifest_sha256'],'--ttl','7200','--challenge',challenge.hex()]
     result=subprocess.run(cmd,stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
     exclusive(directory/'ISSUE.stdout',result.stdout);exclusive(directory/'ISSUE.stderr',result.stderr);need(result.returncode==0 and doc(result.stdout).get('issued')is True,'original challenge issuer refused')
     return {'challenge_b64':base64.b64encode(challenge).decode()}

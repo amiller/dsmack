@@ -11,8 +11,7 @@ def configure(v,out):
     need(str(out).startswith('/data/')and not out.exists(),'fresh protected Zed configuration directory')
     out.mkdir(mode=0o700);here=Path(__file__).parent
     for name in ('jobs','registrations','attempts'):(out/name).mkdir(mode=0o700)
-    root=protected(v['verifier_root'],True);verifier={'root':str(root),'pins':{n:pin(root/n,1<<20)for n in ('verify.py','SOURCE-PINS.json','QUALIFIED-LINUX-ENVIRONMENT.json')}}
-    verifier.update(source_manifest_sha256=verifier['pins']['SOURCE-PINS.json']['sha256'],environment_sha256=verifier['pins']['QUALIFIED-LINUX-ENVIRONMENT.json']['sha256'])
+    verifier={'root':str(protected(v['verifier_root'],True))}
     # Explicit public root/policy/report-key bytes are selected by their normal
     # descriptors. Private authority files are only named, never opened/hashed.
     authority={k:v[k]for k in ('policy','secret_file','store','replay','signing_key_file','report_key_id')}

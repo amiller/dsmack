@@ -18,21 +18,6 @@ use crate::spec_v3::LaunchSpecV3;
 pub const RECEIPT_SCHEMA: &str = "dsmack-backend-v3/launch-receipt/1";
 pub const RESULT_SCHEMA: &str = "dsmack-backend-v3/run-result/1";
 
-/// Honesty block, carried verbatim (same assumptions as v2 plus the v3
-/// result/private invariants).
-pub const HONESTY_BLOCK_JSON: &str = concat!(
-    "\"honesty\":{",
-    "\"host_root_confidentiality\":\"NOT established: signing/boot do NOT prove host-root cannot ",
-    "read guest memory or devices; final hashes establish provenance only under the admitted ",
-    "signed-process/backend/guest and trusted-host assumptions\",",
-    "\"disk_verify_on_open\":\"engineering narrowing; the rootfs security binding is the verified ",
-    "initrd dm-verity + panic=-1, not host-side hashing\",",
-    "\"vde_unmeasured\":\"vde private input is genuinely UNMEASURED: no content digest or byte ",
-    "length enters any evidence, identifier, inventory or diagnostic\",",
-    "\"result_finalization\":\"result hash is the retained vdd inode after CHECKED storage flush/sync ",
-    "before destruction; a Drop-time log is not success\""
-);
-
 #[derive(Clone, Debug)]
 pub struct LaunchReceiptV3 {
     pub spec_sha256: String,
@@ -127,14 +112,7 @@ impl LaunchReceiptV3 {
         num(&mut s, "vcpus", self.vcpus as u64);
         boolean(&mut s, "net_present", self.net_present);
         kv(&mut s, "consumption", &self.consumption);
-        s.push(',');
-        s.push_str(HONESTY_BLOCK_JSON);
-        // F06: `HONESTY_BLOCK_JSON` opens the nested `"honesty":{…` object but
-        // does NOT close it, so BOTH braces must be emitted here: the first
-        // closes the honesty object, the second closes the outer receipt
-        // object. Previously only one was pushed, leaving the receipt JSON
-        // unterminated (unparseable). Covered by a strict-parse test.
-        s.push_str("}}");
+        s.push('}');
         s
     }
 }

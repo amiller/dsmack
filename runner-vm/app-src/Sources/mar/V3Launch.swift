@@ -336,14 +336,6 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                        "console_sha256": parsed.consoleSha256, "console_bytes": parsed.consoleBytes,
                        "console_truncated": parsed.consoleTruncated, "console_limit_bytes": kConsoleLimitBytes],
             "contract10_receipt_fragment": mapped.fragment,
-            "honesty": [
-                "host_root_confidentiality": "NOT established: App Attest / signing / boot do NOT prove host-root cannot read guest memory or devices (ledger 13.4)",
-                "two_assertions": "launch assertion binds base-VM admission (receipt-evidence); result assertion binds the finalized run-result envelope (result disk/console/lifecycle). The result assertion is NOT a relabelled launch assertion.",
-                "result_finalization": "result hash is the retained vdd inode after CHECKED flush/sync before destruction; a Drop-time log is not success",
-                "workload_semantics": "compose/Claude/task/marketplace policy is OUTSIDE this app; task success is a downstream checker determination over the retained result bytes, never claimed by this envelope",
-                "vde_unmeasured": "the vde private input is genuinely unmeasured: no content digest/length enters any evidence — only presence",
-                "mac_attestation": "two REAL DCAppAttestService.generateAssertion calls; each clientDataHash is SHA256 of a contract domain-separated client-data; assertion counters bind via authenticatorData (recovered here from the exact assertion bytes)",
-            ] as [String: Any],
             "trace": ["head": head, "events": seq],
         ] as [String: Any])
 

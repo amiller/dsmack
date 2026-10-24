@@ -240,10 +240,7 @@ fn sample_result() -> RunResultV3 {
 fn receipt_json_parses() {
     let j = parse(&sample_receipt().to_json());
     assert_eq!(get(&j, "schema"), &Json::Str("dsmack-backend-v3/launch-receipt/1".into()));
-    // honesty object is present AND closed (the F06 defect was an unterminated
-    // outer object the old substring assertions could not catch).
-    let honesty = get(&j, "honesty");
-    assert!(matches!(honesty, Json::Obj(_)));
+    assert!(matches!(&j, Json::Obj(m) if !m.iter().any(|(k, _)| k == "honesty")));
     assert_eq!(get(&j, "runtime_input_present"), &Json::Bool(true));
     // escaping round-trips exactly
     assert_eq!(get(&j, "cmdline"), &Json::Str("console=hvc0 panic=-1 \"q\"\\z".into()));

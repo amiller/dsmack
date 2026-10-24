@@ -79,7 +79,7 @@ ENVELOPE_LIFECYCLE_KEYS = frozenset({"vmm_code", "run_ms", "backend_abi"})
 STATEMENT_KEYS = frozenset({
     "schema", "challenge", "key_id", "assertion", "identity", "consumed",
     "workload", "resources", "staging", "lifecycle", "output",
-    "contract10_receipt_fragment", "honesty", "trace",
+    "contract10_receipt_fragment", "trace",
 })
 STATEMENT_ASSERTION_KEYS = frozenset({
     "assertion_domain", "evidence_domain", "manifest_sha256",
@@ -107,7 +107,7 @@ STATEMENT_BOUND_DUPLICATES = (
 # Statement members that are DIAGNOSTICS: unauthenticated, uncompared.
 STATEMENT_DIAGNOSTIC_KEYS = frozenset({
     "identity", "workload", "resources", "staging", "lifecycle", "output",
-    "honesty", "trace",
+    "trace",
 })
 
 # shared-fact comparison (R01): exact fields compared guest-receipt vs

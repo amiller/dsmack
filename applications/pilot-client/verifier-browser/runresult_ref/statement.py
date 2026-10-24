@@ -70,6 +70,7 @@ def authenticate_statement(statement_bytes: bytes, manifest_bytes: bytes,
     statement = load_json_bytes(statement_bytes, max_bytes=protocol.MAX_STATEMENT_B64)
     v3 = statement.get("schema") == "dsmack-general-launcher/v3-run-statement/1"
     keys = protocol.STATEMENT_KEYS | ({"result_assertion"} if v3 else set())
+    keys |= {"honesty"} & statement.keys()  # older published statements carry it
     need_exact_keys(statement, keys, "statement")
     need(statement["schema"] == protocol.STATEMENT_SCHEMA or v3, "bad_statement_schema")
 

@@ -4,7 +4,7 @@
 //! native-v3-backend lane, 2026-10-21. v3 is an ADDITIVE, EXPLICITLY VERSIONED
 //! successor to the v2 backend (mac-compile-preflight/work/integrated/
 //! apple-static/backend-v2): the owned-buffer verified boot (R1-R5), the
-//! external admitted launch_spec, the resource profile and the honesty block
+//! external admitted launch_spec, and the resource profile
 //! are all preserved; v3 extends the device set and adds the output path the
 //! output-continuity contract (astra-gate R06, device_roles) requires:
 //!

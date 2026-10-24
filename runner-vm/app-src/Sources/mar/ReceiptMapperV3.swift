@@ -41,16 +41,16 @@ func mapLaunchReceiptV3(_ receiptData: Data, plan: LaunchPlan, identity: Verifie
         throw Fail("v3 launch receipt: not a JSON object")
     }
     // Strict key set: required keys, with observed_initrd_sha256 and honesty
-    // handled explicitly. Unknown keys refuse (fail-closed).
+    // optional. Unknown keys refuse (fail-closed).
     let required: Set<String> = [
         "schema", "spec_sha256", "observed_kernel_sha256", "observed_cmdline_sha256",
         "cmdline", "system_sha256", "system_bytes", "workload_sha256", "workload_bytes",
         "scratch_path", "scratch_template_sha256", "scratch_template_bytes",
         "result_path", "result_template_sha256", "result_template_bytes",
         "runtime_input_present", "verity_root_hash", "ram_mib", "vcpus", "net_present",
-        "consumption", "honesty",
+        "consumption",
     ]
-    let optional: Set<String> = ["observed_initrd_sha256"]
+    let optional: Set<String> = ["observed_initrd_sha256", "honesty"]
     let keys = Set(r.keys)
     guard required.isSubset(of: keys) else {
         throw Fail("v3 launch receipt: missing keys \(required.subtracting(keys).sorted())")

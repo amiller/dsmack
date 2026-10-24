@@ -1,7 +1,0 @@
-serial_sha256_16=<redacted>
-uuid_sha256_16=2dcfce7eabaf9bcd
-appattest_supported=true
-devicecheck_supported=true
-devicecheck_token_bytes=2236
-appattest_generatekey=ok
-appattest_attest_bytes=5938

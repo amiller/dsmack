@@ -421,11 +421,6 @@ def cmd_verify(args):
 # relying-party check — independent expected context + retained evidence
 # ---------------------------------------------------------------------------
 def _load_check_evidence(evidence_dir):
-    """Load the retained evidence bundle for ``checker.check`` from disk through
-    the ONE confined, bounded loader (REF02: complete outputs-tree membership,
-    entry-count + aggregate-byte bounds enforced before any content is read,
-    descriptor-safe reads of every input).  The identical loader is reused by
-    the Mini->Zed transfer check so both paths share the same controls."""
     return retained_evidence.load_retained_check_evidence(evidence_dir)
 
 

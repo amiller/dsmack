@@ -1,1 +1,0 @@
-lcg_seed1000 final=1155756988 ok=1 trips=1100000 ; lcg_seed2000 final=513356732 ok=1 trips=1100000

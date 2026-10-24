@@ -1,76 +1,49 @@
-This is the source package for the versioned `browser-sandbox-v1` reference
-base VM. The signed Mac application remains a general VM runner. This base
-contains a small dstack-derived Debian ARM64 system, Docker, a compose runner,
-public/private input transport and a closed browser sandbox preset. Board
-checks, task terms, model judges and settlement policy belong to application
-containers and external verifiers. No bounty verifier runs with guest-root
-privileges.
+# browser-sandbox-v1 base VM
 
-The guest's public-file channel is a versioned credential-free reference:
-`public-inputs/<manifest-name>.envelope.json` carries file values on the measured
-public disk. The public disk measurement commits to the file-value bytes. The existing
-runtime validator binds the envelope to the exact compose manifest and its
-declared file slots. It permits no public environment,
-broker credential, competing private envelope or arbitrary security options.
-The current reference requires `browser-sandbox-v1`, network none, fixed nonroot
-UID, read-only root and the pinned seccomp policy. Private subscription inputs
-remain on the separate private disk. These bindings do not authorize a task or
-prove a bounty succeeded. The application harness and external verifier must
-check the original committed task/source/profile packet and the consumed files.
+Source for the `browser-sandbox-v1` guest image the signed Mac runner boots. It
+is a small dstack-derived Debian ARM64 system with Docker, the compose runner
+(`source/runner-content/dsmack_compose_runner`), guest input/output transport
+(`source/runner-content/dsmack_guest_io`), the shared compose contract library
+(`source/runner-content/lib/dsmack_compose_contract`) and a closed browser
+sandbox preset (`security.py` plus the Playwright seccomp policy
+`browser-sandbox-v1.json`). Board checks, judges and settlement run in
+application containers and external verifiers, not in the guest.
 
-`source/` preserves 63 original source files and three additions. The original
-64-file inventory also contained one generated Python bytecode cache; it is
-recorded and excluded. `SOURCE-ORIGIN.json` maps every selected source file to
-its original path/hash, and `SOURCE-CHANGES.patch` records eight modified files.
-Runtime bytes match the independently reviewed guest used to derive image
-`8eea5c4dff96a52878208dc4a1af8af8b2c03198d8603ae5e54a3f6e306dd6f2`.
-Historical build and smoke scripts retain their original paths for inspection;
-they are not portable entrypoints. Do not run their historical `BUILD.sh`.
+A workload selects the preset with `security_profile: browser-sandbox-v1`. The
+guest then requires network none and no credential broker, and runs the service
+with the preset's capabilities, resource limits and seccomp policy. Public file values travel on the measured public disk as
+`public-inputs/<manifest-name>.envelope.json`; private inputs use the separate
+private disk.
 
-The supported entrypoint is `derive.py`. It checks an independently selected
-`SOURCE-LOCK.json` digest, all selected source bytes, the exact existing image7
-rootfs/kernel/config, builder image and 4GiB scratch/256MiB result templates.
-It extracts the existing measured rootfs into a fresh owned output directory,
-overlays the reviewed runtime files and assembles a new verity image using an
-isolated Docker container. Docker has network none, 4 CPUs, 4GiB memory and 256
-PIDs; the build phase has a 900-second limit. Input hashing and output validation
-are additional work. All heavy work belongs on Zed `/data`, not the laptop.
+The host verifier (`applications/pilot-client/verifier-browser`) and the bounty
+applications import the contract library from this directory, so guest and
+verifier validate manifests and receipts with the same code.
+`source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
+by `applications/bounty-develop/transport_loader.py`.
 
-After independently obtaining the expected source-lock digest from the selected
-reviewed source revision, inspect without execution:
+## Derive the image
+
+`derive.py` takes the existing image7 base bundle (`Image`,
+`config-6.18.40-dstack`, `rootfs.squashfs.verity`) and the 4GiB scratch / 256MiB
+result disk templates. In an offline builder container it unpacks the base
+rootfs, overlays the runner files listed in `derive-in-container.sh`, and
+assembles a new verity image with `source/build/assemble_leg.sh`. Run it on Zed
+under `/data`:
 
 ```sh
-python3 -I -B base-vm/browser-sandbox-v1/derive.py \
-  --source-lock-sha256 "$EXPECTED_SOURCE_LOCK_SHA256" --check-source
-```
-
-To derive on Zed, supply the exact base bundle and reviewed templates already
-available there, plus a new output path:
-
-```sh
-python3 -I -B base-vm/browser-sandbox-v1/derive.py \
-  --source-lock-sha256 "$EXPECTED_SOURCE_LOCK_SHA256" \
+python3 base-vm/browser-sandbox-v1/derive.py \
   --base-bundle /data/selected/image7 \
   --templates /data/selected/templates-4g \
   --out /data/owned/new-browser-base-build
 ```
 
-No private path or credential is required. A Docker failure, changed source,
-unexpected output image or unconfirmed owned-container removal fails the run.
-Unknown daemon/creation state is retained as an explicit recovery record; the
-script does not claim to control a wedged Docker daemon or hostile administrator.
-Keep the final artifacts and derivation record/log; remove intermediate rootfs
-and tar copies after review. Never remove another VM or container.
+It prints the artifact directory and the image digest (`digest.txt`, the
+SHA-256 of `sha256sum.txt`). The current source derives
+`8eea5c4dff96a52878208dc4a1af8af8b2c03198d8603ae5e54a3f6e306dd6f2`.
 
-This is an **existing-base derivation**, not a clean rebuild of Debian, Linux or
-the builder image. It does not establish a fully reproducible supply chain,
-friend distribution, native browser behavior or funded acceptance. Existing
-bundle/builder binary availability and their source/license inventory remain
-release requirements. Browser containers are selected separately by exact OCI
-digest; they are not embedded in this base. The 4GiB scratch selection is explicit
-and does not alter the generic app's default. Result/private maxima remain 1GiB.
+```sh
+python3 -m pytest base-vm/browser-sandbox-v1
+```
 
-Dstack adaptations retain their Apache-2.0 notices. The Playwright seccomp
-policy retains its upstream Apache-2.0 license. See `licenses/` and
-`SOURCE-ORIGIN.json`; the repository MIT license does not replace third-party
-terms or license the entire Linux/Debian binary bundle under MIT.
+Dstack adaptations keep their Apache-2.0 notices and the Playwright seccomp
+policy keeps its upstream Apache-2.0 license; see `licenses/`.

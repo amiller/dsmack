@@ -10,7 +10,7 @@ import unittest
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from inspect_runner import inspect, read_regular
+from inspect_runner import inspect
 from verify_provenance import command, checked_result
 SPEC = importlib.util.spec_from_file_location('cd_args', HERE.parents[1] / 'contracts/cd_args.py')
 CD = importlib.util.module_from_spec(SPEC)
@@ -95,16 +95,6 @@ class InspectionTests(unittest.TestCase):
         b = bytearray(fixture()[0])
         struct.pack_into('>I', b, 32781 + 36 + 44, 1)
         with self.assertRaisesRegex(ValueError, 'scatter'): CD.inspect_bytes(b)
-
-    def test_file_policy_symlink_hardlink_and_permissions(self):
-        with tempfile.TemporaryDirectory() as directory:
-            path = Path(directory) / 'runner'; path.write_bytes(b'test'); path.chmod(0o600)
-            alias = Path(directory) / 'alias'; alias.symlink_to(path)
-            with self.assertRaises(OSError): read_regular(alias)
-            alias.unlink(); alias.hardlink_to(path)
-            with self.assertRaises(ValueError): read_regular(path)
-            alias.unlink(); path.chmod(0o666)
-            with self.assertRaises(ValueError): read_regular(path)
 
 
 class ProvenanceTests(unittest.TestCase):

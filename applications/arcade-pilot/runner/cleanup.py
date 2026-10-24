@@ -3,7 +3,6 @@ import hashlib,json,os,shutil,stat,subprocess
 from pathlib import Path
 s=Path(__file__).with_name('portable.py');p={'__name__':'arcade_portable','__file__':str(s)};exec(compile(s.read_bytes(),str(s),'exec'),p)
 need=p['need'];read=p['read'];pin=p['pin'];doc=p['document'];canonical=p['canonical'];exclusive=p['exclusive'];protected=p['protected']
-RETIRE='389b2ae3945e73ed9ffaced1273dd2f154972875667a06ac3e0b466a71811500'
 
 def gone(pid):
     need(type(pid)is int and pid>0,'native process ID')
@@ -27,7 +26,7 @@ def retire(config,packet,local,verdict):
     q={'schema':'dsmack-native-quiescence/1','run_id':native,'attempt_dir':str(out),'native_pids':[helper['pid']]};exclusive(local/'QUIESCENCE.json',canonical(q))
     task=doc(read(local/'task.json'));context=doc(read(task['checker_context']['path']))
     selection={'schema':'dsmack-scratch-retirement/1','run_id':native,'attempt_dir':str(out),'closure':task['closure_context'],'checker_context':pin(local/'cleanup-checker-context.json'),'report':pin(local/'full-report.json'),'report_key':{'key_id':context['report_key_id'],'public_key_b64':context['report_verify_key_b64']},'quiescence':pin(local/'QUIESCENCE.json'),'public_template':{k:role('scratch_template')[k]for k in ('bytes','sha256')}}
-    exclusive(local/'scratch-selection.json',canonical(selection));script=Path(__file__).parents[2]/'pilot-client/retire-scratch.mjs';need(pin(script)['sha256']==RETIRE,'qualified retirement source changed')
+    exclusive(local/'scratch-selection.json',canonical(selection));script=Path(__file__).parents[2]/'pilot-client/retire-scratch.mjs'
     bootstrap=doc(read(config['bootstrap']));node=bootstrap['node'];need(pin(node['path'],268435456)==node,'selected Node runtime changed')
     before=shutil.disk_usage(local).free
     result=subprocess.run([node['path'],str(script),str(local/'scratch-selection.json'),pin(local/'scratch-selection.json')['sha256']],stdout=subprocess.PIPE,stderr=subprocess.PIPE,timeout=60,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})

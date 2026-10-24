@@ -1,25 +1,6 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-<!--
-  Intended HVF (policy v2) entitlements for the production signing closure.
-  EXACT five keys admitted by verifier/signing_policy.py
-  check_entitlements_version(..., POLICY_VERSION_HVF). Team/application values are
-  the measured public constants (certificate OU + provisioning TeamIdentifier,
-  Mini 2026-10-20): DC9JH5DRMY / dev.dsmack.provider.
-
-  Deliberately ABSENT:
-  - com.apple.vm.hypervisor: no such entitlement; the real one is below.
-  - com.apple.security.virtualization: VZ-only; this app calls no VZ API.
-  - com.apple.security.cs.disable-library-validation: FORBIDDEN by policy
-    (com.apple.security.cs.*) and unnecessary: the retained binary links only
-    Apple-platform dylibs (verified Mach-O LC_LOAD_DYLIB audit, no dlopen/dlsym
-    in source), so default library validation holds under the hardened runtime.
-
-  NOT YET APPROVED FOR USE: admission under this plist requires independent
-  Astra review of signing_policy.py v2, this file, and the profile-endorsement
-  route recorded in sign-production.md.
-  (Comment rules: XML forbids double hyphens, so none appear above.)
--->
+<!-- Exactly the keys signing_policy.check_entitlements admits. -->
 <plist version="1.0">
 <dict>
 	<key>com.apple.application-identifier</key>

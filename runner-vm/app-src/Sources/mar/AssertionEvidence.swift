@@ -1,9 +1,5 @@
-// AssertionEvidence.swift — the ACTUAL contract10 domain-separated
-// receipt-evidence assertion for the v2 launch path (mac-runtime-seam-repair
-// lane, 2026-10-21). This replaces the prior "parallel statement" binding, in
-// which the App Attest assertion signed a bare SHA256 over a bespoke
-// `dsmack-general-launcher/v2-run-statement/1` document (V2Launch.swift) that
-// no contract10 relying party could reconstruct or verify.
+// AssertionEvidence.swift — the contract10 domain-separated receipt-evidence
+// assertion for the launch path.
 //
 // The frozen contract10 attestation surface (contract10/candidate/lib/
 // dsmack_compose_contract/attestation.py + interfaces/mac-attestation-interface.md)

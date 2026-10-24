@@ -266,16 +266,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "dsmack-backend"
-version = "0.2.0"
-dependencies = [
- "libc",
- "sha2",
- "thiserror",
- "vm-memory",
-]
-
-[[package]]
 name = "dsmack-backend-v3"
 version = "0.3.0"
 dependencies = [
@@ -288,12 +278,10 @@ dependencies = [
 name = "dsmack-hvf-returning"
 version = "0.0.0"
 dependencies = [
- "dsmack-backend",
  "dsmack-backend-v3",
  "krun-devices",
  "libc",
  "libkrun",
- "sha2",
 ]
 
 [[package]]

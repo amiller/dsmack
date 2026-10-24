@@ -1,10 +1,8 @@
-// LaunchSpecBuilderV3.swift — the v3 launch-spec document + digest
-// (loop40-swift-repair1 lane, 2026-10-22; SWIFT03/SWIFT04). Extends the v2
-// launch-spec with the admitted blank-template identities for the two fresh RW
-// disks (vdb scratch, vdd result) and the runtime_input (vde) / NIC presence
-// flags, so spec_sha256 — the launcher-world consumed-tuple commitment the
-// backend echoes in its receipt — BINDS the templates and device shape too, not
-// only the v2 boot/workload tuple. The backend consumes spec_sha256 opaquely
+// LaunchSpecBuilderV3.swift — the v3 launch-spec document + digest. It binds
+// the boot/workload tuple, the admitted blank-template identities for the two
+// fresh RW disks (vdb scratch, vdd result) and the runtime_input (vde) / NIC
+// presence flags, so spec_sha256 — the consumed-tuple commitment the backend
+// echoes in its receipt — covers the device shape too. The backend consumes spec_sha256 opaquely
 // (syntax-checked) and re-verifies every expectation against the bytes/devices
 // it actually consumes; this digest is the app/verifier-side commitment.
 

@@ -1,18 +1,15 @@
 // ReceiptMapperV3.swift — maps the backend v3 launch receipt
 // (dsmack-backend-v3/launch-receipt/1) into the APPROVED contract10 receipt
 // world (dsmack:receipt/4) fragment, cross-checking EVERY observed fact against
-// the verified admission tuple BEFORE the guest runs (loop40-swift-repair1 lane,
-// 2026-10-22; SWIFT04). This is the v3 sibling of ReceiptMapper.swift (v2-only).
+// the verified admission tuple BEFORE the guest runs.
 //
-// v3 extends the v2 receipt with the admitted blank-template identities for the
+// The receipt carries the admitted blank-template identities for the
 // two fresh RW disks (vdb scratch, vdd result) and a vde PRESENCE flag. The
 // mapper binds those template identities to the admitted session values too, so
 // a backend that copied a DIFFERENT template than the app admitted is caught
 // before any guest executes. The receipt records vde PRESENCE only — never its
 // content or size (privacy invariant, receipt_v3.rs) — so the mapper reads only
 // the presence flag.
-//
-// Held-fd remains the WEAKEST honest loader_mode label (see ReceiptMapper.swift).
 
 import CryptoKit
 import Foundation
@@ -158,7 +155,7 @@ func mapLaunchReceiptV3(_ receiptData: Data, plan: LaunchPlan, identity: Verifie
                 "admission_version": contract.version,
             ],
             "boot": [
-                "loader_mode": "held-fd",   // weakest honest label; see ReceiptMapper.swift
+                "loader_mode": "held-fd",
                 "kernel_sha256": observedKernel,
                 "initrd_sha256": observedInitrd,
                 "rootfs_sha256": observedSystem,

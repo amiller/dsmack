@@ -1,7 +1,0 @@
-{
-  "schema": "dsmack-guest-source-origin/1",
-  "qualified_base_os_image_hash": "971ae3219df6779737f3373e4de051a5030c8dca6ce31c30fb72f464d17b31a8",
-  "original_relative_path": "build/build_disk_templates.py",
-  "original_sha256": "c4b86268cf54b3bffbcf2d03e97da51cfd70970dcddc759ace226697622fcbc2",
-  "derivation": "role-specific4GiB scratch/1GiBresult; preserve default1GiBscratch/256MiBresult; refuse existing output"
-}

@@ -29,7 +29,7 @@
 <h1>From a task request<br>to a signed result.</h1>
 <p class="lead">DsmackRunner is a signed command-line app that runs on an Apple silicon Mac. It starts a Linux virtual machine, runs a task inside it, and uses Apple App Attest to sign statements about the software it loaded and the files it got back.</p>
 <p>For a browser-test task, the task publisher specifies a container with the browser and test tools, and a command to run. The worker supplies the repository changes to check. The output includes the test results and any requested screenshots. Someone receiving those files can verify the app’s signatures and compare the recorded software and inputs with the task they requested.</p>
-<p>This page follows the bounded VM-job runtime. The <a href="protocol.html">App Attest protocol</a> also applies to persistent peer identities and authenticated service messages; it does not require jobs to return files.</p>
+<p>This page follows the bounded VM-job runtime. The <a href="app-attest.html">App Attest verification mechanism</a> also applies to persistent peer identities and authenticated service messages; it does not require jobs to return files.</p>
 <figure class="mac-art banner-art"><img src="assets/nodes-banner.jpg" alt="Artwork of Mac minis used to run application workloads." width="1280" height="360" loading="eager" decoding="async"></figure>
 <p><a href="#mac-app">Preparing and running a task</a> · <a href="#apple-virtualization">libkrun and Apple’s hypervisor</a> · <a href="base-image.html">Inside the Linux image</a> · <a href="#evidence">Verifying the result</a></p>
 </section>

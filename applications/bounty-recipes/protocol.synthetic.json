@@ -1,0 +1,45 @@
+{
+  "schema": "dsmack-bounty-protocol-golden-fixture/1",
+  "authority": "SYNTHETIC ONLY; no task, funding, author agreement or evidence",
+  "request": {
+    "schema": "dsmack-bounty-public-request/1",
+    "task_id": "synthetic-board-search",
+    "task_terms_sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+    "attempt_id": "synthetic-assignment",
+    "attempt_nonce": "2222222222222222222222222222222222222222222222222222222222222222",
+    "run_id": "synthetic-review-1",
+    "run_role": "review",
+    "acceptance_profile_sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+    "base": {
+      "repo": "https://github.com/amiller/bounty-arcade",
+      "commit": "4444444444444444444444444444444444444444",
+      "tree_manifest_sha256": "5555555555555555555555555555555555555555555555555555555555555555"
+    },
+    "candidate": {
+      "upstream_commit": "6666666666666666666666666666666666666666",
+      "tree_manifest_sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+      "admission_transform_sha256": "8888888888888888888888888888888888888888888888888888888888888888"
+    },
+    "toolchain": {
+      "platform": "linux/arm64",
+      "image_digest": "sha256:9999999999999999999999999999999999999999999999999999999999999999"
+    },
+    "required_artifacts": [
+      "acceptance-report",
+      "browser-trace",
+      "browser-video",
+      "public-input-audit"
+    ]
+  },
+  "request_sha256": "03cbd0538544d76b2cf1ef165c0af84527fbcca5aa0c263682cf66d8d2c0140c",
+  "tree_manifest": [
+    {
+      "path": "apps/board/logic.js",
+      "mode": 420,
+      "bytes": 4,
+      "sha256": "3a6eb0790f39ac87c94f3856b2dd2c5d110e6811602261a9a923d3bb23adc8b7"
+    }
+  ],
+  "tree_manifest_sha256": "e5b9c7f5a1c11e2ebda9d412ccb6ff5aeb56ae8a621816a60fd2c7395b962967",
+  "independent_cross_language_check": "Python standard library equals Node crypto plus sorted JSON.stringify"
+}

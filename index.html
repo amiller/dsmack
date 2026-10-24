@@ -8,6 +8,8 @@
 <meta name="description" content="A protocol for verifying Apple App Attest evidence across developer accounts, with Solidity and ZK verifiers for shared Mac compute and open bounties.">
 <title>App Attest for permissionless applications · Dsmack</title>
 <link rel="stylesheet" href="assets/operator.css">
+<link rel="stylesheet" href="assets/work-activity.css">
+<script type="module" src="assets/work-activity.js"></script>
 </head>
 <body>
 <header><nav class="wrap" aria-label="Main"><a class="brand" href="index.html">dsmack</a><div class="links">
@@ -22,9 +24,12 @@
 <section class="pagehero image-hero"><div class="hero-copy">
 <h1>App Attest for<br>permissionless applications.</h1>
 <p class="lead">Dsmack is a protocol for verifying Apple App Attest evidence across developer accounts. An application can recognize approved code on someone else’s Mac, including copies signed by other developers.</p>
+<div class="buttons"><a class="button primary" href="https://github.com/amiller/dsmack/issues/new?title=Coding+work+request&amp;body=Repository+URL%3A%0A%0AStarting+commit%3A%0A%0AWhat+should+change%3A%0A%0AHow+should+we+check+the+result%3F+%28tests%2C+browser+steps+or+review+criteria%29%0A%0ARequested+effort+or+time+limit%3A%0A%0AReward+or+testnet+budget%2C+if+any%3A%0A">Request coding work</a><a class="button" href="bounties.html#participate">Earn rewards with your Mac</a></div>
+<p class="expected">Work requests open a GitHub issue. The bounty pilot uses testnet rewards.</p>
 <p>For example, a bounty can require a particular test program. A contributor runs it on their Mac and returns its results with signed evidence identifying the app, test environment and task files. The verifier compares those records with the bounty’s requirements.</p>
 <p>The repository includes smart-contract verifiers written in Solidity, a zero-knowledge proof implementation, and DsmackRunner—the macOS app that runs tasks in a Linux virtual machine.</p>
-<div class="buttons"><a class="button primary" href="#applications">Explore the applications</a><a class="button" href="app-attest.html">See the reference verifiers</a></div>
+<p><a href="protocol.html">Read the protocol draft →</a></p>
+
 </div><figure class="mac-art hero-art"><img src="assets/hero.jpg" alt="Concept artwork of a Mac mini nestled in an abalone shell." width="1200" height="800" loading="eager" decoding="async"></figure></section>
 <figure class="work-exchange">
 <a href="assets/work-contract-schematic.webp" target="_blank" rel="noopener"><img src="assets/work-contract-schematic.webp" alt="A wallet funds a smart contract. A Mac mini submits a result and execution evidence. The contract sends the reward back to the Mac’s operator." width="1536" height="1024" decoding="async"></a>
@@ -36,6 +41,11 @@
 <article class="card"><div class="num">APPLICATION DIRECTION</div><h3>A peer-to-peer network of Mac minis.</h3><p>A Mac owner could run a coding agent for someone else using spare machine time and their own subscription. The requester would receive the output and evidence identifying the program and inputs used. Participants could use their own Macs and developer accounts.</p><p>The app and verification code provide components for this network; a public service for matching requests to available Macs is still to be built.</p><a href="architecture.html#mac-app">How the signed macOS app works →</a></article>
 <article class="card"><div class="num">FIRST APPLICATION · TESTNET PILOT</div><h3>Bounties enforced by a smart contract.</h3><p>A requester deposits a reward in a contract and publishes the tests a change must pass. A contributor submits a patch and evidence from running those tests. The contract pays according to the task’s verification rules.</p><p>In a pilot for <a href="https://github.com/amiller/bounty-arcade">Bounty Arcade’s Board app</a>, the demo operator added card search, passed the browser checks and withdrew a reward on Base Sepolia, an Ethereum test network. A verifier running outside the blockchain checked the evidence and signed the decision the payment contract accepted.</p><a href="bounties.html">Explore the bounty application →</a></article>
 </div>
+</section>
+<section class="section" aria-labelledby="work-activity-title">
+<h2 id="work-activity-title">Recent work and payments</h2>
+<div id="work-activity" aria-live="polite"><p>Loading public observations…</p></div>
+<noscript><p><a href="https://pod.dstack.soc1024.com/bounties/">Open the bounty dashboard</a> or <a href="nodes/">the earlier P2P node directory</a> to inspect activity.</p></noscript>
 </section>
 <section class="section" id="what-is-app-attest">
 <h2>What is App Attest?</h2>
@@ -76,7 +86,7 @@
 <section class="section">
 <h2>Try a task or inspect the verifier code</h2>
 <p>The setup guide walks through a browser task on your Mac. The bounty pilot adds testnet payments: its verifier checks the run outside the blockchain and signs a decision for the payment contract. The App Attest contract examples demonstrate certificate verification directly on-chain. The Mac execution prototype currently trusts the owner not to tamper with VM storage.</p>
-<div class="buttons"><a class="button primary" href="build.html">Run the example</a><a class="button" href="https://github.com/amiller/dsmack">Source and verification code</a></div>
+<div class="buttons"><a class="button primary" href="build.html">Run the example</a><a class="button" href="protocol.html">Read the protocol draft</a><a class="button" href="https://github.com/amiller/dsmack/blob/main/docs/architecture.md">Technical documentation</a></div>
 </section>
 </main>
 <footer><div class="wrap"><p>Dsmack · App Attest verification and Mac execution · Alpha.</p>

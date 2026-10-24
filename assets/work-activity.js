@@ -18,11 +18,11 @@ function renderWork(data){
  const payments=Array.isArray(data.payments)?data.payments:null;
  const withdrawals=payments?.filter(p=>p.kind==='withdrawal'&&p.chain_id===84532&&/^0x[0-9a-f]{64}$/i.test(p.transaction_hash||'')&&/^\d+$/.test(p.amount_wei||''));
  let total='Unknown';if(withdrawals&&(withdrawals.length||coverage.payments_complete)){total=money(withdrawals.reduce((s,p)=>s+BigInt(p.amount_wei),0n))+(coverage.payments_complete?'':' + unknown');}
- const metrics=el('div',undefined,'work-stats');metrics.append(metric('Tasks',count(data.tasks,coverage.tasks_complete)),metric('Recorded attempts',count(attempts,coverage.attempts_complete)),metric('FULL-verified attempts',count(full,coverage.attempts_complete)),metric('Base Sepolia test ETH withdrawn',total));box.append(metrics);
+ const metrics=el('div',undefined,'work-stats');metrics.append(metric('Tasks',count(data.tasks,coverage.tasks_complete)),metric('Recorded attempts',count(attempts,coverage.attempts_complete)),metric('Verified attempts',count(full,coverage.attempts_complete)),metric('Base Sepolia test ETH withdrawn',total));box.append(metrics);
  const partial=!coverage.tasks_complete||!coverage.attempts_complete||!coverage.payments_complete;
- box.append(el('p',`Snapshot: ${stamp(data.snapshot_observed_at)}${stale?' · Stale observation':''}${partial?' · Partial coverage':''}`, 'work-meta'));
+ box.append(el('p',`Last observation: ${stamp(data.snapshot_observed_at)}${stale?' · Not updated within five minutes':''}${partial?' · Partial data':''}`, 'work-meta'));
  const titles=new Map((data.tasks||[]).map(t=>[t.key,t.title||'Task '+t.id]));
- const recent=[...(withdrawals||[]).map(p=>({at:p.created_at||p.timestamp,title:'Testnet reward withdrawn',detail:money(BigInt(p.amount_wei))+' test ETH · Base Sepolia',url:p.explorer_url})),...(attempts||[]).map(a=>({at:a.created_at,title:titles.get(a.task_key)||a.repository||'Task attempt',detail:(a.historical?'Recorded ':'')+(a.state||'Unknown')+' · '+(a.source_id||'Attempt record'),url:a.source_url}))].sort((a,b)=>(date(b.at)?.getTime()||0)-(date(a.at)?.getTime()||0)).slice(0,3);
+ const recent=[...(withdrawals||[]).map(p=>({at:p.created_at||p.timestamp,title:'Testnet withdrawal',detail:money(BigInt(p.amount_wei))+' test ETH · Base Sepolia',url:p.explorer_url})),...(attempts||[]).map(a=>({at:a.created_at,title:titles.get(a.task_key)||a.repository||'Task attempt',detail:(a.historical?'Earlier record: ':'')+(a.needs_attention?'Needs attention':({'prepared':'Prepared','running':'Running','verified':'Verified','claimed':'Claimed','failed':'Failed','needs_attention':'Needs attention'}[a.state]||a.state||'Unknown'))+' · '+({'arcade-funded':'Bounty pilot','arcade-rehearsal':'Practice run','historical-bounty-demo':'Earlier demo'}[a.source_id]||'Attempt record'),url:a.source_url}))].sort((a,b)=>(date(b.at)?.getTime()||0)-(date(a.at)?.getTime()||0)).slice(0,3);
  const list=el('ul',undefined,'work-recent');for(const item of recent){const li=el('li');li.append(link(item.title,item.url),el('span',item.detail),el('time',stamp(item.at)));list.append(li);}if(recent.length)box.append(list);
  box.append(link('View tasks, attempts and payments →',DASHBOARD));return box;
 }
@@ -31,6 +31,7 @@ function renderDirectory(data){
  if(data.type!=='dsmack-native-directory'||data.status!=='available'||!generated||now-generated.getTime()>300000||!Array.isArray(data.nodes)){box.append(el('span','Earlier shared-key network: check-ins unavailable. '),link('Open its directory →',new URL('nodes/',location.href).href));return box;}
  const fresh=data.nodes.filter(n=>n.checkIn?.status==='fresh'&&date(n.checkIn.expiresAt)?.getTime()>now);
  const latest=fresh.map(n=>date(n.checkIn.lastVerifiedAt)?.getTime()||0).sort((a,b)=>b-a)[0];
+ if(fresh.length)box.classList.add('has-checkins');
  box.append(el('span',`Earlier shared-key network: ${fresh.length} recent relay check-in${fresh.length===1?'':'s'}.${latest?' Last check-in: '+new Date(latest).toLocaleString()+'.':''} `),link('Directory →',new URL('nodes/',location.href).href));return box;
 }
 let busy=false;

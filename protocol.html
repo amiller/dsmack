@@ -24,7 +24,7 @@
 <section class="section">
 <h2>Participants and approved code</h2>
 <p>The <strong>policy owner</strong> chooses an approved build. A <strong>developer</strong> signs a copy under their Apple team. The <strong>app</strong> creates an App Attest key on its Mac. A <strong>recipient</strong> decides which policy and signed messages it accepts. Apple certifies the app key; the verifier checks that certification and later signatures.</p>
-<p>Signing the same program under another team changes its <strong>CDHash</strong>, the hash of its signed CodeDirectory. Dsmack's <a href="https://github.com/amiller/dsmack/blob/main/contracts/src/CDRegistry.sol">CDRegistry</a> compares a normalized measurement instead: code pages, selected executable headers and entitlements, with specified signer-dependent fields excluded. The source defines the precise comparison.</p>
+<p>Signing the same program under another team changes its <strong>CDHash</strong>, the hash of its signed CodeDirectory. Dsmack's <a href="https://github.com/amiller/dsmack/blob/main/contracts/src/CDRegistry.sol">CDRegistry</a> compares a normalized measurement instead: code pages, specified executable headers and entitlements (the app’s declared permissions), with specified signer-dependent fields excluded. The source defines the precise comparison.</p>
 <p>The owner calls <code>setBuild</code> to select that measurement. Anyone can call <code>registerBuild</code> with a matching copy's CodeDirectory and required inputs. Registration records its full CDHash and app identity. A new approved build makes registrations under the previous build stop resolving. Developers can therefore share a code policy across signing identities. Worker wallets and payment recipients belong to the application using this mechanism.</p>
 </section>
 <section class="section">
@@ -46,7 +46,7 @@
 <section class="section">
 <h2>Execution and bounty profiles</h2>
 <p>The <a href="https://github.com/amiller/dsmack/tree/main/runner-vm">VM execution profile</a> adds a session document and two assertions: one binds launch evidence; the other binds the finalized result envelope. Current producer formats include <code>dsmack-general-launcher/session/3</code> and <code>dsmack-general-launcher/v3-run-statement/1</code>. The <a href="https://github.com/amiller/dsmack/tree/main/applications/pilot-client">client and verifier</a> handle retained files and result checking.</p>
-<p>The <a href="https://github.com/amiller/dsmack/blob/main/applications/bounty-demo/PROTOCOL.md">bounty application protocol</a> adds tasks, attempts, delivery and acceptance. <a href="https://github.com/amiller/dsmack/tree/main/contracts/work-escrow">WorkEscrow</a> handles settlement. The current arcade pilot uses an off-chain verifier and a trusted signer bridge to authorize escrow decisions.</p>
+<p>The bounty application adds tasks, attempts, delivery and acceptance. The <a href="https://github.com/amiller/dsmack/blob/main/applications/bounty-demo/PROTOCOL.md">earlier bounty-demo API</a> and <a href="https://github.com/amiller/dsmack/tree/main/applications/arcade-pilot/service">current arcade-pilot API</a> are concrete examples. <a href="https://github.com/amiller/dsmack/tree/main/contracts/work-escrow">WorkEscrow</a> handles settlement. The current arcade pilot uses an off-chain verifier and a trusted signer bridge to authorize escrow decisions.</p>
 </section>
 <section class="section">
 <h2>What to specify next</h2>

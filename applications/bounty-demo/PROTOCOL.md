@@ -1,61 +1,122 @@
-# Bounty demo application protocol
+# Bounty demo protocol
 
-Application above the general signed runner. First target: amiller/bounty-arcade. This service neither launches arbitrary host commands nor pays money. It records one assignment per task, advisory progress, candidate submission, and a separately authenticated verifier verdict. GitHub is task discovery and a result presentation surface, not the evidence verifier.
+A bounty board on top of the signed runner, first used for amiller/bounty-arcade.
+It records one assignment per task, advisory progress, a submission and a
+verifier verdict. It runs no host commands and moves no money. GitHub supplies
+task discovery and a place to show results.
 
-Node 24+, standard library only. HTTP binds loopback by default. JSON errors: `{error: string}`. All mutating application APIs require `Authorization: Bearer <operator-token>` except attempt operations, which require the attempt capability returned at claim. Operator token stays in a separate CLI/environment; never embed it in the page or URL. Browser claim/submit uses an explicitly entered operator token or returned attempt capability. No endpoint accepts caller claims of `verified:true` as evidence.
+Node 24+, standard library only. HTTP binds loopback by default. Errors are
+`{error: string}`. Mutating APIs need `Authorization: Bearer <operator-token>`,
+except attempt operations, which use the attempt capability returned at claim.
+The operator token lives in the CLI/environment, never in the page or URL; the
+browser uses a token or capability the user types in.
 
 ## Endpoints
 
-- `GET /api/tasks` -> `{tasks:[Task]}`; `GET /api/tasks/:id` -> `{task:Task,attempt:Attempt|null,events:[Progress]}`. Responses never include capability hashes/tokens.
-- `POST /api/tasks` (operator) creates frozen task terms: `{id,repo,issue_number,title,base_commit,checker_sha256,image_sha256,harness_sha256,reward:{amount,asset,chain}}`. IDs `[a-z0-9-]{1,80}`, repo `owner/repo`, SHA256 fields 64 lowercase hex, base_commit 40 lowercase hex. Reward is display-only, `funding_status:'unfunded'`. Exact term version SHA256 persisted; task metadata cannot mutate after claim.
-- `POST /api/tasks/:id/claim` (operator) body `{worker,payee,request_id?,capability?}` -> `{attempt:Attempt,token:string}`. Explicit invitation pilot, one active attempt per task. `payee` is an Ethereum-style address; no wallet ownership or payment claim. `worker` is a bounded label. No anonymous global worker accounts yet. For durable claims both optional fields must appear together: request_id is 32 random bytes encoded as 64 lowercase hex; capability is 32 random bytes encoded as canonical unpadded base64url. Generate and save these BEFORE HTTP. The service stores only capability/request-body hashes; exact same request ID, task, worker, normalized payee and capability returns the SAME attempt and supplied capability even after response loss or restart. Changed retry terms return 409. Request IDs are globally unique within this service. Legacy `{worker,payee}` browser invitations remain supported but cannot recover a lost claim response. Operator authorization is required on every claim/retry.
-- `POST /api/attempts/:id/progress` (attempt capability) body `{phase,kind,counters?}` -> `{event:Progress}`. Phases `launch,boot,pull,agent,review,verify,done`; kinds `phase,heartbeat,tool,usage`. Counters only finite nonnegative safe integers under 1e12 keyed `turns,input_tokens,output_tokens,elapsed_ms`. No prompts, filenames, command arguments, stdout, token values or free-text messages. Server assigns sequence/time. All events explicitly advisory/unverified; cannot authorize reward. Browser polls task every two seconds while active.
-- `POST /api/attempts/:id/submit` (attempt capability) body `{candidate_sha256,bundle_sha256,commit_sha?}` -> `{attempt:Attempt}`. Submission is immutable; exact retry idempotent, conflicting retry rejected. Optional commit SHA is GitHub presentation identity, not a substitute for source content digest.
-- `POST /api/attempts/:id/verdict` (operator) body `{payload,signature,key_id}` is an Ed25519 certificate from a configured trusted verification adapter, not worker-authored JSON. Domain `dsmack-bounty-verdict/1`. Payload must match exact frozen task/terms/attempt/nonce/payee/candidate/bundle/checker/image/harness and include `report_sha256`, `accepted`, `checks:{apple,outputs,functional}`, `issued_at`, `expires_at`. Signature is over UTF-8 canonical JSON (recursively sorted object keys, compact separators; no unsafe numbers). All three checks must be true for accepted. No configured verifier key means refusal. Outcome updates to `verified` or `failed`; no payout. Retry identical certificate idempotent; stale/substituted/conflicting verdict refused.
-- `POST /github/webhook`: raw-body HMAC validation + durable delivery deduplication before bounded event handling. Operator-configured installed repository allowlist, never event-controlled installation authority. No issue-comment command execution.
+- `GET /api/tasks` -> `{tasks:[Task]}`; `GET /api/tasks/:id` -> `{task:Task,attempt:Attempt|null,events:[Progress]}`. Responses never include capability hashes or tokens.
+- `POST /api/tasks` (operator) creates frozen task terms `{id,repo,issue_number,title,base_commit,checker_sha256,image_sha256,harness_sha256,reward:{amount,asset,chain}}`. IDs `[a-z0-9-]{1,80}`, repo `owner/repo`, SHA256 fields 64 lowercase hex, base_commit 40 lowercase hex. Reward is display-only with `funding_status:'unfunded'`. The SHA256 of the exact terms is stored; metadata is fixed after claim.
+- `POST /api/tasks/:id/claim` (operator) body `{worker,payee,request_id?,capability?}` -> `{attempt:Attempt,token:string}`. One active attempt per task, by invitation. `payee` is an Ethereum-style address; `worker` is a bounded label. For durable claims send both optional fields: `request_id` is 32 random bytes as 64 lowercase hex, `capability` is 32 random bytes as unpadded base64url, both generated and saved before the request. The service stores only hashes of the capability and request body. Repeating the same request ID, task, worker, normalized payee and capability returns the same attempt and capability, even after a lost response or restart; changed terms return 409. Request IDs are unique per service. Plain `{worker,payee}` claims also work but cannot be recovered after a lost response. Every claim and retry needs operator authorization.
+- `POST /api/attempts/:id/progress` (attempt capability) body `{phase,kind,counters?}` -> `{event:Progress}`. Phases `launch,boot,pull,agent,review,verify,done`; kinds `phase,heartbeat,tool,usage`. Counters are safe nonnegative integers under 1e12 keyed `turns,input_tokens,output_tokens,elapsed_ms`. No prompts, filenames, arguments, stdout, token values or free text. The server assigns sequence and time. Events are advisory. The browser polls the task every two seconds while it is active.
+- `POST /api/attempts/:id/submit` (attempt capability) body `{candidate_sha256,bundle_sha256,commit_sha?}` -> `{attempt:Attempt}`. Submissions are immutable; an identical retry is idempotent, a conflicting one is rejected. `commit_sha` is for display on GitHub; `candidate_sha256` identifies the source.
+- `POST /api/attempts/:id/verdict` (operator) body `{payload,signature,key_id}`: an Ed25519 certificate from a configured verification adapter, domain `dsmack-bounty-verdict/1`. The payload matches the frozen task/terms/attempt/nonce/payee/candidate/bundle/checker/image/harness and includes `report_sha256`, `accepted`, `checks:{apple,outputs,functional}`, `issued_at`, `expires_at`. The signature is over UTF-8 canonical JSON (recursively sorted keys, compact separators, no unsafe numbers). `accepted` requires all three checks true. With no configured verifier key every verdict is refused. The attempt moves to `verified` or `failed`. An identical retry is idempotent; stale, substituted or conflicting verdicts are refused.
+- `POST /github/webhook`: HMAC over the raw body and durable delivery deduplication, then bounded event handling. The repository allowlist comes from operator config. Issue comments never run commands.
 
-Task states `open,claimed,running,submitted,verified,failed`. Attempt public fields include id,task_id,worker,payee,nonce,state,created_at,candidate_sha256,bundle_sha256,commit_sha,verdict; no capabilities. Progress has seq,phase,kind,counters,received_at,advisory:true.
+Task states: `open,claimed,running,submitted,verified,failed`. Public attempt fields: id, task_id, worker, payee, nonce, state, created_at, candidate_sha256, bundle_sha256, commit_sha, verdict. Progress: seq, phase, kind, counters, received_at, advisory:true.
 
-On first successful verdict consumption the server atomically records
-`verdict_received_at`. Certificate expiry is checked at that admission; exact
-retries preserve the original certificate and timestamp. Retained acceptance
-can be inspected after expiry without rerunning the model. Settlement projection
-checks the configured key, original bindings and valid admission time; it does
-not refresh or backfill missing timestamps. A current on-chain assignment,
-deadline and signing authorization are separate requirements for payment.
+On the first successful verdict the server records `verdict_received_at`.
+Certificate expiry is checked at that moment; exact retries keep the original
+certificate and timestamp, so a retained acceptance stays inspectable after
+expiry. Settlement projection checks the configured key, bindings and admission
+time. Payment additionally needs a current on-chain assignment, deadline and
+signing authorization.
 
-## GitHub module boundary
+## GitHub module
 
-`github.mjs` exports `verifyWebhook(rawBody, signature, secret)`, `createAppJwt({appId,privateKey,now?})`, `GitHubAppClient`, `normalizeWebhook(event,payload,{allowedRepositories})`. Client accepts injected fetch for detecting tests, defaults only api.github.com. Expose installation-scoped issue reading and check-run creation/update; no automatic writes on webhook. A checked result can later be published by explicit operator CLI. No GitHub credentials required to run the local site. Manifest documents narrow issues-read/checks-write/contents-read permissions and the real external registration/install step.
+`github.mjs` exports `verifyWebhook(rawBody, signature, secret)`,
+`createAppJwt({appId,privateKey,now?})`, `GitHubAppClient` and
+`normalizeWebhook(event,payload,{allowedRepositories})`. The client takes an
+injected fetch for tests and defaults to api.github.com. It reads issues and
+creates/updates check runs with an installation token; webhooks trigger no
+writes, and results are published by an explicit operator CLI command. The local
+site needs no GitHub credentials. The app manifest requests issues-read,
+checks-write and contents-read.
 
-## Evidence digest meaning and authority
+## Evidence digests
 
-The signed payload's `schema` is its domain separator and is itself signed. The first bounty profile must define `candidate_sha256` as a canonical source-tree manifest digest (sorted repository-relative paths, regular-file SHA256/length/mode; no links/traversal/duplicate names), `bundle_sha256` as the exact delivered evidence archive bytes, and `checker_sha256` as the canonical immutable acceptance-profile manifest digest. That profile must cover resolved full base revision, check.yml, check.mjs, acceptance and baseline tests, dependency locks, architecture-specific image digest, harness/model configuration, generated-check procedure and artifact requirements. The prior single-Python-file demo has a different candidate definition and is NOT an accepted bounty profile.
+The signed payload's `schema` is its domain separator. For a bounty profile,
+`candidate_sha256` is a canonical source-tree manifest digest (sorted
+repository-relative paths with regular-file SHA256, length and mode; no links,
+traversal or duplicates), `bundle_sha256` is the SHA256 of the delivered evidence
+archive, and `checker_sha256` is the acceptance-profile manifest digest. The
+profile covers the full base revision, check.yml, check.mjs, acceptance and
+baseline tests, dependency locks, architecture-specific image digest,
+harness/model configuration, generated-check procedure and artifact requirements.
 
-A genuine verifier adapter must authenticate full Apple/native/guest/output evidence, extract the delivered source safely, recompute its canonical candidate identity, execute the exact declared acceptance procedure against those SAME bytes, validate required browser and generated-check artifacts, and bind its signed certificate to the task terms/attempt/payee/nonce. It must not sign positive booleans supplied by a worker or operator. The service's trusted-verifier certificate gate implements application authorization, not direct on-chain App Attest verification. Until that adapter and exact bounty profile are independently qualified, the local service is a workflow prototype and cannot confer a real bounty acceptance.
+The verifier adapter authenticates the Apple/native/guest/output evidence,
+extracts the delivered source, recomputes its candidate identity, runs the
+declared acceptance procedure on those bytes, checks the browser and
+generated-check artifacts, and signs a certificate bound to the task terms,
+attempt, payee and nonce. The service checks that certificate; App Attest is
+verified by the adapter, not on chain here.
 
-For bounty-arcade issue 1 specifically, the current draft requires both existing/published tests AND three independently generated judge-test runs, with each generated suite failing the base and passing the candidate. Passing only deterministic tests is insufficient. The configured judge model `claude-opus-5-5` has not been exercised by this application; do not silently substitute another model. The issue currently says "not yet funded". Amounts displayed here do not reserve or transfer funds.
+For bounty-arcade issue 1, acceptance requires the existing tests plus three
+independently generated judge suites, each failing the base and passing the
+candidate.
 
-The existing checker executes `npm test` in the patched candidate, so a candidate-controlled package.json can replace the test command. A finalized reward profile must run its immutable driver and checker configuration outside candidate control, preserving declared toolchain/dependencies and safely limiting the candidate to the intended application source. Merely hashing the current check.yml does not repair that boundary.
+The bounty-arcade checker runs `npm test` inside the patched candidate, so the
+candidate's package.json controls the test command. A reward profile runs its
+own driver and checker configuration outside the candidate tree.
 
-## Operator visibility and enrollment
+## Observing a VM
 
-`observe.mjs` projects a bounded public VM console into advisory boot/pull/harness-start/export/poweroff phase events and host elapsed heartbeats. It sends no raw console content. These host observations can be displayed without changing the qualified signed app or guest image. They are NOT authenticated evidence or live model-turn observations. Current image7 captures agent stdout/stderr only at the end. A future opt-in structured guest telemetry channel needs its own image/harness qualification, size/rate/privacy controls and clear final-evidence separation.
+`observe.mjs` turns a public VM console log into advisory
+boot/pull/harness-start/export/poweroff phase events and host elapsed heartbeats.
+It sends no console content. Agent stdout/stderr are captured only at the end of
+the run, so there are no live model-turn events.
 
-Apple App Attest enrollment exists in the qualified runner. This site does not yet discover/connect/enroll a Mac through the browser, mint a node NFT, authenticate wallet ownership or prove subscription availability. Those onboarding states must remain explicitly disconnected/unavailable until a real bridge and registration path exist. A visual node card is not an NFT.
+Mac enrollment uses App Attest in the runner. This site does not pair with a
+Mac, mint node NFTs or check wallet ownership.
 
-## UI boundary
+## Web UI
 
-`web/index.html`, `web/app.js`, `web/style.css`. Relative same-origin API. No build, third-party scripts, preloaded tokens, fake reward balances or fake completed runs. Empty state provides setup instructions. Show task terms, funding status, worker/claim, live advisory progress, returned evidence state and links to original issue. Distinguish "verified result" from "reward paid". A protected CLI saved record can be opened locally to reconnect: it must name this exact server origin and match the public assignment ID/task/worker/payee. The browser reads at most 16KiB into memory, never uploads the record or saves credentials in browser storage. Subsequent submit uses its capability only in the Authorization header. File validation is not server authorization: a wrong capability still receives 401. Worker token is memory only; operator manually supplies credentials for pilot operations. Avoid innerHTML for API-controlled data.
+`web/index.html`, `web/app.js`, `web/style.css`: same-origin API, no build, no
+third-party scripts, no preloaded tokens. It shows task terms, funding status,
+claim, live advisory progress, evidence state and the original issue, and keeps
+"verified result" apart from "reward paid". API data is never inserted with
+innerHTML.
 
-## Acceptance
+A saved CLI attempt record can be opened to reconnect. It must name this server
+origin and match the public attempt ID, task, worker and payee. The browser reads
+at most 16 KiB, never uploads the record and never stores credentials; the
+capability is held in memory and sent only in the Authorization header. A wrong
+capability still gets 401.
 
-Real HTTP/browser journey through task creation, claim, progress, immutable submit and separately authenticated verdict; wrong signatures/task/nonce/content, duplicate claims, stale certificates, forged GitHub deliveries and no-verifier configuration reject. Test-only signing keys and webhook bodies are labelled local controls, not a genuine Apple run. Actual bounty run and genuine verification adapter remain separate milestones until exercised against its exact task/checker. Funding requires a separately reviewed concrete transaction and user authorization.
+The readiness card is derived from the assignment and the in-memory capability.
+The activity view shows the last worker/observer event time and the last
+successful poll time separately. If a refresh fails, the previous view stays up
+with an update warning.
 
-## Durable local claim record
+## Durable claim record
 
-`node cli.mjs claim TASK WORKER PAYEE --out PRIVATE_RECORD` creates a fresh, exclusively written 0600 JSON record in an owned private 0700 directory before any HTTP request. Schema `dsmack-bounty-attempt/1`: `{schema,state,server,task_id,worker,payee,request_id,capability,attempt_id?}`. Initial state `claim-requested` has no attempt_id; success atomically replaces it with state `claimed` and the bound attempt_id, fsyncing the file and directory. A lost/ambiguous response leaves the request and capability recoverable; rerun the identical command with the SAME file, not a fresh claim. Records are private bearer credentials: do not commit, upload or share them. CLI output omits the capability. This is local crash recovery under filesystem fsync/rename semantics, not remote backup or theft protection. Concurrent invocations using the same record should be avoided.
+`node cli.mjs claim TASK WORKER PAYEE --out PRIVATE_RECORD` writes a fresh 0600
+JSON record in a private 0700 directory before any HTTP request. Schema
+`dsmack-bounty-attempt/1`: `{schema,state,server,task_id,worker,payee,request_id,capability,attempt_id?}`.
+It starts in state `claim-requested` without attempt_id; on success it is
+atomically replaced with state `claimed` and the attempt_id, fsyncing file and
+directory. After a lost response, rerun the identical command with the same file.
+The record is a bearer credential: keep it out of commits and uploads. CLI output
+omits the capability. Avoid concurrent use of one record.
 
-`node cli.mjs progress --attempt-file PRIVATE_RECORD EVENT_JSON` and `submit --attempt-file PRIVATE_RECORD SUBMISSION_JSON` load the record directly without a separate capability file. `BOUNTY_URL` must match its exact server origin. An unresolved claim-requested record must first be retried using claim. Symlink, nonregular, multi-link, nonowned, oversized or group/other-accessible records are refused. Records survive browser reload; browser credentials themselves remain memory only and require reopening the file after reload.
+`node cli.mjs progress --attempt-file PRIVATE_RECORD EVENT_JSON` and
+`submit --attempt-file PRIVATE_RECORD SUBMISSION_JSON` read the record directly.
+`BOUNTY_URL` must match its server origin. A record still in `claim-requested`
+must be completed with `claim` first. Symlinked, nonregular, multi-link,
+foreign-owned, oversized or group/other-readable records are refused.
 
-The participant readiness card is guidance derived from the current assignment and an in-memory capability, not a machine diagnostic or proof of authentication. It never claims browser-to-Mac connectivity. The activity view distinguishes the time of the last worker/observer event from the last successful service poll: a stale or missing event does not establish that execution stopped, and a fresh poll does not establish model progress. A service refresh failure retains the prior view with an explicit update warning. Task/acceptance/payment authority remains unchanged.
+## Tests
+
+The tests drive the HTTP and browser journey through task creation, claim,
+progress, submit and verdict, and check that wrong signatures, tasks, nonces or
+content, duplicate claims, stale certificates, forged GitHub deliveries and a
+missing verifier key are rejected. They use test-only signing keys and webhook
+bodies.

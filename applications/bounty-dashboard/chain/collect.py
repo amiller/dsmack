@@ -99,6 +99,7 @@ def collect_contract(c,r,state,max_pages):
        outcome=int(d['outcome']);need(outcome<3,'unknown resolved outcome');a.update(payout_wei=d['payout'],outcome=['Reject','Effort','Completion'][outcome])
     if e['event']=='Withdrawn':result['payments'].append({'key':cid+':'+e['transaction_hash']+':'+str(e['log_index']),'contract_id':cid,'account':d['account'],'recipient':d['account'],'amount_wei':d['amount'],'kind':'withdrawal','task_key':None,'assignment_key':None,'transaction_hash':e['transaction_hash'],'explorer_url':tx,'block_number':e['block_number'],'created_at':e['timestamp'],'attribution':'Account-level pull payment; task allocation unproven'})
   except Exception as ex:meta['coverage'].update(events_complete=False);meta['error']='event scan incomplete: '+str(ex)[:180]
+  meta['coverage']['reward_classification_complete']=classify_withdrawals(newstate['events'] if newstate else [],tasks,assignments,result['payments'],meta['coverage'].get('events_complete')is True) and meta['coverage'].get('events_complete')is True
   need(r('eth_getBlockByNumber',[tag,False])['hash']==head['hash'],'snapshot block reorged during scan')
   result['sources'].append({'contract_id':cid,'rpc':c['rpc'],'runtime_sha256':c['runtime_sha256'],'deployment_tx':c['deployment_tx'],'deployment_block':c['deployment_block'],'provenance':c['provenance']})
  except Exception as ex:
@@ -106,6 +107,26 @@ def collect_contract(c,r,state,max_pages):
   for k in ['tasks','assignments','payments','activity','credits']:result[k]=[]
   newstate=None
  return result,newstate
+
+def classify_withdrawals(events,tasks,assignments,payments,complete):
+ """Classify each pull-payment pool from its observed credit origins."""
+ pools={};bytask={t['id']:t for t in tasks};byassignment={a['id']:a for a in assignments}
+ bytx={}
+ for p in payments:bytx.setdefault((p['transaction_hash'],p['block_number']),[]).append(p)
+ for e in sorted(events,key=lambda e:(e['block_number'],e['log_index'])):
+  d=e['fields'];account=None;kind=None;amount=0
+  if e['event']=='Resolved':
+   a=byassignment.get(d['assignmentId']);account=a['worker'] if a else None;kind='reward';amount=int(d['payout'])
+  elif e['event']=='TaskClosed':
+   t=bytask.get(d['taskId']);account=t['requester'] if t else None;kind='refund';amount=int(d['reclaimed'])
+  elif e['event']=='Withdrawn':
+   account=d['account'];pool=pools.pop(account,{});p=bytx[(e['transaction_hash'],e['block_number'])].pop(0)
+   known=complete and sum(pool.values())==int(d['amount']) and len(pool)==1
+   economic=next(iter(pool)) if known else 'unclassified'
+   p.update(economic_kind=economic,reward_eligible=True if economic=='reward' else False if economic=='refund' else None,
+    attribution='Complete credit-event history: '+economic+' pool; task allocation unproven' if known else 'Withdrawal credit origins incomplete, mixed or unmatched')
+  if account and amount>0:pools.setdefault(account,{})[kind]=pools.get(account,{}).get(kind,0)+amount
+ return all(p.get('reward_eligible')is not None for p in payments)
 
 def main():
  import importlib.util

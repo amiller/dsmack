@@ -31,3 +31,12 @@ export function assertTransaction(task,record,account,chain,tx){
  if(chain!=='0x14a34')throw Error('Switch your wallet to Base Sepolia (chain84532).');
  if(!tx||Object.keys(tx).sort().join()!==['chainId','data','from','to','value'].sort().join()||tx.to?.toLowerCase()!==task.contract||tx.from?.toLowerCase()!==record.payee||tx.chainId!=='0x14a34'||tx.value!=='0x0'||!/^0x[0-9a-f]+$/.test(tx.data))throw Error('The transaction does not match this task and receiving wallet.');
 }
+export function availability(snapshot,task,now=Date.now()){
+ const t=(snapshot?.tasks??[]).find(x=>x.chain_id===task.chain_id&&x.contract_id===task.chain_id+':'+task.contract&&x.id===task.task_id),seen=Date.parse(snapshot?.snapshot_observed_at??snapshot?.built_at);
+ if(!t||snapshot.coverage?.tasks_complete!==true||!/^[0-9]+$/.test(t.available_wei??'')||!/^[1-9][0-9]*$/.test(t.reward_wei??''))return {state:'unknown',text:'Availability unknown: the dashboard has no complete record of this task.'};
+ const slots=BigInt(t.available_wei)/BigInt(t.reward_wei),stale=!(now-seen<=300000)?' (stale snapshot from '+(Number.isFinite(seen)?new Date(seen).toISOString():'an unknown time')+'; may have changed)':'';
+ if(t.state!=='open')return {state:stale?'stale':'closed',text:'This task is closed.'+stale};
+ if(!/^0+$/.test(String(t.active_assignment_id)))return {state:stale?'stale':'assigned',text:'An assignment is active. Another can start after it resolves or expires, if funds remain'+(slots?' ('+slots+' further funded reward'+(slots>1n?'s':'')+')':'')+'.'+stale};
+ if(!slots)return {state:stale?'stale':'unfunded',text:'No funded reward remains.'+stale};
+ return {state:stale?'stale':'available',text:slots+' funded reward'+(slots>1n?'s':'')+' available, one assignment at a time. Availability can change until your reward steps reserve it.'+stale};
+}

@@ -54,7 +54,7 @@ def verify(path, head):
         if entry['seq'] != seq or entry['prev'] != prev:
             raise ValueError('chain breaks at entry %d' % seq)
         prev = entry_hash(entry)
-    if entry['kind'] != 'close':
+    if not log or log[-1]['kind'] != 'close':
         raise ValueError('chain was not closed')
     if prev != head:
         raise ValueError('chain does not hash to the declared head')

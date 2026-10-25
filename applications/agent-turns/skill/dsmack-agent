@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """dsmack-agent run: hand a coding task on a git checkout to the pinned agent and get back a patch.
 
-The working tree is snapshotted, sent with a dsmack-agent-turn/1 request to a transport, and the
-transport's receipt and artifacts are read with turn.from_receipt. The zed Docker transport has no
-attestation: its receipt is unsigned and built from the digests zed reports.
+The working tree is snapshotted and sent with a dsmack-agent-turn/1 request to the attested Mac.
+zed admits the attempt (mac.py admit), the Mac stages the subscription credential and runs it in the
+signed release's guest, zed verifies the evidence, and turn.from_receipt reads the verified receipt.
 """
 import argparse
-import base64
 import io
 import json
 import os
@@ -23,24 +22,38 @@ import find
 import turn
 
 CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
-MAX_INPUTS = 32 << 20
-ZED, ZED_SCRATCH = 'zed-mesh', '/data/amiller/dsmack'
-QUALIFIED = '127.0.0.1:39685/dsmack-claude-harness'
-SENTINEL = turn.ROOT/'base-vm/browser-sandbox-v1/source/guest/sentinel'
+MAX_INPUTS = 16 << 20
+ZED, ZED_DIR = 'zed-mesh', '/data/amiller/dsmack/mac-dispatch-20261025'
+MAC, MAC_DIR = 'mini-mesh', 'dsmack-mac-dispatch-20261025'
+CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
+ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.json checker-context.json challenge.bin keyId.txt preparation'
 
-REMOTE = r'''set -euo pipefail
-cd "$1"; P=dispatch-$2
-export AGENT_IMAGE=$P:agent SENTINEL_IMAGE=$P:agent SENTINEL_SOURCE=$PWD/sentinel CREDENTIAL_FILE=$3
-export SPEC=$PWD/request.json INPUTS=$PWD/inputs OUTPUT=$PWD/out RUN_ID=$2 SENTINEL_TOKEN=$(openssl rand -hex 16)
-files="-f compose.yml"; [ -f override.json ] && files="$files -f override.json"
-trap 'docker compose -p $P $files down -v >>compose.log 2>&1; docker rmi $P:agent >/dev/null' EXIT
-DOCKER_BUILDKIT=0 docker build -q --build-arg QUALIFIED_CLAUDE_REPOSITORY=$4 -t $P:agent image >/dev/null
-mkdir -p out/artifacts
-status=0; timeout "$5" docker compose -p $P $files up --exit-code-from agent >compose.log 2>&1 || status=$?
-echo "$status $(docker image inspect $P:agent --format '{{.Id}}')" >result
-(cd out/artifacts && find . -type f -exec sha256sum {} +) >>result
+# On the Mac: stage the credential through the pipe, write the local task, prepare, check and launch once.
+MAC_RUN = r'''set -euo pipefail
+D=$HOME/$1; T=$D/t/$2; S=$D/source; W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
+cd "$T"; mkdir -m700 private tmp; mkdir -m700 -p $D/r
+P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
+python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \
+python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
+  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp
+python3 -I - "$T" <<'PY'
+import hashlib,json,os,sys
+from pathlib import Path
+os.umask(0o077);t=Path(sys.argv[1])
+pin=lambda n:{'path':str(t/n),'bytes':(t/n).stat().st_size,'sha256':hashlib.sha256((t/n).read_bytes()).hexdigest()}
+task={'schema':'dsmack-alpha-local-task/3','profile_id':'agent-turns-edit-v1','private_input_path':str(t/'private/turn/private-input.img'),
+ **{k:pin(n) for k,n in [('closure_context','closure-context.json'),('checker_context','checker-context.json'),('challenge','challenge.bin'),
+ ('key_id','keyId.txt'),('workload_disk','workload.img'),('workload_admission','workload-admission.json'),('workload_signature','workload.sig')]}}
+(t/'task.json').write_text(json.dumps(task,sort_keys=True,separators=(',',':')))
+PY
+C="python3 -I -B $D/installed/alpha_coordinator.py"
+$C --prepare --bootstrap $D/bootstrap/bootstrap.json --inventory $D/release.json --signature $D/release.sig \
+  --root $D/installed --profile agent-turns-edit-v1 --task $T/task.json --out-parent $D/r > prepare.json
+PLAN=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["plan"])' prepare.json)
+$C --check-only --plan $PLAN
+$C --execute --plan $PLAN > execute.json
 '''
-
 
 def snapshot(repo, inputs):
     names = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z', '-co', '--exclude-standard', '--deduplicate'],
@@ -54,64 +67,67 @@ def snapshot(repo, inputs):
     return find.tree_digest(inputs)
 
 
-def docker_zed(request, inputs, artifacts, credential, fake_cli=None):
-    """Run the turn in Docker on zed. Returns a receipt shaped like compose receipt v4, unsigned."""
+def ssh(host, command, **kw):
+    return subprocess.run(['ssh', host, command], check=True, **kw)
+
+
+def mac(request, inputs, out):
+    """Run the turn in the signed release's guest on the Mac. Returns the verified receipt v4."""
     run_id = uuid.uuid4().hex[:12]
-    remote = f'{ZED_SCRATCH}/dispatch-{run_id}'
-    compose = (TURNS/'compose-private.yml').read_bytes()
+    zed = f'{ZED_DIR}/attempts/{run_id}'
+    tree = io.BytesIO()
+    with tarfile.open(fileobj=tree, mode='w', format=tarfile.USTAR_FORMAT) as tar:
+        for path in sorted(p for p in inputs.rglob('*') if p.is_file()):
+            tar.add(path, str(path.relative_to(inputs)))
     bundle = io.BytesIO()
     with tarfile.open(fileobj=bundle, mode='w') as tar:
-        def add(name, raw):
+        for name, raw in (('request.json', request), ('tree.tar', tree.getvalue())):
             info = tarfile.TarInfo(name)
-            info.size, info.mode = len(raw), 0o644
+            info.size = len(raw)
             tar.addfile(info, io.BytesIO(raw))
-        add('request.json', request)
-        add('compose.yml', compose)
-        tar.add(inputs, 'inputs')
-        tar.add(SENTINEL, 'sentinel')
-        tar.add(TURNS/'Dockerfile', 'image/Dockerfile')
-        tar.add(TURNS/'find.py', 'image/find.py')
-        if fake_cli:
-            tar.add(fake_cli, 'claude')
-            add('override.json', json.dumps({'services': {'agent': {
-                'volumes': ['./claude:/opt/fake/claude:ro'],
-                'command': ['--spec', '/spec.json', '--inputs', '/inputs', '--output', '/out/artifacts',
-                            '--cli', '/opt/fake/claude']}}}).encode())
-    ssh = ['ssh', ZED]
-    subprocess.run(ssh + [f'mkdir -p {remote} && tar -x -C {remote}'], input=bundle.getvalue(), check=True)
+    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle.getvalue())
+    admitted = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit --release release-1 '
+                        f'--oci image-1/oci-layout --authority authority --request {zed}/request.json '
+                        f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
+    attempt = json.loads(admitted.splitlines()[-1])['attempt_id']
+    (out/'admission.json').write_bytes(admitted.splitlines()[-1])
+    pipe(f'tar -c -C {zed}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id}')
+    evidence = f'{MAC_DIR}/r/attempt-{attempt}'
     try:
-        wall = json.loads(request)['agent']['wall_seconds'] + 300
-        subprocess.run(ssh + ['bash', '-s', remote, run_id, credential, QUALIFIED, str(wall)],
-                       input=REMOTE.encode(), check=True)
-        pulled = subprocess.run(ssh + [f'tar -c -C {remote} result compose.log -C out artifacts'],
-                                check=True, capture_output=True).stdout
-        with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
-            tar.extractall(artifacts.parent, filter='data')
+        ssh(MAC, f'bash -s {MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN.encode())
+        pipe(f'tar -c --exclude scratch.img --exclude scratch-template.img.staged -C {evidence} .', f'mkdir {zed}/evidence && tar -x -C {zed}/evidence', MAC, ZED)
     finally:
-        subprocess.run(ssh + [f'rm -rf {remote}'], check=True)
-    (status, image), *sums = [line.split() for line in (artifacts.parent/'result').read_text().splitlines()]
-    commitment = {'alg': turn.TASK_COMMITMENT_ALG, 'scope': turn.SCOPE}
-    envelope = {'manifest_sha256': turn.sha(compose), 'commitments': commitment,
-                'files': [{'slot': 'turn', 'content_base64': base64.b64encode(request).decode()}]}
-    return {'manifest_sha256': turn.sha(compose), 'observed': {'services': [{'resolved_manifest_digest': image}]},
-            'runtime_inputs_commitment': commitment | {'inputs_sha256': turn.compute_commitment(envelope, {})},
-            'outputs': {'status': 'completed' if status == '0' else 'failed',
-                        'artifacts': [{'name': name.removeprefix('./'), 'sha256': digest} for digest, name in sums]}}
+        # The VM has exited once execute returns; its two 4 GiB scratch copies are the run's only large residue.
+        ssh(MAC, f'cd {evidence} 2>/dev/null && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
+                 f'&& rm -f scratch.img scratch-template.img.staged; rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/workload.img')
+    result = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
+                      f'--attempt {zed}/admit --evidence {zed}/evidence --job {zed}/verify', capture_output=True).stdout
+    (out/'verification.json').write_bytes(result.splitlines()[-1])
+    pulled = ssh(ZED, f'tar -c -C {zed}/verify/retained receipt.json report.json -C outputs artifacts', capture_output=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
+        tar.extractall(out, filter='data')
+    return json.loads((out/'receipt.json').read_bytes())
+
+
+def pipe(source, sink, src=ZED, dst=MAC):
+    """Stream a tar from one host to another through this machine."""
+    reader = subprocess.Popen(['ssh', src, source], stdout=subprocess.PIPE)
+    subprocess.run(['ssh', dst, sink], stdin=reader.stdout, check=True)
+    assert reader.wait() == 0, f'{src}: {source}'
 
 
 def run(args):
     repo, out = args.repo.resolve(), args.out.resolve()
     out.mkdir(parents=True)
     (out/'inputs').mkdir()
-    agent = {'cli_version': CLI_VERSION, 'cli_sha256': find.file_sha(args.fake_cli) if args.fake_cli else CLI_SHA256,
+    agent = {'cli_version': CLI_VERSION, 'cli_sha256': CLI_SHA256,
              'model': args.model, 'tools': args.tools.split(','), 'max_turns': args.max_turns,
              'wall_seconds': args.wall_seconds, 'settings': {'disableAllHooks': True}}
     request = turn.canonical({'schema': 'dsmack-agent-turn/1', 'agent': agent, 'prompt': args.prompt,
                               'inputs_sha256': snapshot(repo, out/'inputs'), 'state_in': None})
     (out/'request.json').write_bytes(request)
-    receipt = docker_zed(request, out/'inputs', out/'artifacts', args.credential, args.fake_cli)
-    (out/'receipt.json').write_text(json.dumps(receipt, indent=2))
-    print('artifacts:', out/'artifacts', file=sys.stderr)
+    print('out:', out, file=sys.stderr)
+    receipt = mac(request, out/'inputs', out)
     record = turn.from_receipt(receipt, request, out/'artifacts')
     (out/'turn.json').write_text(json.dumps(record, indent=2))
     patch = out/'artifacts'/'patch'
@@ -126,12 +142,10 @@ def main():
     p.add_argument('--repo', type=Path, required=True, help='git checkout; its working tree is the input')
     p.add_argument('--prompt', required=True)
     p.add_argument('--out', type=Path, required=True, help='new local directory for the request and artifacts')
-    p.add_argument('--credential', required=True, help='path on zed of the provider key file the sentinel reads')
     p.add_argument('--tools', default='Read,Grep,Glob,Edit,Write')
     p.add_argument('--model', default='claude-opus-4-8')
     p.add_argument('--max-turns', type=int, default=30)
     p.add_argument('--wall-seconds', type=int, default=480)
-    p.add_argument('--fake-cli', type=Path, help='test only: a stand-in for the pinned CLI')
     p.set_defaults(func=run)
     args = parser.parse_args()
     args.func(args)

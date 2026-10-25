@@ -28,7 +28,7 @@ from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_
 
 SELECTOR = 'agent-turns-edit-v1'
 REPO = 'agent-turns'
-SLOTS = {'inputs': 16 << 20, 'turn': 1 << 20}
+SLOTS = {'tree': 16 << 20, 'turn': 1 << 20}
 ARTIFACTS = ['patch', 'run-1-transcript', 'run-1-stderr', 'verdict']
 PYTHON = '304aa87a76ebb13fd22d253ac157f14980ff2cdb23e6274f3b045571405e07dc'
 # The qualified 0.7.1.broker-timeout-v1 base (rootfs c62f6746) and its guest-input builder.
@@ -71,10 +71,12 @@ def private_write(path, raw):
         stream.write(raw)
 
 
-def sign(schema, raw, key=RELEASE_KEY):
-    message = schema.encode() + b'\0' + raw
-    return subprocess.run(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(key), '-in', '/dev/stdin'],
-                          input=message, capture_output=True, check=True).stdout
+def sign(schema, raw, signature):
+    """Ed25519 over schema NUL document; openssl needs the message as a file."""
+    message = signature.with_suffix('.signing-message')
+    message.write_bytes(schema.encode() + b'\0' + raw)
+    signature.write_bytes(subprocess.run(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(RELEASE_KEY),
+                                          '-in', str(message)], capture_output=True, check=True).stdout)
 
 
 def image(args):
@@ -126,7 +128,8 @@ def compose_manifest(reference, digest):
     m['harness'] = {'name': 'python-application', 'path': '/usr/bin/python3.11', 'sha256': PYTHON,
                     'version': 'agent-turns-1'}
     service = {'image': f'127.0.0.1:5005/{REPO}@{digest}', 'read_only': True,
-               'command': ['--spec', '/workspace/inputs/turn', '--inputs', '/workspace/inputs/inputs',
+               'entrypoint': ['/usr/bin/python3.11', '-B', '/opt/agent-turns/find.py'],
+               'command': ['--spec', '/workspace/inputs/turn', '--inputs', '/workspace/inputs/tree',
                            '--output', '/workspace/artifacts'],
                'environment': {'TMPDIR': '/workspace/state'},
                'volumes': [f'{s}:/workspace/inputs/{s}:ro' for s in SLOTS]
@@ -186,7 +189,7 @@ def release(args):
                      archive={'format': 'tar+gzip', 'bytes': archive.stat().st_size, 'sha256': file_sha(archive)})
     raw = canonical(inventory)
     (out/'release.json').write_bytes(raw)
-    (out/'release.sig').write_bytes(sign(inventory['schema'], raw))
+    sign(inventory['schema'], raw, out/'release.sig')
     print(json.dumps({'inventory_sha256': sha(raw), 'manifest_sha256': sha(manifest), 'sequence': args.sequence}))
 
 
@@ -236,7 +239,7 @@ def admit(args):
     inventory_raw = (args.release/'release.json').read_bytes()
     manifest_raw = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
     manifest = json.loads(manifest_raw)
-    files = {'inputs': args.inputs_tar.read_bytes(), 'turn': args.request.read_bytes()}
+    files = {'tree': args.inputs_tar.read_bytes(), 'turn': args.request.read_bytes()}
     projection = {'runtime_input_version': 4, 'manifest_sha256': sha(manifest_raw),
                   'files': [{'slot': s, 'content_base64': base64.b64encode(files[s]).decode()} for s in SLOTS],
                   'commitments': {'alg': TASK_COMMITMENT_ALG,
@@ -272,7 +275,7 @@ def admit(args):
                  'issued_at': stamp(now), 'expires_at': stamp(now + datetime.timedelta(hours=2))}
     raw = canonical(admission)
     (out/'workload-admission.json').write_bytes(raw)
-    (out/'workload.sig').write_bytes(sign(admission['schema'], raw))
+    sign(admission['schema'], raw, out/'workload.sig')
     verifier(authority, 'operator', 'issue-challenge', '--replay', authority/'replay.sqlite', '--key-id', key_id,
              '--manifest-sha256', sha(manifest_raw), '--ttl', 7200, '--challenge', challenge.hex())
     print(json.dumps({'attempt_id': attempt, 'workload_disk': disk}))
@@ -342,6 +345,9 @@ def main():
         p.add_argument('--' + name, type=Path, required=True)
     p.set_defaults(func=verify)
     args = parser.parse_args()
+    for name, value in vars(args).items():
+        if isinstance(value, Path):
+            setattr(args, name, value.resolve())
     args.func(args)
 
 

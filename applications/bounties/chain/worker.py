@@ -124,7 +124,7 @@ class Bridge:
   topic='0x'+keccak(text='Assigned(uint256,uint256,address,uint256,uint256)').hex();logs=[x for x in r['logs']if x['address'].lower()==CONTRACT and x['topics'][0].lower()==topic]
   need(len(logs)==1,'one Assigned event required');log=logs[0];need(len(log['topics'])==4 and int(log['topics'][2],16)==int(c['task_id'])and '0x'+log['topics'][3][-40:].lower()==a['payee'],'Assigned event binding');aid=int(log['topics'][1],16);reserved,deadline=decode_hex(['uint256','uint256'],log['data']);need(reserved==int(c['payout_wei']),'Assigned reserve');_,t,assignment=self.snapshot(aid);need(assignment[1]==a['payee']and assignment[2]==1 and t[3]==aid,'actual assignment state');durable(receipt,{'assignment_id':str(aid),'transaction_hash':v['transaction_hash'],'block_hash':r['blockHash'],'submit_by':deadline,'inclusion_not_finality':True});return str(aid)
  def grant(self,a,aid,h):
-  """One fixed testnet gas transfer per actual assignment. Never re-sign, take a new nonce or rebroadcast."""
+  """One fixed testnet gas transfer per actual assignment. Never re-sign or replace it: each fresh observation may resend the exact same signed bytes once."""
   c=self.c;g=c['gas_grant'];sender=c['roles']['gas_sponsor']['address'];d=self.root/'gas-grants';d.mkdir(mode=0o700,exist_ok=True);need(stat.S_IMODE(d.stat().st_mode)==0o700,'private gas grant journal')
   key=c['task_id']+'-'+str(aid);intent=d/(key+'.intent.json');sent=d/(key+'.broadcast.json');receipt=d/(key+'.receipt.json')
   if intent.exists():v=parse(secure_read(intent,131072,True));need(v['payee']==a['payee']and v['assignment_id']==str(aid)and v['task_id']==c['task_id'],'gas grant journal binding')
@@ -132,23 +132,32 @@ class Bridge:
    if int(self.rpc('eth_getBalance',[a['payee'],'latest']),16)>=int(g['grant_wei']):return {'tx_hash':None,'value_wei':'0','status':'not_needed'}
    # Budget counts every committed intent, including pending and uncertain ones.
    prior=sorted(d.glob('*.intent.json'));need(len(prior)<g['max_grants'],'gas grant count cap')
-   committed=sum(int(x['value_wei'])+int(x['fee_wei'])for x in(parse(secure_read(f,131072,True))for f in prior));need(committed+int(g['grant_wei'])+int(g['max_fee_wei'])<=int(g['max_total_wei']),'gas grant budget cap')
-   nonce=self.rpc('eth_getTransactionCount',[sender,'pending']);need(nonce==self.rpc('eth_getTransactionCount',[sender,'latest']),'sponsor pending nonce')
+   records=[parse(secure_read(f,131072,True))for f in prior];need(sum(int(x['value_wei'])+int(x['fee_wei'])for x in records)+int(g['grant_wei'])+int(g['max_fee_wei'])<=int(g['max_total_wei']),'gas grant budget cap')
+   # A signed but unconfirmed grant may still own its nonce; never sign over it.
+   need(all(pathlib.Path(str(f).removesuffix('.intent.json')+'.receipt.json').exists()for f in prior),'unresolved gas grant')
+   nonce=self.rpc('eth_getTransactionCount',[sender,'pending']);need(nonce==self.rpc('eth_getTransactionCount',[sender,'latest'])and all(int(nonce,16)>x['nonce']for x in records),'sponsor pending nonce')
    call={'from':sender,'to':a['payee'],'value':hex(int(g['grant_wei']))};gas=int(self.rpc('eth_estimateGas',[call]),16)*125//100;price=int(self.rpc('eth_gasPrice',[]),16)*125//100;need(gas<=50000 and gas*price<=int(g['max_fee_wei']),'sponsor fee bound')
    tx={'chainId':CHAIN,'nonce':int(nonce,16),'gas':gas,'gasPrice':price,'to':bytes.fromhex(a['payee'][2:]),'value':int(g['grant_wei']),'data':b''};signed=Account.sign_transaction(tx,self.key_loader('gas_sponsor'));need(Account.recover_transaction(signed.raw_transaction).lower()==sender,'sponsor recovered signer')
    oracle='0x420000000000000000000000000000000000000F';l1=int(self.rpc('eth_call',[{'to':oracle,'data':data('getL1Fee(bytes)',['bytes'],[signed.raw_transaction])},h['number']]),16);operator=int(self.rpc('eth_call',[{'to':oracle,'data':data('getOperatorFee(uint256)',['uint256'],[gas])},h['number']]),16);fee=gas*price+l1+operator
    need(fee<=int(g['max_fee_wei']),'actual signed sponsor rollup fee bound');need(int(self.rpc('eth_getBalance',[sender,'latest']),16)>=int(g['grant_wei'])+fee,'sponsor balance');need(self.rpc('eth_getBlockByNumber',[h['number'],False])['hash']==h['hash'],'snapshot changed');need(self.rpc('eth_getTransactionCount',[sender,'pending'])==nonce==self.rpc('eth_getTransactionCount',[sender,'latest']),'late sponsor nonce changed')
-   v={'task_id':c['task_id'],'assignment_id':str(aid),'attempt_id':a['id'],'payee':a['payee'],'value_wei':g['grant_wei'],'fee_wei':str(fee),'transaction_hash':'0x'+signed.hash.hex(),'raw_transaction':'0x'+signed.raw_transaction.hex(),'snapshot_block':h['number']};durable(intent,v)
+   v={'task_id':c['task_id'],'assignment_id':str(aid),'attempt_id':a['id'],'payee':a['payee'],'value_wei':g['grant_wei'],'fee_wei':str(fee),'nonce':int(nonce,16),'transaction_hash':'0x'+signed.hash.hex(),'raw_transaction':'0x'+signed.raw_transaction.hex(),'snapshot_block':h['number']};durable(intent,v)
   public=lambda status:{'tx_hash':v['transaction_hash'],'value_wei':v['value_wei'],'status':status}
-  if receipt.exists():need(parse(secure_read(receipt,65536))['transaction_hash']==v['transaction_hash'],'gas grant receipt binding');return public('confirmed')
-  if not sent.exists():
-   durable(sent,{'transaction_hash':v['transaction_hash'],'same_hash_only':True})
+  if receipt.exists():need(parse(secure_read(receipt,65536))['transaction_hash']==v['transaction_hash'],'gas grant receipt binding')
+  def included():
+   r=self.rpc('eth_getTransactionReceipt',[v['transaction_hash']])
+   if r is None:return None
+   need(r['transactionHash'].lower()==v['transaction_hash']and int(r['status'],16)==1 and r['from'].lower()==sender and r['to'].lower()==a['payee'],'gas grant receipt failure')
+   return r if self.rpc('eth_getBlockByNumber',[r['blockNumber'],False])['hash'].lower()==r['blockHash'].lower()else None
+  r=included()
+  if r is None:
+   # Identical signed bytes execute at most once (same chain, nonce and hash); one resend per observation.
+   if not sent.exists():durable(sent,{'transaction_hash':v['transaction_hash'],'same_bytes_only':True})
    try:returned=self.rpc('eth_sendRawTransaction',[v['raw_transaction']]);need(returned.lower()==v['transaction_hash'],'broadcast hash mismatch')
-   except Exception:return public('uncertain') # later calls observe SAME hash only
-  r=self.rpc('eth_getTransactionReceipt',[v['transaction_hash']])
-  if r is None:return public('pending')
-  need(r['transactionHash'].lower()==v['transaction_hash']and int(r['status'],16)==1 and r['from'].lower()==sender and r['to'].lower()==a['payee'],'gas grant receipt failure');need(self.rpc('eth_getBlockByNumber',[r['blockNumber'],False])['hash'].lower()==r['blockHash'].lower(),'noncanonical gas grant receipt')
-  durable(receipt,{'transaction_hash':v['transaction_hash'],'block_hash':r['blockHash'],'inclusion_not_finality':True});return public('confirmed')
+   except Exception:return public('uncertain')
+   r=included()
+   if r is None:return public('pending')
+  if not receipt.exists():durable(receipt,{'transaction_hash':v['transaction_hash'],'block_hash':r['blockHash'],'inclusion_not_finality':True})
+  return public('confirmed')
  def typed(self,aid,a,b):
   c=self.c;return {'types':{'Decision':[{'name':n,'type':t}for n,t in FIELDS]},'primaryType':'Decision','domain':{'name':'DsmackWorkEscrow','version':'2','chainId':CHAIN,'verifyingContract':CONTRACT},'message':{'assignmentId':str(aid),'taskId':c['task_id'],'packageHash':'0x'+c['package_hash'],'policyHash':'0x'+c['policy_hash'],'worker':a['payee'],'candidate':'0x'+b['candidate_sha256'],'evidence':'0x'+b['evidence_sha256'],'delivery':'0x'+b['delivery_sha256'],'outcome':2,'payout':c['payout_wei']}}
  def process(self,input):

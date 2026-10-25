@@ -64,17 +64,23 @@ attempt waits until an enrolled Mac picks it up. There is no promised start time
 **Your own Mac** (Apple silicon, macOS 27+, Python 3.9+, Node 24, about 17 GiB free
 for this runtime and its working disks; preflight calculates the requirement). The runtime was qualified on the maintainer's
 Mac. A freshly enrolled Mac has not been qualified yet, so expect to report
-problems. Fetch the release public key from GitHub, not from the service, and
-check its hash:
+problems. Start in a checkout of Dsmack:
 
 ```sh
-curl -LO https://github.com/amiller/dsmack/releases/download/arcade-browser-v0.1.0-alpha.1/release-public.pem
+git clone https://github.com/amiller/dsmack.git
+cd dsmack/applications/bounties/runner
+```
+
+Fetch the release public key from GitHub and check its hash:
+
+```sh
+curl -fLo release-public.pem https://github.com/amiller/dsmack/releases/download/arcade-browser-v0.1.0-alpha.1/release-public.pem
+chmod 600 release-public.pem
 shasum -a 256 release-public.pem
 # 4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df
 ```
 
-Clone [Dsmack](https://github.com/amiller/dsmack) and enter
-`applications/bounties/runner`. Follow the [preflight guide](../applications/bounties/runner/INSTALL.md)
+Follow the [preflight guide](../applications/bounties/runner/INSTALL.md)
 to find your Node path, then run the small check before installing:
 
 ```sh

@@ -61,6 +61,8 @@ INPUTS_ROOT = "/workspace/inputs"
 STATE_ROOT = "/workspace/state"
 ARTIFACTS_ROOT = "/workspace/artifacts"
 SHARED_ROOT = "/workspace/shared"
+# The one host bind: lowering renders it as the per-service guest agent socket.
+DSTACK_SOCK_VOLUME = "/var/run/dstack.sock:/var/run/dstack.sock:ro"
 DEFAULT_USER_CONFIG_TARGET = "/workspace/inputs/user-config.json"
 
 #: Slot names the workspace ABI reserves for the harness itself.
@@ -406,6 +408,8 @@ def _validate_single_service(service_name, service, manifest, errors):
             for vol in volumes:
                 if not isinstance(vol, str):
                     errors.append(ComposeSubsetError("%s.volumes entries must be strings" % spath))
+                    continue
+                if vol == DSTACK_SOCK_VOLUME:
                     continue
                 _reject_dollar(vol, "%s.volumes" % spath, errors)
                 parts = vol.split(":")

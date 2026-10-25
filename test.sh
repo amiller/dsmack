@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Same-named test modules live in different directories, so collect each separately.
-for d in tests tools base-vm runner-vm applications/{bounties,bounty-dashboard,pilot-client}; do
+for d in tests tools base-vm runner-vm applications/{agent-findings,bounties,bounty-dashboard,pilot-client}; do
     python3 -m pytest -q -p no:cacheprovider "$d"
 done
 node --test $(find applications -name node_modules -prune -o -name primary-original -prune -o \( -name '*.test.mjs' -o -name '*.test.cjs' -o -name 'test_*.mjs' \) -print)

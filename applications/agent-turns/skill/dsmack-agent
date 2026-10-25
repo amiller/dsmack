@@ -91,7 +91,7 @@ def mac(request, inputs, out):
                         f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
     attempt = json.loads(admitted.splitlines()[-1])['attempt_id']
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    pipe(f'tar -c -C {zed}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id}')
+    pipe(f'tar -c -C {zed}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id} && chmod -R go-rwx {MAC_DIR}/t/{run_id}')
     evidence = f'{MAC_DIR}/r/attempt-{attempt}'
     try:
         ssh(MAC, f'bash -s {MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN.encode())

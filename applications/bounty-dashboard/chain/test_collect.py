@@ -45,6 +45,20 @@ class Tests(unittest.TestCase):
     fields=m.flatfields(m.ABI['functions']['task' if selector==m.ABI['selectors']['task(uint256)'] else 'assignment']);return '0x'+''.join(word(1 if f['type'] in ['bool','address'] or f['name'] in ['taskId','state'] else 100000000000000 if f['name'] in ['available','completionPay','reserved'] else 0) for f in fields)
    return r(method,p)
   result,state=m.collect_contract(c,rpc,None,1);self.assertEqual(result['contracts'][0]['status'],'observed');self.assertTrue(result['contracts'][0]['coverage']['events_complete']);self.assertEqual(result['tasks'][0]['available_wei'],'100000000000000');self.assertIsNone(result['tasks'][0]['deposited_wei']);self.assertEqual(result['payments'][0]['amount_wei'],'25');self.assertIsNone(result['payments'][0]['task_key']);self.assertEqual(result['payments'][0]['kind'],'withdrawal');self.assertEqual(result['credits'][0]['withdrawable_wei'],'250');self.assertEqual(result['tasks'][0]['roles']['allocator'],'0x'+'0'*39+'1');self.assertEqual(result['tasks'][0]['effort_wei'],'0');self.assertEqual(result['tasks'][0]['windows']['submit_seconds'],'0');self.assertEqual(result['assignments'][0]['outcome'],'Completion');self.assertEqual(result['assignments'][0]['payout_wei'],'500')
+ def test_reward_refund_mixed_and_incomplete_credit_pools(self):
+  tasks=[{'id':'1','requester':'requester'}];assignments=[{'id':'2','worker':'worker'}]
+  def event(name,fields,i):return {'event':name,'fields':fields,'block_number':i,'log_index':0,'transaction_hash':str(i)}
+  def run(credit,account='worker',complete=True):
+   events=credit+[event('Withdrawn',{'account':account,'amount':'25'},3)];payments=[{'transaction_hash':'3','block_number':3}]
+   m.classify_withdrawals(events,tasks,assignments,payments,complete);return payments[0]
+  reward=event('Resolved',{'assignmentId':'2','payout':'25'},1)
+  refund=event('TaskClosed',{'taskId':'1','reclaimed':'25'},1)
+  self.assertIs(run([reward])['reward_eligible'],True)
+  self.assertIs(run([refund],'requester')['reward_eligible'],False)
+  self.assertIsNone(run([reward],complete=False)['reward_eligible'])
+  tasks[0]['requester']='worker';reward['fields']['payout']='10';refund['fields']['reclaimed']='15'
+  self.assertIsNone(run([reward,refund])['reward_eligible'])
+  self.assertIsNone(run([])['reward_eligible'])
  def test_rpc_envelope_and_write_methods_refused(self):
   from unittest.mock import patch
   class Response:

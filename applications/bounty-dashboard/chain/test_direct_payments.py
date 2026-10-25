@@ -1,5 +1,5 @@
 import copy,json,pathlib,unittest
-from direct_payments import collect_direct
+from direct_payments import collect_direct,reconcile_relays
 class Tests(unittest.TestCase):
  def setUp(self):
   self.record=json.loads(pathlib.Path(__file__).with_name('direct-payments.json').read_text())['payments'][0];r=self.record;self.h='0x'+'a'*64
@@ -17,6 +17,31 @@ class Tests(unittest.TestCase):
    old=obj[key];obj[key]=value;rows,s=self.collect();self.assertEqual(rows,[]);self.assertEqual(s['status'],'partial');obj[key]=old
  def test_noncanonical_or_missing_tx_refuses(self):
   self.block['hash']='0x'+'b'*64;self.assertEqual(self.collect()[0],[]);self.block['hash']=self.h;self.block['transactions']=[];self.assertEqual(self.collect()[0],[])
+ def test_verified_forward_link_excludes_second_reward_and_refuses_bad_source(self):
+  r=self.record;source='0x'+'c'*64;r['source_withdrawal_transaction_hash']=source
+  self.tx['transactionIndex']='0x1'
+  stx={**self.tx,'hash':source,'to':self.contract['address'],'value':'0x0','input':'0x3ccfd60b','transactionIndex':'0x0'}
+  from direct_payments import ABI
+  event=next(e for e in ABI['events']if e['name']=='Withdrawn')
+  receipt={**self.receipt,'transactionHash':source,'to':self.contract['address'],'logs':[{'address':self.contract['address'],'topics':[event['topic'],'0x'+r['expected_from'][2:].rjust(64,'0')],'data':'0x'+format(int(r['amount_wei']),'064x')}]}
+  self.block['transactions'].append(source)
+  def rpc(method,params):
+   if method=='eth_getTransactionByHash'and params==[source]:return stx
+   if method=='eth_getTransactionReceipt'and params==[source]:return receipt
+   return self.rpc(method,params)
+  def collect():return collect_direct([r],[self.contract],lambda _:rpc,'now',[{'kind':'withdrawal','transaction_hash':source,'contract_id':r['task_key'].rsplit(':',1)[0],'reward_eligible':True,'recipient':r['expected_from'],'amount_wei':r['amount_wei']}])
+  rows,_=collect();self.assertEqual(rows[0]['source_withdrawal_transaction_hash'],source);self.assertIs(rows[0]['reward_eligible'],False)
+  for obj,key,value in[(receipt,'status','0x0'),(stx,'input','0x1234'),(stx,'from','0x'+'0'*40),(stx,'value','0x1')]:
+   old=obj[key];obj[key]=value;self.assertEqual(collect()[0],[]);obj[key]=old
+  receipt['logs'][0]['data']='0x'+format(1,'064x');self.assertEqual(collect()[0],[])
+ def test_duplicate_source_refund_missing_or_unclassified_source_stays_unknown(self):
+  p={'chain_id':84532,'contract_id':'contract','sender':'worker','amount_wei':'25','source_withdrawal_transaction_hash':'source','economic_kind':'reward','reward_eligible':False}
+  w={'kind':'withdrawal','transaction_hash':'source','contract_id':'contract','recipient':'worker','amount_wei':'25','reward_eligible':True}
+  records=[{'chain_id':84532,'source_withdrawal_transaction_hash':'source'}]
+  for withdrawals in [[],[{**w,'reward_eligible':False}],[{**w,'reward_eligible':None}]]:
+   rows=[copy.deepcopy(p)];self.assertEqual(reconcile_relays(rows,withdrawals,records),1);self.assertIsNone(rows[0]['reward_eligible']);self.assertEqual(len(rows),1)
+  rows=[copy.deepcopy(p),copy.deepcopy(p)];self.assertEqual(reconcile_relays(rows,[w],records*2),2);self.assertTrue(all(x['reward_eligible']is None for x in rows));self.assertEqual(len(rows),2)
+  rows=[copy.deepcopy(p)];self.assertEqual(reconcile_relays(rows,[w],records),0);self.assertIs(rows[0]['reward_eligible'],False)
  def test_duplicate_selected_tx_counted_once(self):
   rows,s=self.collect([self.record,self.record]);self.assertEqual(len(rows),1);self.assertEqual(s['counts']['unverified'],1)
 if __name__=='__main__':unittest.main()

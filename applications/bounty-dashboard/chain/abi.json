@@ -5,7 +5,8 @@
     "nextAssignment()": "89d613e3",
     "nextTask()": "375188dc",
     "task(uint256)": "17751a21",
-    "withdrawable(address)": "ce513b6f"
+    "withdrawable(address)": "ce513b6f",
+    "withdraw()": "3ccfd60b"
   },
   "functions": {
     "assignment": [

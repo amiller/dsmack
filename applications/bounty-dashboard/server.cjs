@@ -6,7 +6,7 @@ const FIELDS={
  contracts:'id name chain_id network testnet address explorer_url asset_symbol block_number block_hash observed_at status coverage error runtime_sha256 deployment_block deployment_tx',
  tasks:'key id contract_id chain_id title issue_url package_hash policy_hash requester reward_wei available_wei reserved_wei deposited_wei effort_wei roles windows state created_tx created_at active_assignment_id submit_window review_window challenge_window',
  assignments:'key id task_key contract_id chain_id worker state candidate_hash evidence_hash delivery_hash payout_wei reserved_wei submitted_at resolved_at created_at deadlines tx transactions txlinks outcome',
- payments:'id kind tx transaction_hash contract_id task_key chain_id recipient amount_wei block_number block_hash timestamp created_at observed_at explorer_url attribution assignment_key sender attempt_id receipt_verified',
+ payments:'id kind tx transaction_hash contract_id task_key chain_id recipient amount_wei block_number block_hash timestamp created_at observed_at explorer_url attribution assignment_key sender attempt_id receipt_verified economic_kind reward_eligible source_withdrawal_transaction_hash',
  activity:'id timestamp kind task_key attempt_id contract_id tx transaction_hash message event fields block_number block_hash log_index explorer_url',
  attempts:'id source_id task_key repository candidate_commit payee execution_mode state created_at updated_at verification upload artifacts source_url error_code needs_attention assignment_id reported_state expires_at task_title task_slug historical inputs deadline',
  credits:'contract_id chain_id account withdrawable_wei block_number block_hash',
@@ -66,6 +66,7 @@ function createHandler(config){
   for(const c of s.chain.contracts??[])if(!c.observed_at||Date.now()-Date.parse(c.observed_at)>5*60*1000)c.status=c.status==='unknown'?'unknown':'stale';
   const attemptSources=sources.filter(x=>['arcade-pilot','bounty-demo','attempt-store'].includes(x.kind));for(const id of config.expected_feed_ids??[])if(!attemptSources.some(x=>x.id===id)){const x={id,kind:'attempt-store',status:'unavailable',error_code:'no_feed_snapshot'};sources.push(x);attemptSources.push(x);}
   const anyAttempts=attemptSources.some(x=>['ok','partial'].includes(x.status));const coverage={tasks_complete:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.getters==='all IDs at pinned block'),attempts_complete:attemptSources.length>0&&attemptSources.every(x=>x.status==='ok'),payments_complete:!sources.some(x=>x.kind==='direct-payments'&&x.status!=='ok')&&(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.events_complete===true)};
+  coverage.reward_accounting_complete=coverage.payments_complete&&(s.chain.contracts??[]).every(x=>x.coverage?.reward_classification_complete===true)&&(s.chain.payments??[]).every(x=>x.reward_eligible!==undefined&&x.reward_eligible!==null);
   return {schema:'dsmack-bounty-dashboard/1',built_at:new Date().toISOString(),snapshot_observed_at:s.observed_at??null,...s.chain,credits:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.credit_balances==='all observed recipients at pinned block')?s.chain.credits:null,tasks:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.tasks:null,assignments:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.assignments:null,attempts:anyAttempts?unique:null,sources,coverage};
  }
  async function handler(req,res){
@@ -89,7 +90,7 @@ function createHandler(config){
     try{fs.writeFileSync(tmp,JSON.stringify(v),{mode:0o600,flag:'wx'});fs.renameSync(tmp,snapshot);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
     return json(res,200,{accepted:true,observed_at:v.observed_at});
    }
-   const allowed=['index.html','app.mjs','style.css','view.mjs'];const name=p==='/'?'index.html':p.slice(1);
+   const allowed=['index.html','app.mjs','style.css','view.mjs','market.mjs'];const name=p==='/'?'index.html':p.slice(1);
    if(req.method==='GET'&&allowed.includes(name)){
     const b=fs.readFileSync(path.join(web,name));res.writeHead(200,{'Content-Type':name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.mjs')?'text/javascript':'text/css','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(b);
    }

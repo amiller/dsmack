@@ -51,7 +51,6 @@ creates and pass full paths. Continue with
 [README.md](README.md#worker-owned-mac).
 
 The payee is the `0x` address you pass to `authorization`. It is fixed in your
-signed attempt, and only a verified passing commit earns the bonus. Running a node
-alone earns nothing.
+signed attempt. A verified passing commit earns the bonus for that address.
 
 Add `--json` for machine-readable output. Exit status is 0 when every check passes.

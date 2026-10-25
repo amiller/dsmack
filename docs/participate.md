@@ -3,9 +3,9 @@
 This page takes a participant from a funded task to a Base Sepolia test ETH
 payment. A person or a coding agent can follow it step by step.
 
-The reward pays for a code change that passes the task's checks. Running a Mac
-earns nothing on its own: the reward goes to the wallet named when the commit is
-registered, whoever runs the checks.
+The reward pays for a code change that passes the task's checks. It goes to the
+wallet named when the commit is registered, whether the contributor runs the
+checks on their own Mac or uses the best-effort route.
 
 ## 1. Read the task
 

@@ -21,9 +21,9 @@ python3 -c 'import json,sys; c=open(sys.argv[1]).read(); print(json.dumps({"mani
 hash=$(sha256sum "$D/mac/app-compose.json" | cut -d' ' -f1)
 py grant.py /w/sim/dstack.sock task-1 mac-mini-7 "$hash" 600 > "$D/mac/grant.json"
 docker run -d --rm --name dstack-compat-shim-$$ -v "$D:/w" -w /w/compat -e PYTHONPATH=/w/pylib "$PY" \
-  python3 agent.py /w/mac/grant.json /w/mac/dstack.sock >/dev/null
-until [ -S "$D/mac/dstack.sock" ]; do sleep 0.2; done
-guest "$D/mac/dstack.sock" "$D/out-dsmack.json"
+  python3 agent.py --grant /w/mac/grant.json --dir /w/mac worker >/dev/null
+until [ -S "$D/mac/worker.sock" ]; do sleep 0.2; done
+guest "$D/mac/worker.sock" "$D/out-dsmack.json"
 docker rm -f dstack-compat-shim-$$ >/dev/null
 
 py verify.py /w/out-dstack.json /w/out-dsmack.json

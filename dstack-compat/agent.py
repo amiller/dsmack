@@ -1,42 +1,104 @@
-"""dstack guest-api-v1 shim for a dsmack guest: python3 agent.py <grant.json> <socket>.
+"""dstack guest-api-v1 shim for a dsmack guest.
 
-Serves /v1/GetKey, /v1/Info and /v1/Version on the socket a dstack workload
-mounts as /var/run/dstack.sock. Attest is absent: a dsmack guest has no runtime
-attestation call; the runner's result assertion carries what the workload writes.
+python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--grant grant.json] SERVICE...
+
+With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
+sends the supervisor's system events and the seal, writes <dir>/sealed and then
+serves /v1/Attest. With --grant it serves /v1/GetKey. /v1/Info and /v1/Version
+always. Each service gets <dir>/<service>.sock, which lowering binds to that
+service's /var/run/dstack.sock; the socket that accepted a call is its caller tag.
 """
+import argparse
 import json
 import os
+import re
 import socketserver
-import sys
+import struct
+import threading
 from http.server import BaseHTTPRequestHandler
 
-from dsmack_dstack import get_key
+import guest_attest
 
-grant = json.load(open(sys.argv[1]))
-root = bytes.fromhex(grant.pop("root_key"))
-
-
-def info(_):
-    return {"app_id": grant["app_id"], "app_name": grant["task_id"], "compose_hash": grant["compose_hash"],
-            "instance_id": grant["worker_id"].encode().hex(), "device_id": "", "os_image_hash": "",
-            "mr_aggregated": "", "key_provider_info": json.dumps({"dsmack_worker_grant": grant})}
+MAX_FRAME = 4096
+SERVICE_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]*")
 
 
-METHODS = {
-    "GetKey": lambda r: get_key(root, r["domain"], r["algorithm"], grant["chain"]),
-    "Info": info,
-    "Version": lambda _: {"version": "dsmack-dstack-shim/0", "rev": ""},
-}
+class Ctl:
+    """uint32_be(len) || JSON frames over the dsmack-ctl port, one request in flight."""
+
+    def __init__(self, fd):
+        self.fd, self.lock = fd, threading.Lock()
+
+    def send(self, obj):
+        data = json.dumps(obj).encode()
+        if len(data) > MAX_FRAME:
+            raise ValueError("dsmack-ctl frame exceeds %d bytes" % MAX_FRAME)
+        data = struct.pack(">I", len(data)) + data
+        while data:
+            data = data[os.write(self.fd, data):]
+
+    def recv(self):
+        n = struct.unpack(">I", self._read(4))[0]
+        if n > MAX_FRAME:
+            raise ValueError("dsmack-ctl frame exceeds %d bytes" % MAX_FRAME)
+        return json.loads(self._read(n))
+
+    def _read(self, n):
+        b = b""
+        while len(b) < n:
+            chunk = os.read(self.fd, n - len(b))
+            if not chunk:
+                raise EOFError("dsmack-ctl closed")
+            b += chunk
+        return b
+
+    def call(self, obj):
+        with self.lock:
+            self.send(obj)
+            reply = self.recv()
+        if "error" in reply:
+            raise ValueError(reply["error"])
+        return reply
+
+
+def methods(ctl, hello, grant):
+    def info(_, __):
+        i = dict.fromkeys(("app_id", "app_name", "compose_hash", "instance_id", "device_id", "os_image_hash",
+                           "mr_aggregated", "key_provider_info"), "")
+        if hello:
+            i.update(compose_hash=hello["manifest_sha256"], instance_id=hello["run"], os_image_hash=hello["os_image_hash"])
+        if grant:
+            i.update(app_id=grant["app_id"], app_name=grant["task_id"], compose_hash=grant["compose_hash"],
+                     instance_id=grant["worker_id"].encode().hex(),
+                     key_provider_info=json.dumps({"dsmack_worker_grant": grant}))
+        return i
+
+    def attest(req, caller):
+        rd = bytes.fromhex(req["report_data"])
+        if len(rd) > 64:
+            raise ValueError("report_data is %d bytes, at most 64" % len(rd))
+        rd = rd.ljust(64, b"\0")
+        reply = ctl.call({"op": "attest", "caller": caller.hex(), "report_data": rd.hex()})
+        return {"attestation": guest_attest.attestation(hello, caller, rd, reply).hex()}
+
+    m = {"Info": info, "Version": lambda _, __: {"version": "dsmack-dstack-shim/1", "rev": ""}}
+    if ctl:
+        m["Attest"] = attest
+    if grant:
+        from dsmack_dstack import get_key
+        root = bytes.fromhex(grant.pop("root_key"))
+        m["GetKey"] = lambda r, _: get_key(root, r["domain"], r["algorithm"], grant["chain"])
+    return m
 
 
 class Handler(BaseHTTPRequestHandler):
     def do_POST(self):
         method = self.path.removeprefix("/v1/")
         body = self.rfile.read(int(self.headers.get("Content-Length", 0))) or b"{}"
-        if not self.path.startswith("/v1/") or method not in METHODS:
+        if not self.path.startswith("/v1/") or method not in self.server.methods:
             return self.reply(404, {"error": "Service not found: %s" % method})
         try:
-            self.reply(200, METHODS[method](json.loads(body)))
+            self.reply(200, self.server.methods[method](json.loads(body), self.server.caller))
         except (KeyError, ValueError) as e:
             self.reply(400, {"error": str(e)})
 
@@ -53,9 +115,41 @@ class Handler(BaseHTTPRequestHandler):
 
 
 class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
-    pass
+    daemon_threads = True
 
 
-if os.path.exists(sys.argv[2]):
-    os.unlink(sys.argv[2])
-Server(sys.argv[2], Handler).serve_forever()
+def start(sockdir, services, ctl_fd=None, events=(), grant=None):
+    """Seal (with a port), then serve one socket per service on background threads."""
+    for s in services:
+        if not SERVICE_RE.fullmatch(s):
+            raise ValueError("service name %r is not a compose service name" % s)
+    ctl = hello = None
+    if ctl_fd is not None:
+        ctl = Ctl(ctl_fd)
+        hello = ctl.call({"op": "hello"})
+        for name, payload in events:
+            ctl.call({"op": "event", "name": name, "payload": payload.hex()})
+        ctl.call({"op": "seal"})
+        open(os.path.join(sockdir, "sealed"), "w").close()
+    m = methods(ctl, hello, grant)
+    servers = []
+    for s in services:
+        path = os.path.join(sockdir, s + ".sock")
+        srv = Server(path, Handler)
+        srv.methods, srv.caller = m, guest_attest.sha256(s.encode())
+        os.chmod(path, 0o666)
+        threading.Thread(target=srv.serve_forever, daemon=True).start()
+        servers.append(srv)
+    return servers
+
+
+if __name__ == "__main__":
+    p = argparse.ArgumentParser()
+    p.add_argument("--dir", required=True)
+    p.add_argument("--ctl")
+    p.add_argument("--event", action="append", default=[], type=lambda e: (e.split("=")[0], bytes.fromhex(e.split("=")[1])))
+    p.add_argument("--grant", type=lambda f: json.load(open(f)))
+    p.add_argument("services", nargs="*")
+    a = p.parse_args()
+    start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant)
+    threading.Event().wait()

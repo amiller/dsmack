@@ -16,6 +16,7 @@ import CryptoKit
 import Darwin
 import DeviceCheck
 import Foundation
+import marAttest
 
 let v3SessionSchema = "dsmack-general-launcher/session/3"
 let v3StatementSchema = "dsmack-general-launcher/v3-run-statement/1"
@@ -234,9 +235,26 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                                             expectedSpecSha256: spec.specSha256)
         try trace("v3_receipt_mapped", ["receipt_sha256": mapped.receiptSha256])
 
+        // The launch client data depends only on the mapped receipt, so it is
+        // fixed before run; its hash is the guest Attest run id.
+        let evidenceBody = launcherEvidenceBody(
+            baseVm: mapped.fragment["base_vm"] as! [String: Any],
+            baseVmLaunch: mapped.fragment["base_vm_launch"] as! [String: Any],
+            observed: mapped.observed, manifestSha256: composeManifestSha256)
+        let launchEvidenceSha256 = try executionEvidenceDigest(evidenceBody)
+        let launchClientData = try assertionClientData(manifestSha256: composeManifestSha256,
+                                                       evidenceSha256: launchEvidenceSha256, challenge: challengeHex)
+
         try checkCancellation()
+        let guestCtl = Task { [ctlFd = fds[0]] in
+            try await serveGuestCtl(fd: ctlFd, keyId: keyId, osImageHash: try guestHex(identity.osImageHash),
+                                    manifestSha256: try guestHex(composeManifestSha256),
+                                    run: Data(SHA256.hash(data: launchClientData)))
+        }
         let runStarted = ContinuousClock.now
         let code = try backendV3Run(handle: handle)              // proven halt (PSCI); not task success
+        shutdown(fds[0], SHUT_RDWR)                              // the guest is gone; stop the Attest handler
+        try await guestCtl.value
         try backendV3Finalize(handle: handle)                   // CHECKED flush/sync + exact-length hash
         let runMs = Int((ContinuousClock.now - runStarted) / .milliseconds(1))
         try checkCancellation()
@@ -256,15 +274,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                                     "console_sha256": parsed.consoleSha256, "console_bytes": parsed.consoleBytes,
                                     "console_truncated": parsed.consoleTruncated])
 
-        // ---- LAUNCH assertion: contract10 receipt-evidence ----
-        let evidenceBody = launcherEvidenceBody(
-            baseVm: mapped.fragment["base_vm"] as! [String: Any],
-            baseVmLaunch: mapped.fragment["base_vm_launch"] as! [String: Any],
-            observed: mapped.observed, manifestSha256: composeManifestSha256)
-        let launchEvidenceSha256 = try executionEvidenceDigest(evidenceBody)
-        let launchClientData = try assertionClientData(manifestSha256: composeManifestSha256,
-                                                       evidenceSha256: launchEvidenceSha256, challenge: challengeHex)
-
+        // ---- LAUNCH assertion: contract10 receipt-evidence (client data built before run) ----
         guard signalReason.withLock({ $0 == nil }), !FileManager.default.fileExists(atPath: out.appendingPathComponent("cancel.request").path)
         else { throw Fail("execution cancelled before launch assertion") }
         let svc = DCAppAttestService.shared
@@ -426,7 +436,7 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
             if fds[1] >= 0 { close(fds[1]) }
             if netFd >= 0 && netFd != fds[1] { close(netFd) }
         }
-        if fds[0] >= 0 { close(fds[0]); fds[0] = -1 }
+        if fds[0] >= 0 { shutdown(fds[0], SHUT_RDWR); close(fds[0]); fds[0] = -1 }
         try? save("trace.jsonl", traceLines)
         note("hvf-v3 failed: \(error)")
         // Preserve every possible residue on refusal, including partial retention.

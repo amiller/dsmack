@@ -7,6 +7,11 @@ credentialed compose manifest; the per-run sentinel endpoint arrives in
 `DSMACK_SENTINEL_ENDPOINT` and the execution receipt signs the output files.
 The claim is "this pinned agent, on these inputs, answered X".
 
+The sentinel that terminates TLS to `https://api.anthropic.com` inside the guest
+is in [`base-vm/browser-sandbox-v1/source/guest/sentinel/`](../../base-vm/browser-sandbox-v1/source/guest/sentinel/),
+copied byte for byte from `/usr/local/lib/dsmack/sentinel` in the
+0.7.1.broker-timeout-v1 rootfs (`dstack.rootfs_hash=c62f6746…`).
+
 A check is the spec without `inputs_sha256`: agent pin, question, answers, run
 count and aggregation. `check_sha256` names it, so the same check can be rerun
 on new inputs (CI) or once (a one-off finding).

@@ -1,0 +1,7 @@
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./SHA256SUMS
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./harness/__init__.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./harness/adapter/__init__.py
+11f4e0fa320c741c2324bf21c0892a133c608d56b7e2b0e76e47c72556d12487  ./harness/adapter/claude_subscription_document.py
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  ./harness/sentinel/__init__.py
+c7e9e1d37253e05c1d756231aa7171808985a566366a9a646cb69b7807afba07  ./harness/sentinel/sentinel.py
+176107aed140e0986c0787c4779058a789f96d0e74dd51c09f844adb54a83bf5  ./harness/sentinel/sentinel_oauth.py

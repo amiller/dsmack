@@ -10,6 +10,7 @@ import threading
 import pytest
 
 import agent
+import guest_attest
 from guest_attest import SYSTEM_READY, client_data, replay, sha256, verify
 
 # Shared with the Swift GuestAttest tests in marAttestTests.
@@ -119,6 +120,15 @@ def test_verify_rejects_event_after_system_ready(guest):
     _, out = call(os.path.join(d, "worker.sock"), "Attest", {"report_data": ""})
     with pytest.raises(ValueError, match="system-ready"):
         verify(bytes.fromhex(out["attestation"]))
+
+
+def test_canary_key_public_matches_cryptography(tmp_path):
+    # A wrong public key in the canary-guest-key event would make the canary unclaimable even after a break.
+    from cryptography.hazmat.primitives.asymmetric import ec
+    k = agent.canary_key(tmp_path / "k")
+    assert oct(os.stat(tmp_path / "k").st_mode & 0o777) == "0o600"
+    n = ec.derive_private_key(k, ec.SECP256R1()).public_key().public_numbers()
+    assert guest_attest.p256_public(k) == n.x.to_bytes(32, "big") + n.y.to_bytes(32, "big")
 
 
 if __name__ == "__main__":

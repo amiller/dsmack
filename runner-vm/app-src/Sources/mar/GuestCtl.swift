@@ -3,8 +3,11 @@
 // a time; the guest agent (dstack-compat/agent.py) is the only peer and speaks
 // first: the guest kernel drops port input that arrives before the port is
 // opened. The app answers hello, and event/seal/attest under GuestEventLog's seal rule.
-// A refusal is an {"error"} reply; a malformed frame or a failed assertion ends
-// the handler with that error, which fails the run.
+// The log starts with the app's canary-runner-key event: a P-256 key made here, kept
+// only in this process for the run and zeroed when the handler ends (Canary kind Runner).
+// A refusal or a failed assertion is an {"error"} reply; a malformed frame ends the
+// handler with that error, which fails the run. A reply the halted guest can no longer
+// take (EPIPE once the port is shut down) ends the handler normally.
 
 #if canImport(Darwin)
 import CryptoKit
@@ -17,7 +20,10 @@ let guestCtlMaxFrame = 4096
 
 func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: Data, run: Data) async throws {
     guard let keyIdBytes = Data(base64Encoded: keyId) else { throw Fail("keyId is not base64") }
-    var log = GuestEventLog()
+    let canaryKey = UnsafeMutableRawBufferPointer.allocate(byteCount: 32, alignment: 1)
+    defer { memset_s(canaryKey.baseAddress, 32, 0, 32); canaryKey.deallocate() }
+    arc4random_buf(canaryKey.baseAddress, 32)
+    var log = GuestEventLog(runnerCanaryKey: try P256.Signing.PrivateKey(rawRepresentation: canaryKey).publicKey.rawRepresentation)
     func field(_ m: [String: Any], _ k: String) throws -> String {
         guard let s = m[k] as? String else { throw GuestAttestRefusal("missing string field \(k)") }
         return s
@@ -35,8 +41,13 @@ func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: 
                 let clientData = try guestAttestClientData(osImageHash: osImageHash, manifestSha256: manifestSha256,
                                                            run: run, head: try log.attest(),
                                                            caller: caller, reportData: reportData)
-                let assertion = try await DCAppAttestService.shared.generateAssertion(
-                    keyId, clientDataHash: Data(SHA256.hash(data: clientData)))
+                let assertion: Data
+                do {
+                    assertion = try await DCAppAttestService.shared.generateAssertion(
+                        keyId, clientDataHash: Data(SHA256.hash(data: clientData)))
+                } catch {
+                    throw GuestAttestRefusal("App Attest: \(error)")
+                }
                 reply = ["key_id": hex(keyIdBytes), "assertion": hex(assertion),
                          "events": log.events.map { ["name": $0.name, "payload": hex($0.payload)] }]
             default: throw GuestAttestRefusal("unknown op")
@@ -44,7 +55,7 @@ func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: 
         } catch let r as GuestAttestRefusal {
             reply = ["error": r.description]
         }
-        try writeGuestFrame(fd, reply)
+        guard try writeGuestFrame(fd, reply) else { return }
     }
 }
 
@@ -72,15 +83,18 @@ func readGuestFrame(_ fd: Int32) throws -> [String: Any]? {
     return m
 }
 
-func writeGuestFrame(_ fd: Int32, _ o: [String: Any]) throws {
+/// false when the guest end is gone (EPIPE).
+func writeGuestFrame(_ fd: Int32, _ o: [String: Any]) throws -> Bool {
     let body = try JSONSerialization.data(withJSONObject: o)
     let d = Data([24, 16, 8, 0].map { UInt8(truncatingIfNeeded: body.count >> $0) }) + body
     var off = 0
     while off < d.count {
         let w = d.withUnsafeBytes { Darwin.write(fd, $0.baseAddress! + off, d.count - off) }
         if w < 0 && errno == EINTR { continue }
+        if w < 0 && errno == EPIPE { return false }
         guard w > 0 else { throw Fail("dsmack-ctl write failed (errno \(errno))") }
         off += w
     }
+    return true
 }
 #endif

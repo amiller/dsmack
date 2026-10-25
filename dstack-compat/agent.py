@@ -1,8 +1,9 @@
 """dstack guest-api-v1 shim for a dsmack guest.
 
-python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--grant grant.json] SERVICE...
+python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--canary-key PATH] [--grant grant.json] SERVICE...
 
-With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
+--canary-key writes a fresh P-256 scalar to PATH (0600; the supervisor puts it in
+guest-root tmpfs) and adds its public key as the canary-guest-key event. With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
 sends the supervisor's system events and the seal, writes <dir>/sealed and then
 serves /v1/Attest. With --grant it serves /v1/GetKey. /v1/Info and /v1/Version
 always. Each service gets <dir>/<service>.sock, which lowering binds to that
@@ -143,13 +144,24 @@ def start(sockdir, services, ctl_fd=None, events=(), grant=None):
     return servers
 
 
+def canary_key(path):
+    k = int.from_bytes(os.urandom(32), "big") % (guest_attest.P256_N - 1) + 1
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    os.write(fd, k.to_bytes(32, "big"))
+    os.close(fd)
+    return k
+
+
 if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("--dir", required=True)
     p.add_argument("--ctl")
     p.add_argument("--event", action="append", default=[], type=lambda e: (e.split("=")[0], bytes.fromhex(e.split("=")[1])))
+    p.add_argument("--canary-key")
     p.add_argument("--grant", type=lambda f: json.load(open(f)))
     p.add_argument("services", nargs="*")
     a = p.parse_args()
+    if a.canary_key:
+        a.event.append((guest_attest.CANARY_GUEST_EVENT, guest_attest.p256_public(canary_key(a.canary_key))))
     start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant)
     threading.Event().wait()

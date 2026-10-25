@@ -12,6 +12,33 @@ DOMAIN = b"dsmack.appattest.guest-attest/1"
 SYSTEM_READY = "system-ready"
 
 
+CANARY_GUEST_EVENT = "canary-guest-key"
+P256_P = 2**256 - 2**224 + 2**192 + 2**96 - 1
+P256_N = 0xFFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551
+P256_G = (0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
+          0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5)
+
+
+def p256_public(k):
+    """x || y of k*G on P-256 (affine double-and-add; the guest has no EC library)."""
+    def add(a, b):
+        if a is None or b is None:
+            return a or b
+        if a[0] == b[0] and (a[1] + b[1]) % P256_P == 0:
+            return None
+        lam = (3 * a[0] * a[0] - 3) * pow(2 * a[1], -1, P256_P) if a == b else (b[1] - a[1]) * pow(b[0] - a[0], -1, P256_P)
+        x = (lam * lam - a[0] - b[0]) % P256_P
+        return x, (lam * (a[0] - x) - a[1]) % P256_P
+    if not 0 < k < P256_N:
+        raise ValueError("P-256 scalar out of range")
+    r, q = None, P256_G
+    while k:
+        if k & 1:
+            r = add(r, q)
+        q, k = add(q, q), k >> 1
+    return r[0].to_bytes(32, "big") + r[1].to_bytes(32, "big")
+
+
 def sha256(b):
     return hashlib.sha256(b).digest()
 

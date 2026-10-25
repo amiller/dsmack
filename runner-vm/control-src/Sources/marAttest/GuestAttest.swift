@@ -31,10 +31,18 @@ public struct GuestEventLog {
     public private(set) var sealed = false
     private var attests = 0
 
+    /// The app's own event: the runner canary public key, kept off the guest's event path.
+    public static let runnerCanaryEvent = "canary-runner-key"
+
     public init() {}
+
+    public init(runnerCanaryKey: Data) {
+        append(Self.runnerCanaryEvent, runnerCanaryKey)
+    }
 
     public mutating func event(_ name: String, _ payload: Data) throws -> Data {
         guard !sealed else { throw GuestAttestRefusal("event refused after seal") }
+        guard name != Self.runnerCanaryEvent else { throw GuestAttestRefusal("\(name) is the app's event") }
         guard events.count < Self.maxEvents else { throw GuestAttestRefusal("more than \(Self.maxEvents) events") }
         append(name, payload)
         return head

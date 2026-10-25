@@ -83,7 +83,7 @@ The commitment is `dsmack.task-commitment/3` with scope
 the request bytes alone. What is new: the request schema, the artifact names, and
 the rule that a chain's `state_in` equals the previous `state_out`.
 
-The mac-compose runner (the 25 October personal-agent spike) has no receipt v4.
+The mac-compose runner ([personal-agent/](personal-agent/README.md)) has no receipt v4.
 There `compose_hash` commits `STATE_IN` through the compose environment, and the
 guest's `/attest` assertion signs `{state_in, state_out, turn}`. `turn.py` reads
 both kinds into the same turn.

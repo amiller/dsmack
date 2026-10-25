@@ -1,4 +1,5 @@
-import {mkdirSync,lstatSync} from 'node:fs';
+import {mkdirSync,lstatSync,readFileSync} from 'node:fs';
+import {join} from 'node:path';
 import {Pilot,need} from './core.mjs';
 import {remoteAdapters,walletVerifier} from './adapters.mjs';
 import {server} from './server.mjs';
@@ -19,6 +20,10 @@ export function createHandler(config){
   const pathname=url.split('?')[0];
   // The existing pod host may remove its project prefix before delegation.
   if(base&&pathname!==base&&!pathname.startsWith(base+'/'))req.url=base+url;
+  const local=req.url.slice(base.length);
+  if(config.documentsRoot&&['GET','HEAD'].includes(req.method)&&['/terms.json','/policy.json'].includes(local)){
+   const bytes=readFileSync(join(config.documentsRoot,local.slice(1)));res.writeHead(200,{'Content-Type':'application/json; charset=utf-8','Content-Length':bytes.length,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});res.end(req.method==='HEAD'?undefined:bytes);return;
+  }
   return listener(req,res);
  };
  handler.close=()=>pilot.close();return handler;

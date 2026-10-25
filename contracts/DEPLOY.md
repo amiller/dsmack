@@ -99,3 +99,16 @@ The 2026-10-25 instance (canary `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C`,
 verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates the cdhash
 binding: its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe
 and is void as evidence.
+
+## Key canaries
+
+Guest (#1), Runner (#2) and Owner (#3) entries pay a P-256 signature over
+`claimDigest(id, claimant)` by a canary key whose public key (x || y) is a system event
+in a guest Attest assertion by the entry's build. `claimKey` replays the event head,
+rebuilds the 255-byte client data and verifies the assertion through `attest`. The log
+must end in its only `system-ready` and hold one `canary-guest-key` (Guest, Owner; sent by
+the supervisor, key in guest-root tmpfs) or `canary-runner-key` (Runner; appended by the
+app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
+`contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
+A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[cdhash]`.
+

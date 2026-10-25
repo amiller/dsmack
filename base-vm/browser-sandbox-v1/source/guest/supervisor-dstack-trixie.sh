@@ -587,7 +587,7 @@ for p in /sys/class/virtio-ports/*; do [ "$(cat "$p/name")" = dsmack-ctl ] && CT
 [ -n "$CTL" ] || fail 31
 SERVICES=$(python3 -c 'import json,sys; print(" ".join(sorted({s for f in sys.argv[1:] for s in json.loads(json.load(open(f))["docker_compose_file"])["services"]})))' $APP/manifests/*.app-compose.json) || fail 32
 $B mkdir -p -m 0755 /run/dsmack-agent
-python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --canary-key /run/rootcontrol/canary-guest.key --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" $SERVICES >/run/rootcontrol/agent.log 2>&1 &
+python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --canary-key /run/rootcontrol/canary-guest.key --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" -- $SERVICES >/run/rootcontrol/agent.log 2>&1 &
 AGENT_PID=$!
 i=0
 until [ -e /run/dsmack-agent/sealed ]; do

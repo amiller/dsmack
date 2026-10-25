@@ -71,7 +71,8 @@ enrolled in `0x6e4b6ccc2a8fe7e8d72ad50db673b74f75c2f0378eae4fd37b9989298e629f78`
 over `forgeryContext(id, claimant)`, a context that build never asserts. An entry
 names a CDRegistry `buildId` and counts only while that build is approved, so any
 copy the registry admits can claim, including one re-signed by another team: the
-approved runner is signed for one device.
+approved runner is signed for one device. A `setBuild` voids every armed entry
+for the previous build: claims fail, and the funder reclaims after `until`.
 Its verifier is a dedicated `AppleAttestRegistryV1` whose `registry` is the
 canary, sharing `CDRegistry` and the adapter policy above. Each App Attest key
 enrolls there separately (~14M gas), and its assertions must be claimed in

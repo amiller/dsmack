@@ -1,6 +1,6 @@
 import copy,hashlib,importlib.util,json,pathlib,unittest
 s=importlib.util.spec_from_file_location('canary',pathlib.Path(__file__).with_name('canary.py'));m=importlib.util.module_from_spec(s);s.loader.exec_module(m)
-C=json.loads((m.HERE/'registry.json').read_text())['canaries'][0]
+C=next(c for c in json.loads((m.HERE/'registry.json').read_text())['canaries'] if c['codec']=='canary-read-codec/1')
 H='0x'+'a'*64
 def word(n):return format(n,'064x')
 # Recorded from Base Sepolia: Armed log of tx 0x3e73a6...f2b8 and entries(0) at block 50203471.

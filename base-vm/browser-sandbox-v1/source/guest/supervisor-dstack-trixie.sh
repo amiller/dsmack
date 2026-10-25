@@ -577,16 +577,17 @@ stop_broker() {
 # is covered on every path, including fail()'s exec-poweroff path.
 
 # Guest Attest agent: the only guest process on the dsmack-ctl port. Before any
-# workload container exists it sends the app one system event (the service names
-# that get sockets) and the seal, writes /run/dsmack-agent/sealed, then serves
-# /run/dsmack-agent/<service>.sock, which lowering binds to a service's
-# /var/run/dstack.sock.
+# workload container exists it sends the app the system events (the service names
+# that get sockets, and canary-guest-key: the public half of a P-256 key kept only in
+# guest-root tmpfs, Canary kinds Guest and Owner) and the seal, writes
+# /run/dsmack-agent/sealed, then serves /run/dsmack-agent/<service>.sock, which
+# lowering binds to a service's /var/run/dstack.sock.
 CTL=""
 for p in /sys/class/virtio-ports/*; do [ "$(cat "$p/name")" = dsmack-ctl ] && CTL=/dev/${p##*/}; done
 [ -n "$CTL" ] || fail 31
 SERVICES=$(python3 -c 'import json,sys; print(" ".join(sorted({s for f in sys.argv[1:] for s in json.loads(json.load(open(f))["docker_compose_file"])["services"]})))' $APP/manifests/*.app-compose.json) || fail 32
 $B mkdir -p -m 0755 /run/dsmack-agent
-python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" $SERVICES >/run/rootcontrol/agent.log 2>&1 &
+python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --canary-key /run/rootcontrol/canary-guest.key --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" -- $SERVICES >/run/rootcontrol/agent.log 2>&1 &
 AGENT_PID=$!
 i=0
 until [ -e /run/dsmack-agent/sealed ]; do

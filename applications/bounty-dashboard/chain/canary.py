@@ -21,7 +21,7 @@ def collect_canary(c,r,state,max_pages):
   entries=[]
   for i in sorted({int(e['id']) for e in events if e['event']=='Armed'}):
    d=m.decode(codec['entry'],r('eth_call',[{'to':c['address'],'data':'0x'+codec['selectors']['entries(uint256)']+format(i,'064x')},tag]))
-   entries.append({'id':str(i),'kind':kind(d),'cdhash':d.get('cdhash'),'image':d['image'],'manifest':d['manifest'],'funder':d['funder'],'pot_wei':d['amount'],'until':d['until'],'burned':d['burned']})
+   entries.append({'id':str(i),'kind':kind(d),'cdhash':d.get('cdhash'),'build':d.get('build'),'image':d['image'],'manifest':d['manifest'],'funder':d['funder'],'pot_wei':d['amount'],'until':d['until'],'burned':d['burned']})
   m.need(r('eth_getBlockByNumber',[tag,False])['hash']==head['hash'],'snapshot block reorged')
   meta.update(status='observed',block_number=number,block_hash=head['hash'],entries=entries,events=events,coverage={'entries':'every Armed id indexed, read at pinned block','events_from':c['deployment_block'],'events_through':state['through_block'],'events_complete':state['through_block']==number,'pages_this_run':pages,'reorg_reset':state['reorg_reset']})
   return meta,state

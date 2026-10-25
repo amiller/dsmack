@@ -21,7 +21,22 @@
       "network": "Base Sepolia",
       "testnet": true,
       "rpc": "https://sepolia.base.org",
-      "name": "Forgery canary",
+      "name": "Build-bound canary",
+      "address": "0x65094121f566ca226e02f9a246283d91b6b24658",
+      "explorer_url": "https://sepolia.basescan.org/address/0x65094121f566ca226e02f9a246283d91b6b24658",
+      "deployment_block": 50215123,
+      "deployment_tx": "0xf2e629105390ca06fdfd5ac8b748f9d3255bb9e4412df4da8eb5a53997148603",
+      "runtime_sha256": "83cd68d5804f561c3a370813f6197f268d0dcd1ef74ce8e2735ad454c5f31a31",
+      "codec": "canary-read-codec/2",
+      "void": false,
+      "note": null
+    },
+    {
+      "chain_id": 84532,
+      "network": "Base Sepolia",
+      "testnet": true,
+      "rpc": "https://sepolia.base.org",
+      "name": "Forgery canary (single CDHash)",
       "address": "0x469bbd050cc74914ce9c2c69d049e8923e6d24c0",
       "explorer_url": "https://sepolia.basescan.org/address/0x469bbd050cc74914ce9c2c69d049e8923e6d24c0",
       "deployment_block": 50168054,
@@ -29,7 +44,7 @@
       "runtime_sha256": "ff1338bcb3b8d701dc25c7c9375bdaacf664b9b655be65d77c381b928386fb7a",
       "codec": "canary-read-codec/1",
       "void": false,
-      "note": null
+      "note": "Bound to one device-provisioned CDHash; unclaimable since the 2026-10-25 setBuild"
     },
     {
       "chain_id": 84532,

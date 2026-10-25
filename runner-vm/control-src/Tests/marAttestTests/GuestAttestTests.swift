@@ -32,4 +32,11 @@ final class GuestAttestTests: XCTestCase {
             }
         }
     }
+
+    /// Runner canary entries admit any image, so a guest must not be able to name its own key as the app's.
+    func testGuestCannotSendRunnerCanaryEvent() throws {
+        var log = GuestEventLog(runnerCanaryKey: Data(repeating: 7, count: 64))
+        XCTAssertThrowsError(try log.event(GuestEventLog.runnerCanaryEvent, Data(count: 64)))
+        XCTAssertEqual(log.events.map(\.name), [GuestEventLog.runnerCanaryEvent])
+    }
 }

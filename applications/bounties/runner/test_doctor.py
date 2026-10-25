@@ -1,4 +1,5 @@
 import hashlib,http.server,json,os,shutil,subprocess,sys,tempfile,threading,unittest
+from unittest import mock
 from pathlib import Path
 HERE=Path(__file__).parent;NODE=str(Path(shutil.which('node')).resolve())
 s=HERE/'doctor.py';D={'__name__':'arcade_doctor','__file__':str(s)};exec(compile(s.read_bytes(),str(s),'exec'),D);S=D['S']
@@ -44,16 +45,23 @@ class Doctor(unittest.TestCase):
     def test_release_authenticates_metadata_only_and_budgets_expanded_bytes(self):
         f,runtime=fixture(self.t);fetched=[]
         v,row=D['release'](NODE,str(f/'key.pem'),runtime,str(self.t/'h'),self.copy(f,fetched))
-        self.assertEqual((row[0],fetched,v['sequence']),('ok',['inventory','signature'],3));self.assertEqual(S['disk_need'](self.t/'h',v)[1],5000+7000+9000+(12<<30))
+        self.assertEqual((row[0],fetched,v['sequence']),('ok',['inventory','signature'],3));self.assertEqual([n for _,_,n in S['disk_need'](self.t/'h',self.t/'h'/'s',v)],[5000+7000+9000+(12<<30)])
         self.assertEqual(sorted(os.listdir(self.t)),['f'])
         runtime['release_inventory_sha256']='9'*64
         with self.assertRaisesRegex(ValueError,'not the task runtime'):D['release'](NODE,str(f/'key.pem'),runtime,str(self.t/'h'),self.copy(f,[]))
+        fetched=[];runtime['assets'][0]['bytes']=2<<30
+        with self.assertRaisesRegex(ValueError,'size caps'):D['release'](NODE,str(f/'key.pem'),runtime,str(self.t/'h'),self.copy(f,fetched))
+        self.assertEqual(fetched,[])
+
+    def test_symlinked_node_names_its_resolved_path(self):
+        node=self.t/'node';node.write_text('#!/bin/sh\necho v24.0.0\n');node.chmod(0o700);(self.t/'link').symlink_to(node)
+        with self.assertRaisesRegex(ValueError,'not a symlink: '+str(node)):S['node_version'](str(self.t/'link'))
 
     def test_setup_refuses_expired_release_before_archive_or_state(self):
         f,runtime=fixture(self.t,'2021-01-01T00:00:00.000Z');fetched=[];srv=serve({'runtime':runtime,'app_policy_sha256':'0'*64},[])
-        S['ROOT_SHA']=runtime['trust_key_sha256'];S['download']=self.copy(f,fetched);node=self.t/'node';shutil.copyfile(NODE,node);node.chmod(0o700)
-        sys.argv=['setup.py','--api',f'http://127.0.0.1:{srv.server_port}','--allow-loopback','--home',str(self.t/'h'),'--node',str(node),'--public-key',str(f/'key.pem')]
+        node=self.t/'node';shutil.copyfile(NODE,node);node.chmod(0o700)
+        argv=['setup.py','--api',f'http://127.0.0.1:{srv.server_port}','--allow-loopback','--home',str(self.t/'h'),'--node',str(node),'--public-key',str(f/'key.pem')]
         try:
-            with self.assertRaisesRegex(ValueError,'Release not current'):S['main']()
+            with mock.patch.dict(S,{'ROOT_SHA':runtime['trust_key_sha256'],'download':self.copy(f,fetched)}),mock.patch.object(sys,'argv',argv),self.assertRaisesRegex(ValueError,'Release not current'):S['main']()
         finally:srv.shutdown()
         self.assertEqual(fetched,['inventory','signature']);self.assertEqual(sorted(os.listdir(self.t)),['f','node'])

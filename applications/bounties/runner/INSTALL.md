@@ -3,16 +3,22 @@
 `doctor.py` checks this Mac against the published task and its signed release,
 then prints the exact setup command. It reads `GET /api/task`, downloads the small
 signed inventory and signature into a temporary directory and authenticates them
-with `pilot-client/alpha-release-cli.mjs`: maintainer key, key id, channel, current
-sequence, expiry, Developer ID category 6, platform and the task's inventory
-digest. It never downloads the runtime archive, keeps no install state, creates
+with `pilot-client/alpha-release-cli.mjs`: maintainer key, key id, channel,
+expiry, Developer ID category 6, platform, the task's inventory digest and the
+sequence the task selects. The service chooses that sequence, so it is not a
+rollback floor independent of the service. It never downloads the runtime archive, keeps no install state, creates
 no keys and asks for no wallet signature.
 
 You need:
 
 - an Apple silicon Mac on the macOS version the signed release requires (27.0 or later)
-- Python 3.9 or later and Node 24, each at an absolute path owned by you or root
-  in directories that are not group/world writable
+- Python 3.9 or later and Node 24. Pass Node's resolved absolute path, not a
+  symlink, owned by you or root in directories that are not group/world writable.
+  Print it with:
+
+  ```sh
+  python3 -c 'import os,shutil;print(os.path.realpath(shutil.which("node")))'
+  ```
 - the maintainer public key:
 
   ```sh
@@ -22,8 +28,10 @@ You need:
   # 4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df
   ```
 
-- free disk for the expanded runtime, its archive and a 12 GiB working reserve;
-  doctor computes the exact figure from the signed inventory
+- free disk for the expanded runtime and its archive on the `--home` volume, plus
+  a 12 GiB working reserve for task and result disks on the state volume (the same
+  volume unless you pass `--state-dir` elsewhere). Doctor computes the exact
+  figures from the signed inventory
 - a Base Sepolia address you control, which receives the testETH
 
 From `applications/bounties/runner`:

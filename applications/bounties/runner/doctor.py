@@ -3,6 +3,7 @@
 inventory+signature in a temporary directory; never fetches the archive or keeps install state."""
 import argparse,hashlib,json,platform,shlex,sys,tempfile
 from pathlib import Path
+if sys.version_info<(3,9):raise SystemExit('Python 3.9 or later required (pathlib is_relative_to); found '+sys.version.split()[0])
 s=Path(__file__).with_name('setup.py');S={'__name__':'arcade_setup','__file__':str(s)};exec(compile(s.read_bytes(),str(s),'exec'),S)
 p=S['p'];ROOT_SHA=S['ROOT_SHA']
 
@@ -34,15 +35,16 @@ def release(node,key,runtime,home,fetch=None):
     with tempfile.TemporaryDirectory(dir=Path(home).expanduser().parent)as t:v=S['release_metadata'](node,p['protected'](key),runtime,Path(t),fetch)
     return v,('ok',f"{v['release_id']} sequence {v['sequence']} signed by {v['key_id']}, expires {v['expires_at']}, Developer ID category {v['app']['attestation_category']}, {len(v['files'])} files",None)
 
-def disk(home,inventory):
-    root=Path(home).expanduser();free,need=S['disk_need'](root,inventory)
-    return('ok'if free>=need else'fail',f'{free>>20} MiB free at {root.parent}; expanded runtime + archive + 12 GiB reserve need {need>>20} MiB','free disk space on that volume or choose a --home on a larger volume')
+def disk(home,state,inventory):
+    root=Path(home).expanduser();rows=S['disk_need'](root,S['state_directory'](root,state),inventory);short=[r for r in rows if r[1]<r[2]]
+    what='expanded runtime + archive + 12 GiB working reserve'if len(rows)==1 else'expanded runtime + archive on the --home volume, 12 GiB working reserve on the --state-dir volume'
+    return('fail'if short else'ok','; '.join(f'{free>>20} MiB free at {v}, need {need>>20} MiB'for v,free,need in rows)+f' ({what})','free disk space on the volume that is short, or choose a --home/--state-dir on a larger volume')
 
 def main():
     a=argparse.ArgumentParser();a.add_argument('--api',required=True);a.add_argument('--home',required=True);a.add_argument('--state-dir');a.add_argument('--node',required=True);a.add_argument('--public-key',required=True);a.add_argument('--allow-loopback',action='store_true');a.add_argument('--json',action='store_true');x=a.parse_args()
     rows=[];task=inventory=None
-    check(rows,'python',lambda:('ok'if sys.version_info>=(3,9)else'fail',sys.executable+' '+sys.version.split()[0]+' (3.9+ required)','use Python 3.9 or later'))
-    check(rows,'node',lambda:node(x.node),'pass the absolute path of an executable Node 24 owned by you or root, not group/world writable')
+    check(rows,'python',lambda:('ok',sys.executable+' '+sys.version.split()[0]+' (3.9+ required)',None))
+    check(rows,'node',lambda:node(x.node),"pass the resolved absolute path of an executable Node 24 (not a symlink), owned by you or root in directories that are not group/world writable; print it with: python3 -c 'import os,shutil;print(os.path.realpath(shutil.which(\"node\")))'")
     check(rows,'paths',lambda:paths(x.home,x.state_dir),'pick a --home that does not exist, inside a directory owned by you and not group/world writable; if the socket path is too long add --state-dir /SHORT/FRESH/PATH')
     check(rows,'public_key',lambda:key(x.public_key),'save the maintainer public key as a private regular file (chmod 600)')
     def fetch():
@@ -57,7 +59,7 @@ def main():
         check(rows,'release',signed,'setup will refuse this release; report the error to the maintainer')
     else:rows.append({'check':'release','status':'fail','detail':'not checked: node, public_key, paths and task_runtime must pass first','fix':None})
     check(rows,'host',lambda:host(inventory['platform']['minimum_version']if inventory else'27.0'))
-    if inventory:check(rows,'disk',lambda:disk(x.home,inventory))
+    if inventory:check(rows,'disk',lambda:disk(x.home,x.state_dir,inventory))
     ok=all(r['status']=='ok'for r in rows)
     cmd=['python3','-I','setup.py','--api',x.api,'--home',x.home,'--node',x.node,'--public-key',x.public_key]+(['--state-dir',x.state_dir]if x.state_dir else[])+(['--allow-loopback']if x.allow_loopback else[])
     nxt=[shlex.join(cmd),shlex.join(['python3','-I','client.py','--config',str(Path(x.home).expanduser()/'client.json'),'authorization','--purpose','registration','--payee','0xYOURADDRESS','--out','REG-AUTH.json'])]

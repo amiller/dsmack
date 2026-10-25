@@ -9,14 +9,19 @@ KEY_URL='https://github.com/amiller/dsmack/releases/download/arcade-browser-v0.1
 CLI=Path(__file__).parents[2]/'pilot-client/alpha-release-cli.mjs'
 
 def node_version(path):
+    real=os.path.realpath(path);need(real==os.path.abspath(path),'pass the resolved absolute Node path, not a symlink: '+real)
     n=protected(path);need(os.access(n,os.X_OK),'trusted Node24 prerequisite')
     return n,subprocess.run([str(n),'--version'],capture_output=True,text=True,timeout=10,env={'PATH':'/usr/bin:/bin'}).stdout.strip()
 
-def disk_need(root,inventory):return shutil.disk_usage(root.parent).free,sum(f['bytes']for f in inventory['files'])+inventory['archive']['bytes']+RESERVE
+def disk_need(root,state,inventory):
+    """(volume, free, needed): expanded runtime + archive on the install volume; the 12 GiB working reserve on the state volume."""
+    install=sum(f['bytes']for f in inventory['files'])+inventory['archive']['bytes'];sp=root.parent if state.parent==root else state.parent
+    if os.stat(root.parent).st_dev==os.stat(sp).st_dev:return[(root.parent,shutil.disk_usage(root.parent).free,install+RESERVE)]
+    return[(root.parent,shutil.disk_usage(root.parent).free,install),(sp,shutil.disk_usage(sp).free,RESERVE)]
 
 def release_metadata(node,key,runtime,directory,fetch=None):
     """Fetch only inventory+signature and authenticate them with the existing release CLI."""
-    rows={d['name']:d for d in runtime['assets']}
+    rows={d['name']:d for d in runtime['assets']};need(rows['inventory']['bytes']<=262144 and rows['signature']['bytes']==64,'signed metadata size caps')
     for name in ('inventory','signature'):(fetch or download)(rows[name],directory/name)
     r=subprocess.run([str(node),str(CLI),'--inventory',str(directory/'inventory'),'--signature',str(directory/'signature'),'--trust-key',str(key),'--key-id',runtime['key_id'],'--channel','alpha','--min-sequence',str(runtime['sequence'])],capture_output=True,text=True,timeout=60,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
     need(r.returncode==0,r.stderr.strip()or'release authentication refused');out=doc(r.stdout);v=out['inventory']
@@ -66,7 +71,7 @@ def main():
     # Authenticate the small signed metadata before creating state or fetching the archive.
     with tempfile.TemporaryDirectory(dir=root.parent)as t:
         t=Path(t);inventory=release_metadata(node,protected(x.public_key),runtime,t);metadata={n:read(t/n,262144)for n in('inventory','signature')}
-    free,want=disk_need(root,inventory);need(free>=want,f'{want>>20} MiB free disk required before download, {free>>20} MiB available')
+    for volume,free,want in disk_need(root,state,inventory):need(free>=want,f'{want>>20} MiB free disk required on {volume} before download, {free>>20} MiB available')
     root.mkdir(mode=0o700);exclusive(root/'root-public.pem',public);exclusive(root/'public-task.json',canonical(task));downloads=root/'downloads';downloads.mkdir(mode=0o700)
     for n,raw in metadata.items():exclusive(downloads/n,raw)
     download({d['name']:d for d in rows}['archive'],downloads/'archive')

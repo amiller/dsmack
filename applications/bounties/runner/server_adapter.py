@@ -102,7 +102,7 @@ def settlement_binding(config,value,job):
     # Resolve the exact committed source again, rather than treating availability
     # of a candidate hash or HTTP assertion as delivery.
     f=config['factory'];ns={'__name__':'arcade_factory_delivery','__file__':f['path']};raw=read(f['path']);need(hashlib.sha256(raw).hexdigest()==f['sha256'],'delivery factory changed');exec(compile(raw,f['path'],'exec'),ns)
-    pub=config['publisher'];base=ns['git_tree'](pub['repository'],ns['BASE']);submitted=ns['git_tree'](pub['repository'],selected['candidate_commit']);projected=ns['project_candidate'](base,submitted)
+    pub=config['publisher'];base=ns['git_tree'](pub['repository'],ns['BASE']);submitted=ns['git_tree'](pub['repository'],selected['candidate_commit']);allowed,_=ns['task_projection'](pub);projected=ns['project_candidate'](base,submitted,allowed)
     need({n:base64.b64decode(b,validate=True)for n,b in tree.items()}==projected,'exact committed delivery unavailable or changed')
     exclusive(job/'candidate-delivery.json',delivery)
     evidence=canonical({'report_sha256':record['report']['sha256'],'full_result_sha256':record['full_result']['sha256'],'originals':[{k:r[k]for k in ('name','bytes','sha256')}for r in record['original_files']]})

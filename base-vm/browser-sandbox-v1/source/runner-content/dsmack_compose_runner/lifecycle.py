@@ -35,6 +35,7 @@ import subprocess
 import time
 
 from .errors import RunnerError
+from dsmack_compose_contract.lowering import AGENT_SOCKET_DIR
 
 POLL_INTERVAL_S = 0.5
 STOP_GRACE_S = 10
@@ -138,7 +139,9 @@ def parser_validate(control, lowered, project_name: str) -> dict:
             source = volume.get("source") or ""
             if volume.get("type") != "bind" or (volume.get("bind") or {}).get("propagation") != "rprivate":
                 raise RunnerError("config-mount-drift", "mounts must be rprivate binds")
-            if not source.startswith(ws + os.sep):
+            agent_sock = (source, volume.get("target"), volume.get("read_only")) == (
+                "%s/%s.sock" % (AGENT_SOCKET_DIR, name), "/var/run/dstack.sock", True)
+            if not source.startswith(ws + os.sep) and not agent_sock:
                 raise RunnerError("config-mount-outside-workspace", "a mount source leaves the private per-run workspace")
         if (service.get("network_mode") or None) != lowered["network_mode"]:
             raise RunnerError("config-network-drift", "the normalized network mode does not equal the lowered mode")

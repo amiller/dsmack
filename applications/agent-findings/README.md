@@ -36,6 +36,17 @@ on new inputs (CI) or once (a one-off finding).
 }
 ```
 
+Build the image on Zed from the qualified Claude Code 2.1.187 image:
+
+```sh
+DOCKER_BUILDKIT=0 docker build --build-arg QUALIFIED_CLAUDE_REPOSITORY=<local name> -t agent-findings .
+```
+
+For private inputs, `compose-private.yml` runs the sentinel as a container on two
+networks and the agent on an internal one only. `gateway_mode_ipv4: isolated`
+(Docker 28) removes the bridge gateway, so the agent cannot reach the host either;
+with `internal: true` alone the host's listeners stay reachable.
+
 ```sh
 python3 find.py --spec spec.json --inputs /inputs --output /output
 python3 -m unittest discover -s applications/agent-findings -v

@@ -2,11 +2,12 @@ import hashlib, json, pathlib, sys, unittest
 
 sys.path.insert(0, str(pathlib.Path(__file__).parent / "source/runner-content/lib"))
 from dsmack_compose_contract.errors import MultiError
+from dsmack_compose_contract.lowering import lower, render_compose_file
 from dsmack_compose_contract.manifest import validate_manifest_bytes
 
 H = lambda c: c * 64
 ROOTFS = H("6")
-COMPOSE = json.dumps({"services": {"worker": {"image": "127.0.0.1:5005/worker@sha256:" + H("2"), "entrypoint": ["/usr/bin/python3", "-I"],
+COMPOSE = json.dumps({"services": {"worker": {"image": "ghcr.io/acme/worker@sha256:" + H("2"), "entrypoint": ["/usr/bin/python3", "-I"],
                                               "command": ["/worker.py"], "read_only": True}}})
 DSMACK = {
     "base_vm": {"architecture": "aarch64", "memory_mb": 4096, "vcpus": 1, "verity_root_hash": ROOTFS, "os_image_hash": H("a"),
@@ -45,6 +46,14 @@ class DstackAppCompose(unittest.TestCase):
         for extra in ({"key_provider": "local"}, {"init_script": "true"}, {"manifest_version": 3}):
             with self.assertRaises(MultiError, msg=extra):
                 validate_manifest_bytes(app_compose(**extra))
+
+    def test_registry_named_images_pull_from_the_guest_publisher(self):
+        raw = app_compose()
+        manifest, summary = validate_manifest_bytes(raw)
+        lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/d.sock", run_id="r" * 32,
+                        workspace_host_dir="/w")
+        rendered = json.loads(render_compose_file(manifest, lowered))
+        self.assertEqual(rendered["services"]["worker"]["image"], "127.0.0.1:5005/acme/worker@sha256:" + H("2"))
 
 
 if __name__ == "__main__":

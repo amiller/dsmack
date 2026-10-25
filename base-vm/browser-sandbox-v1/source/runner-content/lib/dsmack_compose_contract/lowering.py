@@ -43,6 +43,7 @@ from .canonical import canonical_bytes, load_json_bytes
 from .errors import LoweringError
 from .manifest import (
     ARTIFACTS_ROOT,
+    DSTACK_SOCK_VOLUME,
     DEFAULT_USER_CONFIG_TARGET,
     INPUTS_ROOT,
     RUN_ID_RE,
@@ -55,6 +56,7 @@ CONTROL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WORKLOAD_UID = 1000
 WORKLOAD_GID = 1000
 SENTINEL_ENV_NAME = "DSMACK_SENTINEL_ENDPOINT"
+AGENT_SOCKET_DIR = "/run/dsmack-agent"
 
 
 def _target_segment(target):
@@ -421,6 +423,10 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
     if len(service_names) > 1:
         mounts.append(
             {"create_host_path": False, "mode": "rw", "slot": "shared", "source": "%s/shared" % workspace_host_dir, "target": SHARED_ROOT, "type": "bind"}
+        )
+    if DSTACK_SOCK_VOLUME in _compose_doc(manifest)["services"][service_name].get("volumes", []):
+        mounts.append(
+            {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": "/var/run/dstack.sock", "type": "bind"}
         )
     return mounts
 

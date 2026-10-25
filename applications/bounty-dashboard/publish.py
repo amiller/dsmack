@@ -3,7 +3,7 @@
 import argparse,datetime,json,pathlib,stat,os,urllib.request
 ENDPOINT='https://pod.dstack.soc1024.com/bounties/api/snapshot'
 def normalize(chain,feeds):
- out={k:chain.get(k,[]) for k in ['contracts','tasks','assignments','payments','activity','credits']}
+ out={k:chain.get(k,[]) for k in ['contracts','tasks','assignments','payments','activity','credits','canaries']}
  out['contracts']=[{k:v for k,v in c.items()if k in ['id','name','chain_id','network','testnet','address','explorer_url','asset_symbol','block_number','block_hash','observed_at','status','coverage','error']}for c in out['contracts']]
  for c in out['contracts']:
   if 'credits'in chain and c.get('status')=='observed':c.setdefault('coverage',{})['credit_balances']='all observed recipients at pinned block'

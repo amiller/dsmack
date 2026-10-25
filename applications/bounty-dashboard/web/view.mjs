@@ -41,3 +41,4 @@ export function paymentKind(p){
  if(kind==='direct_reward'){if(p.economic_kind==='reward'&&p.reward_eligible===false&&/^0x[0-9a-f]{64}$/i.test(p.source_withdrawal_transaction_hash??''))return 'Reward forwarded';if(p.economic_kind==='unclassified'||p.reward_eligible===null)return 'Direct transfer';return 'Direct reward';}
  return text(kind);
 }
+export const canaryState=e=>e.burned===true?'Burned':e.burned===false&&wei(e.pot_wei)===0n?'Reclaimed':e.burned===false&&wei(e.pot_wei)>0n?'Armed':'Unknown';

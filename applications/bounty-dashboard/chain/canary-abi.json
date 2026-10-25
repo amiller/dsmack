@@ -1,0 +1,224 @@
+{
+ "canary-read-codec/1": {
+  "selectors": {
+   "entries(uint256)": "b30906d4"
+  },
+  "entry": [
+   {
+    "name": "kind",
+    "type": "uint8",
+    "indexed": false
+   },
+   {
+    "name": "cdhash",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "image",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "manifest",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "funder",
+    "type": "address",
+    "indexed": false
+   },
+   {
+    "name": "until",
+    "type": "uint64",
+    "indexed": false
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false
+   },
+   {
+    "name": "burned",
+    "type": "bool",
+    "indexed": false
+   }
+  ],
+  "events": [
+   {
+    "name": "Armed",
+    "topic": "0xa741985cbb340e4a54364c91c45401f5819fa7009a0a812f8461c6fdb2be64d0",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "cdhash",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "image",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "manifest",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     },
+     {
+      "name": "until",
+      "type": "uint64",
+      "indexed": false
+     }
+    ]
+   },
+   {
+    "name": "Burned",
+    "topic": "0x5a00dc4f82511de1770bf4dead5148d161be7af4dcf586cedb9d88643cf1ee11",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "claimant",
+      "type": "address",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     }
+    ]
+   }
+  ]
+ },
+ "canary-read-codec/0": {
+  "selectors": {
+   "entries(uint256)": "b30906d4"
+  },
+  "entry": [
+   {
+    "name": "kind",
+    "type": "uint8",
+    "indexed": false
+   },
+   {
+    "name": "image",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "manifest",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "funder",
+    "type": "address",
+    "indexed": false
+   },
+   {
+    "name": "until",
+    "type": "uint64",
+    "indexed": false
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false
+   },
+   {
+    "name": "burned",
+    "type": "bool",
+    "indexed": false
+   }
+  ],
+  "events": [
+   {
+    "name": "Armed",
+    "topic": "0x1d0795654ee99bdc55507d322d19b09b9a3afeaf3a71e89c1591b1b31d1a5b36",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "image",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "manifest",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     },
+     {
+      "name": "until",
+      "type": "uint64",
+      "indexed": false
+     }
+    ]
+   },
+   {
+    "name": "Burned",
+    "topic": "0x5a00dc4f82511de1770bf4dead5148d161be7af4dcf586cedb9d88643cf1ee11",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "claimant",
+      "type": "address",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     }
+    ]
+   }
+  ]
+ }
+}

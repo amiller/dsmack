@@ -10,6 +10,7 @@ const FIELDS={
  activity:'id timestamp kind task_key attempt_id contract_id tx transaction_hash message event fields block_number block_hash log_index explorer_url',
  attempts:'id source_id task_key repository candidate_commit payee execution_mode state created_at updated_at verification upload artifacts source_url error_code needs_attention assignment_id reported_state expires_at task_title task_slug historical inputs deadline',
  credits:'contract_id chain_id account withdrawable_wei block_number block_hash',
+ canaries:'id name network testnet chain_id address explorer_url void note status error observed_at block_number block_hash coverage runtime_sha256 deployment_block deployment_tx entries events',
  sources:'id name kind status count counts observed_at updated_at scope coverage block_number block_hash error error_code complete from_block to_block indexed_to attempt_count task_count invalid_record_count latest_record_created_at'
 };
 const FORBIDDEN=/^(capability|cap_hash|execution_cap_hash|node_capability|wallet_authorization|authorization|private_key|secret|access_token|refresh_token|token|password|db_path|stdout|stderr|raw)$/i;
@@ -30,6 +31,7 @@ function project(row,kind){
   out.upload=pick(row.upload,'file_count bytes complete');out.inputs=pick(row.inputs,'file_count bytes complete');out.deadline=pick(row.deadline,'expires_at expired');
   out.artifacts=(Array.isArray(row.artifacts)?row.artifacts:[]).map(x=>{const a=pick(x,'name bytes sha256 visibility category');if(x.visibility==='public')a.url=publicURL(x.url);return a;});
  }
+ if(kind==='canaries'){out.entries=row.entries.map(x=>pick(x,'id kind cdhash image manifest funder pot_wei until burned'));out.events=row.events.map(x=>({...pick(x,'event id kind amount_wei claimant transaction_hash block_number log_index timestamp'),explorer_url:publicURL(x.explorer_url)}));}
  if(kind==='tasks'){out.roles=pick(row.roles,'allocator execution_verifier reviewer delivery_verifier adjudicator');out.windows=pick(row.windows,'submit_seconds review_seconds adjudication_seconds');}
  return out;
 }
@@ -40,7 +42,7 @@ function validateSnapshot(v){
  for(const k of ['contracts','tasks','assignments','payments','activity','sources'])if(!Array.isArray(v.chain[k]))throw Error('chain arrays required');
  if(!v.chain.sources.length||v.chain.sources.some(x=>!x.id||!x.kind||!x.status))throw Error('explicit chain coverage required');
  checkPublic(v);const out={schema:v.schema,observed_at:v.observed_at,chain:{},feeds:[]};
- for(const k of ['contracts','tasks','assignments','payments','activity','sources','credits']){const a=v.chain[k]??[];if(!Array.isArray(a)||a.length>50000)throw Error('snapshot array bound');out.chain[k]=a.map(x=>project(x,k));}
+ for(const k of ['contracts','tasks','assignments','payments','activity','sources','credits','canaries']){const a=v.chain[k]??[];if(!Array.isArray(a)||a.length>50000)throw Error('snapshot array bound');out.chain[k]=a.map(x=>project(x,k));}
  for(const f of v.feeds??[]){if(!Array.isArray(f.attempts)||!Array.isArray(f.sources)||f.attempts.length>20000)throw Error('feed bound');out.feeds.push({attempts:f.attempts.map(x=>project(x,'attempts')),sources:f.sources.map(x=>project(x,'sources')),task_metadata:(f.task_metadata??[]).map(x=>pick(x,'task_key title issue_url repository source_id'))});}
  return out;
 }
@@ -63,7 +65,7 @@ function createHandler(config){
   const metadata=all.flatMap(f=>f.task_metadata??[]);for(const t of s.chain.tasks??[]){const m=metadata.filter(x=>x.task_key===t.key);for(const k of ['title','issue_url','repository']){const vals=[...new Set(m.map(x=>x[k]).filter(x=>typeof x==='string'&&x.length<=500))];if(vals.length===1)t[k]=k==='issue_url'?publicURL(vals[0]):vals[0];}}
   const sources=[...(s.chain.sources??[]),...all.flatMap(f=>f.sources??[])].map(x=>project(x,'sources'));
   for(const x of sources)if(x.kind==='chain'&&(stale||!x.observed_at||Date.now()-Date.parse(x.observed_at)>5*60*1000)&&['ok','indexing','observed'].includes(x.status))x.status='stale';
-  for(const c of s.chain.contracts??[])if(!c.observed_at||Date.now()-Date.parse(c.observed_at)>5*60*1000)c.status=c.status==='unknown'?'unknown':'stale';
+  for(const c of [...s.chain.contracts??[],...s.chain.canaries??[]])if(!c.observed_at||Date.now()-Date.parse(c.observed_at)>5*60*1000)c.status=c.status==='unknown'?'unknown':'stale';
   const attemptSources=sources.filter(x=>['arcade-pilot','bounty-demo','attempt-store'].includes(x.kind));for(const id of config.expected_feed_ids??[])if(!attemptSources.some(x=>x.id===id)){const x={id,kind:'attempt-store',status:'unavailable',error_code:'no_feed_snapshot'};sources.push(x);attemptSources.push(x);}
   const anyAttempts=attemptSources.some(x=>['ok','partial'].includes(x.status));const coverage={tasks_complete:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.getters==='all IDs at pinned block'),attempts_complete:attemptSources.length>0&&attemptSources.every(x=>x.status==='ok'),payments_complete:!sources.some(x=>x.kind==='direct-payments'&&x.status!=='ok')&&(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.events_complete===true)};
   return {schema:'dsmack-bounty-dashboard/1',built_at:new Date().toISOString(),snapshot_observed_at:s.observed_at??null,...s.chain,credits:(s.chain.contracts??[]).length>0&&(s.chain.contracts??[]).every(x=>['observed','stale'].includes(x.status)&&x.coverage?.credit_balances==='all observed recipients at pinned block')?s.chain.credits:null,tasks:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.tasks:null,assignments:(s.chain.contracts??[]).some(x=>['observed','stale'].includes(x.status))?s.chain.assignments:null,attempts:anyAttempts?unique:null,sources,coverage};

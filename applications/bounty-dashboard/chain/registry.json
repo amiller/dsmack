@@ -14,5 +14,37 @@
       "codec": "workescrow-read-codec/1",
       "provenance": "Canonical successful deployment receipt and reviewed WorkEscrow ABI,22 October2026"
     }
+  ],
+  "canaries": [
+    {
+      "chain_id": 84532,
+      "network": "Base Sepolia",
+      "testnet": true,
+      "rpc": "https://sepolia.base.org",
+      "name": "Forgery canary",
+      "address": "0x469bbd050cc74914ce9c2c69d049e8923e6d24c0",
+      "explorer_url": "https://sepolia.basescan.org/address/0x469bbd050cc74914ce9c2c69d049e8923e6d24c0",
+      "deployment_block": 50168054,
+      "deployment_tx": "0xb6a06a0a547e49833628b62f079bd19a8e3c2cbe80de987c75ac17bd8994aab6",
+      "runtime_sha256": "ff1338bcb3b8d701dc25c7c9375bdaacf664b9b655be65d77c381b928386fb7a",
+      "codec": "canary-read-codec/1",
+      "void": false,
+      "note": null
+    },
+    {
+      "chain_id": 84532,
+      "network": "Base Sepolia",
+      "testnet": true,
+      "rpc": "https://sepolia.base.org",
+      "name": "Forgery canary (first instance)",
+      "address": "0x7c66c53f45c53c2ddb23aa9b665d593c5845432c",
+      "explorer_url": "https://sepolia.basescan.org/address/0x7c66c53f45c53c2ddb23aa9b665d593c5845432c",
+      "deployment_block": 50157224,
+      "deployment_tx": "0x742f4873ef4704106b969b52d1fa96836592ca8c0bd54733b8142288c6aa73c3",
+      "runtime_sha256": "3bc20bcbb6a3a7b3d347e4a29e0159cebcc716bf9fde970cf4f74ed4334560f5",
+      "codec": "canary-read-codec/0",
+      "void": true,
+      "note": "Predates the cdhash binding; claimable with the App Attest probe, so a burn is not evidence"
+    }
   ]
 }

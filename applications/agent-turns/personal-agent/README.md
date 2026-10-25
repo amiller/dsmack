@@ -26,8 +26,8 @@ On zed, from a copy of this repository under `/data`:
 ```sh
 SOURCE_DATE_EPOCH=0 docker buildx build --builder abalone-oci --platform linux/arm64 \
   --provenance=false --sbom=false --output type=oci,dest=turn.oci.tar,rewrite-timestamp=true \
-  experiments/personal-agent-turns/guest
-python3 -I experiments/personal-agent-turns/keeper.py --state keeper-state --genesis \
+  applications/agent-turns/personal-agent/guest
+python3 -I applications/agent-turns/personal-agent/keeper.py --state keeper-state --genesis \
   --cdhash "$(ssh mini-mesh cat vz-runner/runner/build/cdhash.txt)" --app personal-agent-turns-20261025 \
   --image docker.io/dsmack/personal-agent-turn@sha256:<manifest digest> --port 19471
 ```
@@ -49,8 +49,3 @@ run_turn.sh 1 turn1 OUT     # head moves to turn 2
 run_turn.sh 2 turn2 OUT     # head moves to turn 3
 run_turn.sh 2 replay2 OUT   # refused: KMS /release -> 403 stale_head
 ```
-
-Result on 25 October 2026: both turns committed, the keeper decrypted the final
-state as `counter: 2`, the replayed boot got `403 stale_head: compose is not the
-current head`, and re-posting turn 2's commit got `403 stale_head: evidence is
-not for the current head`.

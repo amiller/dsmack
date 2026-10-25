@@ -15,7 +15,7 @@ import argparse, base64, hashlib, json, os, secrets, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+sys.path.insert(0, str(Path(__file__).resolve().parents[3]))
 from verifier.core import Reject, require, unb64, unique_json, verify_assertion, verify_attestation
 from verifier.macos_policy import policy, root
 from cryptography.hazmat.primitives import hashes

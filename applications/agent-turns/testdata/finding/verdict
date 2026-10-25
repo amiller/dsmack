@@ -1,0 +1,1 @@
+{"aggregate":"unanimous","answer":"yes","check_sha256":"bb5fe62b8420aae4362cb89a35267084978997e70bffe3dd6003826def743a53","inputs_sha256":"4c9101409ec3d2c0b28ecd117412e47a400ecf9c5b10320c4fed57577fb5f27c","observed_models":["claude-opus-4-8"],"question":"Can any workload container read the provider API key?","run_answers":["yes","yes","yes"],"schema":"dsmack-agent-finding/1"}

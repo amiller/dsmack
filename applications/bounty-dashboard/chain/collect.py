@@ -136,6 +136,6 @@ def main():
   need(re.fullmatch('0x[0-9a-f]{40}',c['address']) and isinstance(c['chain_id'],int),'invalid registry identity');path=a.state_dir/(str(c['chain_id'])+'-'+c['address']+'.json');state=json.loads(path.read_text()) if path.exists() else None;r,new=collect_contract(c,RPC(c['rpc']),state,a.event_pages)
   for k in ['contracts','tasks','assignments','payments','activity','sources','credits']:out[k].extend(r[k])
   if new:atomic(path,new)
- direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
+ direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at'],out['payments']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
  atomic(a.out,out)
 if __name__=='__main__':main()

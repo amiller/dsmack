@@ -90,7 +90,7 @@ function createHandler(config){
     try{fs.writeFileSync(tmp,JSON.stringify(v),{mode:0o600,flag:'wx'});fs.renameSync(tmp,snapshot);}finally{if(fs.existsSync(tmp))fs.unlinkSync(tmp);}
     return json(res,200,{accepted:true,observed_at:v.observed_at});
    }
-   const allowed=['index.html','app.mjs','style.css','view.mjs'];const name=p==='/'?'index.html':p.slice(1);
+   const allowed=['index.html','app.mjs','style.css','view.mjs','market.mjs'];const name=p==='/'?'index.html':p.slice(1);
    if(req.method==='GET'&&allowed.includes(name)){
     const b=fs.readFileSync(path.join(web,name));res.writeHead(200,{'Content-Type':name.endsWith('.html')?'text/html; charset=utf-8':name.endsWith('.mjs')?'text/javascript':'text/css','Cache-Control':'no-store','X-Content-Type-Options':'nosniff'});return res.end(b);
    }

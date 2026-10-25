@@ -64,3 +64,20 @@ The live capture [live-apple.json](../app-attest/contracts/fixtures/live-apple.j
 enrolled in `0x6e4b6ccc2a8fe7e8d72ad50db673b74f75c2f0378eae4fd37b9989298e629f78`
 (14,255,800 gas) and its `a1` assertion verified in
 `0xdb21e46ffa14de4bb5da72a35dafe5d3480b86ad5b32940018dc97936dc8e5db` (195,952).
+
+## Forgery canary, Base Sepolia, 2026-10-25
+
+`Canary` pays an armed entry to the first App Attest assertion over
+`forgeryContext(id, claimant)`, which no approved build asserts. Its verifier is
+a dedicated `AppleAttestRegistryV1` whose `registry` is the canary, with the
+adapter policy above. Claimants enroll their key there. Deployed with
+`local-data/canary-deploy-20261025/deploy.sh` from the deployer above; both
+contracts are source-verified on Basescan from the `std_input.py` input.
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| AppleAttestRegistryV1 (canary verifier) | `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7` | `0x24b0c50f45b4e696d956476fcf25b312b07c0832c7fdb4e15dfa182970181443` | 4,437,597 |
+| Canary | `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C` | `0x742f4873ef4704106b969b52d1fa96836592ca8c0bd54733b8142288c6aa73c3` | 759,049 |
+
+Entry 0: kind Forgery, 0.01 ETH, `until` 1800729315 (2027-01-23), armed in
+`0x58bbabc76427c4d1517cf8d7109e2b2233c449c703f2891cb593f5ce349d34b6`.

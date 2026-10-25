@@ -30,7 +30,10 @@ ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.js
 
 # On the Mac: stage the credential through the pipe, write the local task, prepare, check and launch once.
 MAC_RUN = r'''set -euo pipefail
-D=$HOME/$1; T=$D/t/$2; S=$D/source; W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
+D=$HOME/$1; T=$D/t/$2; S=$D/source
+# A launch consumes the attempt: refuse before it when the two 4 GiB scratch copies cannot fit or another VM runs.
+[ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 10485760 ] || { echo 'the Mac needs 10 GiB free' >&2; exit 3; }
+! pgrep -f 'dsmack-runner hvf' >/dev/null || { echo 'another VM is running on the Mac' >&2; exit 3; }; W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
 cd "$T"; mkdir -m700 private tmp; mkdir -m700 -p $D/r
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
 python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \

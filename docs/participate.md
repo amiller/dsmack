@@ -95,8 +95,9 @@ request, signature and attempt file there and pass full paths, because the clien
 refuses relative ones. Enroll the Mac with `authorization --purpose registration`
 and `register`
 ([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). The
-authorization file holds only the message to sign and the signature file only the
-0x signature; neither is a secret.
+authorization file holds the message to sign; save only the 0x signature in the
+signature file. Keep both files in the private directory. Your wallet private
+key stays in your wallet.
 
 On the claim page press **Save private attempt file**. Move it from your browser's
 download folder into `"$HOME/.dm"` without replacing an earlier attempt file:

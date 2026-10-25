@@ -58,6 +58,7 @@ Declared artifacts, flat names (the receipt allows 16 single-segment names):
 | `run-N-transcript` | raw stream-json of run N |
 | `run-N-verdict` | `{answer, rationale, citations, num_turns, observed_models}` |
 | `run-N-stderr` | CLI stderr |
+| `dashcam-head` | final hash of an interactive session's recording ([dashcam](dashcam/README.md)) |
 
 ## Where each field comes from in the compose receipt v4
 

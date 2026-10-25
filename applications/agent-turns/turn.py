@@ -52,7 +52,8 @@ def from_receipt(receipt, request_bytes, outputs):
             'prompt_sha256': sha(request['prompt'].encode()), 'state_in': request['state_in'],
             'state_out': artifacts.get('state'), 'outputs': artifacts,
             'transcripts': [artifacts[n] for n in sorted(artifacts) if n.endswith('-transcript')],
-            'verdict': verdict}
+            'verdict': verdict,
+            'dashcam': (outputs/'dashcam-head').read_text().strip() if 'dashcam-head' in artifacts else None}
 
 
 def from_mac_compose(evidence, compose_bytes, cdhash, blobs):
@@ -72,7 +73,7 @@ def from_mac_compose(evidence, compose_bytes, cdhash, blobs):
     return {'agent_sha256': None, 'manifest_sha256': compose_hash, 'images': [service['image']],
             'commitment': compose_hash, 'inputs_sha256': None, 'prompt_sha256': None,
             'state_in': transition['state_in'], 'state_out': transition['state_out'],
-            'outputs': {'state': transition['state_out']}, 'transcripts': [], 'verdict': None}
+            'outputs': {'state': transition['state_out']}, 'transcripts': [], 'verdict': None, 'dashcam': None}
 
 
 def check_chain(turns, genesis=None):

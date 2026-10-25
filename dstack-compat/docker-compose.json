@@ -1,0 +1,19 @@
+{
+ "services": {
+  "worker": {
+   "image": "python@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704",
+   "entrypoint": [
+    "python3",
+    "-I",
+    "-c"
+   ],
+   "command": [
+    "import http.client, json, socket\nclass C(http.client.HTTPConnection):\n    def connect(self):\n        self.sock = socket.socket(socket.AF_UNIX)\n        self.sock.connect('/var/run/dstack.sock')\ndef call(m, b):\n    c = C('localhost')\n    c.request('POST', '/v1/' + m, json.dumps(b), {'Content-Type': 'application/json'})\n    r = c.getresponse()\n    out = json.loads(r.read())\n    assert r.status == 200, out\n    return out\nk = call('GetKey', {'domain': 'worker-signing', 'algorithm': 'secp256k1'})\ni = call('Info', {})\nprint(json.dumps({'app_id': i['app_id'], 'compose_hash': i['compose_hash'], 'public_key': k['public_key'], 'signature_chain': k['signature_chain'], 'key_provider_info': i['key_provider_info']}))\n"
+   ],
+   "read_only": true,
+   "volumes": [
+    "/var/run/dstack.sock:/var/run/dstack.sock:ro"
+   ]
+  }
+ }
+}

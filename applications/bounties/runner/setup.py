@@ -1,10 +1,16 @@
 #!/usr/bin/env python3
 """Install a selected signed pilot runtime with local paths; never creates a VM/key."""
-import argparse,hashlib,http.client,json,os,subprocess,sys,urllib.parse
+import argparse,hashlib,http.client,json,os,shutil,subprocess,sys,urllib.parse
 from pathlib import Path
 s=Path(__file__).with_name('client.py');c={'__name__':'arcade_client','__file__':str(s)};exec(compile(s.read_bytes(),str(s),'exec'),c)
 p=c['_scope'];need=p['need'];read=p['read'];pin=p['pin'];doc=p['document'];canonical=p['canonical'];exclusive=p['exclusive'];protected=p['protected']
-ROOT_SHA='4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df'
+ROOT_SHA='4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df';RESERVE=12<<30
+
+def node_version(path):
+    n=protected(path);need(os.access(n,os.X_OK),'trusted Node24 prerequisite')
+    return n,subprocess.run([str(n),'--version'],capture_output=True,text=True,timeout=10,env={'PATH':'/usr/bin:/bin'}).stdout.strip()
+
+def disk_need(root,assets):return shutil.disk_usage(root.parent).free,sum(d['bytes']for d in assets)+RESERVE
 
 def download(d,path):
     need(type(d['bytes'])is int and 0<d['bytes']<=1<<30,'runtime download cap');url=d['url'];f=None
@@ -44,10 +50,11 @@ def main():
     public=read(x.public_key,4096);need(hashlib.sha256(public).hexdigest()==ROOT_SHA,'independently selected maintainer key fingerprint required')
     api=c['API'](x.api,x.allow_loopback);task=api.request('GET','/api/task');runtime=task['runtime'];need(runtime['trust_key_sha256']==ROOT_SHA,'unexpected release authority')
     rows=runtime['assets'];need(type(rows)is list and len(rows)==3 and {d['name']for d in rows}=={'inventory','signature','archive'},'closed signed runtime asset set')
+    node,version=node_version(x.node);need(version.startswith('v24.'),'Node 24 required, found '+version);free,want=disk_need(root,rows);need(free>=want,f'{want>>20} MiB free disk required before download, {free>>20} MiB available')
     root.mkdir(mode=0o700);exclusive(root/'root-public.pem',public);exclusive(root/'public-task.json',canonical(task));downloads=root/'downloads';downloads.mkdir(mode=0o700)
     for d in rows:download(d,downloads/d['name'])
     need(pin(downloads/'inventory')['sha256']==runtime['release_inventory_sha256'],'selected task/runtime identity')
-    bootstrap_source=Path(__file__).parents[2]/'pilot-client/alpha-bootstrap.mjs';node=protected(x.node);need(os.access(node,os.X_OK),'trusted Node24 prerequisite')
+    bootstrap_source=Path(__file__).parents[2]/'pilot-client/alpha-bootstrap.mjs'
     # Existing bootstrap inspects the actual Node/runtime dependencies and refuses
     # injection. It downloads or installs no Node interpreter.
     subprocess.run([str(node),str(bootstrap_source),'--trust-key',str(root/'root-public.pem'),'--key-id',runtime['key_id'],'--channel','alpha','--min-sequence',str(runtime['sequence']),'--out',str(root/'bootstrap')],check=True,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})

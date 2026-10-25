@@ -40,6 +40,10 @@ def disk(home,state,inventory):
     what='expanded runtime + archive + 12 GiB working reserve'if len(rows)==1 else'expanded runtime + archive on the --home volume, 12 GiB working reserve on the --state-dir volume'
     return('fail'if short else'ok','; '.join(f'{free>>20} MiB free at {v}, need {need>>20} MiB'for v,free,need in rows)+f' ({what})','free disk space on the volume that is short, or choose a --home/--state-dir on a larger volume')
 
+def next_commands(x):
+    home=Path(x.home).expanduser();cmd=['python3','-I','setup.py','--api',x.api,'--home',x.home,'--node',x.node,'--public-key',x.public_key]+(['--state-dir',x.state_dir]if x.state_dir else[])+(['--allow-loopback']if x.allow_loopback else[])
+    return[shlex.join(cmd),shlex.join(['python3','-I','client.py','--config',str(home/'client.json'),'authorization','--purpose','registration','--payee','0xYOURADDRESS','--out',str(home/'REG-AUTH.json')])]
+
 def main():
     a=argparse.ArgumentParser();a.add_argument('--api',required=True);a.add_argument('--home',required=True);a.add_argument('--state-dir');a.add_argument('--node',required=True);a.add_argument('--public-key',required=True);a.add_argument('--allow-loopback',action='store_true');a.add_argument('--json',action='store_true');x=a.parse_args()
     rows=[];task=inventory=None
@@ -61,8 +65,7 @@ def main():
     check(rows,'host',lambda:host(inventory['platform']['minimum_version']if inventory else'27.0'))
     if inventory:check(rows,'disk',lambda:disk(x.home,x.state_dir,inventory))
     ok=all(r['status']=='ok'for r in rows)
-    cmd=['python3','-I','setup.py','--api',x.api,'--home',x.home,'--node',x.node,'--public-key',x.public_key]+(['--state-dir',x.state_dir]if x.state_dir else[])+(['--allow-loopback']if x.allow_loopback else[])
-    nxt=[shlex.join(cmd),shlex.join(['python3','-I','client.py','--config',str(Path(x.home).expanduser()/'client.json'),'authorization','--purpose','registration','--payee','0xYOURADDRESS','--out','REG-AUTH.json'])]
+    nxt=next_commands(x)
     summary={k:task[k]for k in ('slug','repository','payout_wei','chain_id','contract','task_id')if k in task}if task else None
     if x.json:print(json.dumps({'ready':ok,'checks':rows,'task':summary,'next':nxt if ok else[]},indent=1))
     else:

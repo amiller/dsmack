@@ -13,12 +13,13 @@ Get the maintainer public key (SHA256
 `4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df`) from a source
 other than the service. The service publishes the signed runtime in `GET /api/task`.
 
-From this source directory, replace the deployment origin and local Node path:
+From this source directory, after fetching and checking the key as in
+[INSTALL.md](INSTALL.md), replace the deployment origin and local Node path:
 
 ```sh
 python3 -I setup.py --api https://PUBLISHED-PILOT-ORIGIN \
   --home "$HOME/.dm" --node /PATH/TO/TRUSTED/NODE24 \
-  --public-key /PATH/TO/INDEPENDENTLY-CHECKED/release-public.pem
+  --public-key "$PWD/release-public.pem"
 ```
 
 Setup authenticates the runtime, derives this Mac's bootstrap and paths, and
@@ -29,36 +30,40 @@ directory under an existing protected parent. Setup does not create a key, launc
 a VM or download an interpreter. It keeps a partial install rather than
 overwriting it. Leave Gatekeeper and quarantine enabled.
 
-Use `client.py --config "$HOME/.dm/client.json" COMMAND ...`:
+Use `client.py --config "$HOME/.dm/client.json" COMMAND ...`. The client refuses
+relative paths, so keep every request, signature and state file in `"$HOME/.dm"`,
+the private directory setup created:
 
-1. `authorization --purpose registration --payee 0xYOURADDRESS --out REG-AUTH.json`
+1. `authorization --purpose registration --payee 0xYOURADDRESS --out "$HOME/.dm/REG-AUTH.json"`
    fetches a wallet message bound to domain, task, policy, payee, nonce and
-   expiry. Sign it in your own wallet and save only the signature to a file.
-2. `register --authorization REG-AUTH.json --wallet-signature REG-SIGNATURE.txt
-   --out REGISTRATION.json` generates a fresh key through the signed app's
+   expiry. It holds no secret. Sign the message in your own wallet and save only
+   the 0x signature to `"$HOME/.dm/REG-SIGNATURE.txt"`.
+2. `register --authorization "$HOME/.dm/REG-AUTH.json" --wallet-signature
+   "$HOME/.dm/REG-SIGNATURE.txt" --out "$HOME/.dm/REGISTRATION.json"` generates a fresh key through the signed app's
    LaunchServices enrollment mode and submits its Apple attestation. Any Mac that
    passes the common app policy is registered; there is no worker allowlist.
    Registration is queued; `GET /api/registrations/REGISTRATION_ID` shows the result.
 3. Get and sign `authorization --purpose attempt --payee 0xYOURADDRESS
-   --candidate-commit FULL40HEXCOMMIT --out ATTEMPT-AUTH.json`, then run
-   `attempt --authorization ATTEMPT-AUTH.json --wallet-signature ATTEMPT-SIGNATURE.txt
-   --out ATTEMPT.json`. Your wallet private key stays in your wallet.
-4. `prepare --attempt ATTEMPT.json --registration REGISTRATION.json` requests the
+   --candidate-commit FULL40HEXCOMMIT --out "$HOME/.dm/ATTEMPT-AUTH.json"`, then run
+   `attempt --authorization "$HOME/.dm/ATTEMPT-AUTH.json" --wallet-signature
+   "$HOME/.dm/ATTEMPT-SIGNATURE.txt" --out "$HOME/.dm/ATTEMPT.json"`. Your wallet private key stays in your wallet.
+4. `prepare --attempt "$HOME/.dm/ATTEMPT.json" --registration
+   "$HOME/.dm/REGISTRATION.json"` requests the
    server's signed task. If preparation is pending, check status and repeat the
    same command; it reuses its saved request id. The client downloads the
    hash-bound public inputs, makes its local task/2 paths and runs the
    coordinator's prepare checks.
-5. `check --attempt ATTEMPT.json`, `run --attempt ATTEMPT.json`, then
-   `submit --attempt ATTEMPT.json`. `resume` observes the same run without
+5. `check`, `run`, then `submit`, each with `--attempt "$HOME/.dm/ATTEMPT.json"`. `resume` observes the same run without
    launching it again. The 21 original files upload in bounded chunks, and the
    server's full verifier and checker decide the result for either route.
-   At any point, `progress --attempt ATTEMPT.json [--registration REGISTRATION.json]`
+   At any point, `progress --attempt "$HOME/.dm/ATTEMPT.json"
+   [--registration "$HOME/.dm/REGISTRATION.json"]`
    prints the stage, elapsed time and the next command, built from your own paths.
    It only reads. `--json` gives the same fields for scripts. A requested launch
    is reported as requested, not running. `paid` appears only after the service
    observes your withdrawal. If `prepare` stopped after the download but before
    the launch plan, rerunning `prepare` rebuilds only the plan.
-6. Once status shows a full verdict, `cleanup --attempt ATTEMPT.json`
+6. Once status shows a full verdict, `cleanup --attempt "$HOME/.dm/ATTEMPT.json"`
    authenticates the signed report, confirms the helper has stopped, runs the
    guarded scratch retirement and removes the four public copies. Original
    evidence, credentials, archive and active runtime stay. It writes
@@ -74,13 +79,13 @@ assertion (a crash or timeout does not count) and the commit must pass them all.
 
 ## Best-effort route
 
-A participant without a Mac can request `prepare --attempt ATTEMPT.json --mode
-best_effort`, which queues the attempt for any registered node. The maintainer's
+A participant without a Mac can request `prepare --attempt "$HOME/.dm/ATTEMPT.json"
+--mode best_effort`, which queues the attempt for any registered node. The maintainer's
 Mac runs as an ordinary node:
 
 ```sh
-python3 -I node_worker.py --config LOCAL-CLIENT.json \
-  --registration LOCAL-NODE-REGISTRATION.json --wait-seconds 600
+python3 -I node_worker.py --config "$HOME/.dm/client.json" \
+  --registration "$HOME/.dm/REGISTRATION.json" --wait-seconds 600
 ```
 
 It leases one prepared task through the public API with its private node

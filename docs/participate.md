@@ -85,27 +85,43 @@ to find your Node path, then run the small check before installing:
 
 ```sh
 python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
-  --home "$HOME/.dm" --node /PATH/TO/NODE24 --public-key release-public.pem
+  --home "$HOME/.dm" --node /PATH/TO/NODE24 --public-key "$PWD/release-public.pem"
 ```
 
 Doctor downloads only the signed inventory and signature, checks compatibility,
 and prints the installation command. It starts no VM and uses no model credits.
-Run that command, then enroll the Mac with `authorization --purpose registration` and `register`
-([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). On
-the claim page press **Save private attempt file**, then:
+Run that command. Setup creates the private directory `"$HOME/.dm"`; keep every
+request, signature and attempt file there and pass full paths, because the client
+refuses relative ones. Enroll the Mac with `authorization --purpose registration`
+and `register`
+([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). The
+authorization file holds only the message to sign and the signature file only the
+0x signature; neither is a secret.
+
+On the claim page press **Save private attempt file**. Move it from your browser's
+download folder into `"$HOME/.dm"` without replacing an earlier attempt file:
 
 ```sh
-chmod 600 attempt.json
-python3 -I client.py --config "$HOME/.dm/client.json" prepare --attempt attempt.json --registration REGISTRATION.json
-python3 -I client.py --config "$HOME/.dm/client.json" check --attempt attempt.json
-python3 -I client.py --config "$HOME/.dm/client.json" run --attempt attempt.json
-python3 -I client.py --config "$HOME/.dm/client.json" submit --attempt attempt.json
+test ! -e "$HOME/.dm/attempt.json" && mv "$HOME/Downloads/attempt.json" "$HOME/.dm/attempt.json"
+chmod 600 "$HOME/.dm/attempt.json"
+```
+
+If `"$HOME/.dm/attempt.json"` already exists from an earlier attempt, keep it,
+move the new file to a new name such as `"$HOME/.dm/attempt-2.json"` and use that
+name below. Then:
+
+```sh
+python3 -I client.py --config "$HOME/.dm/client.json" prepare --attempt "$HOME/.dm/attempt.json" --registration "$HOME/.dm/REGISTRATION.json"
+python3 -I client.py --config "$HOME/.dm/client.json" check --attempt "$HOME/.dm/attempt.json"
+python3 -I client.py --config "$HOME/.dm/client.json" run --attempt "$HOME/.dm/attempt.json"
+python3 -I client.py --config "$HOME/.dm/client.json" submit --attempt "$HOME/.dm/attempt.json"
 ```
 
 To see the current stage and next action between commands:
 
 ```sh
-python3 -I client.py --config "$HOME/.dm/client.json" progress --attempt attempt.json --registration REGISTRATION.json
+python3 -I client.py --config "$HOME/.dm/client.json" progress --attempt "$HOME/.dm/attempt.json" \
+  --registration "$HOME/.dm/REGISTRATION.json"
 ```
 
 Add `--json` for your agent. A requested launch is reported separately from a
@@ -113,7 +129,11 @@ completed run; do not restart a launch whose outcome is unknown.
 
 `run` is the local verification: the base and your commit both go through the
 checker in the VM, and the outputs stay on your Mac. `submit` uploads the 21
-original files. After the verdict, run `cleanup --attempt attempt.json`.
+original files. After the verdict, free the task disks:
+
+```sh
+python3 -I client.py --config "$HOME/.dm/client.json" cleanup --attempt "$HOME/.dm/attempt.json"
+```
 
 The time a first install and run takes has not been measured.
 

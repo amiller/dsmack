@@ -1,4 +1,4 @@
-import hashlib,http.server,json,os,shutil,subprocess,sys,tempfile,threading,unittest
+import hashlib,http.server,json,os,shlex,shutil,subprocess,sys,tempfile,threading,unittest
 from unittest import mock
 from pathlib import Path
 HERE=Path(__file__).parent;NODE=str(Path(shutil.which('node')).resolve())
@@ -52,6 +52,11 @@ class Doctor(unittest.TestCase):
         fetched=[];runtime['assets'][0]['bytes']=2<<30
         with self.assertRaisesRegex(ValueError,'size caps'):D['release'](NODE,str(f/'key.pem'),runtime,str(self.t/'h'),self.copy(f,fetched))
         self.assertEqual(fetched,[])
+
+    def test_printed_authorization_writes_under_home(self):
+        # client.py refuses relative paths, so the printed --out must be absolute.
+        x=D['argparse'].Namespace(api='https://pilot',home='/Users/a b/.dm',node='/n',public_key='/k.pem',state_dir=None,allow_loopback=False)
+        auth=shlex.split(D['next_commands'](x)[1]);self.assertEqual(auth[auth.index('--out')+1],'/Users/a b/.dm/REG-AUTH.json')
 
     def test_symlinked_node_names_its_resolved_path(self):
         node=self.t/'node';node.write_text('#!/bin/sh\necho v24.0.0\n');node.chmod(0o700);(self.t/'link').symlink_to(node)

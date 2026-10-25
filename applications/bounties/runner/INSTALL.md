@@ -44,7 +44,10 @@ python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
 
 Each line is `ok` or `fail`, and failed checks print a fix. When every check
 passes, doctor prints the `setup.py` command and the first `client.py
-authorization` command, quoted for your shell. Continue with
+authorization` command, quoted for your shell. That command writes
+`"$HOME/.dm/REG-AUTH.json"`; the client refuses relative paths, so keep every
+request, signature and attempt file in the private `--home` directory setup
+creates and pass full paths. Continue with
 [README.md](README.md#worker-owned-mac).
 
 The payee is the `0x` address you pass to `authorization`. It is fixed in your

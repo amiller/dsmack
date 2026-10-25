@@ -78,6 +78,23 @@ address, then the canary, then `arm(0, cdhash, 0, 0, until)` with the pot.
 Arm only a build whose every `generateAssertion` prefixes a fixed domain, such
 as the `mar` runner. The App Attest probe approved above asserts any file.
 
+On 2026-10-25 `setBuild` replaced the probe with the `mar` runner, CDHash
+`0x9e733cee03debdd1080c9de6f1a3cdd23fdacdfb74c15fd48c8fe02069d62bb8` (Apple
+Development, `work/guest-attest-20261025`; its assertion domains are launch,
+run-result and guest-attest): `setBuild`
+`0x1deca4f7e907662529b20a4b0dad0f5cafe903904f05518714bfb7ce0dc948bc` (826,210 gas),
+`registerBuild` `0xf3897c9966fe04d18584ffcc8cb63aeeafc7a6bc98ca156ef17f180235d61d11`
+(843,101). The probe CDHash no longer resolves.
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| AppleAttestRegistryV1 (canary verifier) | `0xa2b12DEe6D027b409fBaD84d308C9836E5A2587A` | `0x04fd3a766320c80151d4917954f9e64738e5224ec5b4af66ae81c1c7d4868470` | 4,437,597 |
+| Canary | `0x469BBd050Cc74914ce9c2C69D049E8923E6D24c0` | `0xb6a06a0a547e49833628b62f079bd19a8e3c2cbe80de987c75ac17bd8994aab6` | 856,891 |
+
+Entry 0: Forgery for the runner CDHash, 0.01 ETH, `until` 1800731481
+(2027-01-23), armed in `0x3e73a692eac013701c37939bb5f5b6ec2ad1144d0c7206fd57a167e213fff2b8`.
+Both contracts are source-verified on Basescan.
+
 The 2026-10-25 instance (canary `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C`,
 verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates the cdhash
 binding: its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe

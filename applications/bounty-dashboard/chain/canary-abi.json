@@ -220,5 +220,131 @@
     ]
    }
   ]
+ },
+ "canary-read-codec/2": {
+  "selectors": {
+   "entries(uint256)": "b30906d4"
+  },
+  "entry": [
+   {
+    "name": "kind",
+    "type": "uint8",
+    "indexed": false
+   },
+   {
+    "name": "build",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "image",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "manifest",
+    "type": "bytes32",
+    "indexed": false
+   },
+   {
+    "name": "funder",
+    "type": "address",
+    "indexed": false
+   },
+   {
+    "name": "until",
+    "type": "uint64",
+    "indexed": false
+   },
+   {
+    "name": "amount",
+    "type": "uint256",
+    "indexed": false
+   },
+   {
+    "name": "burned",
+    "type": "bool",
+    "indexed": false
+   }
+  ],
+  "events": [
+   {
+    "name": "Armed",
+    "topic": "0xa741985cbb340e4a54364c91c45401f5819fa7009a0a812f8461c6fdb2be64d0",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "build",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "image",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "manifest",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     },
+     {
+      "name": "until",
+      "type": "uint64",
+      "indexed": false
+     }
+    ]
+   },
+   {
+    "name": "Burned",
+    "topic": "0x89298537b8da80dc31b267d6b7fc43d91a68c9bc2d7b2bbbb6a74d065e266f6d",
+    "inputs": [
+     {
+      "name": "id",
+      "type": "uint256",
+      "indexed": true
+     },
+     {
+      "name": "kind",
+      "type": "uint8",
+      "indexed": false
+     },
+     {
+      "name": "build",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "image",
+      "type": "bytes32",
+      "indexed": false
+     },
+     {
+      "name": "claimant",
+      "type": "address",
+      "indexed": false
+     },
+     {
+      "name": "amount",
+      "type": "uint256",
+      "indexed": false
+     }
+    ]
+   }
+  ]
  }
 }

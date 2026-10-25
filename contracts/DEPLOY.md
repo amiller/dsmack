@@ -105,6 +105,26 @@ its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe and is void
 as evidence. The `0x469B…24c0` instance binds one CDHash, so only that signer's
 device can claim it, and it stops resolving once a later build is approved.
 
+## Build-bound canary, Base Sepolia, 2026-10-25
+
+`setBuild` approved the key-canary runner, CDHash
+`0x7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970`, `buildId`
+`0xc930e34c3997c53022aae6ead1d006ca6b270abe2be76ed6e640551c2d39a758`: `setBuild`
+`0x280f8959b69f617b37a1571283959d49f32eca4685f2530a7392664451c33155` (826,060 gas),
+`registerBuild` `0x9d5e30b1fba8e6cd96fd8450b5fb10cb43c247cc10fc37a4419e7d7730e13d8d`
+(843,041). The `0x9e73…` runner no longer resolves.
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| AppleAttestRegistryV1 (canary verifier) | `0xa3C174D19EB421C2e68B737CA90fe267055E6215` | `0x201ca7f2e5d8226a60fabbea294af0afd65d513f994ca11b6340cfd05969739e` | 4,437,597 |
+| Canary | `0x65094121F566Ca226e02F9a246283d91b6B24658` | `0xf2e629105390ca06fdfd5ac8b748f9d3255bb9e4412df4da8eb5a53997148603` | 1,163,993 |
+
+Entries, each 0.01 ETH until 1800740895 (2027-01-23), bound to that `buildId`:
+0 Forgery (`0x0efde193921348a2db9cde2ae326bfdddd4ea78bd9242ae2ff309065a31565a3`),
+1 Runner, any image (`0x97af679ac718e22e691392c423f49c5713d69539ae1dc1cdbaae6363023c8891`).
+Guest and Owner entries bind an image, so they are armed when a release publishes
+the runner binary and that image. Both contracts are source-verified on Basescan.
+
 ## Key canaries
 
 Guest (#1), Runner (#2) and Owner (#3) entries pay a P-256 signature over

@@ -31,7 +31,7 @@ function project(row,kind){
   out.upload=pick(row.upload,'file_count bytes complete');out.inputs=pick(row.inputs,'file_count bytes complete');out.deadline=pick(row.deadline,'expires_at expired');
   out.artifacts=(Array.isArray(row.artifacts)?row.artifacts:[]).map(x=>{const a=pick(x,'name bytes sha256 visibility category');if(x.visibility==='public')a.url=publicURL(x.url);return a;});
  }
- if(kind==='canaries'){out.entries=row.entries.map(x=>pick(x,'id kind cdhash image manifest funder pot_wei until burned'));out.events=row.events.map(x=>({...pick(x,'event id kind amount_wei claimant transaction_hash block_number log_index timestamp'),explorer_url:publicURL(x.explorer_url)}));}
+ if(kind==='canaries'){out.entries=row.entries.map(x=>pick(x,'id kind cdhash build image manifest funder pot_wei until burned'));out.events=row.events.map(x=>({...pick(x,'event id kind amount_wei claimant transaction_hash block_number log_index timestamp'),explorer_url:publicURL(x.explorer_url)}));}
  if(kind==='tasks'){out.roles=pick(row.roles,'allocator execution_verifier reviewer delivery_verifier adjudicator');out.windows=pick(row.windows,'submit_seconds review_seconds adjudication_seconds');}
  return out;
 }

@@ -45,3 +45,11 @@ node --test applications/bounty-dashboard/server.test.cjs \
 python3 -B -m unittest discover -s applications/bounty-dashboard/chain -p 'test_*.py'
 python3 -B -m unittest discover -s applications/bounty-dashboard -p 'test_publish.py'
 ```
+
+Direct rewards are listed separately from escrow withdrawals. Add a public
+transaction to `chain/direct-payments.json` with its expected chain, sender,
+recipient, wei amount and related task/attempt. The collector checks the actual
+transaction, successful receipt and canonical block before publishing it as a
+`direct_reward`. Unverified selections appear as a source error instead of a
+payment. This list contains explicit reward records, not a scan of wallet
+outflows; related task labels do not make a transfer an escrow settlement.

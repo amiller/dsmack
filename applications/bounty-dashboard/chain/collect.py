@@ -14,7 +14,7 @@ def atomic(p,x):
 class RPC:
  def __init__(self,url):need(url.startswith('https://'),'HTTPS RPC required');self.url=url
  def __call__(self,method,params):
-  need(method in ['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_call','eth_getLogs','eth_getTransactionReceipt'],'read method required')
+  need(method in ['eth_chainId','eth_getBlockByNumber','eth_getCode','eth_call','eth_getLogs','eth_getTransactionReceipt','eth_getTransactionByHash'],'read method required')
   b=json.dumps({'jsonrpc':'2.0','id':1,'method':method,'params':params}).encode()
   with urllib.request.urlopen(urllib.request.Request(self.url,data=b,headers={'Content-Type':'application/json','User-Agent':'dsmack-arcade-pilot/1'}),timeout=30) as r:
    raw=r.read(8*1024*1024+1);need(len(raw)<=8*1024*1024,'RPC response too large');x=json.loads(raw)
@@ -108,10 +108,13 @@ def collect_contract(c,r,state,max_pages):
  return result,newstate
 
 def main():
+ import importlib.util
+ spec=importlib.util.spec_from_file_location('dashboard_direct_payments',HERE/'direct_payments.py');module=importlib.util.module_from_spec(spec);spec.loader.exec_module(module);collect_direct=module.collect_direct
  p=argparse.ArgumentParser();p.add_argument('--registry',type=pathlib.Path,default=HERE/'registry.json');p.add_argument('--state-dir',type=pathlib.Path,required=True);p.add_argument('--out',type=pathlib.Path,required=True);p.add_argument('--event-pages',type=int,default=20);a=p.parse_args();need(0<=a.event_pages<=10000,'event page budget invalid');registry=json.loads(a.registry.read_text());out={'schema':'bounty-dashboard-chain/1','built_at':now(),**{k:[] for k in ['contracts','tasks','assignments','payments','activity','sources','credits']}}
  for c in registry['contracts']:
   need(re.fullmatch('0x[0-9a-f]{40}',c['address']) and isinstance(c['chain_id'],int),'invalid registry identity');path=a.state_dir/(str(c['chain_id'])+'-'+c['address']+'.json');state=json.loads(path.read_text()) if path.exists() else None;r,new=collect_contract(c,RPC(c['rpc']),state,a.event_pages)
   for k in ['contracts','tasks','assignments','payments','activity','sources','credits']:out[k].extend(r[k])
   if new:atomic(path,new)
+ direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
  atomic(a.out,out)
 if __name__=='__main__':main()

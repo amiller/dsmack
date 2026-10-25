@@ -18,6 +18,7 @@ def normalize(chain,feeds):
   activity.append({**e,'id':cid+':'+e['transaction_hash']+':'+str(e['log_index']),'kind':labels.get(e['event'],e['event']),'task_key':cid+':'+str(task)if task is not None else a['task_key']if a else None,'tx':e['transaction_hash']})
  out['activity']=sorted(activity,key=lambda e:(e.get('timestamp',0),e.get('log_index',0)),reverse=True)
  out['sources']=[{'id':'chain:'+c['id'],'kind':'chain','name':c['name']+' · '+c['network'],'status':'unavailable'if c['status']=='unknown'else'partial'if c.get('error')else'ok'if c.get('coverage',{}).get('events_complete')else'indexing','observed_at':c.get('observed_at'),'block_number':c.get('block_number'),'block_hash':c.get('block_hash'),'scope':'All task and assignment IDs at the observed block','coverage':c.get('coverage',{}),'error':c.get('error')}for c in out['contracts']]
+ out['sources'].extend(chain.get('direct_payment_sources',[]))
  return {'schema':'dsmack-bounty-dashboard-snapshot/1','observed_at':chain['built_at'],'chain':out,'feeds':feeds}
 class NoRedirect(urllib.request.HTTPRedirectHandler):
  def redirect_request(self,*args,**kwargs):raise ValueError('dashboard redirect refused')

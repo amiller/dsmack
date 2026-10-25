@@ -1,0 +1,13 @@
+{
+  "payments": [
+    {
+      "chain_id": 84532,
+      "transaction_hash": "0xb9ebe5f9a0be04dba9045cc7f0fba06b470cf227886b06d228ecb4e592bc33cb",
+      "expected_from": "0x97883cb4b2f21530277f86490d8881654e36e6aa",
+      "recipient": "0xc345c07229307d4f1c7935ad2cae48e390215808",
+      "amount_wei": "10000000000000000",
+      "task_key": "84532:0x62fedc157f275abb8f8b4543696e6f0c717d391b:10",
+      "attempt_id": "a3540feaf2bac92f8e7b0100e8a073da"
+    }
+  ]
+}

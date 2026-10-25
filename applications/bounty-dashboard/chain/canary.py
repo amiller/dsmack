@@ -1,10 +1,10 @@
 """Read-only Canary entries with their Armed and Burned events."""
-import hashlib,importlib.util,json,pathlib
+import hashlib,json,pathlib,sys
 HERE=pathlib.Path(__file__).resolve().parent
+sys.path.insert(0,str(HERE))  # collect.py runs under python -I, which omits the script directory
+import collect as m
 CODECS=json.loads((HERE/'canary-abi.json').read_text())
 KINDS=['Forgery','Guest','Runner','Owner']
-# A private collect.py instance: its scan/event decoding reads the module-level ABI, set per codec below.
-_s=importlib.util.spec_from_file_location('canary_collect',HERE/'collect.py');m=importlib.util.module_from_spec(_s);_s.loader.exec_module(m)
 def kind(d):
  k=int(d['kind']);m.need(k<len(KINDS),'unknown canary kind');return KINDS[k]
 def collect_canary(c,r,state,max_pages):
@@ -12,11 +12,11 @@ def collect_canary(c,r,state,max_pages):
  meta={k:c[k] for k in ['name','network','testnet','address','explorer_url','void','note','runtime_sha256','deployment_block','deployment_tx']}
  meta.update(id=cid,chain_id=c['chain_id'],observed_at=m.now(),status='unknown',coverage={},error=None,entries=[],events=[])
  try:
-  m.need(c['codec'] in CODECS,'unsupported canary codec');codec=CODECS[c['codec']];m.ABI=codec
+  m.need(c['codec'] in CODECS,'unsupported canary codec');codec=CODECS[c['codec']]
   m.need(int(r('eth_chainId',[]),16)==c['chain_id'],'wrong RPC chain')
   head=r('eth_getBlockByNumber',['latest',False]);number=int(head['number'],16);tag=hex(number)
   code=m.rawbytes(r('eth_getCode',[c['address'],tag]));m.need(code and hashlib.sha256(code).hexdigest()==c['runtime_sha256'],'runtime mismatch')
-  state,pages=m.scan(r,c,number,state,max_pages)
+  state,pages=m.scan(r,c,number,state,max_pages,codec)
   events=[{'event':e['event'],'id':e['fields']['id'],'kind':kind(e['fields']),'amount_wei':e['fields']['amount'],'claimant':e['fields'].get('claimant'),'transaction_hash':e['transaction_hash'],'explorer_url':tx+e['transaction_hash'],'block_number':e['block_number'],'log_index':e['log_index'],'timestamp':e['timestamp']} for e in state['events']]
   entries=[]
   for i in sorted({int(e['id']) for e in events if e['event']=='Armed'}):

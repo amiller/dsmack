@@ -31,8 +31,10 @@ function render(){if(!snapshot)return;const allContracts=list(snapshot.contracts
 }
 function canaries(){const body=$('canaries'),rows=list(snapshot.canaries);body.replaceChildren();let entries=0,burned=0
  for(const c of rows){const name=stack(el('strong',text(c.name,'Canary')),link(short(c.address),c.explorer_url),el('small',networkLabel(c)),c.void?el('span','Void as evidence','badge warn'):el('span',''),c.note?el('small',c.note):el('span',''))
-  if(c.status!=='observed'){const tr=el('tr'),td=el('td');td.colSpan=7;td.append(stack(badge(text(c.status)),el('small',text(c.error,''))));tr.append(cell(name),td);body.append(tr);continue}
+  if(c.status==='stale')name.append(badge('stale'))
+  if(!['observed','stale'].includes(c.status)){const tr=el('tr'),td=el('td');td.colSpan=7;td.append(stack(badge(text(c.status)),el('small',text(c.error,''))));tr.append(cell(name),td);body.append(tr);continue}
   if(c.coverage?.events_complete!==true)name.append(badge('Indexing: entries may be missing'))
+  if(!c.entries.length){const tr=el('tr'),td=el('td','No entries armed in this snapshot.','muted');td.colSpan=7;tr.append(cell(name),td);body.append(tr)}
   for(const e of c.entries){const s=canaryState(e),tr=el('tr',undefined,s==='Burned'?'burned':''),ev=c.events.filter(x=>x.id===e.id);entries++;if(s==='Burned'&&!c.void)burned++
    tr.append(cell(stack(name.cloneNode(true),el('small','Entry #'+e.id))),cell(e.kind),cell(decimal(e.pot_wei)+' '+asset(c)),cell(time(e.until)),cell(stack(el('small','cdhash'),e.cdhash?token(e.cdhash):el('span','Not bound (old layout)','muted'),el('small','image'),token(e.image),el('small','manifest'),token(e.manifest))),cell(token(e.funder)),cell(s==='Burned'?el('span','BURNED: boundary broke','badge bad'):badge(s)),cell(stack(...ev.map(x=>stack(link(x.event+' · block '+x.block_number,x.explorer_url),el('small',decimal(x.amount_wei)+' '+asset(c)+' · '+time(x.timestamp)),...(x.claimant?[el('small','Claimant'),token(x.claimant)]:[]))))));body.append(tr)}}
  $('canary-count').textContent=Array.isArray(snapshot.canaries)?'('+entries+' entries'+(burned?', '+burned+' burned':'')+')':'';$('canary-count').className=burned?'error':'muted'

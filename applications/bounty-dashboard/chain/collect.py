@@ -38,14 +38,14 @@ def decode(fields,data):
 def call(r,c,name,i=None,block='latest'):
  sig=name+('(address)' if name=='withdrawable' else '(uint256)' if i is not None else '()');data='0x'+ABI['selectors'][sig]+('' if i is None else format(i,'064x'))
  return r('eth_call',[{'to':c['address'],'data':data},block])
-def event(log,c):
+def event(log,c,abi=ABI):
  need(log.get('address','').lower()==c['address'] and not log.get('removed',False),'foreign/removed event')
- es=[e for e in ABI['events'] if log['topics'][0]==e['topic']];need(len(es)==1,'unknown event')
+ es=[e for e in abi['events'] if log['topics'][0]==e['topic']];need(len(es)==1,'unknown event')
  e=es[0];indexed=[f for f in e['inputs'] if f['indexed']];plain=[f for f in e['inputs'] if not f['indexed']]
  need(len(log['topics'])==len(indexed)+1,'event topic count');d=decode(plain,log['data'])
  for f,t in zip(indexed,log['topics'][1:]):w=words(t);need(len(w)==1,'topic word count');d[f['name']]=val(w[0],f['type'])
  return {'event':e['name'],'fields':d,'block_number':int(log['blockNumber'],16),'block_hash':log['blockHash'],'transaction_hash':log['transactionHash'],'log_index':int(log['logIndex'],16)}
-def scan(r,c,head,state,max_pages):
+def scan(r,c,head,state,max_pages,abi=ABI):
  start=c['deployment_block'];reorg=False
  if state:
   need(state.get('contract_id')==str(c['chain_id'])+':'+c['address'],'checkpoint contract mismatch')
@@ -57,7 +57,7 @@ def scan(r,c,head,state,max_pages):
   end=min(start+199,head);logs=r('eth_getLogs',[{'address':c['address'],'fromBlock':hex(start),'toBlock':hex(end)}]);need(isinstance(logs,list) and len(logs)<=10000,'invalid/oversize logs')
   batch=[]
   for log in logs:
-   e=event(log,c);need(start<=e['block_number']<=end,'event outside requested range')
+   e=event(log,c,abi);need(start<=e['block_number']<=end,'event outside requested range')
    block=r('eth_getBlockByNumber',[hex(e['block_number']),False]);need(block and block['hash']==e['block_hash'],'noncanonical log')
    receipt=r('eth_getTransactionReceipt',[e['transaction_hash']]);need(receipt and receipt['status']=='0x1' and receipt['blockHash']==e['block_hash'] and receipt['transactionHash']==e['transaction_hash'],'event receipt mismatch')
    need(any(x==log for x in receipt['logs']),'event missing from receipt');e['timestamp']=int(block['timestamp'],16);batch.append(e)

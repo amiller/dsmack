@@ -116,5 +116,6 @@ def main():
   for k in ['contracts','tasks','assignments','payments','activity','sources','credits']:out[k].extend(r[k])
   if new:atomic(path,new)
  direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
+ spec=importlib.util.spec_from_file_location('dashboard_canary',HERE/'canary.py');canary=importlib.util.module_from_spec(spec);spec.loader.exec_module(canary);out['canaries']=canary.collect_canaries(registry['canaries'],RPC,a.state_dir,a.event_pages)
  atomic(a.out,out)
 if __name__=='__main__':main()

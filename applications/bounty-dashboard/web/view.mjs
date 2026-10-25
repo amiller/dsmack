@@ -36,3 +36,4 @@ export function paymentTaskLabel(p){return p?.task_key?null:['withdrawal','withd
 export const artifactCategory=a=>a?.category==='input'?'Inputs':a?.category==='evidence'||a?.category===undefined?'Evidence':'Other artifacts';
 
 export const paymentKind=p=>p?.kind==='direct_reward'?'Direct reward':text(p?.kind??p?.type);
+export const canaryState=e=>e.burned===true?'Burned':e.pot_wei==='0'?'Reclaimed':'Armed';

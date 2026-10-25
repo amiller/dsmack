@@ -3,3 +3,4 @@
 .metric strong,.metric small{overflow-wrap:anywhere}
 /* Keep visually hidden table headings inside their scroll container. */
 .table-scroll{position:relative}
+.burned>td{background:#3b2429;border-bottom-color:#875050}.burned .badge.bad{font-size:.9rem;font-weight:700}

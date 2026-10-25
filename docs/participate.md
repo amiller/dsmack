@@ -96,7 +96,8 @@ refuses relative ones. Enroll the Mac with `authorization --purpose registration
 and `register`
 ([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). To
 sign with a browser wallet, open the claim page, connect the payee wallet, and
-under **Enroll your Mac** choose `"$HOME/.dm/REG-AUTH.json"`. The page checks that
+under **Enroll your Mac** choose `"$HOME/.dm/REG-AUTH.json"`. In the file dialog,
+press **⌘⇧G** and enter `~/.dm` to open the hidden folder. The page checks that
 the service holds that exact challenge for this task and wallet, then the wallet
 shows the message. Signing sends no transaction. Move the downloaded signature
 into the private directory and pass it to `register`:

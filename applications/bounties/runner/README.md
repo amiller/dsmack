@@ -17,7 +17,7 @@ From this source directory, replace the deployment origin and local Node path:
 
 ```sh
 python3 -I setup.py --api https://PUBLISHED-PILOT-ORIGIN \
-  --home "$HOME/.dsmack-arcade" --node /PATH/TO/TRUSTED/NODE24 \
+  --home "$HOME/.dm" --node /PATH/TO/TRUSTED/NODE24 \
   --public-key /PATH/TO/INDEPENDENTLY-CHECKED/release-public.pem
 ```
 
@@ -29,7 +29,7 @@ directory under an existing protected parent. Setup does not create a key, launc
 a VM or download an interpreter. It keeps a partial install rather than
 overwriting it. Leave Gatekeeper and quarantine enabled.
 
-Use `client.py --config "$HOME/.dsmack-arcade/client.json" COMMAND ...`:
+Use `client.py --config "$HOME/.dm/client.json" COMMAND ...`:
 
 1. `authorization --purpose registration --payee 0xYOURADDRESS --out REG-AUTH.json`
    fetches a wallet message bound to domain, task, policy, payee, nonce and

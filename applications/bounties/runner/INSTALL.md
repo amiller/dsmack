@@ -38,7 +38,7 @@ From `applications/bounties/runner`:
 
 ```sh
 python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
-  --home "$HOME/.dsmack-arcade" --node /PATH/TO/NODE24 \
+  --home "$HOME/.dm" --node /PATH/TO/NODE24 \
   --public-key "$PWD/release-public.pem"
 ```
 

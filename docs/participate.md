@@ -61,8 +61,8 @@ Both routes run the same pinned checks and produce the same evidence.
 **Best-effort Mac** (no Mac needed). Press **Request a best-effort Mac run**. The
 attempt waits until an enrolled Mac picks it up. There is no promised start time.
 
-**Your own Mac** (Apple silicon, macOS 27+, Python 3, Node 24, the 270 MB runtime
-archive plus about 12 GiB free). The runtime was qualified on the maintainer's
+**Your own Mac** (Apple silicon, macOS 27+, Python 3.9+, Node 24, about 17 GiB free
+for this runtime and its working disks; preflight calculates the requirement). The runtime was qualified on the maintainer's
 Mac. A freshly enrolled Mac has not been qualified yet, so expect to report
 problems. Fetch the release public key from GitHub, not from the service, and
 check its hash:
@@ -73,24 +73,37 @@ shasum -a 256 release-public.pem
 # 4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df
 ```
 
-Then from `applications/bounties/runner` in a checkout of this repository:
+Clone [Dsmack](https://github.com/amiller/dsmack) and enter
+`applications/bounties/runner`. Follow the [preflight guide](../applications/bounties/runner/INSTALL.md)
+to find your Node path, then run the small check before installing:
 
 ```sh
-python3 -I setup.py --api https://pod.dstack.soc1024.com/arcade-pilot \
-  --home "$HOME/.dsmack-arcade" --node /PATH/TO/NODE24 --public-key release-public.pem
+python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
+  --home "$HOME/.dm" --node /PATH/TO/NODE24 --public-key release-public.pem
 ```
 
-Enroll the Mac with `authorization --purpose registration` and `register`
+Doctor downloads only the signed inventory and signature, checks compatibility,
+and prints the installation command. It starts no VM and uses no model credits.
+Run that command, then enroll the Mac with `authorization --purpose registration` and `register`
 ([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). On
 the claim page press **Save private attempt file**, then:
 
 ```sh
 chmod 600 attempt.json
-python3 -I client.py --config "$HOME/.dsmack-arcade/client.json" prepare --attempt attempt.json --registration REGISTRATION.json
-python3 -I client.py --config "$HOME/.dsmack-arcade/client.json" check --attempt attempt.json
-python3 -I client.py --config "$HOME/.dsmack-arcade/client.json" run --attempt attempt.json
-python3 -I client.py --config "$HOME/.dsmack-arcade/client.json" submit --attempt attempt.json
+python3 -I client.py --config "$HOME/.dm/client.json" prepare --attempt attempt.json --registration REGISTRATION.json
+python3 -I client.py --config "$HOME/.dm/client.json" check --attempt attempt.json
+python3 -I client.py --config "$HOME/.dm/client.json" run --attempt attempt.json
+python3 -I client.py --config "$HOME/.dm/client.json" submit --attempt attempt.json
 ```
+
+To see the current stage and next action between commands:
+
+```sh
+python3 -I client.py --config "$HOME/.dm/client.json" progress --attempt attempt.json --registration REGISTRATION.json
+```
+
+Add `--json` for your agent. A requested launch is reported separately from a
+completed run; do not restart a launch whose outcome is unknown.
 
 `run` is the local verification: the base and your commit both go through the
 checker in the VM, and the outputs stay on your Mac. `submit` uploads the 21

@@ -7,6 +7,8 @@ _source=Path(__file__).with_name('portable.py');_scope={'__file__':str(_source),
 exec(compile(_source.read_bytes(),str(_source),'exec'),_scope)
 need=_scope['need'];read=_scope['read'];doc=_scope['document'];canonical=_scope['canonical'];exclusive=_scope['exclusive'];protected=_scope['protected']
 
+PROGRESS_BYTES=16<<20
+
 def request_connection(url,method,path,body=None,headers=None):
     """Retry only DNS resolution failure from request, before socket writes.
 
@@ -53,7 +55,10 @@ class API:
         try:
             if existing:
                 held=os.fstat(fd);need((held.st_dev,held.st_ino,held.st_size,held.st_mtime_ns,held.st_ctime_ns)==(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns),'partial changed before open')
-            n=0;digest=hashlib.sha256()
+            n=0;digest=hashlib.sha256();total=d['bytes'];mark=[0,time.monotonic()]
+            # Large downloads report public byte counts on stderr; never the URL, capability or local directory.
+            tell=lambda text:print(f'{Path(path).name}: {text}',file=sys.stderr,flush=True) if total>PROGRESS_BYTES else None
+            amount=lambda:f'{n}/{total} bytes ({n*100//total}%)'
             with os.fdopen(fd,'r+b' if existing else 'wb',closefd=False) as f:
                 if existing:
                     while True:
@@ -61,6 +66,7 @@ class API:
                         if not prefix:break
                         digest.update(prefix);n+=len(prefix)
                     after=os.fstat(fd);need(n==held.st_size and (after.st_size,after.st_mtime_ns,after.st_ctime_ns)==(held.st_size,held.st_mtime_ns,held.st_ctime_ns),'partial changed while hashing')
+                    tell(f'resuming at {amount()} after rehashing the saved prefix');mark[0]=n
                 while n<d['bytes']:
                     end=min(n+(4<<20),d['bytes'])-1
                     headers={'Range':f'bytes={n}-{end}'}
@@ -75,8 +81,10 @@ class API:
                         chunk=r.read(end-n+2);need(len(chunk)==end-n+1,'artifact range truncated or exceeded')
                         f.write(chunk);digest.update(chunk);n+=len(chunk)
                     finally:c.close()
+                    if n-mark[0]>=PROGRESS_BYTES or time.monotonic()-mark[1]>=5:tell(amount());mark[:]=[n,time.monotonic()]
                 f.flush();os.fsync(fd)
             need(n==d['bytes'] and digest.hexdigest()==d['sha256'],'artifact digest mismatch')
+            tell(f'VERIFIED {total} bytes, sha256 matches')
         finally:os.close(fd)
 
 def state(path):

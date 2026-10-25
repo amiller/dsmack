@@ -19,6 +19,7 @@ export function progress(a){
  let payment=good?'Ready to prepare reward':'Waiting for passing checks';
  if(a.claim_pending_job_id||a.claim_state==='pending')payment='Checking escrow state';
  else if(['failed','uncertain'].includes(a.claim_state))payment='Escrow check needs another observation';
+ else if(claim?.stage==='gas_grant_pending')payment='Testnet gas being sent to your wallet';
  else if(claim?.stage==='submit')payment='Ready to submit result commitments';
  else if(claim?.stage==='resolve')payment='Submission recorded; ready to authorize reward';
  else if(claim?.stage==='withdraw')payment='Reward credited; ready to withdraw';

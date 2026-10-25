@@ -100,10 +100,15 @@ The time a first install and run takes has not been measured.
 
 ## 5. Claim
 
-Before this step, put a small amount of Base Sepolia test ETH in the payee
-wallet for gas. When the claim page shows **All seven checks passed**, press
-**Prepare my reward steps**. This reserves the assignment if one is free. The
-page then offers one signing button per transaction:
+When the claim page shows **All seven checks passed**, press **Prepare my reward
+steps**. This reserves the assignment if one is free.
+
+The operator may send a fixed amount of testnet gas to the payee wallet once the
+assignment is reserved. The page then shows **Testnet gas being sent to your
+wallet**; press **Check testnet gas grant** until it finishes. No grant is sent
+if the wallet already holds that amount. If the page goes straight to the signing
+buttons and your wallet has no test ETH, add some before signing. Either way,
+your wallet still signs every step:
 
 1. **Submit verified result**: from your payee wallet.
 2. **Relay reward approval**: anyone may send this; it may already be done.

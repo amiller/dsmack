@@ -46,6 +46,12 @@ working config or keys.
 
 Task terms must state that execution trusts the Mac host.
 
+Optional testnet gas grant: add `gas_grant: {grant_wei, max_fee_wei,
+max_total_wei, max_grants}` (wei strings at most 10^15, `max_grants` 1–100) and a
+`roles.gas_sponsor` `{address,key_file}` distinct from the four task roles. Without
+`gas_grant` the bridge behaves as before. The sponsor wallet's own balance is the
+outer risk bound; fund it separately.
+
 ## State progression
 
 Each capability-authenticated `POST /claim` queues a new observation; exact
@@ -60,7 +66,15 @@ the task/key journal.
    a new nonce or resend.
 3. Require a successful canonical Assigned receipt and current task, assignment,
    parent, payee and reservation state, then return a `submit` packet for the
-   participant's wallet to sign.
+   participant's wallet to sign. With `gas_grant`, first send `grant_wei` once per
+   assignment from the sponsor to the payee, unless the payee already holds that
+   much. The budget scan counts every intent under `journal_root/gas-grants/`,
+   pending or uncertain included, against `max_grants` and `max_total_wei`
+   (value plus actual signed L2+L1+operator fee). The signed transfer is fsynced
+   as `<task>-<assignment>.intent.json` before one broadcast; later calls only
+   look up that hash's canonical receipt. Until it is confirmed the packet stage
+   is `gas_grant_pending` with no wallet transaction and a public
+   `gas_grant: {tx_hash, value_wei, status}`.
 4. Once the task is Submitted with the expected commit, evidence and delivery
    commitments inside the review window, issue the three EIP-712 Decision v2
    signatures. Validation runs again immediately before signing, and the derived

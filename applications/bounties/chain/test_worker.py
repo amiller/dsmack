@@ -2,13 +2,13 @@
 import importlib.util,pathlib,tempfile,unittest,copy
 spec=importlib.util.spec_from_file_location('worker',pathlib.Path(__file__).with_name('worker.py'));w=importlib.util.module_from_spec(spec);spec.loader.exec_module(w)
 CODE='0x'+pathlib.Path(__file__).with_name('fixtures').joinpath('WorkEscrow.runtime.hex').read_text().strip().removeprefix('0x')
-SECRETS={role:bytes([i])*32 for i,role in enumerate(['allocator','execution','review','delivery'],1)}
+SECRETS={role:bytes([i])*32 for i,role in enumerate(['allocator','execution','review','delivery','gas_sponsor'],1)}
 ADDR={r:w.Account.from_key(v).address.lower()for r,v in SECRETS.items()};PAYEE=w.Account.from_key(bytes([7])*32).address.lower();REQUESTER='0x'+'1'*40
 B={'schema':'dsmack-arcade-settlement-binding/1','attempt_id':'a'*32,'payee':PAYEE,'candidate_commit':'b'*40,'policy_sha256':'c'*64,'report_sha256':'d'*64,'candidate_sha256':'e'*64,'evidence_sha256':'f'*64,'delivery_sha256':'1'*64,'original_report_authenticated':True,'original_outputs_verified':True,'checker_recomputed':True,'delivery_rehashed':True}
 def configuration(root):return {'schema':'dsmack-arcade-claim-worker/1','chain_id':84532,'contract':w.CONTRACT,'runtime_sha256':w.RUNTIME,'task_id':'10','task_created_block':'0x64','package_hash':'2'*64,'policy_hash':'c'*64,'payout_wei':'100000000000000','requester':REQUESTER,'journal_root':str(root),'max_allocator_fee_wei':'100000000000000','roles':{r:{'address':a,'key_file':'/not-operational/'+r}for r,a in ADDR.items()},'terms':{'adjudicator':ADDR['review'],'effort_pay':'0','completion_pay':'100000000000000','submit_seconds':21600,'review_seconds':86400,'adjudication_seconds':3600}}
 def input(c):return {'task':{'task_id':'10','policy_sha256':'c'*64,'chain_id':84532,'contract':w.CONTRACT},'attempt':{'id':'a'*32,'payee':PAYEE,'candidate_commit':'b'*40,'state':'verified','verdict':{'accepted':True,'report_sha256':'d'*64}},'request_id':'offline-request-001'}
 class Mock:
- def __init__(self,c):self.c=c;self.state=0;self.active=0;self.available=10**14;self.sent=[];self.pending=False;self.code=CODE;self.chain=84532;self.now=1000;self.bad_digest=False;self.withdrawn=False;self.resolve_outcome=2;self.credit=10**14;self.last_hash=None
+ def __init__(self,c):self.c=c;self.state=0;self.active=0;self.available=10**14;self.sent=[];self.pending=False;self.code=CODE;self.chain=84532;self.now=1000;self.bad_digest=False;self.withdrawn=False;self.resolve_outcome=2;self.credit=10**14;self.last_hash=None;self.grants=[];self.grant_pending=False;self.balance={}
  def task(self):
   c=self.c;return [REQUESTER,True,self.available,self.active,bytes.fromhex(c['package_hash']),bytes.fromhex(c['policy_hash']),*[ADDR[r]for r in ['allocator','execution','review','delivery']],ADDR['review'],0,10**14,21600,86400,3600]
  def assignment(self):return [10,PAYEE,self.state,10**14 if self.state in(1,2)else 0,5000,9000,*([bytes.fromhex(B[k])for k in ['candidate_sha256','evidence_sha256','delivery_sha256']]if self.state>=2 else[w.ZERO]*3)]
@@ -23,9 +23,14 @@ class Mock:
   if m=='eth_getBlockByNumber':return self.block()
   if m=='eth_getCode':return self.code
   if m=='eth_getTransactionCount':return '0x0'
-  if m=='eth_estimateGas':return hex(100000)
+  if m=='eth_estimateGas':return hex(21000 if 'data'not in a[0]else 100000)
   if m=='eth_gasPrice':return hex(1000)
-  if m=='eth_getBalance':return hex(10**18)
+  if m=='eth_getBalance':return hex(self.balance.get(a[0],10**18))
+  if m=='eth_sendRawTransaction'and w.Account.recover_transaction(a[0]).lower()==ADDR['gas_sponsor']:
+   h='0x'+w.keccak(bytes.fromhex(a[0][2:])).hex();self.grants.append(h)
+   if self.grant_pending:raise OSError('synthetic lost grant response')
+   return h
+  if m=='eth_getTransactionReceipt'and a[0]in self.grants:return None if self.grant_pending else{'status':'0x1','transactionHash':a[0],'to':PAYEE,'from':ADDR['gas_sponsor'],'blockNumber':'0x65','blockHash':'0x'+'5'*64,'logs':[]}
   if m=='eth_sendRawTransaction':
    self.sent.append(a[0]);self.last_hash='0x'+w.keccak(bytes.fromhex(a[0][2:])).hex();self.state=1;self.active=11;self.available=0
    if self.pending:raise OSError('synthetic lost response')
@@ -46,11 +51,12 @@ class Mock:
     if self.bad_digest:return '0x'+'0'*64
     b=w.Bridge(self.c,self,lambda _:dict(B),key_loader=lambda r:SECRETS[r]);msg=w.encode_typed_data(full_message=b.typed(11,input(self.c)['attempt'],B));return '0x'+w.keccak(b'\x19'+msg.version+msg.header+msg.body).hex()
   raise AssertionError((m,a))
-class Tests(unittest.TestCase):
+class Base(unittest.TestCase):
  def setUp(self):self.tmp=tempfile.TemporaryDirectory(prefix="dsmack-claim-test-",dir=pathlib.Path.home());self.c=configuration(pathlib.Path(self.tmp.name)/'journal');self.rpc=Mock(self.c);self.reads=[];self.b=w.Bridge(self.c,self.rpc,lambda _:dict(B),key_loader=self.key)
  def tearDown(self):self.tmp.cleanup()
  def key(self,r):self.reads.append(r);return SECRETS[r]
  def process(self):return self.b.process(input(self.c))
+class Tests(Base):
  def test_assign_once_then_submit_only_no_oracle_signing(self):
   p=self.process();self.assertEqual(p['stage'],'submit');self.assertEqual(self.reads,['allocator']);self.assertEqual(len(self.rpc.sent),1);self.assertEqual(self.process()['stage'],'submit');self.assertEqual(len(self.rpc.sent),1)
  def test_lost_broadcast_response_only_observes_same_hash(self):
@@ -122,6 +128,44 @@ class Tests(unittest.TestCase):
  def test_changed_cached_allocation_receipt_is_refused(self):
   self.process();self.rpc.state=3;self.rpc.active=0;j=self.b.journal('a'*32);p=j/'allocation-receipt.json';v=w.parse(p.read_bytes());v['block_hash']='0x'+'0'*64;p.write_bytes(w.canon(v))
   with self.assertRaisesRegex(w.Refusal,'allocation receipt binding'):self.process()
+class GasGrantTests(Base):
+ def setUp(self):
+  super().setUp();self.c['gas_grant']={'grant_wei':'200000000000000','max_fee_wei':'1000000000000','max_total_wei':'1000000000000000','max_grants':3};self.b=w.Bridge(self.c,self.rpc,lambda _:dict(B),key_loader=self.key);self.rpc.balance[PAYEE]=0
+ def grants(self):return sorted(p.name for p in(self.b.root/'gas-grants').glob('*'))
+ def test_absent_config_keeps_submit_packet_unchanged(self):
+  del self.c['gas_grant'];p=w.Bridge(self.c,self.rpc,lambda _:dict(B),key_loader=self.key).process(input(self.c));self.assertEqual(p['stage'],'submit');self.assertNotIn('gas_grant',p);self.assertEqual(self.rpc.grants,[])
+ def test_grant_confirmed_before_submit_packet_then_never_resent(self):
+  p=self.process();self.assertEqual(p['stage'],'submit');g=p['gas_grant'];self.assertEqual((g['status'],g['value_wei']),('confirmed','200000000000000'));self.assertEqual(set(g),{'tx_hash','value_wei','status'});self.assertEqual(g['tx_hash'],self.rpc.grants[0])
+  self.assertEqual(self.reads,['allocator','gas_sponsor']);self.process();self.assertEqual(len(self.rpc.grants),1);self.assertEqual(self.reads,['allocator','gas_sponsor']);self.assertNotIn('raw_transaction',w.canon(p).decode())
+ def test_sufficient_payee_balance_sends_nothing(self):
+  self.rpc.balance[PAYEE]=2*10**14;p=self.process();self.assertEqual(p['stage'],'submit');self.assertEqual(p['gas_grant']['status'],'not_needed');self.assertEqual(self.rpc.grants,[]);self.assertNotIn('gas_sponsor',self.reads)
+ def test_lost_grant_response_has_no_wallet_packet_and_observes_same_hash(self):
+  self.rpc.grant_pending=True;p=self.process();self.assertEqual(p['stage'],'gas_grant_pending');self.assertEqual(p['transactions'],{});self.assertEqual(p['gas_grant']['status'],'uncertain')
+  self.assertEqual(self.process()['gas_grant']['status'],'pending');self.assertEqual(len(self.rpc.grants),1);self.rpc.grant_pending=False;self.assertEqual(self.process()['stage'],'submit');self.assertEqual(len(self.rpc.grants),1);self.assertEqual(self.reads.count('gas_sponsor'),1)
+ def test_count_and_total_caps_include_committed_intents(self):
+  d=self.b.root/'gas-grants';d.mkdir(mode=0o700)
+  for i in range(3):f=d/('10-%d.intent.json'%i);w.durable(f,{'value_wei':'1','fee_wei':'1'})
+  with self.assertRaisesRegex(w.Refusal,'count cap'):self.process()
+  (d/'10-0.intent.json').unlink();(d/'10-1.intent.json').unlink();(d/'10-2.intent.json').unlink();w.durable(d/'10-0.intent.json',{'value_wei':'800000000000000','fee_wei':'0'})
+  with self.assertRaisesRegex(w.Refusal,'budget cap'):self.process()
+  self.assertEqual(self.rpc.grants,[]);self.assertNotIn('gas_sponsor',self.reads)
+ def test_no_accepted_proof_or_wrong_payee_grants_nothing(self):
+  for v in [{**B,'checker_recomputed':False},{**B,'payee':REQUESTER}]:
+   self.b.validate=lambda _,v=v:v
+   with self.assertRaises(w.Refusal):self.process()
+  self.rpc.state=1;self.b.validate=lambda _:dict(B);original=self.rpc.assignment;self.rpc.assignment=lambda:[10,REQUESTER,*original()[2:]]
+  with self.assertRaises(w.Refusal):self.process()
+  self.assertEqual(self.rpc.grants,[]);self.assertNotIn('gas_sponsor',self.reads)
+ def test_changed_grant_intent_binding_refuses(self):
+  self.rpc.grant_pending=True;self.process();f=self.b.root/'gas-grants'/'10-11.intent.json';v=w.parse(f.read_bytes());v['payee']=REQUESTER;f.write_bytes(w.canon(v))
+  with self.assertRaisesRegex(w.Refusal,'gas grant journal binding'):self.process()
+  self.assertEqual(len(self.rpc.grants),1)
+ def test_unbounded_or_shared_sponsor_config_refuses(self):
+  for k,v in [('grant_wei',str(10**15+1)),('max_total_wei','1'),('max_grants',0)]:
+   c=copy.deepcopy(self.c);c['gas_grant'][k]=v
+   with self.assertRaises(w.Refusal):w.config_check(c)
+  c=copy.deepcopy(self.c);c['roles']['gas_sponsor']=dict(c['roles']['allocator'])
+  with self.assertRaises(w.Refusal):w.config_check(c)
 class EventPaginationTests(unittest.TestCase):
  def fixture(self,range_error=False,bad_receipt=False):
   topic='0x'+w.keccak(text='Resolved(uint256,uint8,uint256)').hex();log={'address':w.CONTRACT,'topics':[topic,'0x'+hex(10)[2:].rjust(64,'0')],'blockNumber':hex(205),'blockHash':'0x'+'5'*64,'transactionHash':'0x'+'6'*64,'data':'0x'+w.encode(['uint8','uint256'],[2,100]).hex()};windows=[]

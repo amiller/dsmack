@@ -8,6 +8,7 @@ export class RewardFlow{
   const waiting=!!c.pending_job_id||c.status==='pending';
   let label='Prepare my reward steps',text='This checks escrow and prepares the next step without sending a wallet transaction.';
   if(waiting){label='Check reward preparation';text='The escrow observation is in progress. This button reads its status.';}
+  else if(c.stage==='gas_grant_pending'){label='Check testnet gas grant';text='The operator is sending testnet gas to your receiving wallet. No wallet action is needed yet; your wallet will still sign each reward step.';}
   else if(c.stage==='received'&&c.payment_received===true){label='View confirmed withdrawal';text='The verifier observed a successful withdrawal. No further wallet transaction is needed.';}
   else if(c.transactions?.[c.stage]&&walletSteps[c.stage]){label=this.record.pendingWallet?'Check my submitted transaction':'Check for an updated reward step';text=this.record.pendingWallet?'A wallet request has already been made. Do not submit it again. Check escrow to see whether it was recorded.':walletSteps[c.stage].description;}
   else if(['failed','uncertain'].includes(c.status)){label='Check escrow again';text='The last escrow observation did not finish. A fresh observation will not resend your wallet transaction.';}

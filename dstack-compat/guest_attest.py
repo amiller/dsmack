@@ -45,7 +45,8 @@ def pack(o):
         return _head(len(o), 0x90, 0xDC) + b"".join(pack(x) for x in o)
     if isinstance(o, str):
         b = o.encode()
-        return (bytes([0xA0 | len(b)]) if len(b) < 32 else b"\xda" + struct.pack(">H", len(b))) + b
+        n = len(b)
+        return (bytes([0xA0 | n]) if n < 32 else b"\xd9" + bytes([n]) if n < 256 else b"\xda" + struct.pack(">H", n)) + b
     if isinstance(o, int) and 0 <= o < 128:
         return bytes([o])
     if isinstance(o, int) and 0 <= o < 256:
@@ -70,8 +71,13 @@ def _unpack(b, i):
         return t, i + 1
     if t == 0xCC:
         return b[i + 1], i + 2
-    if 0xA0 <= t <= 0xBF or t == 0xDA:
-        n, i = (t & 0x1F, i + 1) if t != 0xDA else (struct.unpack_from(">H", b, i + 1)[0], i + 3)
+    if 0xA0 <= t <= 0xBF or t in (0xD9, 0xDA):
+        if t == 0xD9:
+            n, i = b[i + 1], i + 2
+        elif t == 0xDA:
+            n, i = struct.unpack_from(">H", b, i + 1)[0], i + 3
+        else:
+            n, i = t & 0x1F, i + 1
         return b[i:i + n].decode(), i + n
     if 0x80 <= t <= 0x9F or t in (0xDC, 0xDE):
         is_map = t < 0x90 or t == 0xDE

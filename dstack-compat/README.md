@@ -27,8 +27,13 @@ unchanged.
 - `guest_attest.py` event log, client data, `VersionedAttestation` encoding and
   `verify(blob)`, which replays the log and rebuilds the client-data hash for
   the App Attest check. Stdlib only.
-- `agent.py --dir <dir> [--ctl <port>] [--event NAME=HEX]... [--grant grant.json] SERVICE...`
+- `agent.py --dir <dir> [--ctl <port>] [--event NAME=HEX]... [--canary-key PATH] [--grant grant.json] SERVICE...`
   the shim, serving `<dir>/<service>.sock`. `GetKey` needs `--grant`, `Attest` needs `--ctl`.
+  `--canary-key` writes a fresh P-256 key to PATH and sends its public key as the
+  `canary-guest-key` system event (Canary kinds Guest and Owner).
+- `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary
+  workload: one `/v1/Attest` with zero `report_data`, written to its outputs, then a sleep.
+  Owner canaries bind its manifest sha256.
 - `grant.py <dstack.sock> <task> <worker> <compose_hash> <ttl_s>` the coordinator call.
 - `docker-compose.json` a stdlib worker that calls `GetKey` and `Info`.
 - `e2e.sh <dir>` runs that compose in a docker-in-docker guest twice, once

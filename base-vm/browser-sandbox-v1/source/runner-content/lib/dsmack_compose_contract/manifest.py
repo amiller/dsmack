@@ -555,9 +555,41 @@ def _declared_slots(manifest):
     return slots
 
 
+#: dstack app-compose.json fields a dsmack guest accepts around the "dsmack" block.
+#: The values below are the only ones with a meaning here; anything else is refused.
+DSTACK_APP_COMPOSE_FIXED = {"manifest_version": 2, "runner": "docker-compose", "kms_enabled": True, "key_provider": "kms"}
+DSTACK_APP_COMPOSE_KEYS = {"name", "docker_compose_file", "allowed_envs", "dsmack", "public_logs", "public_sysinfo",
+                           "public_tcbinfo", "gateway_enabled"} | set(DSTACK_APP_COMPOSE_FIXED)
+
+
+def unwrap_dstack_app_compose(app):
+    """dstack's app-compose.json with dsmack's own fields under "dsmack", as a v4 manifest.
+
+    sha256 of the exact app-compose.json bytes is then both dstack's compose_hash and
+    dsmack's manifest_sha256, so one admitted hash covers both platforms.
+    """
+    errors = []
+    _object_keys(app, DSTACK_APP_COMPOSE_KEYS, "app-compose", errors)
+    for key, value in DSTACK_APP_COMPOSE_FIXED.items():
+        if key in app and app[key] != value:
+            errors.append(ManifestError("app-compose.%s must be %r" % (key, value)))
+    inner = app["dsmack"]
+    if not _check_type(inner, dict, "app-compose.dsmack", errors):
+        raise MultiError(errors)
+    for key in ("manifest_version", "name", "docker_compose_file", "allowed_envs"):
+        if key in inner:
+            errors.append(ManifestError("app-compose.dsmack.%s belongs at the top level" % key))
+    if errors:
+        raise MultiError(errors)
+    return dict(inner, manifest_version=4, name=app.get("name"), docker_compose_file=app.get("docker_compose_file"),
+                allowed_envs=app.get("allowed_envs", []))
+
+
 def validate_manifest_bytes(manifest_bytes):
     """Validate exact manifest bytes; returns (parsed_manifest, summary dict)."""
     manifest = load_json_bytes(manifest_bytes, "manifest")
+    if isinstance(manifest, dict) and "dsmack" in manifest:
+        manifest = unwrap_dstack_app_compose(manifest)
     summary = validate_manifest(manifest)
     summary["manifest_sha256"] = sha256_hex(manifest_bytes)
     return manifest, summary

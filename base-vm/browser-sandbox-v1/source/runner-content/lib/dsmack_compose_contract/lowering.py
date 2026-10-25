@@ -445,6 +445,19 @@ def _file_mount(segment, target, workspace_host_dir, read_only):
     }
 
 
+LOCAL_REGISTRY = "127.0.0.1:5005"
+
+
+def local_image_ref(image):
+    """Where the guest pulls a pinned image: its loopback publisher, whatever registry the
+    compose names. The pull is by digest, so the repository name carries no trust, and a
+    compose naming ``ghcr.io/x@sha256:D`` runs unchanged on dstack and here."""
+    host, _, rest = image.partition("/")
+    if rest and ("." in host or ":" in host or host == "localhost"):
+        image = rest
+    return LOCAL_REGISTRY + "/" + image
+
+
 def _lower_network(manifest):
     mode = manifest["network"]["mode"]
     ports = manifest["network"]["listen_ports"]
@@ -645,7 +658,7 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
 
         gen_service = {
             "environment": env,
-            "image": service["image"],
+            "image": local_image_ref(service["image"]),
             "read_only": True,
             "runtime": lowered["requires_runtime"],
             "user": "%d:%d" % (WORKLOAD_UID, WORKLOAD_GID),

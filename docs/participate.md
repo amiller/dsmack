@@ -94,10 +94,20 @@ Run that command. Setup creates the private directory `"$HOME/.dm"`; keep every
 request, signature and attempt file there and pass full paths, because the client
 refuses relative ones. Enroll the Mac with `authorization --purpose registration`
 and `register`
-([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). The
-authorization file holds the message to sign; save only the 0x signature in the
-signature file. Keep both files in the private directory. Your wallet private
-key stays in your wallet.
+([steps 1–2](../applications/bounties/runner/README.md#worker-owned-mac)). To
+sign with a browser wallet, open the claim page, connect the payee wallet, and
+under **Enroll your Mac** choose `"$HOME/.dm/REG-AUTH.json"`. The page checks that
+the service holds that exact challenge for this task and wallet, then the wallet
+shows the message. Signing sends no transaction. Move the downloaded signature
+into the private directory and pass it to `register`:
+
+```sh
+test ! -e "$HOME/.dm/REG-SIGNATURE.txt" && mv "$HOME/Downloads/REG-SIGNATURE.txt" "$HOME/.dm/REG-SIGNATURE.txt"
+chmod 600 "$HOME/.dm/REG-SIGNATURE.txt"
+```
+
+The signature file holds only the 0x signature. Your wallet private key stays in
+your wallet.
 
 On the claim page press **Save private attempt file**. Move it from your browser's
 download folder into `"$HOME/.dm"` without replacing an earlier attempt file:

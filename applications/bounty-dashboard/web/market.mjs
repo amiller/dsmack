@@ -27,7 +27,7 @@ export function market(snapshot,{now=Date.now(),network='',contract=''}={}){
  const windows={};for(const [name,duration]of [['day',86400000],['week',604800000]]){
   const eligible=[],seen=new Set();let unknown=0;
   for(const p of payments){const at=time(p.timestamp??p.created_at);if(at!==null&&at<now-duration)continue;
-   if(['funding','deposit','gas'].includes(p.kind)||p.reward_eligible===false&&['reward','refund'].includes(p.economic_kind))continue;
+   if(['funding','deposit','gas'].includes(p.kind)||p.reward_eligible===false)continue;
    if(p.source_withdrawal_transaction_hash!=null||at!==null&&at>now){unknown++;continue;}
    if(p.economic_kind!=='reward'||p.reward_eligible!==true){unknown++;continue;}
    const c=findContract(p,contracts);if(!at||!c||typeof c.testnet!=='boolean'||wei(p.amount_wei)===null||!actualPayment(p)){unknown++;continue;}

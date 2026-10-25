@@ -106,8 +106,9 @@ def main():
     a=sub.add_parser('authorization');a.add_argument('--purpose',choices=('attempt','registration'),required=True);a.add_argument('--payee',required=True);a.add_argument('--candidate-commit');a.add_argument('--out',required=True)
     for name in ('attempt','register'):
         a=sub.add_parser(name);a.add_argument('--authorization',required=True);a.add_argument('--wallet-signature',required=True);a.add_argument('--out',required=True)
-    for name in ('prepare','check','run','resume','submit','status','cleanup'):
+    for name in ('prepare','check','run','resume','submit','status','progress','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
+        if name=='progress':a.add_argument('--json',action='store_true')
         if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
     x=p.parse_args();cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
     if x.command=='authorization':
@@ -138,6 +139,12 @@ def main():
         exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));print(json.dumps({'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}));return
     record=state(x.attempt);response=record['response'];attempt=response.get('attempt_id',response.get('id',response.get('attempt',{}).get('id')));need(re.fullmatch('[a-f0-9]{32}',attempt or ''),'attempt identity');cap=record['capability'];local=_scope['task_directory'](parent,attempt)
     if x.command=='status':print(json.dumps(api.request('GET',f'/api/attempts/{attempt}')));return
+    if x.command=='progress':
+        script=Path(__file__).with_name('progress.py');ns={'__name__':'arcade_progress','__file__':str(script)};exec(compile(script.read_bytes(),str(script),'exec'),ns)
+        observed=api.request('GET',f'/api/attempts/{attempt}');native=(observed.get('execution') or {}).get('native_execution_id')
+        claim=api.request('GET',f'/api/attempts/{attempt}/claim') if observed['state'] in ('verified','claim_uncertain','claim_failed') else None
+        f=ns['facts'](local,native,lambda q:doc(read(q)));stage,text=ns['render'](observed,claim,f,observed.get('execution_mode'),int(time.time()))
+        print(json.dumps({'stage':stage,'attempt_id':attempt,'facts':f}) if x.json else text);return
     if x.command=='prepare':
         registration=state(x.registration) if x.registration else None
         need(x.mode=='best_effort' or registration is not None,'self route requires local registered key')

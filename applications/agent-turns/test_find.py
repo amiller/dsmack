@@ -34,7 +34,7 @@ class FindTest(unittest.TestCase):
         (self.inputs/'src').mkdir(parents=True)
         (self.inputs/'src'/'a.py').write_text('def f():\n    return 1\n')
         os.environ['DSMACK_SENTINEL_ENDPOINT'] = 'http://10.0.2.2:8100/tok'
-        self.spec = {'schema': 'dsmack-agent-check/1', 'question': 'Does f return 1?',
+        self.spec = {'schema': 'dsmack-agent-turn/1', 'prompt': 'Does f return 1?', 'state_in': None,
                      'answers': ['yes', 'no', 'unclear'], 'runs': 3, 'aggregate': 'unanimous',
                      'agent': {'cli_version': '2.1.187', 'cli_sha256': None,
                                'model': 'claude-opus-4-8', 'tools': ['Read', 'Grep', 'Glob'],
@@ -48,10 +48,11 @@ class FindTest(unittest.TestCase):
         return find.run(self.spec, self.inputs, self.tmp/('out-' + mode), self.cli)
 
     def test_unanimous_finding(self):
-        finding = self.run_mode('ok')
-        self.assertEqual((finding['answer'], finding['run_answers']), ('yes', ['yes']*3))
-        self.assertEqual(finding['observed_models'], ['claude-opus-4-8'])
-        self.assertTrue((self.tmp/'out-ok'/'run-3'/'transcript.jsonl').is_file())
+        verdict = self.run_mode('ok')
+        self.assertEqual((verdict['answer'], verdict['run_answers']), ('yes', ['yes']*3))
+        self.assertEqual(verdict['observed_models'], ['claude-opus-4-8'])
+        self.assertEqual(sorted(p.name for p in (self.tmp/'out-ok').iterdir()),
+                         sorted(['verdict'] + [f'run-{n}-{k}' for n in (1, 2, 3) for k in ('transcript', 'stderr', 'verdict')]))
 
     def test_substituted_model_refused(self):
         with self.assertRaisesRegex(ValueError, 'model mismatch'):
@@ -71,7 +72,7 @@ class FindTest(unittest.TestCase):
             self.run_mode('ok')
 
     def test_check_digest_ignores_inputs(self):
-        other = self.spec | {'inputs_sha256': '0'*64}
+        other = self.spec | {'inputs_sha256': '0'*64, 'state_in': '1'*64}
         self.assertEqual(find.check_digest(self.spec), find.check_digest(other))
 
     def test_aggregation(self):

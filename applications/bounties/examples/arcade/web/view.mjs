@@ -1,3 +1,8 @@
+export function storageKeys(moduleURL){
+ const base=new URL('.',moduleURL).pathname;
+ const prefix=base==='/arcade-pilot/'?'dsmack-arcade':'dsmack-bounty:'+base;
+ return {store:prefix+'-attempt',intent:prefix+'-create-intent',history:prefix+'-history'};
+}
 export const eligible=a=>!!a&&['verified','claim_uncertain','claim_failed'].includes(a.state)&&a.verdict?.accepted===true&&a.verdict.verification_level==='full';
 export function rewardAmount(wei){if(!/^[0-9]+$/.test(wei??''))return 'Published testnet reward';const n=BigInt(wei),whole=n/10n**18n,fraction=String(n%10n**18n).padStart(18,'0').replace(/0+$/,'');return `${whole}${fraction?'.'+fraction:''} test ETH`;}
 export function progress(a){

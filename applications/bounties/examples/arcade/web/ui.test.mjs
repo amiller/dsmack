@@ -1,4 +1,4 @@
-import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {progress,rewardAmount,assertTransaction} from './view.mjs';import {RewardFlow} from './reward.mjs';
+import test from 'node:test';import assert from 'node:assert/strict';import {readFileSync} from 'node:fs';import {progress,rewardAmount,assertTransaction,storageKeys} from './view.mjs';import {RewardFlow} from './reward.mjs';
 const payee='0x'+'1'.repeat(40),contract='0x'+'2'.repeat(40),task={contract},tx={from:payee,to:contract,chainId:'0x14a34',value:'0x0',data:'0x1234'},hash='0x'+'a'.repeat(64);
 const good={id:'a'.repeat(32),state:'verified',verdict:{accepted:true,verification_level:'full'}};
 function fixture({claim={status:'not_requested'},walletError=null}={}){const calls=[],events=[],saved=[];const record={attempt_id:good.id,payee,capability:'private-cap'};let current=claim;const wallet={request:async v=>{calls.push(['wallet',v.method]);if(v.method==='eth_chainId')return '0x14a34';if(walletError)throw walletError;return hash;}};const api=async(path,method='GET',body,cap)=>{calls.push([method,path,body,cap]);if(method==='POST')return {pending_job_id:'job'};return current;};const flow=new RewardFlow({api,record,persist:r=>saved.push(JSON.parse(JSON.stringify(r))),task,wallet,account:()=>payee,onChange:v=>events.push(v),requestId:()=> 'same-request-id'});return {flow,calls,record,events,saved,setClaim:c=>current=c};}
@@ -13,3 +13,9 @@ test('raw task/status/claim JSON is collapsed and task wording preserves full ex
 
 test('HTTP serves both new UI modules through the closed static allowlist',async t=>{const {server}=await import('../../../service/server.mjs');const s=server({task:{}});await new Promise(r=>s.listen(0,'127.0.0.1',r));t.after(()=>new Promise(r=>s.close(r)));const root='http://127.0.0.1:'+s.address().port;for(const name of ['view.mjs','reward.mjs']){const r=await fetch(root+'/'+name);assert.equal(r.status,200);assert.match(r.headers.get('content-type'),/javascript/);assert((await r.text()).length>0);}});
 test('claim_uncertain allows reward recheck only for an accepted full verdict',()=>{assert.equal(progress({state:'claim_uncertain',verdict:{accepted:true,verification_level:'full'}}).canClaim,true);assert.equal(progress({state:'claim_uncertain',verdict:{accepted:false,verification_level:'full'}}).canClaim,false);assert.equal(progress({state:'claim_uncertain',verdict:{accepted:true,verification_level:'partial'}}).canClaim,false);});
+
+test('each task route has separate private browser state while legacy pilot keys remain',()=>{
+ const old=storageKeys('https://pod.dstack.soc1024.com/arcade-pilot/app.mjs');assert.deepEqual(old,{store:'dsmack-arcade-attempt',intent:'dsmack-arcade-create-intent',history:'dsmack-arcade-history'});
+ const keys=['bounty-undo','bounty-deadlock','bounty-segments'].map(x=>storageKeys('https://pod.dstack.soc1024.com/'+x+'/app.mjs'));
+ for(const kind of ['store','intent','history']){assert.equal(new Set(keys.map(x=>x[kind])).size,3);assert(keys.every(x=>x[kind]!==old[kind]));}
+});

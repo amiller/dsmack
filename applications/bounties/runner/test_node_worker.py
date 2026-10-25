@@ -7,7 +7,7 @@ class NodeRouting(unittest.TestCase):
   exec(compile(source.read_bytes(),str(source),'exec'),scope)
   with tempfile.TemporaryDirectory(prefix='.arcade-node-',dir=Path.home())as temp:
    root=Path(temp);root.chmod(0o700);attempt='a'*32;native='b'*32;key='test-key'
-   cfg={'api_url':'https://example.com','state_dir':str(root)};reg={'key_id':key,'node_capability':'c'*43}
+   cfg={'api_url':'https://example.com','state_dir':str(root),'install_root':str(root/'runtime')};reg={'key_id':key,'node_capability':'c'*43}
    # Use a short owned root for this no-runtime routing control.
    scope['p']['task_directory']=lambda parent,aid:Path(parent)/('a-'+aid[:12])
    expected=scope['p']['task_directory'](root,attempt)
@@ -28,5 +28,16 @@ class NodeRouting(unittest.TestCase):
     sys.argv=[str(source),'--config','config','--registration','registration']
     with self.assertRaises(Prepared):scope['main']()
    finally:sys.argv=old
+
+class SerialExecution(unittest.TestCase):
+ def test_shared_installation_lock_blocks_a_second_worker(self):
+  import subprocess
+  source=Path(__file__).with_name('node_worker.py').resolve();scope={'__name__':'node_test','__file__':str(source)};exec(compile(source.read_bytes(),str(source),'exec'),scope)
+  with tempfile.TemporaryDirectory(prefix='.node-lock-',dir=Path.home())as temp:
+   root=Path(temp);root.chmod(0o700);cfg={'install_root':str(root/'runtime')}
+   code="import pathlib;f="+repr(str(source))+";s={'__name__':'lock_child','__file__':f};exec(compile(pathlib.Path(f).read_bytes(),f,'exec'),s);print('waiting',flush=True);\nwith s['execution_lock']("+repr(cfg)+"):print('acquired',flush=True)"
+   with scope['execution_lock'](cfg):
+    child=subprocess.Popen([sys.executable,'-I','-c',code],stdout=subprocess.PIPE,text=True);self.assertEqual(child.stdout.readline().strip(),'waiting');self.assertIsNone(child.poll())
+   out,_=child.communicate(timeout=5);self.assertEqual(child.returncode,0);self.assertEqual(out.strip(),'acquired')
 
 if __name__=='__main__':unittest.main()

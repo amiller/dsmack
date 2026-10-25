@@ -119,3 +119,15 @@ VM, key, signature, funds or Apple proof.
 ## Selecting the task adapter
 
 `configure.py` requires operator-selected `factory` and `guest_driver` source descriptors (`path`, `bytes`, `sha256`) in addition to the publisher inputs. For the working Board-search configuration, select `examples/arcade/task_factory.py` and `examples/arcade/guest_driver.py`. Other task code is selected by the operator, never supplied by an attempt. See the [Arcade example](../examples/arcade/README.md) for its checker and workload inputs.
+
+## Serving several tasks from one Mac
+
+`fleet.py` polls fixed service registrations in order and runs one task at a time:
+
+```sh
+python3 -I fleet.py --config /absolute/private/fleet.json --state /short/owned/fleet
+```
+
+Create the private state directory first. `fleet.json` contains `services`, a list of `{name,config,registration}` entries naming each service's client configuration and enrolled node registration file. Use short distinct names such as `undo`, `deadlock` and `segments`. Client configurations can share one installed runtime; each service registration keeps its own node capability.
+
+The normal node worker locks the installation's parent directory before taking a lease and holds that lock through verification and cleanup. The fleet polls empty queues without waiting, advances to fresh run state only after guarded cleanup, and stops on an uncertain child outcome for inspection. Its own lock prevents duplicate fleet controllers. Worker logs rotate at1MiB, keeping one previous file beside each run. Original run evidence remains in the run directory.

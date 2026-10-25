@@ -12,6 +12,14 @@ export function createHandler(config){
  pilot.basePath=config.basePath;pilot.adapters=remoteAdapters(pilot,walletVerifier(config.cast));
  const service=server(pilot,{basePath:config.basePath,workerTokenHash:config.worker_token_sha256,webRoot:config.webRoot});
  const listener=service.listeners('request')[0];
- const handler=(req,res)=>{if(!req&&!res)return;return listener(req,res);};
+ const handler=(req,res)=>{
+  if(!req&&!res)return;
+  const base=config.basePath??'',url=req.url;
+  if(typeof url!=='string'||!url.startsWith('/')||url.startsWith('//')||/[\\\r\n]/.test(url)){res.writeHead(400);res.end('invalid request target');return;}
+  const pathname=url.split('?')[0];
+  // The existing pod host may remove its project prefix before delegation.
+  if(base&&pathname!==base&&!pathname.startsWith(base+'/'))req.url=base+url;
+  return listener(req,res);
+ };
  handler.close=()=>pilot.close();return handler;
 }

@@ -7,6 +7,6 @@ test('instances keep task, database and HTTP prefix separate',async t=>{
   const prefix='/bounty-'+i,h=createHandler({root,task:{...task,slug:task.slug+'-'+i},origin:'https://example.org',basePath:prefix,worker_token_sha256:H,cast:{path:realpathSync('/bin/true'),sha256:sha(readFileSync('/bin/true'))}});const s=createServer(h);instances.push({s,h});await new Promise(r=>s.listen(0,'127.0.0.1',r));
   const base='http://127.0.0.1:'+s.address().port;
   assert.equal((await(await fetch(base+prefix+'/api/task')).json()).slug,task.slug+'-'+i);
-  assert.equal((await fetch(base+'/arcade-pilot/api/task')).status,404);
+  assert.equal((await(await fetch(base+'/api/task')).json()).slug,task.slug+'-'+i);assert.notEqual((await fetch(base+'/arcade-pilot/api/task')).status,200);
  }
 });

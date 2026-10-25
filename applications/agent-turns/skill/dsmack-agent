@@ -1,0 +1,141 @@
+#!/usr/bin/env python3
+"""dsmack-agent run: hand a coding task on a git checkout to the pinned agent and get back a patch.
+
+The working tree is snapshotted, sent with a dsmack-agent-turn/1 request to a transport, and the
+transport's receipt and artifacts are read with turn.from_receipt. The zed Docker transport has no
+attestation: its receipt is unsigned and built from the digests zed reports.
+"""
+import argparse
+import base64
+import io
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+import tarfile
+import uuid
+
+TURNS = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(TURNS))
+import find
+import turn
+
+CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
+MAX_INPUTS = 32 << 20
+ZED, ZED_SCRATCH = 'zed-mesh', '/data/amiller/dsmack'
+QUALIFIED = '127.0.0.1:39685/dsmack-claude-harness'
+SENTINEL = turn.ROOT/'base-vm/browser-sandbox-v1/source/guest/sentinel'
+
+REMOTE = r'''set -euo pipefail
+cd "$1"; P=dispatch-$2
+export AGENT_IMAGE=$P:agent SENTINEL_IMAGE=$P:agent SENTINEL_SOURCE=$PWD/sentinel CREDENTIAL_FILE=$3
+export SPEC=$PWD/request.json INPUTS=$PWD/inputs OUTPUT=$PWD/out RUN_ID=$2 SENTINEL_TOKEN=$(openssl rand -hex 16)
+files="-f compose.yml"; [ -f override.json ] && files="$files -f override.json"
+trap 'docker compose -p $P $files down -v >>compose.log 2>&1; docker rmi $P:agent >/dev/null' EXIT
+DOCKER_BUILDKIT=0 docker build -q --build-arg QUALIFIED_CLAUDE_REPOSITORY=$4 -t $P:agent image >/dev/null
+mkdir -p out/artifacts
+status=0; timeout "$5" docker compose -p $P $files up --exit-code-from agent >compose.log 2>&1 || status=$?
+echo "$status $(docker image inspect $P:agent --format '{{.Id}}')" >result
+(cd out/artifacts && find . -type f -exec sha256sum {} +) >>result
+'''
+
+
+def snapshot(repo, inputs):
+    names = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z', '-co', '--exclude-standard', '--deduplicate'],
+                           check=True, capture_output=True).stdout.decode().split('\0')
+    for name in filter(None, names):
+        if os.path.lexists(repo/name):
+            (inputs/name).parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(repo/name, inputs/name, follow_symlinks=False)
+    size = sum(p.stat().st_size for p in inputs.rglob('*') if p.is_file())
+    find.require(size <= MAX_INPUTS, f'snapshot is {size} bytes; the Mac projection limit is {MAX_INPUTS}')
+    return find.tree_digest(inputs)
+
+
+def docker_zed(request, inputs, artifacts, credential, fake_cli=None):
+    """Run the turn in Docker on zed. Returns a receipt shaped like compose receipt v4, unsigned."""
+    run_id = uuid.uuid4().hex[:12]
+    remote = f'{ZED_SCRATCH}/dispatch-{run_id}'
+    compose = (TURNS/'compose-private.yml').read_bytes()
+    bundle = io.BytesIO()
+    with tarfile.open(fileobj=bundle, mode='w') as tar:
+        def add(name, raw):
+            info = tarfile.TarInfo(name)
+            info.size, info.mode = len(raw), 0o644
+            tar.addfile(info, io.BytesIO(raw))
+        add('request.json', request)
+        add('compose.yml', compose)
+        tar.add(inputs, 'inputs')
+        tar.add(SENTINEL, 'sentinel')
+        tar.add(TURNS/'Dockerfile', 'image/Dockerfile')
+        tar.add(TURNS/'find.py', 'image/find.py')
+        if fake_cli:
+            tar.add(fake_cli, 'claude')
+            add('override.json', json.dumps({'services': {'agent': {
+                'volumes': ['./claude:/opt/fake/claude:ro'],
+                'command': ['--spec', '/spec.json', '--inputs', '/inputs', '--output', '/out/artifacts',
+                            '--cli', '/opt/fake/claude']}}}).encode())
+    ssh = ['ssh', ZED]
+    subprocess.run(ssh + [f'mkdir -p {remote} && tar -x -C {remote}'], input=bundle.getvalue(), check=True)
+    try:
+        wall = json.loads(request)['agent']['wall_seconds'] + 300
+        subprocess.run(ssh + ['bash', '-s', remote, run_id, credential, QUALIFIED, str(wall)],
+                       input=REMOTE.encode(), check=True)
+        pulled = subprocess.run(ssh + [f'tar -c -C {remote} result compose.log -C out artifacts'],
+                                check=True, capture_output=True).stdout
+        with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
+            tar.extractall(artifacts.parent, filter='data')
+    finally:
+        subprocess.run(ssh + [f'rm -rf {remote}'], check=True)
+    (status, image), *sums = [line.split() for line in (artifacts.parent/'result').read_text().splitlines()]
+    commitment = {'alg': turn.TASK_COMMITMENT_ALG, 'scope': turn.SCOPE}
+    envelope = {'manifest_sha256': turn.sha(compose), 'commitments': commitment,
+                'files': [{'slot': 'turn', 'content_base64': base64.b64encode(request).decode()}]}
+    return {'manifest_sha256': turn.sha(compose), 'observed': {'services': [{'resolved_manifest_digest': image}]},
+            'runtime_inputs_commitment': commitment | {'inputs_sha256': turn.compute_commitment(envelope, {})},
+            'outputs': {'status': 'completed' if status == '0' else 'failed',
+                        'artifacts': [{'name': name.removeprefix('./'), 'sha256': digest} for digest, name in sums]}}
+
+
+def run(args):
+    repo, out = args.repo.resolve(), args.out.resolve()
+    out.mkdir(parents=True)
+    (out/'inputs').mkdir()
+    agent = {'cli_version': CLI_VERSION, 'cli_sha256': find.file_sha(args.fake_cli) if args.fake_cli else CLI_SHA256,
+             'model': args.model, 'tools': args.tools.split(','), 'max_turns': args.max_turns,
+             'wall_seconds': args.wall_seconds, 'settings': {'disableAllHooks': True}}
+    request = turn.canonical({'schema': 'dsmack-agent-turn/1', 'agent': agent, 'prompt': args.prompt,
+                              'inputs_sha256': snapshot(repo, out/'inputs'), 'state_in': None})
+    (out/'request.json').write_bytes(request)
+    receipt = docker_zed(request, out/'inputs', out/'artifacts', args.credential, args.fake_cli)
+    (out/'receipt.json').write_text(json.dumps(receipt, indent=2))
+    print('artifacts:', out/'artifacts', file=sys.stderr)
+    record = turn.from_receipt(receipt, request, out/'artifacts')
+    (out/'turn.json').write_text(json.dumps(record, indent=2))
+    patch = out/'artifacts'/'patch'
+    subprocess.run(['git', '-C', str(repo), 'apply', '--check', str(patch)], check=True)
+    print(patch)
+
+
+def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    sub = parser.add_subparsers(required=True)
+    p = sub.add_parser('run', help='dispatch one coding turn')
+    p.add_argument('--repo', type=Path, required=True, help='git checkout; its working tree is the input')
+    p.add_argument('--prompt', required=True)
+    p.add_argument('--out', type=Path, required=True, help='new local directory for the request and artifacts')
+    p.add_argument('--credential', required=True, help='path on zed of the provider key file the sentinel reads')
+    p.add_argument('--tools', default='Read,Grep,Glob,Edit,Write')
+    p.add_argument('--model', default='claude-opus-4-8')
+    p.add_argument('--max-turns', type=int, default=30)
+    p.add_argument('--wall-seconds', type=int, default=480)
+    p.add_argument('--fake-cli', type=Path, help='test only: a stand-in for the pinned CLI')
+    p.set_defaults(func=run)
+    args = parser.parse_args()
+    args.func(args)
+
+
+if __name__ == '__main__':
+    main()

@@ -40,7 +40,10 @@ File slot `turn`, delivered to the workload and committed by the receipt:
 }
 ```
 
-`answers`, `runs` and `aggregate` are there when the turn asks a question.
+`answers`, `runs` and `aggregate` are there when the turn asks a question. A
+request without them is an edit turn: one run, tools from `Read, Grep, Glob,
+Edit, Write`, on a git checkout of a copy of the inputs, and the staged diff is
+the `patch` artifact.
 `state_in` is the sha256 of the state ciphertext the turn starts from, or null.
 The ciphertext itself arrives on the private input disk, which is not hashed, so
 the workload checks it against `state_in` before decrypting. The check digest,
@@ -54,6 +57,7 @@ Declared artifacts, flat names (the receipt allows 16 single-segment names):
 | Artifact | Contents |
 |---|---|
 | `state` | new state ciphertext; absent for a stateless turn |
+| `patch` | `git diff --binary` of an edit turn against the inputs |
 | `verdict` | `{answer, aggregate, run_answers, observed_models}`; `answer` is null when the rule is not met |
 | `run-N-transcript` | raw stream-json of run N |
 | `run-N-verdict` | `{answer, rationale, citations, num_turns, observed_models}` |
@@ -107,6 +111,13 @@ Build the agent image on Zed from the qualified Claude Code 2.1.187 image:
 ```sh
 DOCKER_BUILDKIT=0 docker build --build-arg QUALIFIED_CLAUDE_REPOSITORY=<local name> -t agent-turns .
 ```
+
+`skill/dsmack-agent run` snapshots a local working tree, runs an edit turn
+through `compose-private.yml` in Docker on zed and checks what comes back with
+`from_receipt`; [`skill/SKILL.md`](skill/SKILL.md) tells a local agent how to
+use it. Zed returns an unsigned receipt built from the artifact digests it
+reports. `DSMACK_DISPATCH_CREDENTIAL=<key file on zed> python3 -m pytest
+test_dispatch.py` runs it end to end with the fake CLI.
 
 For private inputs, `compose-private.yml` runs the sentinel as a container on two
 networks and the agent on an internal one only. `gateway_mode_ipv4: isolated`

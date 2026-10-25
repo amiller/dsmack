@@ -1,6 +1,8 @@
 import json
 import os
 from pathlib import Path
+import shutil
+import subprocess
 import sys
 import tempfile
 import unittest
@@ -14,7 +16,11 @@ if sys.argv[1] == '--version':
     print('2.1.187 (Claude Code)'); sys.exit()
 mode = 'MODE'
 model = 'claude-other' if mode == 'swap' else sys.argv[sys.argv.index('--model') + 1]
-tool = 'Bash' if mode == 'bash' else 'Grep'
+tool = {'bash': 'Bash', 'edit': 'Edit'}.get(mode, 'Grep')
+if mode == 'edit':
+    with open('src/a.py') as f: text = f.read()
+    with open('src/a.py', 'w') as f: f.write(text.replace('return 1', 'return 2'))
+    with open('NOTES.md', 'w') as f: f.write('f returns 2\\n')
 line = 99 if mode == 'badline' else 2
 verdict = {'answer': 'yes', 'rationale': 'checked', 'citations': [{'path': 'src/a.py', 'line': line}]}
 for event in [{'type': 'system', 'subtype': 'init', 'model': model},
@@ -53,6 +59,19 @@ class FindTest(unittest.TestCase):
         self.assertEqual(verdict['observed_models'], ['claude-opus-4-8'])
         self.assertEqual(sorted(p.name for p in (self.tmp/'out-ok').iterdir()),
                          sorted(['verdict'] + [f'run-{n}-{k}' for n in (1, 2, 3) for k in ('transcript', 'stderr', 'verdict')]))
+
+    def test_edit_turn_patch_applies(self):
+        for key in ('answers', 'runs', 'aggregate'):
+            del self.spec[key]
+        self.spec['agent']['tools'] = ['Read', 'Edit', 'Write']
+        self.assertIsNone(self.run_mode('edit'))
+        out = self.tmp/'out-edit'
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ['patch', 'run-1-stderr', 'run-1-transcript'])
+        local = self.tmp/'local'
+        shutil.copytree(self.inputs, local)
+        subprocess.run(['git', 'apply', str(out/'patch')], cwd=local, check=True)
+        self.assertEqual((local/'src'/'a.py').read_text(), 'def f():\n    return 2\n')
+        self.assertEqual((local/'NOTES.md').read_text(), 'f returns 2\n')
 
     def test_substituted_model_refused(self):
         with self.assertRaisesRegex(ValueError, 'model mismatch'):

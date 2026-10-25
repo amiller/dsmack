@@ -15,6 +15,7 @@ import selectors
 import shutil
 import signal
 import subprocess
+import tarfile
 import tempfile
 import time
 
@@ -49,6 +50,17 @@ def tree_digest(root):
     files = sorted(p for p in root.rglob('*') if not p.is_dir())
     require(all(p.is_file() and not p.is_symlink() for p in files), 'inputs must be regular files')
     return sha(canonical([[str(p.relative_to(root)), file_sha(p)] for p in files]))
+
+
+def unpack(archive):
+    root = Path(tempfile.mkdtemp())/'inputs'
+    with tarfile.open(archive) as tar:
+        members = tar.getmembers()
+        # The image's Python 3.11.2 has no extraction filter; a member outside the root could overwrite artifacts.
+        require(all((m.isfile() or m.isdir()) and not m.name.startswith('/') and '..' not in m.name.split('/')
+                    for m in members), 'inputs tar member')
+        tar.extractall(root, members)
+    return root
 
 
 def check_digest(spec):
@@ -212,11 +224,12 @@ def run(spec, inputs, output, cli):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--spec', type=Path, required=True)
-    parser.add_argument('--inputs', type=Path, required=True)
+    parser.add_argument('--inputs', type=Path, required=True, help='directory, or a tar of one')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cli', type=Path, default=Path('/usr/local/bin/claude'))
     args = parser.parse_args()
-    verdict = run(json.loads(args.spec.read_bytes()), args.inputs.resolve(), args.output, args.cli)
+    inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
+    verdict = run(json.loads(args.spec.read_bytes()), inputs, args.output, args.cli)
     print(json.dumps(verdict, indent=2))
 
 

@@ -1,10 +1,25 @@
 #!/usr/bin/env python3
-"""Protected board-search checker. Candidate bytes execute only in Chromium."""
+"""Protected Arcade checker. Candidate bytes execute only in Chromium."""
 import argparse, hashlib, http.server, json, os, pathlib, signal, stat, subprocess, threading, time
 BASE_COMMIT='5c76d40e77db1f4864dabd4b9398d02589cff330'
 CHECKER_INPUT_COMMIT='82323836a672b799ac8f9f74265498f97438cd02'
 ALLOWED=frozenset('apps/board/'+n for n in ('index.html','logic.js','ui.js'))
 TESTS=['board-add-save','search-control','substring-case-trim','blank-and-counts','view-only-export','filtered-move','reload-view-reset']
+DEFAULT_TESTS=TESTS
+PROFILES={
+ 'board-undo-testnet-1':('board',['undo-controls','history-api','history-limit','edit-delete-move','redo-branch','import-clears','shortcuts-reload']),
+ 'puzzle-deadlock-testnet-1':('puzzle',['deadlock-api','level-starts','corner-indices','non-dead-cases','corner-warning','undo-restart','second-level-warning']),
+ 'routes-segments-testnet-1':('routes',['segments-api','gap-distance','gap-elevation','default-stats','samples-unchanged','upload-segments','sample-switch']),
+}
+TASK_SLUG='board-search-testnet-1'
+APP='board'
+def select_profile():
+ global TASK_SLUG,APP,ALLOWED,TESTS
+ TASK_SLUG=json.loads((HERE/'base-files.json').read_bytes()).get('task_slug','board-search-testnet-1')
+ if TASK_SLUG=='board-search-testnet-1':
+  APP='board';TESTS=DEFAULT_TESTS;ALLOWED=frozenset('apps/board/'+n for n in ('index.html','logic.js','ui.js'));return
+ if TASK_SLUG not in PROFILES:raise Invalid('task_profile')
+ APP,TESTS=PROFILES[TASK_SLUG];ALLOWED=frozenset('apps/'+APP+'/'+n for n in ('index.html','logic.js','ui.js'))
 HERE=pathlib.Path(__file__).resolve().parent
 canonical=lambda x:json.dumps(x,sort_keys=True,separators=(',',':')).encode()
 sha=lambda b:hashlib.sha256(b).hexdigest()
@@ -43,14 +58,16 @@ def serve(files):
  class Handler(http.server.BaseHTTPRequestHandler):
   def log_message(self,*args):pass
   def do_GET(self):
-   paths={'/apps/board/':'apps/board/index.html',**{'/'+p:p for p in ALLOWED}}
+   resources=set(ALLOWED)|{p for p in files if p=='apps/puzzle/levels.json'and APP=='puzzle' or p.startswith('apps/routes/samples/')and p.endswith('.gpx')and APP=='routes'}
+   paths={'/apps/'+APP+'/':'apps/'+APP+'/index.html',**{'/'+p:p for p in resources}}
    # No URL decoding, traversal, directory listing, uploads or candidate-controlled server.
    name=paths.get(self.path)
    if name is None:self.send_error(404);return
    b=files[name];self.send_response(200)
-   self.send_header('Content-Type','text/html; charset=utf-8'if name.endswith('.html')else'text/javascript; charset=utf-8')
+   self.send_header('Content-Type','text/html; charset=utf-8'if name.endswith('.html')else'application/json'if name.endswith('.json')else'application/gpx+xml'if name.endswith('.gpx')else'text/javascript; charset=utf-8')
    self.send_header('Content-Length',str(len(b)));self.send_header('Cache-Control','no-store')
-   self.send_header('Content-Security-Policy',"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src 'none'; object-src 'none'; base-uri 'none'; frame-src 'none'")
+   connect="'none'"if TASK_SLUG=='board-search-testnet-1'else"'self'"
+   self.send_header('Content-Security-Policy',f"default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; img-src data: blob:; connect-src {connect}; object-src 'none'; base-uri 'none'; frame-src 'none'")
    self.end_headers();self.wfile.write(b)
  server=Server(('127.0.0.1',0),Handler);threading.Thread(target=server.serve_forever,daemon=True).start();return server
 
@@ -84,16 +101,17 @@ def main():
  p=argparse.ArgumentParser();p.add_argument('--base-dir',required=True);p.add_argument('--candidate-dir',required=True);p.add_argument('--out',required=True);a=p.parse_args()
  out=pathlib.Path(a.out)
  if not out.is_absolute()or out==pathlib.Path(a.candidate_dir)or pathlib.Path(a.candidate_dir)in out.parents:raise Invalid('output_inside_candidate')
+ select_profile()
  out.mkdir(mode=0o700,parents=False,exist_ok=True)
  if out.is_symlink()or not out.is_dir()or any(out.iterdir()):raise Invalid('fresh_output_required')
- started=time.monotonic();result={'schema':'dsmack-arcade-checker-result/1','task_slug':'board-search-testnet-1','base_commit':BASE_COMMIT,'checker_input_commit':CHECKER_INPUT_COMMIT,'outcome':'infrastructure_failure','passed':False,'tests':[],'candidate_tree_sha256':None,'changed_files':[],'artifacts':[]};server=None
+ started=time.monotonic();result={'schema':'dsmack-arcade-checker-result/1','task_slug':TASK_SLUG,'base_commit':BASE_COMMIT,'checker_input_commit':CHECKER_INPUT_COMMIT,'outcome':'infrastructure_failure','passed':False,'tests':[],'candidate_tree_sha256':None,'changed_files':[],'artifacts':[]};server=None
  try:
   base=tree(a.base_dir);candidate=tree(a.candidate_dir)
   if out==pathlib.Path(a.candidate_dir)or pathlib.Path(a.candidate_dir)in out.parents:raise Invalid('output_inside_candidate')
   changed,digest=validate(base,candidate);result.update(candidate_tree_sha256=digest,changed_files=changed)
   server=serve(candidate)
   env={'PATH':'/usr/bin:/bin','HOME':str(out),'PLAYWRIGHT_BROWSERS_PATH':os.environ.get('PLAYWRIGHT_BROWSERS_PATH','/ms-playwright')}
-  cmd=['/usr/bin/node',str(HERE/'browser.mjs'),'http://127.0.0.1:'+str(server.server_port),str(out)]
+  cmd=['/usr/bin/node',str(HERE/'browser.mjs'),'http://127.0.0.1:'+str(server.server_port),str(out)]+([TASK_SLUG]if TASK_SLUG!='board-search-testnet-1'else[])
   code,stdout,stderr=bounded_browser(cmd,env)
   if len(stdout)>65536 or len(stderr)>65536:raise RuntimeError('browser_output_bounds')
   if code!=0:print(stderr.decode('utf-8','replace')[:4096],file=__import__('sys').stderr)

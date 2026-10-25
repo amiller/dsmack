@@ -30,14 +30,28 @@ def git_tree(repository,commit):
 
 def tree_digest(files):return hashlib.sha256(canonical({n:hashlib.sha256(b).hexdigest()for n,b in sorted(files.items())})).hexdigest()
 
-def project_candidate(base,submitted):
-    need(ALLOWED<=set(submitted),'candidate board file membership')
+def task_projection(config):
+    app={'board-search-testnet-1':'board','board-undo-testnet-1':'board','puzzle-deadlock-testnet-1':'puzzle','routes-segments-testnet-1':'routes'}[config['task_slug']]
+    return {'apps/'+app+'/'+name for name in ('index.html','logic.js','ui.js')},'frozen-base39+candidate-'+app+'3/v1'
+
+def project_candidate(base,submitted,allowed=ALLOWED):
+    need(allowed<=set(submitted),'candidate app file membership')
     candidate=dict(base)
-    for name in ALLOWED:candidate[name]=submitted[name]
+    for name in allowed:candidate[name]=submitted[name]
     return candidate
 
 def checker_files(config):
-    return {name:selected(config['checker'][name])for name in CHECKER}
+    files={name:selected(config['checker'][name])for name in CHECKER}
+    need(doc(files['base-files.json']).get('task_slug','board-search-testnet-1')==config['task_slug'],'checker task identity')
+    return files
+
+def prepare_checker(task_slug,out):
+    task_projection({'task_slug':task_slug})
+    source=Path(__file__).with_name('checker');out=Path(out);out.mkdir(mode=0o700)
+    frozen=doc((source/'base-files.json').read_bytes())
+    if task_slug!='board-search-testnet-1':frozen['task_slug']=task_slug
+    for name,body in [('check.py',(source/'check.py').read_bytes()),('browser.mjs',(source/('browser.mjs'if task_slug=='board-search-testnet-1'else'bonus_browser.mjs')).read_bytes()),('base-files.json',canonical(frozen))]:exclusive(out/name,body)
+    return out
 
 def checker_digest(config):return hashlib.sha256(canonical({n:config['checker'][n]['sha256']for n in CHECKER})).hexdigest()
 
@@ -92,12 +106,12 @@ def prepare_execution(config,value,job):
     else:need(config.get('private_fixture_mode')is True,'public candidate reachability must be checked')
     need(value['key_id']==value['enrollment']['registered_key_id'],'enrollment/task key');package=value['enrollment']['enrollment_public_package'];need(package['key_id_b64']==value['key_id'],'enrollment package key')
     base=git_tree(config['repository'],BASE);submitted=git_tree(config['repository'],attempt['candidate_commit']);checker=checker_files(config)
-    candidate=project_candidate(base,submitted)
+    allowed,projection_policy=task_projection(config);candidate=project_candidate(base,submitted,allowed)
     frozen=doc(checker['base-files.json']);need({n:hashlib.sha256(b).hexdigest()for n,b in base.items()}==frozen['files'],'pinned original base')
-    need(set(base)==set(candidate)and all(n in ALLOWED for n in base if base[n]!=candidate[n]),'frozen-base39 plus candidate-board3 projection')
+    need(set(base)==set(candidate)and all(n in allowed for n in base if base[n]!=candidate[n]),'frozen base plus allowed app projection')
     m=manifest(config);mr=canonical(m);need(hashlib.sha256(mr).hexdigest()==config['manifest_sha256'],'selected closed pilot manifest')
     native=secrets.token_hex(16);context={'schema':'dsmack-result-closure-context/1','attempt_id':native,'selectors':[SELECTOR]}
-    request={'schema':'dsmack-arcade-native-request/1','role':'primary-review','attempt_id':attempt['id'],'run_id':native,'candidate_commit':attempt['candidate_commit'],'candidate_projection_policy':'frozen-base39+candidate-board3/v1','candidate_tree_sha256':tree_digest(candidate),'base_tree_sha256':tree_digest(base),'policy_sha256':config['policy_sha256'],'payee':attempt['payee'],'checker_sha256':checker_digest(config)}
+    request={'schema':'dsmack-arcade-native-request/1','role':'primary-review','attempt_id':attempt['id'],'run_id':native,'candidate_commit':attempt['candidate_commit'],'candidate_projection_policy':projection_policy,'candidate_tree_sha256':tree_digest(candidate),'base_tree_sha256':tree_digest(base),'policy_sha256':config['policy_sha256'],'payee':attempt['payee'],'checker_sha256':checker_digest(config)}
     driver=selected(config['guest_driver']);files={'driver':driver,'checker':checker['check.py'],'browser':checker['browser.mjs'],'basefiles':checker['base-files.json'],'base':canonical({n:base64.b64encode(b).decode()for n,b in base.items()}),'candidate':canonical({n:base64.b64encode(b).decode()for n,b in candidate.items()}),'request':canonical(request)}
     validate,commit=guest_modules(config);validate(mr)
     projection={'runtime_input_version':4,'manifest_sha256':hashlib.sha256(mr).hexdigest(),'files':[{'slot':slot,'content_base64':base64.b64encode(files[slot]).decode()}for slot,_,_ in FILES],'commitments':{'alg':'dsmack.task-commitment/3','scope':{'include':['files'],'file_slots':sorted(files)},'inputs_sha256':'0'*64}}

@@ -16,7 +16,8 @@
       "recipient": "0xc345c07229307d4f1c7935ad2cae48e390215808",
       "amount_wei": "10000000000000000",
       "task_key": "84532:0x62fedc157f275abb8f8b4543696e6f0c717d391b:11",
-      "attempt_id": "9e6ea6d9a8b5f6272a93630faa5cbda5"
+      "attempt_id": "9e6ea6d9a8b5f6272a93630faa5cbda5",
+      "source_withdrawal_transaction_hash": "0xb7575412c282365f1e7c0b1172e8b5f84f9bc5f4ad539db194b83a2e77f19f1c"
     },
     {
       "chain_id": 84532,
@@ -25,7 +26,8 @@
       "recipient": "0xc345c07229307d4f1c7935ad2cae48e390215808",
       "amount_wei": "10000000000000000",
       "task_key": "84532:0x62fedc157f275abb8f8b4543696e6f0c717d391b:12",
-      "attempt_id": "26052df152eaad87a0730d257e0ea10a"
+      "attempt_id": "26052df152eaad87a0730d257e0ea10a",
+      "source_withdrawal_transaction_hash": "0xec613a365651dba5b628ab958b373fc871ab0af7d023659f418fda45c639b3d4"
     },
     {
       "chain_id": 84532,
@@ -34,7 +36,8 @@
       "recipient": "0xc345c07229307d4f1c7935ad2cae48e390215808",
       "amount_wei": "10000000000000000",
       "task_key": "84532:0x62fedc157f275abb8f8b4543696e6f0c717d391b:13",
-      "attempt_id": "f387dcd97e8c437fb53d52a03d2cd46d"
+      "attempt_id": "f387dcd97e8c437fb53d52a03d2cd46d",
+      "source_withdrawal_transaction_hash": "0x1afabb5c7e8c963e6fbe58958dce944a8cbe0bc9142b4cb513b3b06da5d5c9c3"
     }
   ]
 }

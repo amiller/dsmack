@@ -24,6 +24,8 @@ Event queries use inclusive windows of at most 200 blocks (the official Base Sep
 
 `chain/abi.json` holds the read methods and static event ABI from the WorkEscrow artifact, with fixed selectors/event topics so collection needs no Keccak dependency.
 
+`registry.json` `canaries` lists Canary deployments, each with its runtime SHA256 and codec in `chain/canary-abi.json` (`canary-read-codec/0` is the first instance's layout without a cdhash). `chain/canary.py` indexes `Armed` and `Burned` events with the same windows, receipt checks and checkpoints, then reads `entries(id)` for every armed ID at the pinned block. `canaries[]` gives each entry's kind, cdhash, image, manifest, funder, `pot_wei`, `until` and `burned`, plus its events with claimant, amount, transaction and block. A void deployment is a burn that is not evidence.
+
 ## Attempt feeds
 
 `feeds/project.mjs` uses Node 24's built-in `node:sqlite`. Import `readArcadeSource(config, {now})`, `readLegacySource(config, {now})` and `mergeFeeds(feeds)`, or run `node project.mjs CONFIG.json`; `now` is Unix seconds. The configuration has `sources`, each with `id`, `kind` (`arcade-pilot` or `bounty-demo`) and a private `db_path`, which never appears in the feed. A missing or invalid database produces a source error. Readers open SQLite read-only in a transactional snapshot and never import the services.

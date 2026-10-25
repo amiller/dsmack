@@ -35,4 +35,10 @@ export function observedGroups(rows,contracts,field,state){return groups(rows,co
 export function paymentTaskLabel(p){return p?.task_key?null:['withdrawal','withdrawn'].includes(p?.kind??p?.type)?'Pooled / task unknown':'Task unknown';}
 export const artifactCategory=a=>a?.category==='input'?'Inputs':a?.category==='evidence'||a?.category===undefined?'Evidence':'Other artifacts';
 
-export const paymentKind=p=>p?.kind==='direct_reward'?'Direct reward':text(p?.kind??p?.type);
+export function paymentKind(p){
+ const kind=p?.kind??p?.type;
+ if(['withdrawal','withdrawn'].includes(kind)){if(p.economic_kind==='reward')return 'Reward withdrawal';if(p.economic_kind==='refund')return 'Refund withdrawal';}
+ if(kind==='direct_reward'){if(p.economic_kind==='reward'&&p.reward_eligible===false&&/^0x[0-9a-f]{64}$/i.test(p.source_withdrawal_transaction_hash??''))return 'Reward forwarded';if(p.economic_kind==='unclassified'||p.reward_eligible===null)return 'Direct transfer';return 'Direct reward';}
+ return text(kind);
+}
+export const canaryState=e=>e.burned===true?'Burned':e.burned===false&&wei(e.pot_wei)===0n?'Reclaimed':e.burned===false&&wei(e.pot_wei)>0n?'Armed':'Unknown';

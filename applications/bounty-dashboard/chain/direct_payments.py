@@ -1,10 +1,42 @@
 """Read-only validation of explicitly selected direct ETH reward transactions."""
-import re
+import json,pathlib,re
+ABI=json.loads(pathlib.Path(__file__).with_name('abi.json').read_text())
 ADDRESS=re.compile(r'0x[0-9a-f]{40}')
 HASH=re.compile(r'0x[0-9a-f]{64}')
 def need(value):
  if not value:raise ValueError('selected direct payment not verified')
-def collect_direct(records,contracts,rpc_factory,observed_at):
+def verify_source_withdrawal(record,c,rpc,direct):
+ h=record['source_withdrawal_transaction_hash'];need(HASH.fullmatch(h)and h!=direct['hash'])
+ tx=rpc('eth_getTransactionByHash',[h]);receipt=rpc('eth_getTransactionReceipt',[h])
+ need(tx and receipt and receipt['status']=='0x1'and tx['hash']==receipt['transactionHash']==h)
+ need(int(tx['chainId'],16)==84532 and tx['from'].lower()==receipt['from'].lower()==record['expected_from'])
+ need(tx['to'].lower()==receipt['to'].lower()==c['address']and tx['input']=='0x'+ABI['selectors']['withdraw()']and int(tx['value'],16)==0)
+ need(tx['blockHash']==receipt['blockHash']and tx['blockNumber']==receipt['blockNumber'])
+ block=rpc('eth_getBlockByNumber',[receipt['blockNumber'],False]);need(block and block['hash']==receipt['blockHash']and h in block['transactions'])
+ need((int(tx['blockNumber'],16),int(tx['transactionIndex'],16))<(int(direct['blockNumber'],16),int(direct['transactionIndex'],16)))
+ event=next(e for e in ABI['events']if e['name']=='Withdrawn');topic='0x'+record['expected_from'][2:].rjust(64,'0')
+ logs=[l for l in receipt['logs']if l.get('address','').lower()==c['address']and l.get('topics')==[event['topic'],topic]and not l.get('removed',False)]
+ need(len(logs)==1 and logs[0]['data']=='0x'+format(int(record['amount_wei']),'064x'))
+ need(rpc('eth_getBlockByNumber',[receipt['blockNumber'],False])['hash']==block['hash'])
+ return h
+
+def reconcile_relays(payments,withdrawals,records):
+ links={}
+ for r in records:
+  h=r.get('source_withdrawal_transaction_hash')
+  if h:links[(r.get('chain_id'),h)]=links.get((r.get('chain_id'),h),0)+1
+ errors=0
+ for p in payments:
+  h=p.get('source_withdrawal_transaction_hash')
+  if not h:continue
+  matches=[w for w in withdrawals if w.get('kind')=='withdrawal'and w.get('transaction_hash')==h and w.get('contract_id')==p['contract_id']]
+  valid=links.get((p['chain_id'],h))==1 and len(matches)==1 and matches[0].get('reward_eligible')is True and matches[0].get('recipient')==p['sender'] and matches[0].get('amount_wei')==p['amount_wei']
+  if valid:p['reward_eligible']=False
+  else:
+   errors+=1;p.update(economic_kind='unclassified',reward_eligible=None,attribution='Forwarding link duplicated or indexed reward source unavailable; economic classification unknown')
+ return errors
+
+def collect_direct(records,contracts,rpc_factory,observed_at,withdrawals=()):
  payments=[];seen=set();errors=0
  for record in records:
   try:
@@ -21,7 +53,9 @@ def collect_direct(records,contracts,rpc_factory,observed_at):
    need(tx['input']=='0x'and int(tx['value'],16)==int(record['amount_wei'])and tx['blockHash']==receipt['blockHash']and tx['blockNumber']==receipt['blockNumber'])
    block=rpc('eth_getBlockByNumber',[receipt['blockNumber'],False]);need(block and block['hash']==receipt['blockHash']and tx['hash']in block['transactions'])
    need(rpc('eth_getBlockByNumber',[receipt['blockNumber'],False])['hash']==block['hash'])
-   payments.append({'id':'direct:'+str(record['chain_id'])+':'+tx['hash'],'kind':'direct_reward','contract_id':str(c['chain_id'])+':'+c['address'],'task_key':record['task_key'],'attempt_id':record.get('attempt_id'),'chain_id':84532,'sender':record['expected_from'],'recipient':record['recipient'],'amount_wei':record['amount_wei'],'transaction_hash':tx['hash'],'block_number':int(receipt['blockNumber'],16),'block_hash':block['hash'],'timestamp':int(block['timestamp'],16),'observed_at':observed_at,'explorer_url':'https://sepolia.basescan.org/tx/'+tx['hash'],'receipt_verified':True,'attribution':'Operator-selected direct reward; related task only, not WorkEscrow settlement'})
+   source=verify_source_withdrawal(record,c,rpc,tx) if record.get('source_withdrawal_transaction_hash') else None
+   payments.append({'id':'direct:'+str(record['chain_id'])+':'+tx['hash'],'kind':'direct_reward','contract_id':str(c['chain_id'])+':'+c['address'],'task_key':record['task_key'],'attempt_id':record.get('attempt_id'),'chain_id':84532,'sender':record['expected_from'],'recipient':record['recipient'],'amount_wei':record['amount_wei'],'transaction_hash':tx['hash'],'block_number':int(receipt['blockNumber'],16),'block_hash':block['hash'],'timestamp':int(block['timestamp'],16),'observed_at':observed_at,'explorer_url':'https://sepolia.basescan.org/tx/'+tx['hash'],'receipt_verified':True,'economic_kind':'reward','reward_eligible':not bool(source),'source_withdrawal_transaction_hash':source,'attribution':'Operator-selected forwarding link to verified withdrawal; not cryptographic coin identity' if source else 'Operator-selected standalone direct reward; related task only, not WorkEscrow settlement'})
   except (ValueError,KeyError,TypeError,StopIteration,OSError):errors+=1
- source={'id':'direct-rewards','kind':'direct-payments','status':'partial'if errors else'ok','observed_at':observed_at,'count':len(payments),'scope':'Explicit operator-selected direct reward transactions only','error_code':'direct_payment_unverified'if errors else None,'counts':{'selected':len(records),'verified':len(payments),'unverified':errors}}
+ unclassified=reconcile_relays(payments,withdrawals,records);errors+=unclassified
+ source={'id':'direct-rewards','kind':'direct-payments','status':'partial'if errors else'ok','observed_at':observed_at,'count':len(payments),'scope':'Explicit operator-selected direct reward transactions only','error_code':'direct_payment_unverified'if errors else None,'counts':{'selected':len(records),'verified':len(payments)-unclassified,'unverified':errors}}
  return payments,source

@@ -38,14 +38,14 @@ def decode(fields,data):
 def call(r,c,name,i=None,block='latest'):
  sig=name+('(address)' if name=='withdrawable' else '(uint256)' if i is not None else '()');data='0x'+ABI['selectors'][sig]+('' if i is None else format(i,'064x'))
  return r('eth_call',[{'to':c['address'],'data':data},block])
-def event(log,c):
+def event(log,c,abi=ABI):
  need(log.get('address','').lower()==c['address'] and not log.get('removed',False),'foreign/removed event')
- es=[e for e in ABI['events'] if log['topics'][0]==e['topic']];need(len(es)==1,'unknown event')
+ es=[e for e in abi['events'] if log['topics'][0]==e['topic']];need(len(es)==1,'unknown event')
  e=es[0];indexed=[f for f in e['inputs'] if f['indexed']];plain=[f for f in e['inputs'] if not f['indexed']]
  need(len(log['topics'])==len(indexed)+1,'event topic count');d=decode(plain,log['data'])
  for f,t in zip(indexed,log['topics'][1:]):w=words(t);need(len(w)==1,'topic word count');d[f['name']]=val(w[0],f['type'])
  return {'event':e['name'],'fields':d,'block_number':int(log['blockNumber'],16),'block_hash':log['blockHash'],'transaction_hash':log['transactionHash'],'log_index':int(log['logIndex'],16)}
-def scan(r,c,head,state,max_pages):
+def scan(r,c,head,state,max_pages,abi=ABI):
  start=c['deployment_block'];reorg=False
  if state:
   need(state.get('contract_id')==str(c['chain_id'])+':'+c['address'],'checkpoint contract mismatch')
@@ -57,7 +57,7 @@ def scan(r,c,head,state,max_pages):
   end=min(start+199,head);logs=r('eth_getLogs',[{'address':c['address'],'fromBlock':hex(start),'toBlock':hex(end)}]);need(isinstance(logs,list) and len(logs)<=10000,'invalid/oversize logs')
   batch=[]
   for log in logs:
-   e=event(log,c);need(start<=e['block_number']<=end,'event outside requested range')
+   e=event(log,c,abi);need(start<=e['block_number']<=end,'event outside requested range')
    block=r('eth_getBlockByNumber',[hex(e['block_number']),False]);need(block and block['hash']==e['block_hash'],'noncanonical log')
    receipt=r('eth_getTransactionReceipt',[e['transaction_hash']]);need(receipt and receipt['status']=='0x1' and receipt['blockHash']==e['block_hash'] and receipt['transactionHash']==e['transaction_hash'],'event receipt mismatch')
    need(any(x==log for x in receipt['logs']),'event missing from receipt');e['timestamp']=int(block['timestamp'],16);batch.append(e)
@@ -99,6 +99,7 @@ def collect_contract(c,r,state,max_pages):
        outcome=int(d['outcome']);need(outcome<3,'unknown resolved outcome');a.update(payout_wei=d['payout'],outcome=['Reject','Effort','Completion'][outcome])
     if e['event']=='Withdrawn':result['payments'].append({'key':cid+':'+e['transaction_hash']+':'+str(e['log_index']),'contract_id':cid,'account':d['account'],'recipient':d['account'],'amount_wei':d['amount'],'kind':'withdrawal','task_key':None,'assignment_key':None,'transaction_hash':e['transaction_hash'],'explorer_url':tx,'block_number':e['block_number'],'created_at':e['timestamp'],'attribution':'Account-level pull payment; task allocation unproven'})
   except Exception as ex:meta['coverage'].update(events_complete=False);meta['error']='event scan incomplete: '+str(ex)[:180]
+  meta['coverage']['reward_classification_complete']=classify_withdrawals(newstate['events'] if newstate else [],tasks,assignments,result['payments'],meta['coverage'].get('events_complete')is True) and meta['coverage'].get('events_complete')is True
   need(r('eth_getBlockByNumber',[tag,False])['hash']==head['hash'],'snapshot block reorged during scan')
   result['sources'].append({'contract_id':cid,'rpc':c['rpc'],'runtime_sha256':c['runtime_sha256'],'deployment_tx':c['deployment_tx'],'deployment_block':c['deployment_block'],'provenance':c['provenance']})
  except Exception as ex:
@@ -106,6 +107,26 @@ def collect_contract(c,r,state,max_pages):
   for k in ['tasks','assignments','payments','activity','credits']:result[k]=[]
   newstate=None
  return result,newstate
+
+def classify_withdrawals(events,tasks,assignments,payments,complete):
+ """Classify each pull-payment pool from its observed credit origins."""
+ pools={};bytask={t['id']:t for t in tasks};byassignment={a['id']:a for a in assignments}
+ bytx={}
+ for p in payments:bytx.setdefault((p['transaction_hash'],p['block_number']),[]).append(p)
+ for e in sorted(events,key=lambda e:(e['block_number'],e['log_index'])):
+  d=e['fields'];account=None;kind=None;amount=0
+  if e['event']=='Resolved':
+   a=byassignment.get(d['assignmentId']);account=a['worker'] if a else None;kind='reward';amount=int(d['payout'])
+  elif e['event']=='TaskClosed':
+   t=bytask.get(d['taskId']);account=t['requester'] if t else None;kind='refund';amount=int(d['reclaimed'])
+  elif e['event']=='Withdrawn':
+   account=d['account'];pool=pools.pop(account,{});p=bytx[(e['transaction_hash'],e['block_number'])].pop(0)
+   known=complete and sum(pool.values())==int(d['amount']) and len(pool)==1
+   economic=next(iter(pool)) if known else 'unclassified'
+   p.update(economic_kind=economic,reward_eligible=True if economic=='reward' else False if economic=='refund' else None,
+    attribution='Complete credit-event history: '+economic+' pool; task allocation unproven' if known else 'Withdrawal credit origins incomplete, mixed or unmatched')
+  if account and amount>0:pools.setdefault(account,{})[kind]=pools.get(account,{}).get(kind,0)+amount
+ return all(p.get('reward_eligible')is not None for p in payments)
 
 def main():
  import importlib.util
@@ -115,6 +136,7 @@ def main():
   need(re.fullmatch('0x[0-9a-f]{40}',c['address']) and isinstance(c['chain_id'],int),'invalid registry identity');path=a.state_dir/(str(c['chain_id'])+'-'+c['address']+'.json');state=json.loads(path.read_text()) if path.exists() else None;r,new=collect_contract(c,RPC(c['rpc']),state,a.event_pages)
   for k in ['contracts','tasks','assignments','payments','activity','sources','credits']:out[k].extend(r[k])
   if new:atomic(path,new)
- direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
+ direct,source=collect_direct(json.loads((HERE/'direct-payments.json').read_text())['payments'],registry['contracts'],RPC,out['built_at'],out['payments']);out['payments'].extend(direct);out['direct_payment_sources']=[source]
+ spec=importlib.util.spec_from_file_location('dashboard_canary',HERE/'canary.py');canary=importlib.util.module_from_spec(spec);spec.loader.exec_module(canary);out['canaries']=canary.collect_canaries(registry['canaries'],RPC,a.state_dir,a.event_pages)
  atomic(a.out,out)
 if __name__=='__main__':main()

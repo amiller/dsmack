@@ -68,12 +68,15 @@ enrolled in `0x6e4b6ccc2a8fe7e8d72ad50db673b74f75c2f0378eae4fd37b9989298e629f78`
 ## Forgery canary
 
 `Canary` pays an armed entry to the first assertion by the entry's runner build
-(cdhash) over `forgeryContext(id, claimant)`, a context that build never asserts.
+over `forgeryContext(id, claimant)`, a context that build never asserts. An entry
+names a CDRegistry `buildId` and counts only while that build is approved, so any
+copy the registry admits can claim, including one re-signed by another team: the
+approved runner is signed for one device.
 Its verifier is a dedicated `AppleAttestRegistryV1` whose `registry` is the
 canary, sharing `CDRegistry` and the adapter policy above. Each App Attest key
 enrolls there separately (~14M gas), and its assertions must be claimed in
 counter order. Deploy the verifier with `registry` = the canary's predicted
-address, then the canary, then `arm(0, cdhash, 0, 0, until)` with the pot.
+address, then the canary, then `arm(0, cds.buildId(), 0, 0, until)` with the pot.
 
 Arm only a build whose every `generateAssertion` prefixes a fixed domain, such
 as the `mar` runner. The App Attest probe approved above asserts any file.
@@ -96,9 +99,10 @@ Entry 0: Forgery for the runner CDHash, 0.01 ETH, `until` 1800731481
 Both contracts are source-verified on Basescan.
 
 The 2026-10-25 instance (canary `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C`,
-verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates the cdhash
-binding: its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe
-and is void as evidence.
+verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates build binding:
+its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe and is void
+as evidence. The `0x469B…24c0` instance binds one CDHash, so only that signer's
+device can claim it, and it stops resolving once a later build is approved.
 
 ## Key canaries
 
@@ -110,5 +114,5 @@ must end in its only `system-ready` and hold one `canary-guest-key` (Guest, Owne
 the supervisor, key in guest-root tmpfs) or `canary-runner-key` (Runner; appended by the
 app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
 `contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
-A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[cdhash]`.
+A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]`.
 

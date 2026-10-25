@@ -52,10 +52,12 @@ Use `client.py --config "$HOME/.dsmack-arcade/client.json" COMMAND ...`:
    `submit --attempt ATTEMPT.json`. `resume` observes the same run without
    launching it again. The 21 original files upload in bounded chunks, and the
    server's full verifier and checker decide the result for either route.
-   At any point, `progress --attempt ATTEMPT.json` prints the stage (preparing,
-   ready to run, executing, submitting, verifying, reward step, paid), elapsed
-   time and the one next command. It only reads; `--json` gives the stage for
-   scripts. `paid` appears only after the service observes your withdrawal.
+   At any point, `progress --attempt ATTEMPT.json [--registration REGISTRATION.json]`
+   prints the stage, elapsed time and the next command, built from your own paths.
+   It only reads. `--json` gives the same fields for scripts. A requested launch
+   is reported as requested, not running. `paid` appears only after the service
+   observes your withdrawal. If `prepare` stopped after the download but before
+   the launch plan, rerunning `prepare` rebuilds only the plan.
 6. Once status shows a full verdict, `cleanup --attempt ATTEMPT.json`
    authenticates the signed report, confirms the helper has stopped, runs the
    guarded scratch retirement and removes the four public copies. Original

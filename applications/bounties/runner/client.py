@@ -100,6 +100,19 @@ def upload(api,attempt,capability,out,request_id):
         need(_scope['pin'](path,_scope['ORIGINALS'][d['name']])==before,'original evidence changed')
     return api.request('POST',f'/api/attempts/{attempt}/evidence/{sid}/complete',{'request_id':request_id},capability)
 
+def existing_preparation(cfg,packet,local):
+    """True if the plan exists; else reruns only the coordinator's plan step, which launches nothing.
+
+    A prepare that stopped after download but before the coordinator created its
+    control directory is safe to redo. Any existing control directory without a
+    plan is left for inspection.
+    """
+    need((local/'task.json').exists(),'partial download; rerun prepare with --resume-download')
+    need(doc(read(local/'execution-packet.json'))==packet,'conflicting preparation; preserve state')
+    control=local/('attempt-'+packet['native_execution_id']+'.control')
+    if os.path.lexists(control):need((control/'plan.json').exists(),'uncertain existing control without plan; preserve state');return True
+    return _scope['coordinator'](cfg,'prepare',local/'task.json',local,packet['native_execution_id'])
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--config',required=True);p.add_argument('--allow-loopback',action='store_true')
     sub=p.add_subparsers(dest='command',required=True)
@@ -108,7 +121,7 @@ def main():
         a=sub.add_parser(name);a.add_argument('--authorization',required=True);a.add_argument('--wallet-signature',required=True);a.add_argument('--out',required=True)
     for name in ('prepare','check','run','resume','submit','status','progress','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
-        if name=='progress':a.add_argument('--json',action='store_true')
+        if name=='progress':a.add_argument('--json',action='store_true');a.add_argument('--registration')
         if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
     x=p.parse_args();cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
     if x.command=='authorization':
@@ -143,8 +156,10 @@ def main():
         script=Path(__file__).with_name('progress.py');ns={'__name__':'arcade_progress','__file__':str(script)};exec(compile(script.read_bytes(),str(script),'exec'),ns)
         observed=api.request('GET',f'/api/attempts/{attempt}');native=(observed.get('execution') or {}).get('native_execution_id')
         claim=api.request('GET',f'/api/attempts/{attempt}/claim') if observed['state'] in ('verified','claim_uncertain','claim_failed') else None
-        f=ns['facts'](local,native,lambda q:doc(read(q)));stage,text=ns['render'](observed,claim,f,observed.get('execution_mode'),int(time.time()))
-        print(json.dumps({'stage':stage,'attempt_id':attempt,'facts':f}) if x.json else text);return
+        base=['python3','-I',os.path.abspath(__file__),'--config',os.path.abspath(x.config),*(['--allow-loopback'] if x.allow_loopback else [])]
+        c=ns['commands'](base,os.path.abspath(x.attempt),x.registration and os.path.abspath(x.registration))
+        r=ns['report'](observed,claim,ns['facts'](local,native,lambda q:doc(read(q))),observed.get('execution_mode'),int(time.time()),c)
+        print(json.dumps(r) if x.json else ns['render'](r));return
     if x.command=='prepare':
         registration=state(x.registration) if x.registration else None
         need(x.mode=='best_effort' or registration is not None,'self route requires local registered key')
@@ -161,7 +176,9 @@ def main():
             if not packet:print(json.dumps({'preparation_pending':True,'attempt_id':attempt,'retry_same_prepare_after_status':True}));return
         need(packet['attempt_id']==attempt,'wrong task packet')
         if local.exists() and not x.resume_download:
-            need(doc(read(local/'execution-packet.json'))==packet and (local/'task.json').exists(),'partial or conflicting preparation; preserve state');print(json.dumps({'prepared':True,'existing_task':True,'use_check_or_resume':True}));return
+            done=existing_preparation(cfg,packet,local)
+            if done is True:print(json.dumps({'prepared':True,'existing_task':True,'use_check_or_resume':True}));return
+            raise SystemExit(done)
         api.resume_download=x.resume_download
         task=_scope['materialize'](cfg,packet,registration['key_id'],parent,api.fetch,resume_download=x.resume_download)
         raise SystemExit(_scope['coordinator'](cfg,'prepare',task,local,packet['native_execution_id']))

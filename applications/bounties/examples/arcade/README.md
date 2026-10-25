@@ -1,6 +1,8 @@
-# Arcade Board search example
+# Arcade task examples
 
 This example checks a commit from `amiller/bounty-arcade` for the Board search testnet bonus. `task_factory.py` overlays only `apps/board/{index.html,logic.js,ui.js}` onto the fixed base. `checker/` defines the seven browser checks; `guest_driver.py` runs the base and candidate inside the selected workload. `web/` explains the task and payment steps. `fixtures/` supplies the local candidate example.
+
+[Additional profiles](checker/BONUSES.md) check Board undo/redo, Puzzle corner deadlocks and Routes segments/gaps. Prepare their checker inputs with `prepare_checker.py` and select `bonus_guest_driver.py`; they reuse the same Mac app, base VM and browser container.
 
 Use the [Mac client instructions](../../runner/README.md) to install and enroll a runner, request a task and submit its evidence. The [service instructions](../../service/README.md) describe hosting and worker configuration.
 

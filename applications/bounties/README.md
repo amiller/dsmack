@@ -2,7 +2,7 @@
 
 A single-task bounty service with durable attempts, Mac registration, queued execution, evidence uploads and WorkEscrow payment steps. The operator selects the repository, task policy, runtime and verification adapter. Participants select a commit and payee; they cannot select commands, checker code or verification authority.
 
-The implemented example is [Arcade Board search](examples/arcade/). It runs a fixed browser checker against a frozen base and the candidate's three Board files. The service and client mechanisms can support another operator-selected task adapter; the current example and Base Sepolia bridge provide the working configuration.
+The [Arcade examples](examples/arcade/) check Board search, Board undo/redo, Puzzle corner deadlocks and Routes segments/gaps. Each overlays three candidate app files on a frozen base and runs a protected browser checker. [Task profiles and check definitions](examples/arcade/checker/BONUSES.md) describe the three additional profiles. The Mac app and base VM are shared across them.
 
 ## Layout
 

@@ -7,7 +7,7 @@ def resolve(frm, imp):
         if imp.startswith(k): return v + imp[len(k):]
     assert imp.startswith("."), imp
     return posixpath.normpath(posixpath.join(posixpath.dirname(frm), imp))
-srcs, todo = {}, ["contracts/src/CDRegistry.sol", "contracts/src/AppleAttestRegistryV1.sol"]
+srcs, todo = {}, ["contracts/src/CDRegistry.sol", "contracts/src/AppleAttestRegistryV1.sol", "contracts/src/Canary.sol"]
 while todo:
     p = todo.pop()
     if p in srcs: continue

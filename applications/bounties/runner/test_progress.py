@@ -44,7 +44,11 @@ class Progress(unittest.TestCase):
   self.assertEqual(stage('verifying'),'verifying')
   self.assertEqual(stage('verified',claim={'status':'not_requested'}),'verified')
   self.assertEqual(stage('verified',claim={'stage':'withdraw','transactions':{}}),'reward_withdraw')
-  self.assertEqual(stage('verified',claim={'stage':'received','payment_received':False}),'verified')
+  self.assertEqual(stage('verified',claim={'stage':'received','payment_received':False}),'reward_received')
+  s,msg,nxt=run('verified',claim={'stage':'withdrawal_unobserved','received':False});self.assertEqual(s,'withdrawal_unobserved');self.assertIn('Not paid',msg);self.assertIn('Do not send another withdrawal',nxt['action'])
+  s,_,nxt=run('verified',claim={'stage':'gas_grant_pending','transactions':{},'gas_grant':{'status':'pending'}});self.assertEqual(s,'gas_grant_pending');self.assertIn('Check testnet gas grant',nxt['action'])
+  # The claim packet can lag the browser's pending wallet request; never tell the user to sign blindly.
+  nxt=run('verified',claim={'stage':'submit','transactions':{}})[2]['action'];self.assertIn('do not send it again',nxt);self.assertNotIn('sign',nxt.lower())
   self.assertEqual(stage('verified',claim={'stage':'received','payment_received':True}),'paid')
   self.assertEqual(stage('claim_uncertain',claim={'status':'uncertain'}),'reward_check_incomplete')
  def test_service_closed_attempts_point_to_status_not_maintainer(self):

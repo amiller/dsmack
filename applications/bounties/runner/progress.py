@@ -56,7 +56,10 @@ def describe(a,claim,f,mode,now,c):
         if k.get('stage')=='received' and k.get('payment_received') is True:return 'paid','Withdrawal to your payee observed on Base Sepolia.',step('Free the task disks.' if clean else 'Done.',clean)
         if k.get('pending_job_id') or k.get('status')=='pending':return 'reward_pending','The service is checking escrow for your reward step.',step('Reopen the reward page and press "Check reward preparation".'+then,clean)
         if k.get('status') in ('failed','uncertain'):return 'reward_check_incomplete','The last escrow check did not finish. Nothing was sent from your wallet by it.',step('Reopen the reward page and press "Check escrow again".'+then,clean)
-        if k.get('stage') in ('submit','resolve','withdraw'):return 'reward_'+k['stage'],f'Verified. Next wallet step: {k["stage"]}.',step(f'Open the reward page and sign the "{k["stage"]}" step in your wallet.'+then,clean)
+        if k.get('stage')=='gas_grant_pending':return 'gas_grant_pending','The operator is sending testnet gas to your payee. No wallet signature is needed yet.',step('Reopen the reward page and press "Check testnet gas grant".'+then,clean)
+        if k.get('stage')=='withdrawal_unobserved':return 'withdrawal_unobserved','Your escrow credit is zero, but the service has not yet observed the withdrawal to your payee. Not paid yet.',step('Do not send another withdrawal. Later, reopen the reward page and press its reward button to recheck escrow; that sends no wallet transaction.'+then,clean)
+        if k.get('stage') in ('submit','resolve','withdraw'):return 'reward_'+k['stage'],f'Verified. The last escrow check offered the "{k["stage"]}" wallet step; this may be older than your browser.',step(f'Open the reward page and review its current step. If you already sent "{k["stage"]}", do not send it again; press the check button for an updated step.'+then,clean)
+        if k.get('stage'):return 'reward_'+k['stage'],'Unrecognized reward step.',step('Open the reward page and review its current step.'+then,clean)
         return 'verified','Accepted. Reward steps have not been prepared yet.',step('Open the reward page and press "Prepare my reward steps".'+then,clean)
     return s,'Unrecognized service state.',step('Do not delete or rerun anything. Send this output and the raw record to the maintainer.',c('status'),True)
 

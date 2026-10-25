@@ -2,6 +2,7 @@
 pragma solidity ^0.8.21;
 import {Test} from "forge-std/Test.sol";
 import {Canary, IAttestVerifier} from "../src/Canary.sol";
+import {P256Verifier} from "attest-test/P256Verifier.sol";
 
 /// Stands in for AppleAttestRegistryV1: proof = abi.encode(context, cdhash of the asserting build).
 contract MockAttest is IAttestVerifier {
@@ -28,21 +29,36 @@ contract CanaryTest is Test {
     bytes32 constant PROBE = keccak256("probe cdhash");
 
     function setUp() public {
+        vm.etch(address(0x100), address(new P256Verifier()).code);  // Base RIP-7212
         c = new Canary(new MockAttest());
         vm.deal(address(this), 10 ether);
     }
 
-    function sign(uint256 id, address claimant) internal view returns (uint8 v, bytes32 r, bytes32 s) {
-        return vm.sign(CANARY_KEY, c.claimDigest(id, claimant));
+    function events(string memory canary, bool late) internal view returns (Canary.Event[] memory ev) {
+        (uint256 x, uint256 y) = vm.publicKeyP256(CANARY_KEY);
+        ev = new Canary.Event[](late ? 4 : 3);
+        ev[0] = Canary.Event("services", "worker");
+        ev[1] = Canary.Event(canary, abi.encodePacked(x, y));
+        ev[2] = Canary.Event("system-ready", "");
+        if (late) ev[3] = Canary.Event("late", "");
     }
 
-    /// Claims with a Guest-kind assertion for `image`; `err` is the expected revert, if any.
-    function claimGuest(uint256 id, address payable to, bytes32 image, bytes memory err) internal {
-        address key = vm.addr(CANARY_KEY);
-        bytes memory proof = abi.encode(c.keyContext(Canary.Kind.Guest, image, MANIFEST, key), RUNNER);
-        (uint8 v, bytes32 r, bytes32 s) = sign(id, to);
+    function head(Canary.Event[] memory ev) internal pure returns (bytes32 h) {
+        for (uint256 i; i < ev.length; i++) {
+            bytes memory n = bytes(ev[i].name);
+            h = sha256(abi.encodePacked(h, sha256(abi.encodePacked(uint32(n.length), n, uint32(ev[i].payload.length), ev[i].payload))));
+        }
+    }
+
+    /// A guest Attest assertion by `cdhash` over `ev` for (image, manifest), claimed for `to` with
+    /// the canary key's signature for `signedFor`; `err` is the expected revert, if any.
+    function claim(uint256 id, address payable to, address signedFor, bytes32 image, bytes32 manifest,
+                   Canary.Event[] memory ev, bytes32 cdhash, bytes memory err) internal {
+        Canary.Attested memory a = Canary.Attested(image, manifest, keccak256("run"), sha256("worker"), new bytes(64));
+        bytes32 ctx = sha256(abi.encodePacked("dsmack.appattest.guest-attest/1", image, manifest, a.run, head(ev), a.caller, a.reportData));
+        (bytes32 r, bytes32 s) = vm.signP256(CANARY_KEY, c.claimDigest(id, signedFor));
         if (err.length > 0) vm.expectRevert(err);
-        c.claimKey(id, to, image, MANIFEST, key, proof, v, r, s);
+        c.claimKey(id, to, a, ev, abi.encode(ctx, cdhash), r, s);
     }
 
     function test_forgeryPaysOnceToBoundClaimant() public {
@@ -54,28 +70,43 @@ contract CanaryTest is Test {
         c.claimForgery(id, alice, proof);
         assertEq(alice.balance, 1 ether);
         (,,,,,,, bool burned) = c.entries(id);
-        assertTrue(burned);
+        assertTrue(burned && c.burnedBuild(RUNNER));
         vm.expectRevert("burned");
         c.claimForgery(id, alice, proof);
     }
 
-    function test_keyCanaryBindsImageAndClaimant() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER, IMAGE, 0, uint64(block.timestamp + 30 days));
-        // A run of another image (e.g. one the owner built to leak its key) does not pay.
-        claimGuest(id, alice, keccak256("owner image"), "not this canary");
+    function test_ownerCanaryBindsImageManifestAndClaimant() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Owner, RUNNER, IMAGE, MANIFEST, uint64(block.timestamp + 30 days));
+        Canary.Event[] memory ev = events("canary-guest-key", false);
+        // A run of another image (e.g. one the owner built to leak its key) or another workload does not pay.
+        claim(id, alice, alice, keccak256("owner image"), MANIFEST, ev, RUNNER, "not this canary");
+        claim(id, alice, alice, IMAGE, keccak256("leaky compose"), ev, RUNNER, "not this canary");
         // The canary key signed alice, so the same signature cannot pay bob.
-        address key = vm.addr(CANARY_KEY);
-        bytes memory proof = abi.encode(c.keyContext(Canary.Kind.Guest, IMAGE, MANIFEST, key), RUNNER);
-        (uint8 v, bytes32 r, bytes32 s) = sign(id, alice);
-        vm.expectRevert("canary signature");
-        c.claimKey(id, bob, IMAGE, MANIFEST, key, proof, v, r, s);
-        claimGuest(id, alice, IMAGE, "");
+        claim(id, bob, alice, IMAGE, MANIFEST, ev, RUNNER, "canary signature");
+        claim(id, alice, alice, IMAGE, MANIFEST, ev, RUNNER, "");
         assertEq(alice.balance, 1 ether);
+        assertTrue(c.burnedImage(IMAGE) && !c.burnedBuild(RUNNER));
     }
 
-    function test_keyAssertedForOtherKindDoesNotPay() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Owner, RUNNER, IMAGE, MANIFEST, uint64(block.timestamp + 30 days));
-        claimGuest(id, alice, IMAGE, "assertion signature");
+    /// The supervisor seals before any workload exists and the app refuses events after the seal, so
+    /// an event after system-ready could only come from a workload; such a log does not pay.
+    function test_eventAfterSystemReadyDoesNotPay() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER, IMAGE, 0, uint64(block.timestamp + 30 days));
+        claim(id, alice, alice, IMAGE, MANIFEST, events("canary-guest-key", true), RUNNER, "system-ready last");
+    }
+
+    /// Runner entries admit any image, whose own supervisor knows its guest key; only the app's event pays them.
+    function test_guestKeyDoesNotPayRunnerEntry() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Runner, RUNNER, 0, 0, uint64(block.timestamp + 30 days));
+        claim(id, alice, alice, keccak256("any image"), MANIFEST, events("canary-guest-key", false), RUNNER, "canary event");
+        claim(id, alice, alice, keccak256("any image"), MANIFEST, events("canary-runner-key", false), RUNNER, "");
+        assertTrue(c.burnedBuild(RUNNER));
+    }
+
+    /// The App Attest probe asserts any file it is given, so its assertions must not pay a runner canary.
+    function test_keyAssertionFromAnotherBuildDoesNotPay() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER, IMAGE, 0, uint64(block.timestamp + 30 days));
+        claim(id, alice, alice, IMAGE, MANIFEST, events("canary-guest-key", false), PROBE, "build");
     }
 
     /// The App Attest probe asserts any file it is given, so its assertions must not pay a runner canary.

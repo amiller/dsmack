@@ -5,7 +5,7 @@ import { release, rpcChain, unhex } from "./policy.mjs";
 
 export default async function handler(req: Request, ctx: { env: Record<string, string> }) {
   if (req.method !== "POST" || new URL(req.url).pathname !== "/release") return new Response("not found", { status: 404 });
-  const cfg = JSON.parse(ctx.env.SECRET_RELEASE), r = await req.json(), task = cfg.tasks[r.task_id];
+  const cfg = JSON.parse(ctx.env.SECRET_RELEASE), r = await req.json(), task = Object.hasOwn(cfg.tasks, r.task_id) ? cfg.tasks[r.task_id] : undefined;
   if (!task) return Response.json({ error: "unknown task" }, { status: 404 });
   try {
     return Response.json(await release(r, task, unhex(task.secret), rpcChain(cfg.rpc, cfg.attest, cfg.canary)));

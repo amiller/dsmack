@@ -42,7 +42,8 @@ unchanged.
   `secret-key` before `system-ready`, the task's manifest and images, `report_data =
   sha256("dsmack.secret-request/1" || task_id) || 0^32`, image and build not burned on the canary) and
   returns the task secret sealed to that `secret-key`. A replayed attestation only yields another
-  ciphertext for the same run's in-memory key, so the policy keeps no state.
+  ciphertext for the same run's in-memory key, so the policy keeps no state. Every service in the
+  task's compose can fetch its secret; give a secret its own task to scope it to one service.
 - `secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <host:port>` builds a
   workload that attests, asks the policy, and opens the secret through `/v1/GetSecret`.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary

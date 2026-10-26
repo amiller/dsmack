@@ -28,7 +28,7 @@ MAX_INPUTS = 16 << 20
 # ssh hosts and the operator's dispatch directories (README.md, Dispatch to the Mac).
 OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC = (os.environ[k] for k in (
     'DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST'))
-RELEASE, IMAGE = 'release-5', 'image-3'
+RELEASE, IMAGE = 'release-6', 'image-3'
 MAC_DIR = 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
 SELECTOR = 'agent-turns-edit-v1'
@@ -65,7 +65,7 @@ $C --execute --plan $PLAN > execute.json
 '''
 
 # v0.2.0-canary.1: the operator host holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
-# base/ (the alpha release's stage/base: Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
+# base/ (the same files as the operator's V02 dir base/: Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
 # source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source) and enrollment/ (the runner
 # key's attestation.cbor, clientData.bin, keyId.txt).
 V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
@@ -175,7 +175,7 @@ def mac_v02(request, inputs, out):
     op, mac_t = f'{V02_OPERATOR_DIR}/attempts/{run_id}', f'{V02_MAC_DIR}/t/{run_id}'
     ssh(OPERATOR, f'mkdir -p {op} && tar -x -C {op}', input=bundle(request, inputs))
     admitted = ssh(OPERATOR, f'cd {V02_OPERATOR_DIR} && . {OPERATOR_DIR}/coordinator.env && python3 -B source/applications/agent-turns/mac.py admit-v02 '
-                        f'--release {OPERATOR_DIR}/{RELEASE} --base {OPERATOR_DIR}/{RELEASE}/stage/base --oci {V02_IMAGE}/oci-layout --request {op}/request.json '
+                        f'--release {OPERATOR_DIR}/{RELEASE} --base base --oci {V02_IMAGE}/oci-layout --request {op}/request.json '
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
     # The disk shares the Mac's control master with other sessions, so the operator host throttles it.

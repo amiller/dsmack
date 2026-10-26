@@ -71,3 +71,39 @@ test("event after seal: a secret-key spliced in before system-ready breaks the a
 test("a log without a secret-key is refused before any chain read", async () => {
   await assert.rejects(p.check({ task_id: "t", attestation: canary.attestation }, { manifest: "", images: [] }, null, NOW), /exactly one 64-byte secret-key/);
 });
+
+// A real Mac run of secret_workload.py: the log carries the agent's secret-key and report_data binds the task.
+const run = fx("secret-run.json");
+const TASK = { manifest: run.manifest, images: [run.os_image_hash] };
+const req = { task_id: run.task_id, attestation: run.attestation };
+
+test("the real secret run releases: the secret is sealed to its secret-key", async () => {
+  const sealed = await withRpc(fakeRpc(run), () => p.release(req, TASK, p.unhex("5ec2e7"), chain(), NOW));
+  const a = await p.decodeAttestation(p.unhex(run.attestation));
+  assert.deepEqual(a.system_events.filter(([n]) => n === "secret-key").map(([, k]) => p.hex(k)), [run.secret_key]);
+  assert.equal(sealed.epk.length, 128);
+});
+
+test("wrong manifest: another task's compose hash is refused", async () => {
+  await withRpc(fakeRpc(run), () => assert.rejects(p.release(req, { ...TASK, manifest: "11".repeat(32) }, new Uint8Array(1), chain(), NOW), /compose hash/));
+});
+
+test("an attestation bound to another task id is refused", async () => {
+  await withRpc(fakeRpc(run), () => assert.rejects(p.release({ ...req, task_id: "other" }, TASK, new Uint8Array(1), chain(), NOW), /report_data/));
+});
+
+test("the Lit wrapper releases a secret provisioned to the action key, and only for the task it was sealed under", async () => {
+  const src = fs.readFileSync(new URL("policy.mjs", import.meta.url), "utf8").replace(/^export /gm, "")
+    + fs.readFileSync(new URL("lit-action.js", import.meta.url), "utf8")
+    + `\nconst POLICY = ${JSON.stringify({ rpc: "http://rpc.invalid", attest: ATTEST, canary: CANARY })};\nmain`;
+  globalThis.Lit = { Actions: { getLitActionPrivateKey: async () => "0x" + "42".repeat(32) } };
+  const main = (0, eval)(src);
+  const { pub } = await main({ op: "publicKey" });
+  const task = { id: run.task_id, ...TASK };
+  const label = "dsmack.secret-release/lit-task/1" + JSON.stringify([task.id, task.manifest, task.images]);
+  const wrapped = await p.seal(p.unhex(pub), p.unhex("5ec2e7"), label);
+  await withRpc(fakeRpc(run), async () => {
+    assert.equal((await main({ op: "release", task, wrapped, ...req })).epk.length, 128);
+    await assert.rejects(main({ op: "release", task: { ...task, images: [...task.images, "00".repeat(32)] }, wrapped, ...req }));
+  });
+});

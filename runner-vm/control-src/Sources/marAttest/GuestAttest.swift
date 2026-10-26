@@ -33,6 +33,8 @@ public struct GuestEventLog {
 
     /// The app's own event: the runner canary public key, kept off the guest's event path.
     public static let runnerCanaryEvent = "canary-runner-key"
+    /// The app's other event: sha256 of the run's worker grant, logged when it hands the grant over.
+    public static let workerGrantEvent = "worker-grant"
 
     public init() {}
 
@@ -42,9 +44,19 @@ public struct GuestEventLog {
 
     public mutating func event(_ name: String, _ payload: Data) throws -> Data {
         guard !sealed else { throw GuestAttestRefusal("event refused after seal") }
-        guard name != Self.runnerCanaryEvent else { throw GuestAttestRefusal("\(name) is the app's event") }
+        guard name != Self.runnerCanaryEvent, name != Self.workerGrantEvent else {
+            throw GuestAttestRefusal("\(name) is the app's event")
+        }
         guard events.count < Self.maxEvents else { throw GuestAttestRefusal("more than \(Self.maxEvents) events") }
         append(name, payload)
+        return head
+    }
+
+    /// Before seal, once per run.
+    public mutating func grant(_ digest: Data) throws -> Data {
+        guard !sealed else { throw GuestAttestRefusal("grant refused after seal") }
+        guard !events.contains(where: { $0.name == Self.workerGrantEvent }) else { throw GuestAttestRefusal("grant already taken") }
+        append(Self.workerGrantEvent, digest)
         return head
     }
 

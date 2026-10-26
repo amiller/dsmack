@@ -20,13 +20,17 @@ VECTOR = pathlib.Path(__file__).parent.parent / "runner-vm/control-src/Tests/mar
 class FakeApp:
     """The app end of dsmack-ctl as V3Launch's handler runs it, with the assertion replaced by the client data."""
 
-    def __init__(self, hello):
-        self.hello, self.events, self.sealed = hello, [], False
+    def __init__(self, hello, grant=None):
+        self.hello, self.events, self.sealed, self.grant = hello, [], False, grant
 
     def handle(self, m):
         op = m["op"]
         if op == "hello":
-            return {k: self.hello[k] for k in ("os_image_hash", "manifest_sha256", "run")}
+            return {**{k: self.hello[k] for k in ("os_image_hash", "manifest_sha256", "run")}, "grant": bool(self.grant)}
+        if op == "grant" and self.grant and not self.sealed:
+            self.events.append(("worker-grant", sha256(self.grant["grant"].encode())))
+            g, self.grant = self.grant, None
+            return {**g, "head": replay(self.events).hex()}
         if op == "event" and not self.sealed:
             self.events.append((m["name"], bytes.fromhex(m["payload"])))
         elif op == "seal" and not self.sealed:
@@ -64,21 +68,27 @@ def test_vector_seal_rules_and_client_data():
     assert cd[:31] == b"dsmack.appattest.guest-attest/1" and cd[127:159].hex() == v["ops"][3]["head"]
 
 
-@pytest.fixture
-def guest():
+def serve(app):
+    """Run app on the app end of a socketpair; returns both ends (the caller keeps them open)."""
     app_end, guest_end = socket.socketpair()
-    hello = {"os_image_hash": "11" * 32, "manifest_sha256": "22" * 32, "run": "33" * 32}
-    app = FakeApp(hello)
     peer = agent.Ctl(app_end.fileno())
 
-    def serve():
+    def loop():
         try:
             while True:
                 peer.send(app.handle(peer.recv()))
-        except EOFError:  # the guest end closed at teardown
+        except (EOFError, OSError):  # the guest end closed at teardown
             return
 
-    threading.Thread(target=serve, daemon=True).start()
+    threading.Thread(target=loop, daemon=True).start()
+    return app_end, guest_end
+
+
+@pytest.fixture
+def guest():
+    hello = {"os_image_hash": "11" * 32, "manifest_sha256": "22" * 32, "run": "33" * 32}
+    app = FakeApp(hello)
+    app_end, guest_end = serve(app)
     d = tempfile.mkdtemp()
     servers = agent.start(d, ["worker"], guest_end.fileno(), [("canary-key", b"\x01" + b"\xee" * 20)])
     yield d, app
@@ -120,6 +130,33 @@ def test_verify_rejects_event_after_system_ready(guest):
     _, out = call(os.path.join(d, "worker.sock"), "Attest", {"report_data": ""})
     with pytest.raises(ValueError, match="system-ready"):
         verify(bytes.fromhex(out["attestation"]))
+
+
+def test_agent_takes_the_grant_before_seal_and_serves_getkey_from_it():
+    from dsmack_dstack import derive, get_key, grant_statement, kms_message, secp256k1_public, sign, verify_worker_chain
+    kms, app_root, app_id = b"\x01" * 32, b"\x02" * 32, b"\xaa" * 20
+    signer = get_key(app_root, "dsmack-grant-signer/1", "secp256k1",
+                     [sign(kms, kms_message(app_id, secp256k1_public(app_root))).hex()])
+    root = derive(app_root, "dsmack-worker-root/1/t/w", "secp256k1")
+    g = {"task_id": "t", "worker_id": "w", "compose_hash": "22" * 32, "expires": 2**40, "root_pub": root[1].hex(),
+         "signer_domain": "dsmack-grant-signer/1", "app_id": app_id.hex()}
+    g["chain"] = [sign(bytes.fromhex(signer["key"]), grant_statement(g)).hex()] + signer["signature_chain"]
+    text = json.dumps(g, sort_keys=True)
+    app = FakeApp({"os_image_hash": "11" * 32, "manifest_sha256": "22" * 32, "run": "33" * 32},
+                  {"grant": text, "root_key": root[0].hex()})
+    app_end, guest_end = serve(app)
+    d = tempfile.mkdtemp()
+    servers = agent.start(d, ["worker"], guest_end.fileno(), [("services", b"worker")])
+    sock = os.path.join(d, "worker.sock")
+    code, k = call(sock, "GetKey", {"domain": "worker-signing", "algorithm": "secp256k1"})
+    assert code == 200
+    pub, chain = bytes.fromhex(k["public_key"]), [bytes.fromhex(c) for c in k["signature_chain"]]
+    assert verify_worker_chain(pub, chain, "worker-signing", "secp256k1", app_id, g, 0) == secp256k1_public(kms)
+    assert call(sock, "Info", {})[1]["key_provider_info"] == text
+    a = verify(bytes.fromhex(call(sock, "Attest", {"report_data": ""})[1]["attestation"]))
+    assert a["system_events"] == [("worker-grant", sha256(text.encode())), ("services", b"worker")]
+    for s in servers:
+        s.shutdown()
 
 
 def test_canary_key_public_matches_cryptography(tmp_path):

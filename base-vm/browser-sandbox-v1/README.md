@@ -39,7 +39,7 @@ python3 base-vm/browser-sandbox-v1/derive.py \
 
 It prints the artifact directory and the image digest (`digest.txt`, the
 SHA-256 of `sha256sum.txt`). The current source derives
-`8eea5c4dff96a52878208dc4a1af8af8b2c03198d8603ae5e54a3f6e306dd6f2`.
+`bfd41990bd82893d50a04c2a2e57debe162b75345fa5745cdadc0ea88a678831`.
 
 ```sh
 python3 -m pytest base-vm/browser-sandbox-v1

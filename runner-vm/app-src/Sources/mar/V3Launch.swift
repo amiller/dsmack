@@ -37,7 +37,16 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
     let sessionBytes = try read(sessionPath, max: 65536)
     let sessionObject = try JSONSerialization.jsonObject(with: sessionBytes)
     guard try canonical(sessionObject) == sessionBytes else { throw Fail("session is not canonical JSON") }
-    let s = try requireExactKeys(sessionObject, [
+    // Optional "grant": {"url", "task_id"}, the coordinator endpoint and task the run's worker grant comes from.
+    var sessionKeys = sessionObject as? [String: Any] ?? [:]
+    let grantSpec = try sessionKeys.removeValue(forKey: "grant").map { o -> (url: URL, taskId: String) in
+        let g = try requireExactKeys(o, ["url", "task_id"], "session.grant")
+        guard let u = URL(string: try requireNonEmptyString(g, "url", "session.grant")), u.scheme == "http" || u.scheme == "https" else {
+            throw Fail("session.grant.url: http(s) URL required")
+        }
+        return (u, try requireNonEmptyString(g, "task_id", "session.grant"))
+    }
+    let s = try requireExactKeys(sessionKeys, [
         "schema", "policy_path", "image_manifest_path", "checksum_manifest_path",
         "metadata_path", "admission_path", "compose_manifest_path", "profile",
         "workload_disk_path", "workload_sha256", "workload_id", "runtime_seconds",
@@ -246,10 +255,16 @@ func runHvFV3(out: URL, sessionPath: String, challengeHex: String, keyId: String
                                                        evidenceSha256: launchEvidenceSha256, challenge: challengeHex)
 
         try checkCancellation()
-        let guestCtl = Task { [ctlFd = fds[0]] in
+        let run = Data(SHA256.hash(data: launchClientData))
+        var grant: WorkerGrant? = nil
+        if let g = grantSpec {
+            grant = try await fetchWorkerGrant(url: g.url, taskId: g.taskId, keyId: keyId,
+                                               manifestSha256: try guestHex(composeManifestSha256), run: run)
+            try trace("worker_grant", ["grant_sha256": hex(grant!.digest)])
+        }
+        let guestCtl = Task { [ctlFd = fds[0], grant] in
             try await serveGuestCtl(fd: ctlFd, keyId: keyId, osImageHash: try guestHex(identity.osImageHash),
-                                    manifestSha256: try guestHex(composeManifestSha256),
-                                    run: Data(SHA256.hash(data: launchClientData)))
+                                    manifestSha256: try guestHex(composeManifestSha256), run: run, grant: grant)
         }
         let runStarted = ContinuousClock.now
         let code = try backendV3Run(handle: handle)              // proven halt (PSCI); not task success

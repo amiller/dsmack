@@ -1,21 +1,21 @@
 # Claiming a dsmack canary
 
 The canary contract on Base Sepolia (chain 84532) holds entries that pay the first proof
-that a dsmack isolation boundary broke. Every entry is bound to the approved runner build.
+that a dsmack isolation boundary broke. Every entry pins the runner build it was armed with.
 
 ```sh
 cast wallet import claimer --interactive   # once: store your key in a foundry keystore
 ACCOUNT=claimer
 RPC=https://sepolia.base.org
-CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6
-VERIFIER=0x08351Cf4B691721fF8F2D7d737E41Eb2FD2c0fD9
-CANARY=0x93942C82Aef24C596A90C447f5AfAF083abF926F
+CDS=0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E
+VERIFIER=0xFF8393e6D4c3dF89e826A5BF14829733B953c948
+CANARY=0xdC66c90291973167126a3c4455D5A6064634f3B1
 CLAIMANT=0xYourAddress
 cast call $CANARY 'entries(uint256)(uint8,bytes32,bytes32,bytes32,address,uint64,uint256,bool)' 0 --rpc-url $RPC
 ```
 
 An entry's fields are kind (0 Forgery, 1 Guest, 2 Runner, 3 Owner), build, image, manifest,
-funder, until, amount, burned. Armed entries, each 0.01 ETH until 2027-01-24:
+funder, until, amount, burned. Armed entries, each 0.005 ETH until 2027-01-24:
 
 | id | kind | boundary | binds |
 |---|---|---|---|

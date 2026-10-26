@@ -161,9 +161,43 @@ are superseded for new pots but still claimable: their entries name build `0xc93
 which is still approved. A claimant enrolls in `0xa3C1…` (keys there expire 3 days after
 creation). One break of the current build pays `0x9394…`, `0x6509…` and `0x7c66…`.
 
-## Pinned-build canary (source; not deployed)
+## Pinned-build deploy, Base Sepolia, 2026-10-26
 
-The deployed instances above follow the registry's current build, so a `setBuild`
+The pinned-build design below, deployed from `0x97883cb4B2f21530277F86490d8881654E36E6aA`.
+The new `CDRegistry` approves the runner build `0xc930…a758` in `setBuild`
+`0x8a3efb0f9c55f2d1a7d0436f7fec21e459722314b3925a8b6139cf44b4395df9` (826,060 gas) and
+registers the runner `0x7011…7970` in
+`0x5e5479e1b524e46022e5b217101e2840fc0f41fb478756f3ea774b24964849ab` (828,141) and the
+re-signed copy `0xa13331e5…` in
+`0xc004b52ad01daed55b35d937961b0318af7acfe76a648ff46da32c5b963c0f5d` (829,833). It
+supersedes `0xD656…78f6` for new deployments; the old registry is unchanged. The main
+verifier (`registry` = deployer, current-build admission) supersedes `0x357e…09Ad`.
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| CDRegistry | `0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E` | `0x3b60401940fb9789c66b7bad0623333f9f9da19cebb575b4f1b4a5f8a5f5c41f` | 1,801,015 |
+| AppleAttestRegistryV1 | `0xdd86D0da349104534AbE7155DBc04D33B74C0A53` | `0x3dbac8e0579f5c1df9de4ccdcc6abf4b8a584c94b2672eaca494f6c843ea0646` | 4,429,427 |
+| AppleAttestAnyBuildV1 (canary verifier) | `0xFF8393e6D4c3dF89e826A5BF14829733B953c948` | `0x838dd540af9954ab7dc10b97486aa119c42d74d8d9c8aac300deaa787c1ab6c5` | 4,429,415 |
+| Canary | `0xdC66c90291973167126a3c4455D5A6064634f3B1` | `0xb8157a388c044cff787fd87e756f5f1791e0e2a70f4aa63c0e1fd44098d6b60a` | 1,276,831 |
+
+Entries, each 0.005 ETH until 1800827257 (2027-01-24), pinned to `buildId` `0xc930…a758`:
+0 Forgery (`0xd4bee2cebb8a87ef368c3ed3c10f3bc90e550e850834cc5ee99bbb42321c2ccd`),
+1 Runner (`0x7a86b4b570e3eae787c213456c0eb879a1ec6555fde0493130a78a3ea97ad864`),
+2 Guest, image `3bec88ca…` (`0xd089323a4da8c24ffbe5e784b905bd2de2a04d791b61093889ef7c6282ff8592`),
+3 Owner, image `3bec88ca…`, manifest `ab59dfd0…` (`0x47dfa18988a44cce88bcb4b8ef8fc5ae34145e5443e78a68dfe9289c31abf47c`).
+All four contracts are source-verified on Basescan. The re-signed outsider key
+`0x6ff08d2895eafb44178d7daec7f1db26e3b7c238bf7ca85ec0eb77e7e776afd4` enrolled in the
+canary verifier in `0x962a8b75f6af63ab77c8fb6252ac855edd1c8709c7ebaa196b66f89dd95fa4af`
+(14,116,343 gas) and expires 2030-03-13. The secret-release policy now names
+`attest` `0xFF83…c948` and `canary` `0xdC66…f3B1`.
+
+Canaries `0x9394…926F` and `0x6509…4658` and the forgery canary `0x7c66…432C` stay
+claimable while the old `CDRegistry` `0xD656…78f6` keeps build `0xc930…` approved, since
+their verifiers read that registry; `0x469B…24c0` stays unclaimable.
+
+## Pinned-build canary design
+
+The earlier instances above follow the registry's current build, so a `setBuild`
 strands a claim in flight. In this source an entry pins its build at arm time:
 
 - `CDRegistry` keeps every build it has approved. `registerBuild` admits a copy of

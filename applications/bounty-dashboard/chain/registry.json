@@ -21,6 +21,21 @@
       "network": "Base Sepolia",
       "testnet": true,
       "rpc": "https://sepolia.base.org",
+      "name": "Pinned-build canary",
+      "address": "0xdc66c90291973167126a3c4455d5a6064634f3b1",
+      "explorer_url": "https://sepolia.basescan.org/address/0xdc66c90291973167126a3c4455d5a6064634f3b1",
+      "deployment_block": 50646932,
+      "deployment_tx": "0xb8157a388c044cff787fd87e756f5f1791e0e2a70f4aa63c0e1fd44098d6b60a",
+      "runtime_sha256": "089782cbde81041aa9abf2ede1b444460ee741ddd5cd7fb3e5b518e4fa33bc49",
+      "codec": "canary-read-codec/3",
+      "void": false,
+      "note": null
+    },
+    {
+      "chain_id": 84532,
+      "network": "Base Sepolia",
+      "testnet": true,
+      "rpc": "https://sepolia.base.org",
       "name": "Build-bound canary",
       "address": "0x93942c82aef24c596a90c447f5afaf083abf926f",
       "explorer_url": "https://sepolia.basescan.org/address/0x93942c82aef24c596a90c447f5afaf083abf926f",
@@ -29,7 +44,7 @@
       "runtime_sha256": "586a6b885b6b45259723f18205179cf5cc0fde6786c3aed546831a41388b9c01",
       "codec": "canary-read-codec/2",
       "void": false,
-      "note": null
+      "note": "Superseded for new pots by 0xdC66\u20263B1; still claimable on the old CDRegistry 0xD656\u2026f6, which keeps build 0xc930\u2026 approved"
     },
     {
       "chain_id": 84532,
@@ -44,7 +59,7 @@
       "runtime_sha256": "83cd68d5804f561c3a370813f6197f268d0dcd1ef74ce8e2735ad454c5f31a31",
       "codec": "canary-read-codec/2",
       "void": false,
-      "note": "Superseded for new pots by 0x9394\u2026926f; still claimable while build 0xc930\u2026 is approved (keys in its verifier expire 3 days after enrollment)"
+      "note": "Superseded for new pots by 0xdC66\u20263B1; still claimable on the old CDRegistry 0xD656\u2026f6, which keeps build 0xc930\u2026 approved (keys in its verifier expire 3 days after enrollment)"
     },
     {
       "chain_id": 84532,

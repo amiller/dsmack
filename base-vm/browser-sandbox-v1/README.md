@@ -23,23 +23,34 @@ by `applications/pilot-client/workload/transport_loader.py`.
 
 ## Derive the image
 
-`derive.py` takes the existing image7 base bundle (`Image`,
-`config-6.18.40-dstack`, `rootfs.squashfs.verity`) and the 4GiB scratch / 256MiB
-result disk templates. In an offline builder container it unpacks the base
-rootfs, overlays the runner files listed in `derive-in-container.sh`, and
-assembles a new verity image with `source/build/assemble_leg.sh`. Run it on Zed
-under `/data`:
+`derive.py` takes a base bundle (`Image`, `config-6.18.40-dstack`,
+`rootfs.squashfs.verity`) and the 4GiB scratch / 256MiB result disk templates.
+In an offline builder container it unpacks the base rootfs, overlays the runner
+files listed in `derive-in-container.sh`, and assembles a new verity image with
+`source/build/assemble_leg.sh`. It needs an x86-64 Docker host and about 2GB of
+disk; it takes under two minutes.
+
+Build the builder image from `builder/Dockerfile` (Debian trixie pinned by
+digest, packages from snapshot.debian.org 20260721T000000Z):
 
 ```sh
-python3 base-vm/browser-sandbox-v1/derive.py \
-  --base-bundle /data/selected/image7 \
-  --templates /data/selected/templates-4g \
-  --out /data/owned/new-browser-base-build
+docker build -t dsmack-builder base-vm/browser-sandbox-v1/builder
+```
+
+Then derive from the B44 base (`os_image_hash` `b44abf14…`, shipped in the
+`runner-v0.1.0-alpha.1` release) and the release's `config-6.18.40-dstack` in
+`b44/`, with the two templates and `disk-templates.json` in `templates/`:
+
+```sh
+python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
+  --base-bundle b44 --templates templates --out derive
 ```
 
 It prints the artifact directory and the image digest (`digest.txt`, the
-SHA-256 of `sha256sum.txt`). The current source derives
-`bfd41990bd82893d50a04c2a2e57debe162b75345fa5745cdadc0ea88a678831`.
+SHA-256 of `sha256sum.txt`), which must equal `image.sha256` (the
+`v0.2.0-canary.1` image). The `image-repro` workflow runs this derivation on
+GitHub Actions and fails on any other digest; a change that alters the image
+updates `image.sha256` in the same PR.
 
 ```sh
 python3 -m pytest base-vm/browser-sandbox-v1

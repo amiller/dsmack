@@ -34,21 +34,50 @@ client (`applications/pilot-client`) live elsewhere in this repository.
 
 ## Build
 
-Native archive, on any machine with Rust and the `aarch64-apple-darwin` target:
+Native archive, on any machine with rustup (the toolchain, Rust 1.97.1 with the
+`aarch64-apple-darwin` target, is pinned in `native/source-tree/rust-toolchain.toml`):
 
 ```sh
 runner-vm/native/build.sh
 ```
 
-App, on an Apple silicon Mac with Xcode:
+App, on an Apple silicon Mac with Xcode 27.0 (27A266a, Swift 6.4); `build.sh` checks the
+Swift version:
 
 ```sh
-runner-vm/packaging/build.sh runner-vm/native/source-tree/apple-static/target/aarch64-apple-darwin/release
+runner-vm/packaging/build.sh runner-vm/native/source-tree/target/aarch64-apple-darwin/release
 ```
 
 This produces `runner-vm/packaging/build/DsmackRunner.app`, unsigned. Sign it with
 `KEYCHAIN=... SIGN_IDENTITY=... ENTITLEMENTS=runner-vm/packaging/DsmackRunner.entitlements PROFILE=... runner-vm/packaging/sign.sh`;
 see `packaging/sign-production.md` for the production identity.
+
+### Reproducing a published build
+
+The build does not depend on the checkout directory, `CARGO_HOME` or the rustup
+location: `native/build.sh` remaps those paths, and `packaging/build.sh` links without
+the debug map. The same commit gives a byte-identical archive and unsigned executable.
+The native archive can be built in a clean container:
+
+```sh
+docker run --rm -u "$(id -u):$(id -g)" -e CARGO_HOME=/tmp/cargo -v "$PWD":/src -w /src \
+  rust:1.97.1-slim runner-vm/native/build.sh
+```
+
+CDRegistry admits a re-signed copy of the approved build when its code slots,
+masked page 0 and CodeDirectory header match (`entitlements_der` is the raw DER; the registry compares its shape); the signature is
+free. Signing changes only page 0 fields that CDRegistry masks and the signature
+appended after the code, so an unsigned rebuild compares directly with a signed
+release:
+
+```sh
+python3 contracts/cd_args.py --measure runner-vm/packaging/build/DsmackRunner.app/Contents/MacOS/dsmack-runner
+python3 contracts/cd_args.py --measure dsmack-runner   # the release asset
+```
+
+`rest` (code slots 1..n), `maskedPage0` and `codeLimit` must be equal. `header` and
+`entitlements` compare only between binaries signed with `sign.sh`. The digests are
+SHA-256; CDRegistry stores keccak-256 of the same bytes.
 
 ## Run
 

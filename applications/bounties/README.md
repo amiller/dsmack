@@ -11,7 +11,7 @@ The [Arcade examples](examples/arcade/) check Board search, Board undo/redo, Puz
 - `chain/`: WorkEscrow transaction preparation and trusted verifier bridge.
 - `examples/arcade/`: Board-specific page, checker, fixtures, task factory and guest driver.
 
-Start with the [Arcade example](examples/arcade/README.md), [Mac client](runner/README.md) or [service configuration](service/README.md). Shared runtime installation and coordinator modules live in `applications/pilot-client`.
+Participants start with [Claim a testnet bounty](../../docs/participate.md). Start with the [Arcade example](examples/arcade/README.md), [Mac client](runner/README.md) or [service configuration](service/README.md). Shared runtime installation and coordinator modules live in `applications/pilot-client`.
 
 Run the service without a build or npm install:
 

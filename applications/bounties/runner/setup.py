@@ -1,10 +1,33 @@
 #!/usr/bin/env python3
 """Install a selected signed pilot runtime with local paths; never creates a VM/key."""
-import argparse,hashlib,http.client,json,os,subprocess,sys,urllib.parse
+import argparse,hashlib,http.client,json,os,shutil,subprocess,sys,tempfile,urllib.parse
 from pathlib import Path
 s=Path(__file__).with_name('client.py');c={'__name__':'arcade_client','__file__':str(s)};exec(compile(s.read_bytes(),str(s),'exec'),c)
 p=c['_scope'];need=p['need'];read=p['read'];pin=p['pin'];doc=p['document'];canonical=p['canonical'];exclusive=p['exclusive'];protected=p['protected']
-ROOT_SHA='4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df'
+ROOT_SHA='4de4686cb585a54375a9ab859aa533e8a81255d9d2c9a76b96d0ae9006ecc0df';RESERVE=12<<30
+KEY_URL='https://github.com/amiller/dsmack/releases/download/arcade-browser-v0.1.0-alpha.1/release-public.pem'
+CLI=Path(__file__).parents[2]/'pilot-client/alpha-release-cli.mjs'
+
+def node_version(path):
+    real=os.path.realpath(path);need(real==os.path.abspath(path),'pass the resolved absolute Node path, not a symlink: '+real)
+    n=protected(path);need(os.access(n,os.X_OK),'trusted Node24 prerequisite')
+    return n,subprocess.run([str(n),'--version'],capture_output=True,text=True,timeout=10,env={'PATH':'/usr/bin:/bin'}).stdout.strip()
+
+def disk_need(root,state,inventory):
+    """(volume, free, needed): expanded runtime + archive on the install volume; the 12 GiB working reserve on the state volume."""
+    install=sum(f['bytes']for f in inventory['files'])+inventory['archive']['bytes'];sp=root.parent if state.parent==root else state.parent
+    if os.stat(root.parent).st_dev==os.stat(sp).st_dev:return[(root.parent,shutil.disk_usage(root.parent).free,install+RESERVE)]
+    return[(root.parent,shutil.disk_usage(root.parent).free,install),(sp,shutil.disk_usage(sp).free,RESERVE)]
+
+def release_metadata(node,key,runtime,directory,fetch=None):
+    """Fetch only inventory+signature and authenticate them with the existing release CLI."""
+    rows={d['name']:d for d in runtime['assets']};need(rows['inventory']['bytes']<=262144 and rows['signature']['bytes']==64,'signed metadata size caps')
+    for name in ('inventory','signature'):(fetch or download)(rows[name],directory/name)
+    r=subprocess.run([str(node),str(CLI),'--inventory',str(directory/'inventory'),'--signature',str(directory/'signature'),'--trust-key',str(key),'--key-id',runtime['key_id'],'--channel','alpha','--min-sequence',str(runtime['sequence'])],capture_output=True,text=True,timeout=60,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})
+    need(r.returncode==0,r.stderr.strip()or'release authentication refused');out=doc(r.stdout);v=out['inventory']
+    need(out['inventory_sha256']==runtime['release_inventory_sha256']and v['sequence']==runtime['sequence'],'inventory is not the task runtime')
+    need({k:v['archive'][k]for k in('bytes','sha256')}=={k:rows['archive'][k]for k in('bytes','sha256')},'archive asset differs from signed inventory')
+    return v
 
 def download(d,path):
     need(type(d['bytes'])is int and 0<d['bytes']<=1<<30,'runtime download cap');url=d['url'];f=None
@@ -44,10 +67,15 @@ def main():
     public=read(x.public_key,4096);need(hashlib.sha256(public).hexdigest()==ROOT_SHA,'independently selected maintainer key fingerprint required')
     api=c['API'](x.api,x.allow_loopback);task=api.request('GET','/api/task');runtime=task['runtime'];need(runtime['trust_key_sha256']==ROOT_SHA,'unexpected release authority')
     rows=runtime['assets'];need(type(rows)is list and len(rows)==3 and {d['name']for d in rows}=={'inventory','signature','archive'},'closed signed runtime asset set')
+    node,version=node_version(x.node);need(version.startswith('v24.'),'Node 24 required, found '+version)
+    # Authenticate the small signed metadata before creating state or fetching the archive.
+    with tempfile.TemporaryDirectory(dir=root.parent)as t:
+        t=Path(t);inventory=release_metadata(node,protected(x.public_key),runtime,t);metadata={n:read(t/n,262144)for n in('inventory','signature')}
+    for volume,free,want in disk_need(root,state,inventory):need(free>=want,f'{want>>20} MiB free disk required on {volume} before download, {free>>20} MiB available')
     root.mkdir(mode=0o700);exclusive(root/'root-public.pem',public);exclusive(root/'public-task.json',canonical(task));downloads=root/'downloads';downloads.mkdir(mode=0o700)
-    for d in rows:download(d,downloads/d['name'])
-    need(pin(downloads/'inventory')['sha256']==runtime['release_inventory_sha256'],'selected task/runtime identity')
-    bootstrap_source=Path(__file__).parents[2]/'pilot-client/alpha-bootstrap.mjs';node=protected(x.node);need(os.access(node,os.X_OK),'trusted Node24 prerequisite')
+    for n,raw in metadata.items():exclusive(downloads/n,raw)
+    download({d['name']:d for d in rows}['archive'],downloads/'archive')
+    bootstrap_source=Path(__file__).parents[2]/'pilot-client/alpha-bootstrap.mjs'
     # Existing bootstrap inspects the actual Node/runtime dependencies and refuses
     # injection. It downloads or installs no Node interpreter.
     subprocess.run([str(node),str(bootstrap_source),'--trust-key',str(root/'root-public.pem'),'--key-id',runtime['key_id'],'--channel','alpha','--min-sequence',str(runtime['sequence']),'--out',str(root/'bootstrap')],check=True,timeout=120,env={'HOME':str(Path.home()),'PATH':'/usr/bin:/bin'})

@@ -1,11 +1,13 @@
 #!/usr/bin/env python3
 """Public arcade client. Wallet signatures are supplied by a wallet, never private keys."""
-import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,socket,sys,time,urllib.parse
+import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,shlex,socket,sys,time,urllib.parse
 from pathlib import Path
 # Load reviewed sibling source directly; -I does not add the script directory.
 _source=Path(__file__).with_name('portable.py');_scope={'__file__':str(_source),'__name__':'arcade_portable'}
 exec(compile(_source.read_bytes(),str(_source),'exec'),_scope)
 need=_scope['need'];read=_scope['read'];doc=_scope['document'];canonical=_scope['canonical'];exclusive=_scope['exclusive'];protected=_scope['protected']
+
+PROGRESS_BYTES=16<<20
 
 def request_connection(url,method,path,body=None,headers=None):
     """Retry only DNS resolution failure from request, before socket writes.
@@ -53,7 +55,10 @@ class API:
         try:
             if existing:
                 held=os.fstat(fd);need((held.st_dev,held.st_ino,held.st_size,held.st_mtime_ns,held.st_ctime_ns)==(st.st_dev,st.st_ino,st.st_size,st.st_mtime_ns,st.st_ctime_ns),'partial changed before open')
-            n=0;digest=hashlib.sha256()
+            n=0;digest=hashlib.sha256();total=d['bytes'];mark=[0,time.monotonic()]
+            # Large downloads report public byte counts on stderr; never the URL, capability or local directory.
+            tell=lambda text:print(f'{Path(path).name}: {text}',file=sys.stderr,flush=True) if total>PROGRESS_BYTES else None
+            amount=lambda:f'{n}/{total} bytes ({n*100//total}%)'
             with os.fdopen(fd,'r+b' if existing else 'wb',closefd=False) as f:
                 if existing:
                     while True:
@@ -61,6 +66,7 @@ class API:
                         if not prefix:break
                         digest.update(prefix);n+=len(prefix)
                     after=os.fstat(fd);need(n==held.st_size and (after.st_size,after.st_mtime_ns,after.st_ctime_ns)==(held.st_size,held.st_mtime_ns,held.st_ctime_ns),'partial changed while hashing')
+                    tell(f'resuming at {amount()} after rehashing the saved prefix');mark[0]=n
                 while n<d['bytes']:
                     end=min(n+(4<<20),d['bytes'])-1
                     headers={'Range':f'bytes={n}-{end}'}
@@ -75,8 +81,10 @@ class API:
                         chunk=r.read(end-n+2);need(len(chunk)==end-n+1,'artifact range truncated or exceeded')
                         f.write(chunk);digest.update(chunk);n+=len(chunk)
                     finally:c.close()
+                    if n-mark[0]>=PROGRESS_BYTES or time.monotonic()-mark[1]>=5:tell(amount());mark[:]=[n,time.monotonic()]
                 f.flush();os.fsync(fd)
             need(n==d['bytes'] and digest.hexdigest()==d['sha256'],'artifact digest mismatch')
+            tell(f'VERIFIED {total} bytes, sha256 matches')
         finally:os.close(fd)
 
 def state(path):
@@ -100,16 +108,57 @@ def upload(api,attempt,capability,out,request_id):
         need(_scope['pin'](path,_scope['ORIGINALS'][d['name']])==before,'original evidence changed')
     return api.request('POST',f'/api/attempts/{attempt}/evidence/{sid}/complete',{'request_id':request_id},capability)
 
+def existing_preparation(cfg,packet,local):
+    """True if the plan exists; else reruns only the coordinator's plan step, which launches nothing.
+
+    A prepare that stopped after download but before the coordinator created its
+    control directory is safe to redo. Any existing control directory without a
+    plan is left for inspection.
+    """
+    need((local/'task.json').exists(),'partial download; rerun prepare with --resume-download')
+    need(doc(read(local/'execution-packet.json'))==packet,'conflicting preparation; preserve state')
+    control=local/('attempt-'+packet['native_execution_id']+'.control')
+    if os.path.lexists(control):need((control/'plan.json').exists(),'uncertain existing control without plan; preserve state');return True
+    return _scope['coordinator'](cfg,'prepare',local/'task.json',local,packet['native_execution_id'])
+
+def register_wait(api,record,wait,clock=time.monotonic,sleep=time.sleep):
+    """GET-only observation of a saved registration. Never re-enrolls, re-signs or re-POSTs."""
+    rid=record['registration_id'];key=record['key_id'];need(re.fullmatch('[a-f0-9]{32}',rid or ''),'registration identity')
+    need(type(wait)is int and 0<=wait<=300,'--wait-seconds must be 0..300')
+    def refuse(m):print(m,file=sys.stderr,flush=True);raise ValueError(m)
+    end=clock()+wait;last=None
+    while True:
+        r=api.request('GET',f'/api/registrations/{rid}');s=r.get('state')
+        if r.get('registration_id')!=rid:refuse('service returned a different registration; preserve local state')
+        if s!=last:print(f'registration {rid}: {s}',file=sys.stderr,flush=True);last=s
+        if s=='enrolled':
+            if (r.get('enrollment')or{}).get('registered_key_id')!=key:refuse('service enrolled a key other than this Mac\'s saved key; preserve local state and report registration '+rid)
+            return {'registration_id':rid,'state':s,'ready':True,'can_prepare':True}
+        if s in ('failed','uncertain'):refuse(f'registration {rid} is {s}; preserve local state and report it; do not enroll or sign again')
+        if clock()>=end:return {'registration_id':rid,'state':s,'ready':False,'can_prepare':False,'pending':True}
+        sleep(min(2,max(0,end-clock())))
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--config',required=True);p.add_argument('--allow-loopback',action='store_true')
     sub=p.add_subparsers(dest='command',required=True)
     a=sub.add_parser('authorization');a.add_argument('--purpose',choices=('attempt','registration'),required=True);a.add_argument('--payee',required=True);a.add_argument('--candidate-commit');a.add_argument('--out',required=True)
     for name in ('attempt','register'):
         a=sub.add_parser(name);a.add_argument('--authorization',required=True);a.add_argument('--wallet-signature',required=True);a.add_argument('--out',required=True)
-    for name in ('prepare','check','run','resume','submit','status','cleanup'):
+        if name=='register':a.add_argument('--wait-seconds',type=int,default=0)
+    a=sub.add_parser('registration-status');a.add_argument('--registration',required=True);a.add_argument('--wait-seconds',type=int,default=0)
+    for name in ('prepare','check','run','resume','submit','status','progress','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
+        if name=='progress':a.add_argument('--json',action='store_true');a.add_argument('--registration')
         if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
     x=p.parse_args();cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
+    def observe(path):
+        r=register_wait(api,state(path),x.wait_seconds)
+        if not r['ready']:r['next']=shlex.join(['python3','-I',os.path.abspath(__file__),'--config',os.path.abspath(x.config),*(['--allow-loopback']if x.allow_loopback else[]),'registration-status','--registration',os.path.abspath(path),'--wait-seconds','120'])
+        return r
+    if x.command=='registration-status':print(json.dumps(observe(x.registration)));return
+    if x.command=='register':
+        need(type(x.wait_seconds)is int and 0<=x.wait_seconds<=300,'--wait-seconds must be 0..300')
+        if os.path.lexists(x.out):m='registration already saved; observe it with registration-status --registration '+shlex.quote(x.out);print(m,file=sys.stderr);raise ValueError(m)
     if x.command=='authorization':
         request_id=secrets.token_hex(32);payload={'purpose':x.purpose,'payee':x.payee.lower(),'request_id':request_id,'candidate_commit':None}
         if x.candidate_commit:need(re.fullmatch('[0-9a-f]{40}',x.candidate_commit),'full candidate commit required');payload['candidate_commit']=x.candidate_commit
@@ -135,9 +184,19 @@ def main():
             directory.mkdir(mode=0o700)
             evidence=_scope['enroll'](cfg,reg['challenge_b64'],directory);exclusive(evpath,canonical(evidence))
         response=api.request('POST','/api/registrations',{'registration_id':reg['registration_id'],**evidence,'payee':a['payee']})
-        exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));print(json.dumps({'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}));return
+        exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));out={'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}
+        if x.wait_seconds:out.update(observe(x.out))
+        print(json.dumps(out));return
     record=state(x.attempt);response=record['response'];attempt=response.get('attempt_id',response.get('id',response.get('attempt',{}).get('id')));need(re.fullmatch('[a-f0-9]{32}',attempt or ''),'attempt identity');cap=record['capability'];local=_scope['task_directory'](parent,attempt)
     if x.command=='status':print(json.dumps(api.request('GET',f'/api/attempts/{attempt}')));return
+    if x.command=='progress':
+        script=Path(__file__).with_name('progress.py');ns={'__name__':'arcade_progress','__file__':str(script)};exec(compile(script.read_bytes(),str(script),'exec'),ns)
+        observed=api.request('GET',f'/api/attempts/{attempt}');native=(observed.get('execution') or {}).get('native_execution_id')
+        claim=api.request('GET',f'/api/attempts/{attempt}/claim') if observed['state'] in ('verified','claim_uncertain','claim_failed') else None
+        base=['python3','-I',os.path.abspath(__file__),'--config',os.path.abspath(x.config),*(['--allow-loopback'] if x.allow_loopback else [])]
+        c=ns['commands'](base,os.path.abspath(x.attempt),x.registration and os.path.abspath(x.registration))
+        r=ns['report'](observed,claim,ns['facts'](local,native,lambda q:doc(read(q))),observed.get('execution_mode'),int(time.time()),c)
+        print(json.dumps(r) if x.json else ns['render'](r));return
     if x.command=='prepare':
         registration=state(x.registration) if x.registration else None
         need(x.mode=='best_effort' or registration is not None,'self route requires local registered key')
@@ -154,7 +213,9 @@ def main():
             if not packet:print(json.dumps({'preparation_pending':True,'attempt_id':attempt,'retry_same_prepare_after_status':True}));return
         need(packet['attempt_id']==attempt,'wrong task packet')
         if local.exists() and not x.resume_download:
-            need(doc(read(local/'execution-packet.json'))==packet and (local/'task.json').exists(),'partial or conflicting preparation; preserve state');print(json.dumps({'prepared':True,'existing_task':True,'use_check_or_resume':True}));return
+            done=existing_preparation(cfg,packet,local)
+            if done is True:print(json.dumps({'prepared':True,'existing_task':True,'use_check_or_resume':True}));return
+            raise SystemExit(done)
         api.resume_download=x.resume_download
         task=_scope['materialize'](cfg,packet,registration['key_id'],parent,api.fetch,resume_download=x.resume_download)
         raise SystemExit(_scope['coordinator'](cfg,'prepare',task,local,packet['native_execution_id']))

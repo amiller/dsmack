@@ -122,12 +122,21 @@ device can claim it, and it stops resolving once a later build is approved.
 Entries, each 0.01 ETH until 1800740895 (2027-01-23), bound to that `buildId`:
 0 Forgery (`0x0efde193921348a2db9cde2ae326bfdddd4ea78bd9242ae2ff309065a31565a3`),
 1 Runner, any image (`0x97af679ac718e22e691392c423f49c5713d69539ae1dc1cdbaae6363023c8891`).
-Guest and Owner entries bind an image, so they are armed when a release publishes
-the runner binary and that image. Both contracts are source-verified on Basescan.
+Both contracts are source-verified on Basescan. Pre-release `v0.2.0-canary.1`
+publishes the runner executable, base image `os_image_hash`
+`3bec88cae3271ce70661c55c8f0a0cf13b98700a3dcb8d45199d1af8329cdce7` and the canary
+workload (manifest `ab59dfd00d28a6ba430ec8610068dc853514c99e1b866e94aa9af00f40cd6115`),
+with claim steps. For that image:
+2 Guest (`0xc33e33fc8ca945baeae6d5c64aae503bf26b86670906e19428c3d7f640145f1f`),
+3 Owner, binding the canary manifest (`0xb6005f0a3cd3fc076ada3954c7d98efcb7652fa770ebe970ccc39ed08426a0c3`).
 
 ## Key canaries
 
-Guest (#1), Runner (#2) and Owner (#3) entries pay a P-256 signature over
+Outsider steps (re-sign the runner, register, enroll, run, claim) are maintained in
+[docs/canary/](../docs/canary/); the release assets are the 2026-10-25 originals.
+
+
+Guest, Runner and Owner entries (boundaries #1, #2, #3) pay a P-256 signature over
 `claimDigest(id, claimant)` by a canary key whose public key (x || y) is a system event
 in a guest Attest assertion by the entry's build. `claimKey` replays the event head,
 rebuilds the 255-byte client data and verifies the assertion through `attest`. The log

@@ -8,6 +8,7 @@ verify the app behind a signed message.
 [Website](https://amiller.github.io/dsmack/) ·
 [Architecture](docs/architecture.md) ·
 [Run a task](docs/running.md) ·
+[Claim a bounty](docs/participate.md) ·
 [App Attest verifiers](app-attest/README.md)
 
 <p align="center">
@@ -69,7 +70,7 @@ needs an Apple silicon Mac with Xcode:
 
 ```sh
 runner-vm/native/build.sh
-runner-vm/packaging/build.sh runner-vm/native/source-tree/apple-static/target/aarch64-apple-darwin/release
+runner-vm/packaging/build.sh runner-vm/native/source-tree/target/aarch64-apple-darwin/release
 ```
 
 The guest image, on a Linux builder:

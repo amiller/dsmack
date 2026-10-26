@@ -4,7 +4,7 @@
 
 - CDHash (full SHA-256 CodeDirectory) `7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970`
 - Team `DC9JH5DRMY`, bundle `dev.dsmack.provider`, Apple Development, hardened runtime
-- Approved on Base Sepolia by CDRegistry `0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6`,
+- Approved on Base Sepolia by CDRegistry `0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E`,
   `buildId` `0xc930e34c3997c53022aae6ead1d006ca6b270abe2be76ed6e640551c2d39a758`
 - Source: `runner-vm/` at commit `6f248a8` of github.com/amiller/dsmack
 
@@ -12,7 +12,8 @@
 was signed with. The provisioning profile is not included: it names one Mac. To run the
 app you re-sign it for your own Mac. Re-signing changes the CDHash but not the code, and
 CDRegistry admits any copy whose code pages, masked page 0, CodeDirectory header and
-entitlement keys match the approved build.
+entitlement keys match a build it has approved. `registerBuild` accepts copies of any
+approved build, and a canary entry stays claimable by copies of its build after a `setBuild`.
 
 ## Check the binary as shipped
 
@@ -57,7 +58,7 @@ $PY $DSMACK/tools/release/inspect_runner.py DsmackRunner.app/Contents/MacOS/dsma
 $PY $DSMACK/contracts/cd_args.py DsmackRunner.app/Contents/MacOS/dsmack-runner > build.json
 b(){ python3 -c "import json,sys;print(json.load(open('build.json'))[sys.argv[1]])" $1; }
 cast wallet import claimer --interactive   # once: store your key in a foundry keystore
-ACCOUNT=claimer CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6 RPC=https://sepolia.base.org
+ACCOUNT=claimer CDS=0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E RPC=https://sepolia.base.org
 cast call $CDS 'registerBuild(bytes,bytes,bytes)(bytes32)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC
 cast send $CDS 'registerBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC --account $ACCOUNT
 cast call $CDS 'rpIdHash(bytes32)(bytes32)' $(b cdhash) --rpc-url $RPC

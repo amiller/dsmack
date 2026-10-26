@@ -3,20 +3,25 @@ pragma solidity ^0.8.21;
 import {Test} from "forge-std/Test.sol";
 import {Canary, IAttestVerifier, ICDRegistry} from "../src/Canary.sol";
 import {P256Verifier} from "attest-test/P256Verifier.sol";
+import {CDRegistry} from "../src/CDRegistry.sol";
 
-/// Stands in for AppleAttestRegistryV1 and its CDRegistry: proof = abi.encode(context, cdhash),
-/// admitted only while the cdhash's build is the current build.
+/// Stands in for AppleAttestAnyBuildV1 and its CDRegistry: proof = abi.encode(context, cdhash),
+/// admitted when the cdhash is registered under any build.
 contract MockAttest is IAttestVerifier, ICDRegistry {
-    bytes32 public buildId;
-    mapping(bytes32 => bytes32) buildOf;
-    function setBuild(bytes32 b) external { buildId = b; }
+    mapping(bytes32 => bytes32) public buildOf;
+    mapping(bytes32 => bytes32) evidence;
+    ICDRegistry public cds;
+    constructor(ICDRegistry cds_) { cds = address(cds_) == address(0) ? this : cds_; }
     function admit(bytes32 cdhash, bytes32 b) external { buildOf[cdhash] = b; }
-    function cds() external view returns (ICDRegistry) { return this; }
-    function verify(bytes32 context, bytes calldata proof) external view returns (bytes32) {
+    function verify(bytes32 context, bytes calldata proof) external returns (bytes32 kid) {
         (bytes32 signed, bytes32 cdhash) = abi.decode(proof, (bytes32, bytes32));
         require(signed == context, "assertion signature");
-        require(buildOf[cdhash] == buildId, "build not admitted");
-        return context;
+        require(cds.buildOf(cdhash) != 0, "build not admitted");
+        kid = keccak256(abi.encode(cdhash));
+        evidence[kid] = cdhash;
+    }
+    function assertionEvidence(bytes32 kid) external view returns (bytes32, bytes32, bytes32, uint64, uint32) {
+        return (0, evidence[kid], 0, 0, 0);
     }
 }
 
@@ -33,14 +38,14 @@ contract CanaryTest is Test {
     bytes32 constant RUNNER_BUILD = keccak256("runner build");
     bytes32 constant PROBE_BUILD = keccak256("probe build");
     MockAttest m;
+    event Burned(uint256 indexed id, Canary.Kind kind, bytes32 build, bytes32 image, address claimant, uint256 amount);
 
     function setUp() public {
         vm.etch(address(0x100), address(new P256Verifier()).code);  // Base RIP-7212
-        m = new MockAttest();
+        m = new MockAttest(ICDRegistry(address(0)));
         m.admit(RUNNER, RUNNER_BUILD);
         m.admit(RESIGNED, RUNNER_BUILD);
         m.admit(PROBE, PROBE_BUILD);
-        m.setBuild(RUNNER_BUILD);
         c = new Canary(m);
         vm.deal(address(this), 10 ether);
     }
@@ -117,7 +122,6 @@ contract CanaryTest is Test {
     /// The App Attest probe asserts any file it is given, so its assertions must not pay a runner canary.
     function test_keyAssertionFromAnotherBuildDoesNotPay() public {
         uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, IMAGE, 0, uint64(block.timestamp + 30 days));
-        m.setBuild(PROBE_BUILD);
         claim(id, alice, alice, IMAGE, MANIFEST, events("canary-guest-key", false), PROBE, "build");
     }
 
@@ -125,7 +129,6 @@ contract CanaryTest is Test {
     function test_forgeryFromAnotherBuildDoesNotPay() public {
         uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
         bytes memory proof = abi.encode(c.forgeryContext(id, alice), PROBE);
-        m.setBuild(PROBE_BUILD);
         vm.expectRevert("build");
         c.claimForgery(id, alice, proof);
     }
@@ -149,6 +152,59 @@ contract CanaryTest is Test {
         vm.warp(block.timestamp + 31 days);
         c.reclaim(id);
         assertEq(address(this).balance, 10 ether);
+    }
+
+    /// A claim takes several transactions; the registry owner approving another build mid-claim
+    /// must not void it. Real CDRegistry with the probe and Developer ID fixtures.
+    function test_setBuildAfterArmDoesNotVoidPinnedEntry() public {
+        CDRegistry r = new CDRegistry();
+        (bytes memory cd, bytes memory page0, bytes memory ent) = build("fixtures/cd-args-probe-macos.json");
+        r.setBuild(cd, page0, ent);
+        bytes32 pinned = r.buildId();
+        c = new Canary(new MockAttest(ICDRegistry(address(r))));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, pinned, 0, 0, uint64(block.timestamp + 30 days));
+        (bytes memory cd2, bytes memory page02, bytes memory ent2) = build("fixtures/cd-args-developer-id.json");
+        r.setBuild(cd2, page02, ent2);
+        bytes32 other = r.registerBuild(cd2, page02, ent2);
+        bytes memory proof = abi.encode(c.forgeryContext(id, alice), other);
+        vm.expectRevert("build");
+        c.claimForgery(id, alice, proof);
+        bytes32 h = r.registerBuild(cd, page0, ent);  // registered after the superseding setBuild
+        assertEq(r.rpIdHash(h), 0);
+        c.claimForgery(id, alice, abi.encode(c.forgeryContext(id, alice), h));
+        assertEq(alice.balance, 1 ether);
+        assertTrue(c.burnedBuild(pinned));
+    }
+
+    function build(string memory path) internal view returns (bytes memory, bytes memory, bytes memory) {
+        string memory j = vm.readFile(path);
+        return (vm.parseJsonBytes(j, ".cd"), vm.parseJsonBytes(j, ".page0"), vm.parseJsonBytes(j, ".ent"));
+    }
+
+    /// Retiring must leave claimants NOTICE to land a claim already under way.
+    function test_retireKeepsClaimsOpenForNotice() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
+        vm.prank(bob); vm.expectRevert("funder"); c.retire(id);
+        c.retire(id);
+        vm.warp(block.timestamp + c.NOTICE());
+        vm.expectRevert("reclaim");
+        c.reclaim(id);
+        c.claimForgery(id, alice, abi.encode(c.forgeryContext(id, alice), RUNNER));
+        assertEq(alice.balance, 1 ether);
+    }
+
+    /// A break proven after the pot is reclaimed still goes on record.
+    function test_claimAfterReclaimBurnsWithoutPayout() public {
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
+        c.retire(id);
+        vm.warp(block.timestamp + c.NOTICE() + 1);
+        c.reclaim(id);
+        assertEq(address(this).balance, 10 ether);
+        vm.expectEmit(address(c));
+        emit Burned(id, Canary.Kind.Forgery, RUNNER_BUILD, 0, alice, 0);
+        c.claimForgery(id, alice, abi.encode(c.forgeryContext(id, alice), RUNNER));
+        assertEq(alice.balance, 0);
+        assertTrue(c.burnedBuild(RUNNER_BUILD));
     }
 
     receive() external payable {}

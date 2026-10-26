@@ -18,7 +18,9 @@ import {StrictDER} from "attest/StrictDER.sol";
 /// (pinned) blocks DYLD_* injection through LSEnvironment. Residual: a re-signer can change
 /// non-code bundle metadata (e.g. ATS exceptions, LSEnvironment for non-DYLD variables).
 /// Each admitted CDHash records rpIdHash = sha256(application-identifier), the App Attest RP ID.
-/// The owner sets the approved build; CDHashes registered under an earlier build stop resolving.
+/// The owner sets the current build; rpIdHash resolves only CDHashes registered under it.
+/// Copies of any build ever approved stay registrable, and buildOf/rpOf resolve them, so a
+/// consumer can pin a build (Canary entries) independently of setBuild.
 contract CDRegistry {
     struct Build {
         bytes32 rest;
@@ -30,10 +32,10 @@ contract CDRegistry {
         uint256 codeSigCmd;
     }
     address public immutable owner = msg.sender;
-    Build public approved;
+    mapping(bytes32 => bool) public approved;
     bytes32 public buildId;
-    mapping(bytes32 => bytes32) rp;
-    mapping(bytes32 => bytes32) buildOf;
+    mapping(bytes32 => bytes32) public rpOf;
+    mapping(bytes32 => bytes32) public buildOf;
     mapping(bytes32 => bytes32) team;
     mapping(bytes32 => bytes32) bundle;
     function be32(bytes calldata b, uint256 o) internal pure returns (uint256) { return uint32(bytes4(b[o:o + 4])); }
@@ -141,25 +143,21 @@ contract CDRegistry {
     }
     function setBuild(bytes calldata cd, bytes calldata page0, bytes calldata ent) external {
         require(msg.sender == owner, "owner");
-        (approved,) = measure(cd, page0, ent);
-        buildId = keccak256(abi.encode(approved));
+        (Build memory b,) = measure(cd, page0, ent);
+        buildId = keccak256(abi.encode(b));
+        approved[buildId] = true;
     }
+    /// A copy whose code, masked page 0, CodeDirectory header and entitlement shape match an approved build.
     function registerBuild(bytes calldata cd, bytes calldata page0, bytes calldata ent) external returns (bytes32 h) {
-        Build memory a = approved;
-        require(a.codeLimit != 0, "no approved build");
         (Build memory b, bytes32 app) = measure(cd, page0, ent);
-        require(b.codeLimit == a.codeLimit, "limit");
-        require(b.linkeditCmd == a.linkeditCmd && b.codeSigCmd == a.codeSigCmd, "load commands");
-        require(b.rest == a.rest, "code slots");
-        require(b.maskedPage0 == a.maskedPage0, "page0");
-        require(b.header == a.header, "header");
-        require(b.entitlements == a.entitlements, "entitlements");
+        bytes32 id = keccak256(abi.encode(b));
+        require(approved[id], "not an approved build");
         h = sha256(cd);
-        rp[h] = app;
+        rpOf[h] = app;
         (,,team[h],bundle[h]) = entitlementIdentity(ent);
-        buildOf[h] = buildId;
+        buildOf[h] = id;
     }
-    function rpIdHash(bytes32 h) public view returns (bytes32) { return buildOf[h] == buildId ? rp[h] : bytes32(0); }
+    function rpIdHash(bytes32 h) public view returns (bytes32) { return buildOf[h] == buildId ? rpOf[h] : bytes32(0); }
     /// Zero when absent or no longer admitted under the current approved build.
     function teamIdHash(bytes32 h) public view returns (bytes32) { return rpIdHash(h) != 0 ? team[h] : bytes32(0); }
     function bundleIdHash(bytes32 h) public view returns (bytes32) { return rpIdHash(h) != 0 ? bundle[h] : bytes32(0); }

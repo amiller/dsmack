@@ -159,6 +159,35 @@ rotates the build. The 2026-10-25 canary `0x6509…4658` and its verifier `0xa3C
 are superseded; their keys expire 3 days after creation and their entries stay locked
 until 2027-01-23.
 
+## Pinned-build canary (source; not deployed)
+
+The deployed instances above follow the registry's current build, so a `setBuild`
+strands a claim in flight. In this source an entry pins its build at arm time:
+
+- `CDRegistry` keeps every build it has approved. `registerBuild` admits a copy of
+  any of them, and public `buildOf(cdhash)` and `rpOf(cdhash)` resolve it whatever
+  the current build. `rpIdHash`, `teamIdHash` and `bundleIdHash` still resolve only
+  the current build, so `AppleAttestRegistryV1` (the main verifier) still revokes a
+  superseded build at once.
+- The canary verifier is `AppleAttestAnyBuildV1`: it admits a CDHash of any approved
+  build. `Canary` reads the assertion's CDHash from `assertionEvidence(kid)` and
+  requires `cds.buildOf(cdhash) == entry.build`.
+- `retire(id)` (funder) brings `until` to at most `NOTICE` (14 days) from now and
+  emits `Retired`. Claims never close; `reclaim` opens after `until`.
+- A claim after the pot is reclaimed still burns the entry and emits `Burned` with
+  amount 0.
+
+A pinned build stays claimable for as long as the entry exists, including after it is
+revoked for users; the entry measures that build. The secret-release policy and claim
+path should refuse a build with no unburned Forgery entry holding at least `NOTICE`
+of term (rotation: arm the new build, `setBuild`, then `retire` the old entries).
+
+Deploying it needs a new `CDRegistry` (re-run `setBuild` and `registerBuild` for the
+current runner, and repoint the main verifier, so a new `AppleAttestRegistryV1` too),
+a new `AppleAttestAnyBuildV1` with `registry` = the canary's predicted address, then
+the `Canary`, re-enrollment of each key in both verifiers, and `arm`. The dashboard
+reads it with `canary-read-codec/3`.
+
 ## Key canaries
 
 Outsider steps (re-sign the runner, register, enroll, run, claim) are maintained in

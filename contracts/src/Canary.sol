@@ -2,19 +2,22 @@
 pragma solidity ^0.8.21;
 
 interface ICDRegistry {
-    function buildId() external view returns (bytes32);
+    function buildOf(bytes32 cdhash) external view returns (bytes32);
 }
 
-/// AppleAttestRegistryV1 deployed with registry = the Canary address.
+/// AppleAttestAnyBuildV1 deployed with registry = the Canary address.
 interface IAttestVerifier {
-    function verify(bytes32 context, bytes calldata proof) external returns (bytes32);
+    function verify(bytes32 context, bytes calldata proof) external returns (bytes32 kid);
+    function assertionEvidence(bytes32 kid) external view returns (bytes32 context, bytes32 cdhash, bytes32 rp, uint64 checkedAt, uint32 counter);
     function cds() external view returns (ICDRegistry);
 }
 
 /// Self-claiming canaries: each entry pays its funds to the first proof that an isolation
 /// boundary broke, and stays burned as public evidence.
-/// Each entry names one CDRegistry build: assertions count only while it is the approved build,
-/// from any re-signed copy the registry admits. That build must never assert caller-chosen data.
+/// Each entry pins one CDRegistry build at arm time: assertions count from any re-signed copy
+/// registered under it, whatever the registry's current build. That build must never assert
+/// caller-chosen data. The funder ends an offer only by `retire`, which leaves NOTICE for claims.
+/// A claim after the pot is gone still burns the entry, as evidence with no payout.
 /// FORGERY: an App Attest assertion by that build over a context it never asserts.
 /// GUEST/RUNNER/OWNER: a P-256 signature over the claimant's address by a per-run canary key
 /// whose public key is a system event in a guest Attest assertion by that build. The supervisor
@@ -37,6 +40,8 @@ contract Canary {
     mapping(bytes32 => bool) public burnedBuild;
     event Armed(uint256 indexed id, Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint256 amount, uint64 until);
     event Burned(uint256 indexed id, Kind kind, bytes32 build, bytes32 image, address claimant, uint256 amount);
+    event Retired(uint256 indexed id, Kind kind, uint256 amount, uint64 until);
+    uint64 public constant NOTICE = 14 days;
 
     constructor(IAttestVerifier attest_) { (attest, cds) = (attest_, attest_.cds()); }
 
@@ -61,8 +66,7 @@ contract Canary {
 
     function claimForgery(uint256 id, address payable claimant, bytes calldata proof) external {
         require(entries[id].kind == Kind.Forgery, "kind");
-        attest.verify(forgeryContext(id, claimant), proof);
-        checkBuild(id);
+        checkBuild(id, attest.verify(forgeryContext(id, claimant), proof));
         burn(id, claimant);
     }
 
@@ -74,8 +78,7 @@ contract Canary {
         require(e.kind != Kind.Forgery, "kind");
         require((e.image == 0 || e.image == a.image) && (e.manifest == 0 || e.manifest == a.manifest), "not this canary");
         (bytes32 head, bytes calldata key) = canaryKey(e.kind, events);
-        attest.verify(sha256(abi.encodePacked(ATTEST_DOMAIN, a.image, a.manifest, a.run, head, a.caller, a.reportData)), proof);
-        checkBuild(id);
+        checkBuild(id, attest.verify(sha256(abi.encodePacked(ATTEST_DOMAIN, a.image, a.manifest, a.run, head, a.caller, a.reportData)), proof));
         (bool ok, bytes memory res) = address(0x100).staticcall(
             abi.encode(claimDigest(id, claimant), r, s, bytes32(key[:32]), bytes32(key[32:])));
         require(ok && res.length == 32 && abi.decode(res, (uint256)) == 1, "canary signature");
@@ -102,6 +105,14 @@ contract Canary {
         require(found == 1, "canary event");
     }
 
+    /// Brings `until` to at most NOTICE from now. Claims never close; reclaim opens after `until`.
+    function retire(uint256 id) external {
+        Entry storage e = entries[id];
+        require(msg.sender == e.funder, "funder");
+        if (block.timestamp + NOTICE < e.until) e.until = uint64(block.timestamp + NOTICE);
+        emit Retired(id, e.kind, e.amount, e.until);
+    }
+
     function reclaim(uint256 id) external {
         Entry storage e = entries[id];
         require(!e.burned && msg.sender == e.funder && block.timestamp > e.until, "reclaim");
@@ -111,14 +122,15 @@ contract Canary {
         require(ok, "transfer");
     }
 
-    /// `verify` admits only CDHashes of the registry's current build, so this binds the assertion to `build`.
-    function checkBuild(uint256 id) internal view {
-        require(cds.buildId() == entries[id].build, "build");
+    /// The verified assertion's CDHash must be registered under the entry's build.
+    function checkBuild(uint256 id, bytes32 kid) internal view {
+        (, bytes32 cdhash,,,) = attest.assertionEvidence(kid);
+        require(cds.buildOf(cdhash) == entries[id].build, "build");
     }
 
     function burn(uint256 id, address payable claimant) internal {
         Entry storage e = entries[id];
-        require(!e.burned && e.amount > 0, "burned");
+        require(!e.burned, "burned");
         uint256 a = e.amount;
         (e.burned, e.amount) = (true, 0);
         if (e.kind == Kind.Guest || e.kind == Kind.Owner) burnedImage[e.image] = true;

@@ -31,6 +31,20 @@ unchanged.
   the shim, serving `<dir>/<service>.sock`. `GetKey` needs `--grant`, `Attest` needs `--ctl`.
   `--canary-key` writes a fresh P-256 key to PATH and sends its public key as the
   `canary-guest-key` system event (Canary kinds Guest and Owner).
+- `secret_box.py` opens a task secret sealed to the agent's `secret-key` (P-256 ECDH, HKDF-SHA256,
+  AES-256-GCM through the image's libcrypto). With `--secret-key` the agent holds that key in memory,
+  sends its public key as the `secret-key` system event before the seal, and serves
+  `/v1/GetSecret {task_id, epk, iv, ct}` → `{secret}`.
+- `secret-release/` the release policy, one JS module (`policy.mjs`) run as a dstack-webhost handler
+  (`server.ts`) or a Lit action (`lit-action.js`). `POST /release {task_id, attestation}` verifies the
+  guest Attest attestation (App Attest key enrolled in an `AppleAttestRegistryV1`, cdhash of the approved
+  CDRegistry build, counter above the on-chain one, signature over the rebuilt client data, exactly one
+  `secret-key` before `system-ready`, the task's manifest and images, `report_data =
+  sha256("dsmack.secret-request/1" || task_id) || 0^32`, image and build not burned on the canary) and
+  returns the task secret sealed to that `secret-key`. A replayed attestation only yields another
+  ciphertext for the same run's in-memory key, so the policy keeps no state.
+- `secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <host:port>` builds a
+  workload that attests, asks the policy, and opens the secret through `/v1/GetSecret`.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary
   workload: one `/v1/Attest` with zero `report_data`, written to its outputs, then a sleep.
   Owner canaries bind its manifest sha256.
@@ -47,6 +61,16 @@ Tests (needs `coincurve cryptography pycryptodome pytest`):
 ```sh
 python3 -m pytest dstack-compat
 ```
+
+The secret-release tests (`test_secret_box.py`, `node --test secret-release`) need node.
+Run the policy locally:
+
+```sh
+SECRET_RELEASE_FILE=config.json deno run --allow-net --allow-read --allow-env \
+  dstack-compat/secret-release/server.ts 127.0.0.1 8787
+```
+
+`config.json` is `{rpc, attest, canary, tasks: {<task id>: {manifest, images, secret}}}`, hex values.
 
 End to end, on a docker host. `<dir>` holds `sim/` (dstack's
 `sdk/simulator` files plus a running `dstack-simulator` built with

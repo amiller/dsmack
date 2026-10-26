@@ -5,6 +5,7 @@ on:
       - base-vm/browser-sandbox-v1/**
       - dstack-compat/agent.py
       - dstack-compat/guest_attest.py
+      - dstack-compat/secret_box.py
       - .github/workflows/image-repro.yml
   push:
     branches: [main]

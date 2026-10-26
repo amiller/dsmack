@@ -1,9 +1,12 @@
 """dstack guest-api-v1 shim for a dsmack guest.
 
-python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--canary-key PATH] [--grant grant.json] SERVICE...
+python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--canary-key PATH] [--secret-key] [--grant grant.json] SERVICE...
 
 --canary-key writes a fresh P-256 scalar to PATH (0600; the supervisor puts it in
-guest-root tmpfs) and adds its public key as the canary-guest-key event. With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
+guest-root tmpfs) and adds its public key as the canary-guest-key event. --secret-key makes a
+P-256 key kept only in the agent's memory, adds its public key as the secret-key event and serves
+/v1/GetSecret, which opens a task secret sealed to that key (secret_box.py) for the calling service.
+With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
 sends the supervisor's system events and the seal, writes <dir>/sealed and then
 serves /v1/Attest. With --grant it serves /v1/GetKey. /v1/Info and /v1/Version
 always. Each service gets <dir>/<service>.sock, which lowering binds to that
@@ -62,7 +65,7 @@ class Ctl:
         return reply
 
 
-def methods(ctl, hello, grant):
+def methods(ctl, hello, grant, secret=None):
     def info(_, __):
         i = dict.fromkeys(("app_id", "app_name", "compose_hash", "instance_id", "device_id", "os_image_hash",
                            "mr_aggregated", "key_provider_info"), "")
@@ -85,6 +88,10 @@ def methods(ctl, hello, grant):
     m = {"Info": info, "Version": lambda _, __: {"version": "dsmack-dstack-shim/1", "rev": ""}}
     if ctl:
         m["Attest"] = attest
+    if secret is not None:
+        import secret_box
+        m["GetSecret"] = lambda r, _: {"secret": secret_box.open_secret(
+            secret, r["task_id"], *(bytes.fromhex(r[f]) for f in ("epk", "iv", "ct"))).hex()}
     if grant:
         from dsmack_dstack import get_key
         root = bytes.fromhex(grant.pop("root_key"))
@@ -119,7 +126,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
-def start(sockdir, services, ctl_fd=None, events=(), grant=None):
+def start(sockdir, services, ctl_fd=None, events=(), grant=None, secret=None):
     """Seal (with a port), then serve one socket per service on background threads."""
     for s in services:
         if not SERVICE_RE.fullmatch(s):
@@ -132,7 +139,7 @@ def start(sockdir, services, ctl_fd=None, events=(), grant=None):
             ctl.call({"op": "event", "name": name, "payload": payload.hex()})
         ctl.call({"op": "seal"})
         open(os.path.join(sockdir, "sealed"), "w").close()
-    m = methods(ctl, hello, grant)
+    m = methods(ctl, hello, grant, secret)
     servers = []
     for s in services:
         path = os.path.join(sockdir, s + ".sock")
@@ -158,10 +165,14 @@ if __name__ == "__main__":
     p.add_argument("--ctl")
     p.add_argument("--event", action="append", default=[], type=lambda e: (e.split("=")[0], bytes.fromhex(e.split("=")[1])))
     p.add_argument("--canary-key")
+    p.add_argument("--secret-key", action="store_true")
     p.add_argument("--grant", type=lambda f: json.load(open(f)))
     p.add_argument("services", nargs="*")
     a = p.parse_args()
     if a.canary_key:
         a.event.append((guest_attest.CANARY_GUEST_EVENT, guest_attest.p256_public(canary_key(a.canary_key))))
-    start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant)
+    secret = int.from_bytes(os.urandom(32), "big") % (guest_attest.P256_N - 1) + 1 if a.secret_key else None
+    if secret:
+        a.event.append(("secret-key", guest_attest.p256_public(secret)))
+    start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant, secret)
     threading.Event().wait()

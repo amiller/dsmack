@@ -1,4 +1,4 @@
-"""Open a task secret that the release policy (secret-release/policy.mjs) sealed to the guest's secret-key.
+"""Open a task secret that the release policy (secret_policy.mjs) sealed to the guest's secret-key.
 
 Ephemeral-static P-256 ECDH, HKDF-SHA256 over info = INFO || epk || recipient || task id, then
 AES-256-GCM. Stdlib plus the image's libcrypto, which supplies AES-GCM through ctypes.

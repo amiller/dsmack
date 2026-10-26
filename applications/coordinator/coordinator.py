@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO), str(REPO / 'dstack-compat')]
-from verifier.core import Policy, Reject, require, unb64, unique_json, verify_assertion, verify_attestation
+from verifier.core import Policy, Reject, require, unb64, unique_json, verify_assertion, verify_key
 from verifier.macos_policy import APP_ID, MACOS_VALIDATION_CATEGORY, root
 from grant import call, grant_request_client_data, mint, seal as seal_grant
 from dsmack_dstack import keccak256
@@ -68,7 +68,7 @@ def registry_rp(cdhash):
 
 def launch(attestation, key_id, client_data):
     """App Attest chain to Apple's root under the macOS policy; the attested CDHash must resolve in CDRegistry to our RP ID."""
-    info = verify_attestation(unb64(attestation), key_id, client_data, POLICY, root())
+    info = verify_key(unb64(attestation), key_id, client_data, POLICY, root(), time.time())
     cdhash = info['signals']['cdhash']
     require(cdhash is not None and HEX64.fullmatch(cdhash), 'missing_cdhash')
     require(registry_rp(cdhash) == RP_ID_HASH, 'build_not_in_cdregistry')

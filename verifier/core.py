@@ -255,6 +255,13 @@ def verify_attestation(raw, key_id, challenge, policy, root_pem, at_time=None):
             'receipt_status': 'retained_not_validated', 'receipt': b64(statement['receipt'])}
 
 
+def verify_key(raw, key_id, challenge, policy, root_pem, now):
+    """An App Attest key lasts until its intermediate expires, not its 3-day leaf: check the chain when the leaf was issued."""
+    leaf, intermediate = (x509.load_der_x509_certificate(c) for c in decode(raw)['attStmt']['x5c'])
+    require(intermediate.not_valid_after_utc.timestamp() > now, 'intermediate_expired')
+    return verify_attestation(raw, key_id, challenge, policy, root_pem, at_time=leaf.not_valid_before_utc.timestamp() + 60)
+
+
 def verify_assertion(raw, client_data, public_key, previous_counter, policy):
     obj = decode(raw)
     require(isinstance(obj, dict), 'invalid_assertion')

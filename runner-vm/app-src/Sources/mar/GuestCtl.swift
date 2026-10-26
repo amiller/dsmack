@@ -20,7 +20,7 @@ import marAttest
 
 let guestCtlMaxFrame = 4096
 
-/// POSTs the grant request to the coordinator (dstack-compat/grant.py serve) with an App Attest
+/// POSTs the grant request to the coordinator's /grant (applications/coordinator) with an App Attest
 /// assertion over it; the reply's root key is sealed to a P-256 key that exists only here.
 func fetchWorkerGrant(url: URL, taskId: String, keyId: String, manifestSha256: Data, run: Data) async throws -> WorkerGrant {
     let key = P256.KeyAgreement.PrivateKey()
@@ -30,7 +30,7 @@ func fetchWorkerGrant(url: URL, taskId: String, keyId: String, manifestSha256: D
     var req = URLRequest(url: url, timeoutInterval: 60)
     req.httpMethod = "POST"
     req.httpBody = try JSONSerialization.data(withJSONObject: [
-        "task_id": taskId, "compose_hash": hex(manifestSha256), "run": hex(run),
+        "task_id": taskId, "key_id": keyId, "compose_hash": hex(manifestSha256), "run": hex(run),
         "seal_pub": hex(sealPub), "assertion": hex(assertion)])
     let (body, resp) = try await URLSession.shared.data(for: req)
     guard (resp as? HTTPURLResponse)?.statusCode == 200, let r = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {

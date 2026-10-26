@@ -116,9 +116,9 @@ local agent how to use it. The run follows [docs/running.md](../../docs/running.
 
 1. zed (`mac.py admit`) puts the request in file slot `turn` and a tar of the
    snapshot in slot `tree` (at most 16 MiB), builds the measured workload disk
-   with the image and the commitment declaration, and signs a workload admission
-   for a fresh attempt with the release key, plus a checker context and a replay
-   challenge. The admission signer moves into a dstack app that holds the key.
+   with the image and the commitment declaration, has the
+   [coordinator](../coordinator/README.md) sign a workload admission for a fresh
+   attempt (`POST /admit`), and writes a checker context and a replay challenge.
 2. The Mac pipes its local Claude login through `export_subscription.py` into
    `stage_private.py`, then runs `alpha_coordinator.py` prepare, check-only and
    execute on the installed release (profile `agent-turns-edit-v1`).
@@ -129,18 +129,22 @@ The guest runs `find.py` as the compose workload with `--inputs` pointing at
 the tar; it checks the unpacked tree against the request's `inputs_sha256`.
 
 One-time operator setup on zed `/data/amiller/dsmack/mac-dispatch-20261025`, with
-`source/` a copy of this checkout:
+`source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
+(the coordinator's URL) and `DSMACK_OPERATOR_TOKEN`. `release` has the coordinator
+sign the inventory under its key id:
 
 ```sh
 M="python3 -B source/applications/agent-turns/mac.py"
 $M image --out image-1          # Dockerfile on the qualified 2.1.187 parent, as a gzip OCI layout
+. ./coordinator.env
 $M release --base-inventory BASE.json --base-archive BASE.tar.gz --oci image-1/oci-layout \
   --sequence 30 --out release-1  # a prior private-develop release with this profile and current pilot-client
 $M authorize --authority authority --registration DIR   # attestation.cbor, clientData.bin, keyId.txt of the Mac key
 ```
 
 Then install `release-1` on the Mac with `alpha-bootstrap.mjs` and `alpha_stage.py`
-into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md.
+into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md, with the
+coordinator's `public_pem` from `GET /keys` as the bootstrap trust key.
 
 ### On the v0.2.0-canary.1 runner
 

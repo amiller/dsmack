@@ -2,13 +2,14 @@
 
 Keys come from the app's own dstack GetKey on /var/run/dstack.sock: the release authority
 (ed25519, signs releases and per-attempt workload admissions), one app key per agent, and the
-per-(turn, Mac) worker grants of dstack-compat/grant.py. State lives in /state, the app's
+per-(task, Mac) worker grants of dstack-compat/grant.py. State lives in /state, the app's
 encrypted volume.
 
 Turns speak the mac-compose runner's KMS protocol (run it with --kms http://<host>/turn).
 A turn's STATE_IN is in its compose environment, so a compose hash names one (agent, head).
 /turn/release gives the turn key only to an App Attest launch of a CDRegistry-admitted build
 whose compose is an agent's current head; /turn/commit advances that head once.
+/grant gives a worker grant to an enrolled Mac's App Attest assertion, for a compose this app admitted.
 
 env: OPERATOR_TOKEN, API_KEY, RPC_URL, CDREGISTRY
 """
@@ -20,7 +21,7 @@ REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO), str(REPO / 'dstack-compat')]
 from verifier.core import Policy, Reject, require, unb64, unique_json, verify_assertion, verify_attestation
 from verifier.macos_policy import APP_ID, MACOS_VALIDATION_CATEGORY, root
-from grant import call, mint
+from grant import call, grant_request_client_data, mint, seal as seal_grant
 from dsmack_dstack import keccak256
 from cryptography.hazmat.primitives import hashes
 from cryptography.hazmat.primitives.asymmetric import ec
@@ -48,7 +49,7 @@ KEY_ID = 'dsmack-coordinator-' + RELEASE['public_key'][:16]
 KEYS = canonical({'key_id': KEY_ID, 'public_key': RELEASE['public_key'], 'signature_chain': RELEASE['signature_chain'],
                   'public_pem': SIGNER.public_key().public_bytes(Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode(),
                   'app_id': call(SOCK, 'Info', {})['app_id']})
-for d in ('agents', 'heads', 'blobs', 'nonces', 'releases', 'attempts'):
+for d in ('agents', 'heads', 'blobs', 'nonces', 'releases', 'attempts', 'composes', 'macs'):
     (STATE / d).mkdir(parents=True, exist_ok=True)
 
 
@@ -135,7 +136,6 @@ def release(req):
     take_nonce(client['nonce'])
     parcel = {'api_key': API_KEY, 'app_key': get_key(f'agent-app-key/1/{agent}', 'ed25519')['key'],
               **({'app': agent} if 'app' in client else {})}
-    grant = mint(SOCK, f'{agent}:{head["turn"]}', req['key_id'], head['compose_hash'], 600)
     kms_key = ec.generate_private_key(ec.SECP256R1())
     shared = kms_key.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), bytes.fromhex(client['eph_pub'])))
     aad = hashlib.sha256(client_data).digest()
@@ -144,7 +144,7 @@ def release(req):
         n = os.urandom(12)
         return base64.b64encode(n + AESGCM(hkdf(shared, info)).encrypt(n, canonical(obj), aad)).decode()
     return {'epk': base64.b64encode(kms_key.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)).decode(),
-            'sealed': seal('mac-compose-key-release/1', parcel), 'grant': seal('dsmack-coordinator-grant/1', grant)}
+            'sealed': seal('mac-compose-key-release/1', parcel)}
 
 
 def commit(req):
@@ -167,6 +167,35 @@ def commit(req):
     with (STATE / 'agents' / agent / 'receipts.jsonl').open('a') as f:
         f.write(json.dumps(receipt, sort_keys=True) + '\n')
     return {'ok': True, 'head': set_head(agent, transition['state_out'], head['turn'] + 1, head['compose_hash'])}
+
+
+def mac_path(key_id):
+    return STATE / 'macs' / sha(key_id.encode())
+
+
+def enroll(req):
+    """Record a Mac's App Attest key for /grant; the attestation must be of a CDRegistry-admitted build."""
+    info = launch(req['attestation'], req['key_id'], unb64(req['client_data']))
+    mac_path(req['key_id']).write_bytes(canonical({'key_id': req['key_id'], 'public_key': info['public_key'], 'counter': 0}))
+    return {'key_id': req['key_id'], 'cdhash': info['signals']['cdhash']}
+
+
+def grant(req):
+    """The runner app's {task_id, compose_hash, run, seal_pub, assertion, key_id}: an assertion over
+    grant_request_client_data by an enrolled key of a CDRegistry-admitted build, above its last counter,
+    for a compose this app admitted. Mints for worker_id = key_id and seals the root key to seal_pub."""
+    path = mac_path(req['key_id'])
+    require(path.exists(), 'mac_not_enrolled')
+    mac = json.loads(path.read_bytes())
+    require(isinstance(req['compose_hash'], str) and HEX64.fullmatch(req['compose_hash'])
+            and (STATE / 'composes' / req['compose_hash']).exists(), 'compose_not_admitted')
+    seal_pub = bytes.fromhex(req['seal_pub'])
+    cd = grant_request_client_data(bytes.fromhex(req['compose_hash']), bytes.fromhex(req['run']), seal_pub, req['task_id'])
+    a = verify_assertion(bytes.fromhex(req['assertion']), cd, mac['public_key'], mac['counter'], POLICY)
+    cdhash = a['signals']['cdhash']
+    require(cdhash is not None and registry_rp(cdhash) == RP_ID_HASH, 'build_not_in_cdregistry')
+    path.write_bytes(canonical({**mac, 'counter': a['counter']}))
+    return seal_grant(mint(SOCK, req['task_id'], req['key_id'], req['compose_hash'], 600), seal_pub)
 
 
 def sign(schema, raw):
@@ -207,11 +236,12 @@ def admit(req):
                  'attempt_id': attempt, 'closure_context_sha256': sha(canonical(closure)), 'workload_disk': disk,
                  'issued_at': stamp(now), 'expires_at': stamp(expires)}
     raw = canonical(admission)
+    (STATE / 'composes' / admission['compose_manifest_sha256']).touch()
     return {'admission': raw.decode(), 'signature': sign(admission['schema'], raw)}
 
 
-POSTS = {'/turn/release': (release, False), '/turn/commit': (commit, False),
-         '/agent': (genesis, True), '/sign-release': (sign_release, True), '/admit': (admit, True)}
+POSTS = {'/turn/release': (release, False), '/turn/commit': (commit, False), '/grant': (grant, False),
+         '/agent': (genesis, True), '/sign-release': (sign_release, True), '/admit': (admit, True), '/enroll': (enroll, True)}
 
 
 class H(BaseHTTPRequestHandler):

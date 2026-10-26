@@ -7,9 +7,10 @@ Every key comes from the app's own `GetKey` on `/var/run/dstack.sock`:
 - `dsmack-release-authority/1` (ed25519) signs alpha releases and per-attempt
   workload admissions. Its key id is `dsmack-coordinator-<first 16 hex of the public key>`.
 - `agent-app-key/1/<agent>` (ed25519 seed) is the agent's `app_key`, released to turns.
-- Worker grants per (turn, Mac key), minted by [dstack-compat/grant.py](../../dstack-compat/grant.py).
+- Worker grants per (task, Mac key), minted by [dstack-compat/grant.py](../../dstack-compat/grant.py).
 
-State (agents, heads, state blobs, nonces, signed releases, used attempt ids)
+State (agents, heads, state blobs, nonces, signed releases, used attempt ids,
+admitted compose hashes, enrolled Mac keys and their counters)
 is in `/state`, the app's encrypted volume.
 
 ## API
@@ -21,12 +22,17 @@ Turns speak the mac-compose runner's KMS protocol. Point the runner at
 - `POST /turn/release`: the runner's launch request. Checks the App Attest
   attestation against Apple's root under the macOS policy, that `CDRegistry.rpIdHash`
   of the attested CDHash is our RP ID, that the compose hash is an agent's current
-  head, and the nonce. Returns `epk`, `sealed` (`{api_key, app_key}`, as the
-  runner expects) and `grant` (the worker grant, sealed the same way).
+  head, and the nonce. Returns `epk` and `sealed` (`{api_key, app_key}`, as the
+  runner expects).
 - `POST /turn/commit`: the guest's `{ciphertext, evidence, state_in, state_out, turn}`.
   Checks the launch attestation and the assertion over the transition, then
   advances the head once. A second commit from the same parent is `403 stale_head`.
 - `GET /turn/state/<sha256>`: a state blob.
+- `POST /grant {task_id, key_id, compose_hash, run, seal_pub, assertion}`: the v3 runner
+  app's worker-grant request ([dstack-compat](../../dstack-compat/README.md)). Checks the
+  App Attest assertion over the request by an enrolled key, above its last counter, from a
+  CDRegistry-admitted build, and that this app admitted a workload with that compose hash.
+  Returns the grant with its root key sealed to `seal_pub`.
 - `GET /head/<agent>`, `GET /compose/<agent>`: the head and the compose a turn from it runs.
 - `GET /keys`: the release key, its dstack signature chain and the app id.
 
@@ -36,6 +42,7 @@ Operator calls carry `Authorization: Bearer $OPERATOR_TOKEN`:
 - `POST /sign-release {inventory}`: sign an alpha release inventory with `key_id` set to ours.
 - `POST /admit {release_inventory_sha256, profile, closure_context, workload_disk}`:
   one `dsmack-alpha-workload-admission/1` per attempt id, for a profile of a release this app signed.
+- `POST /enroll {attestation, key_id, client_data}`: record a Mac's App Attest key for `/grant`.
 
 Environment: `OPERATOR_TOKEN`, `API_KEY`, `RPC_URL`, `CDREGISTRY`.
 

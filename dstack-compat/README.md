@@ -12,7 +12,8 @@ the signer's two-link dstack chain to the KMS root. A worker key verifies to
 the KMS root through the grant and never verifies as a coordinator key.
 
 On the Mac the runner app fetches the grant before the guest boots: it POSTs
-`{task_id, compose_hash, run, seal_pub, assertion}` to the coordinator, where
+`{task_id, key_id, compose_hash, run, seal_pub, assertion}` to the coordinator's
+`/grant` ([applications/coordinator](../applications/coordinator/README.md)), where
 `assertion` is App Attest over `"dsmack.appattest.grant-request/1" ||
 manifest_sha256 || run || sha256(seal_pub) || sha256(task_id)`. The coordinator
 checks the assertion, the runner cdhash and the compose hash, mints the grant
@@ -46,9 +47,8 @@ unchanged.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary
   workload: one `/v1/Attest` with zero `report_data`, written to its outputs, then a sleep.
   Owner canaries bind its manifest sha256.
-- `grant.py mint <dstack.sock> <task> <worker> <compose_hash> <ttl_s>` the coordinator call.
-  `grant.py serve <dstack.sock> <port> <enroll dir> <cdhash> <compose_hash>...` the same
-  behind the release policy for one enrolled Mac.
+- `grant.py mint <dstack.sock> <task> <worker> <compose_hash> <ttl_s>` the coordinator call;
+  `seal` and `grant_request_client_data` are what the coordinator's `/grant` uses.
 - `docker-compose.json` a stdlib worker that calls `GetKey` (secp256k1 and ed25519),
   `Info` and `Attest` over its key.
 - `e2e.sh <dir>` runs that compose in a docker-in-docker guest twice, once

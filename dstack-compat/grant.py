@@ -1,19 +1,15 @@
 """Coordinator side, run inside the dstack app: mint a worker grant.
 
 python3 grant.py mint <dstack.sock> <task_id> <worker_id> <worker_compose_hash> <ttl_s>
-python3 grant.py serve <dstack.sock> <port> <enroll dir> <cdhash> <compose_hash>...
 
 The scoped root is GetKey on the coordinator's own socket under a per-(task, worker)
 domain, so the coordinator can reissue it and the Mac never sees the app root key.
 A grant is {"grant": <public grant JSON text>, "root_key": hex}; the runner app logs
 sha256(grant text) as the guest's worker-grant event.
 
-`serve` is the release policy for one enrolled Mac: POST /grant with {task_id, compose_hash,
-run, seal_pub, assertion}. It verifies the App Attest assertion over grant_request_client_data
-with the key from <enroll dir> (attestation.cbor, keyId.txt, clientData.bin), the build's
-cdhash and a counter above the last one seen, requires compose_hash in the allowed set, then
-mints for worker_id = keyId and seals root_key to seal_pub (P-256 ECDH, HKDF-SHA256, AES-GCM
-with sha256(grant text) as associated data). Only ciphertext of the root key crosses the network.
+The coordinator app (applications/coordinator) serves the release policy at POST /grant and
+seals root_key to the runner app's seal_pub with `seal` (P-256 ECDH, HKDF-SHA256, AES-GCM with
+sha256(grant text) as associated data). Only ciphertext of the root key crosses the network.
 """
 import hashlib
 import http.client
@@ -22,8 +18,6 @@ import os
 import socket
 import sys
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
-from pathlib import Path
 
 from dsmack_dstack import grant_statement, sign
 
@@ -83,46 +77,6 @@ def seal(grant, seal_pub, eph=None, nonce=None):
     return {"grant": grant["grant"], "epk": epk.hex(), "nonce": nonce.hex(), "ct": ct.hex()}
 
 
-def serve(sock, port, enroll, cdhash, compose_hashes, ttl=600):
-    sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-    from cryptography import x509
-    from verifier import core
-    enroll = Path(enroll)
-    key_id = (enroll / "keyId.txt").read_text().strip()
-    att = (enroll / "attestation.cbor").read_bytes()
-    policy = core.Policy(app_id="DC9JH5DRMY.dev.dsmack.provider", environment="production", categories=(3,),
-                         cdhashes=(bytes.fromhex(cdhash),))
-    leaf = x509.load_der_x509_certificate(core.decode(att)["attStmt"]["x5c"][0])
-    root_pem = (Path(__file__).resolve().parent.parent / "trust/apple-app-attestation-root.pem").read_bytes()
-    public_key = core.verify_attestation(att, key_id, (enroll / "clientData.bin").read_bytes(), policy, root_pem,
-                                         at_time=leaf.not_valid_before_utc.timestamp() + 60)["public_key"]
-    last = [0]
-
-    class H(BaseHTTPRequestHandler):
-        def do_POST(self):
-            try:
-                r = json.loads(self.rfile.read(int(self.headers["Content-Length"])))
-                if r["compose_hash"] not in compose_hashes:
-                    raise ValueError("compose_hash not in this task's set")
-                seal_pub = bytes.fromhex(r["seal_pub"])
-                cd = grant_request_client_data(bytes.fromhex(r["compose_hash"]), bytes.fromhex(r["run"]), seal_pub, r["task_id"])
-                a = core.verify_assertion(bytes.fromhex(r["assertion"]), cd, public_key, last[0], policy)
-                last[0] = a["counter"]
-                out, code = seal(mint(sock, r["task_id"], key_id, r["compose_hash"], ttl), seal_pub), 200
-            except (KeyError, ValueError, core.Reject) as e:
-                out, code = {"error": str(e)}, 400
-            data = json.dumps(out).encode()
-            self.send_response(code)
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-    HTTPServer(("0.0.0.0", port), H).serve_forever()
-
-
 if __name__ == "__main__":
     a = sys.argv
-    if a[1] == "mint":
-        print(json.dumps(mint(a[2], a[3], a[4], a[5], int(a[6]))))
-    else:
-        serve(a[2], int(a[3]), a[4], a[5], set(a[6:]))
+    print(json.dumps(mint(a[2], a[3], a[4], a[5], int(a[6]))))

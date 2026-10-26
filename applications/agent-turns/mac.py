@@ -3,7 +3,8 @@
 per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
 for the v0.2.0-canary.1 runner and base image instead, where the turn binds its results with a guest Attest.
 
-The admission signer runs here with the release key for now; it moves into a dstack app that holds the key.
+The release key is in the coordinator app (applications/coordinator): release and admit call its
+/sign-release and /admit at $DSMACK_COORDINATOR with $DSMACK_OPERATOR_TOKEN.
 """
 import argparse
 import base64
@@ -18,6 +19,7 @@ import shutil
 import subprocess
 import sys
 import tarfile
+import urllib.request
 
 TURNS = Path(__file__).resolve().parent
 ROOT = TURNS.parents[1]
@@ -37,8 +39,6 @@ BUILD = Path('/data/amiller/dsmack/broker-timeout-v1-20261022/build-2')
 BASE = BUILD/'build/legs/diagnostic/files'
 # The v0.2.0-canary.1 base image (os_image_hash 3bec88ca) with the guest Attest agent.
 V02 = Path('/data/amiller/dsmack/canary-release-20261025/assets')
-KEY_ID = 'dsmack-alpha-20261022-86473863'
-RELEASE_KEY = Path('/data/amiller/dsmack/alpha-release-authority-20261022/864738631abef8cc88c98597/release-signing-key.pem')
 POLICY = '/data/amiller/dsmack/arcade-pilot-runtime-20261023/PUBLIC-OPERATOR-POLICY.json'
 CORE, EXTRACTOR = ('13214b3711f2c69e145a11eee22c3f1c522d7d63f535bcf1ba5f5f9804ea8cb5',
                    'd8d3959fe11b32233f4291b795cb4ce2b8b8e6cbd2a467eebecedfe943a6dcd2')
@@ -74,12 +74,13 @@ def private_write(path, raw):
         stream.write(raw)
 
 
-def sign(schema, raw, signature):
-    """Ed25519 over schema NUL document; openssl needs the message as a file."""
-    message = signature.with_suffix('.signing-message')
-    message.write_bytes(schema.encode() + b'\0' + raw)
-    signature.write_bytes(subprocess.run(['openssl', 'pkeyutl', '-sign', '-rawin', '-inkey', str(RELEASE_KEY),
-                                          '-in', str(message)], capture_output=True, check=True).stdout)
+def coordinator(path, body=None):
+    """GET /keys, or an operator POST to the coordinator app that holds the release key."""
+    request = urllib.request.Request(os.environ['DSMACK_COORDINATOR'] + path, body and canonical(body),
+                                     {'content-type': 'application/json',
+                                      'authorization': 'Bearer ' + os.environ['DSMACK_OPERATOR_TOKEN']})
+    with urllib.request.urlopen(request, timeout=60) as response:
+        return json.loads(response.read())
 
 
 def image(args):
@@ -206,13 +207,15 @@ def release(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     inventory = {k: base[k] for k in ('schema', 'key_id', 'channel', 'platform', 'app', 'provenance_sha256',
                                       'verification_policy')}
-    inventory.update(release_id=f'agent-turns-mac-{out.name}', sequence=args.sequence, issued_at=stamp(now),
+    inventory.update(key_id=coordinator('/keys')['key_id'], release_id=f'agent-turns-mac-{out.name}',
+                     sequence=args.sequence, issued_at=stamp(now),
                      expires_at=stamp(now + datetime.timedelta(days=7)), files=files,
                      profiles=[{'profile_id': SELECTOR, 'descriptor_path': profile_path, 'descriptor_sha256': sha(profile_raw)}],
                      archive={'format': 'tar+gzip', 'bytes': archive.stat().st_size, 'sha256': file_sha(archive)})
-    raw = canonical(inventory)
+    signed = coordinator('/sign-release', {'inventory': inventory})
+    raw = signed['inventory'].encode()
     (out/'release.json').write_bytes(raw)
-    sign(inventory['schema'], raw, out/'release.sig')
+    (out/'release.sig').write_bytes(base64.b64decode(signed['signature']))
     print(json.dumps({'inventory_sha256': sha(raw), 'manifest_sha256': sha(manifest), 'sequence': args.sequence}))
 
 
@@ -296,15 +299,11 @@ def admit(args):
                'verifier_version': '2', 'core_sha256': CORE, 'extractor_tool_sha256': EXTRACTOR,
                'report_key_id': report['key_id'], 'report_verify_key_b64': report['public_b64'], 'expected': expected}
     (out/'checker-context.json').write_bytes(canonical(checker))
-    now = datetime.datetime.now(datetime.timezone.utc)
-    admission = {'schema': 'dsmack-alpha-workload-admission/1', 'key_id': KEY_ID,
-                 'release_inventory_sha256': sha(inventory_raw), 'profile_id': SELECTOR,
-                 'compose_manifest_sha256': sha(manifest_raw), 'attempt_id': attempt,
-                 'closure_context_sha256': sha(canonical(closure)), 'workload_disk': disk,
-                 'issued_at': stamp(now), 'expires_at': stamp(now + datetime.timedelta(hours=2))}
-    raw = canonical(admission)
-    (out/'workload-admission.json').write_bytes(raw)
-    sign(admission['schema'], raw, out/'workload.sig')
+    profile = json.loads((args.release/'stage/profiles'/(SELECTOR + '.json')).read_bytes())
+    signed = coordinator('/admit', {'release_inventory_sha256': sha(inventory_raw), 'profile': profile,
+                                    'closure_context': closure, 'workload_disk': disk})
+    (out/'workload-admission.json').write_bytes(signed['admission'].encode())
+    (out/'workload.sig').write_bytes(base64.b64decode(signed['signature']))
     verifier(authority, 'operator', 'issue-challenge', '--replay', authority/'replay.sqlite', '--key-id', key_id,
              '--manifest-sha256', sha(manifest_raw), '--ttl', 7200, '--challenge', challenge.hex())
     print(json.dumps({'attempt_id': attempt, 'workload_disk': disk}))

@@ -142,7 +142,7 @@ def mac(request, inputs, out):
     run_id = uuid.uuid4().hex[:12]
     zed = f'{ZED_DIR}/attempts/{run_id}'
     ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle(request, inputs))
-    admitted = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
+    admitted = ssh(ZED, f'cd {ZED_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
                         f'--oci {IMAGE}/oci-layout --authority authority --request {zed}/request.json '
                         f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
     attempt = json.loads(admitted.splitlines()[-1])['attempt_id']

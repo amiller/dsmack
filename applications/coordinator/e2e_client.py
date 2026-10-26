@@ -50,7 +50,7 @@ def turns(url, token, spike):
     for n, (rel, ev) in calls.items():
         t = moves[n]
         calls[n] = (rel, {'ciphertext': blob(t['state_out']), 'evidence': ev, **t})
-        expect(http('POST', url + '/turn/release', body=rel), 200, lambda o: set(o) == {'epk', 'sealed', 'grant'})
+        expect(http('POST', url + '/turn/release', body=rel), 200, lambda o: set(o) == {'epk', 'sealed'})
         out = expect(http('POST', url + '/turn/commit', body=calls[n][1]), 200)
         assert out['head']['head'] == t['state_out'] and out['head']['turn'] == n + 1
     stale = lambda o: o['error'].startswith('stale_head')

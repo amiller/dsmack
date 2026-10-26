@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Public arcade client. Wallet signatures are supplied by a wallet, never private keys."""
-import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,socket,sys,time,urllib.parse
+import argparse,base64,hashlib,http.client,importlib.util,json,os,re,secrets,shlex,socket,sys,time,urllib.parse
 from pathlib import Path
 # Load reviewed sibling source directly; -I does not add the script directory.
 _source=Path(__file__).with_name('portable.py');_scope={'__file__':str(_source),'__name__':'arcade_portable'}
@@ -121,17 +121,44 @@ def existing_preparation(cfg,packet,local):
     if os.path.lexists(control):need((control/'plan.json').exists(),'uncertain existing control without plan; preserve state');return True
     return _scope['coordinator'](cfg,'prepare',local/'task.json',local,packet['native_execution_id'])
 
+def register_wait(api,record,wait,clock=time.monotonic,sleep=time.sleep):
+    """GET-only observation of a saved registration. Never re-enrolls, re-signs or re-POSTs."""
+    rid=record['registration_id'];key=record['key_id'];need(re.fullmatch('[a-f0-9]{32}',rid or ''),'registration identity')
+    need(type(wait)is int and 0<=wait<=300,'--wait-seconds must be 0..300')
+    def refuse(m):print(m,file=sys.stderr,flush=True);raise ValueError(m)
+    end=clock()+wait;last=None
+    while True:
+        r=api.request('GET',f'/api/registrations/{rid}');s=r.get('state')
+        if r.get('registration_id')!=rid:refuse('service returned a different registration; preserve local state')
+        if s!=last:print(f'registration {rid}: {s}',file=sys.stderr,flush=True);last=s
+        if s=='enrolled':
+            if (r.get('enrollment')or{}).get('registered_key_id')!=key:refuse('service enrolled a key other than this Mac\'s saved key; preserve local state and report registration '+rid)
+            return {'registration_id':rid,'state':s,'ready':True,'can_prepare':True}
+        if s in ('failed','uncertain'):refuse(f'registration {rid} is {s}; preserve local state and report it; do not enroll or sign again')
+        if clock()>=end:return {'registration_id':rid,'state':s,'ready':False,'can_prepare':False,'pending':True}
+        sleep(min(2,max(0,end-clock())))
+
 def main():
     p=argparse.ArgumentParser(description=__doc__);p.add_argument('--config',required=True);p.add_argument('--allow-loopback',action='store_true')
     sub=p.add_subparsers(dest='command',required=True)
     a=sub.add_parser('authorization');a.add_argument('--purpose',choices=('attempt','registration'),required=True);a.add_argument('--payee',required=True);a.add_argument('--candidate-commit');a.add_argument('--out',required=True)
     for name in ('attempt','register'):
         a=sub.add_parser(name);a.add_argument('--authorization',required=True);a.add_argument('--wallet-signature',required=True);a.add_argument('--out',required=True)
+        if name=='register':a.add_argument('--wait-seconds',type=int,default=0)
+    a=sub.add_parser('registration-status');a.add_argument('--registration',required=True);a.add_argument('--wait-seconds',type=int,default=0)
     for name in ('prepare','check','run','resume','submit','status','progress','cleanup'):
         a=sub.add_parser(name);a.add_argument('--attempt',required=True)
         if name=='progress':a.add_argument('--json',action='store_true');a.add_argument('--registration')
         if name=='prepare':a.add_argument('--registration');a.add_argument('--mode',choices=('self','best_effort'),default='self');a.add_argument('--resume-download',action='store_true')
     x=p.parse_args();cfg=state(x.config);api=API(cfg['api_url'],x.allow_loopback);parent=protected(cfg['state_dir'],True)
+    def observe(path):
+        r=register_wait(api,state(path),x.wait_seconds)
+        if not r['ready']:r['next']=shlex.join(['python3','-I',os.path.abspath(__file__),'--config',os.path.abspath(x.config),*(['--allow-loopback']if x.allow_loopback else[]),'registration-status','--registration',os.path.abspath(path),'--wait-seconds','120'])
+        return r
+    if x.command=='registration-status':print(json.dumps(observe(x.registration)));return
+    if x.command=='register':
+        need(type(x.wait_seconds)is int and 0<=x.wait_seconds<=300,'--wait-seconds must be 0..300')
+        if os.path.lexists(x.out):m='registration already saved; observe it with registration-status --registration '+shlex.quote(x.out);print(m,file=sys.stderr);raise ValueError(m)
     if x.command=='authorization':
         request_id=secrets.token_hex(32);payload={'purpose':x.purpose,'payee':x.payee.lower(),'request_id':request_id,'candidate_commit':None}
         if x.candidate_commit:need(re.fullmatch('[0-9a-f]{40}',x.candidate_commit),'full candidate commit required');payload['candidate_commit']=x.candidate_commit
@@ -157,7 +184,9 @@ def main():
             directory.mkdir(mode=0o700)
             evidence=_scope['enroll'](cfg,reg['challenge_b64'],directory);exclusive(evpath,canonical(evidence))
         response=api.request('POST','/api/registrations',{'registration_id':reg['registration_id'],**evidence,'payee':a['payee']})
-        exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));print(json.dumps({'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}));return
+        exclusive(Path(x.out),canonical({'response':response,'key_id':evidence['key_id'],'registration_id':reg['registration_id'],'node_capability':v['capability']}));out={'registration_submitted':True,'server_verified':response.get('registered_key_id')==evidence['key_id'],'registration_id':reg['registration_id'],'state_file':x.out}
+        if x.wait_seconds:out.update(observe(x.out))
+        print(json.dumps(out));return
     record=state(x.attempt);response=record['response'];attempt=response.get('attempt_id',response.get('id',response.get('attempt',{}).get('id')));need(re.fullmatch('[a-f0-9]{32}',attempt or ''),'attempt identity');cap=record['capability'];local=_scope['task_directory'](parent,attempt)
     if x.command=='status':print(json.dumps(api.request('GET',f'/api/attempts/{attempt}')));return
     if x.command=='progress':

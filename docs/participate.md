@@ -110,6 +110,25 @@ chmod 600 "$HOME/.dm/REG-SIGNATURE.txt"
 The signature file holds only the 0x signature. Your wallet private key stays in
 your wallet.
 
+Register the Mac and wait up to two minutes for the service to enroll its key:
+
+```sh
+python3 -I client.py --config "$HOME/.dm/client.json" register \
+  --authorization "$HOME/.dm/REG-AUTH.json" --wallet-signature "$HOME/.dm/REG-SIGNATURE.txt" \
+  --out "$HOME/.dm/REGISTRATION.json" --wait-seconds 120
+```
+
+`"ready": true` means you can prepare attempts. If it prints `"ready": false`, the
+registration is still queued; run the printed `next` command, which only reads:
+
+```sh
+python3 -I client.py --config "$HOME/.dm/client.json" registration-status \
+  --registration "$HOME/.dm/REGISTRATION.json" --wait-seconds 120
+```
+
+Do not run `register` again. A `failed` or `uncertain` registration is refused;
+keep the files and report the registration id on issue #66.
+
 On the claim page press **Save private attempt file**. Move it from your browser's
 download folder into `"$HOME/.dm"` without replacing an earlier attempt file:
 

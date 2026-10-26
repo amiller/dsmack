@@ -39,10 +39,17 @@ the private directory setup created:
    expiry. It holds no secret. Sign the message in your own wallet and save only
    the 0x signature to `"$HOME/.dm/REG-SIGNATURE.txt"`.
 2. `register --authorization "$HOME/.dm/REG-AUTH.json" --wallet-signature
-   "$HOME/.dm/REG-SIGNATURE.txt" --out "$HOME/.dm/REGISTRATION.json"` generates a fresh key through the signed app's
+   "$HOME/.dm/REG-SIGNATURE.txt" --out "$HOME/.dm/REGISTRATION.json" --wait-seconds 120` generates a fresh key through the signed app's
    LaunchServices enrollment mode and submits its Apple attestation. Any Mac that
    passes the common app policy is registered; there is no worker allowlist.
-   Registration is queued; `GET /api/registrations/REGISTRATION_ID` shows the result.
+   Registration is queued. With `--wait-seconds` (0–300) the client saves
+   the registration file, then polls the service and prints `"ready": true` once
+   the service has enrolled this Mac's key. If it is still pending, the output
+   has `"ready": false` and a `next` command:
+   `registration-status --registration "$HOME/.dm/REGISTRATION.json" --wait-seconds 120`.
+   That command only reads; it never enrolls, signs or submits again. A `failed`
+   or `uncertain` registration is refused; keep the files and report the
+   registration id.
 3. Get and sign `authorization --purpose attempt --payee 0xYOURADDRESS
    --candidate-commit FULL40HEXCOMMIT --out "$HOME/.dm/ATTEMPT-AUTH.json"`, then run
    `attempt --authorization "$HOME/.dm/ATTEMPT-AUTH.json" --wallet-signature

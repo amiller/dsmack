@@ -33,7 +33,7 @@ export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR
   refuses it as expired, ask the user to log in on the Mac; never copy a
   credential between machines yourself.
 - `run-v02` takes the same arguments and runs on the v0.2.0-canary.1 runner and
-  base image. `--out` then also holds `artifacts/attestation` (the guest Attest
+  the current guest image. `--out` then also holds `artifacts/attestation` (the guest Attest
   over the request, patch, transcript and verdict), `out/` (the runner's launch
   evidence), `result/` and `turn.json` with the checked `attest` fields. A
   run takes about three minutes.

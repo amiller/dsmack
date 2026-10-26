@@ -19,8 +19,8 @@ P256_G = (0x6B17D1F2E12C4247F8BCE6E563A440F277037D812DEB33A0F4A13945D898C296,
           0x4FE342E2FE1A7F9B8EE7EB4A7C0F9E162BCE33576B315ECECBB6406837BF51F5)
 
 
-def p256_public(k):
-    """x || y of k*G on P-256 (affine double-and-add; the guest has no EC library)."""
+def p256_mul(k, point=P256_G):
+    """k*point on P-256 (affine double-and-add; the guest has no EC library)."""
     def add(a, b):
         if a is None or b is None:
             return a or b
@@ -31,12 +31,18 @@ def p256_public(k):
         return x, (lam * (a[0] - x) - a[1]) % P256_P
     if not 0 < k < P256_N:
         raise ValueError("P-256 scalar out of range")
-    r, q = None, P256_G
+    r, q = None, point
     while k:
         if k & 1:
             r = add(r, q)
         q, k = add(q, q), k >> 1
-    return r[0].to_bytes(32, "big") + r[1].to_bytes(32, "big")
+    return r
+
+
+def p256_public(k):
+    """x || y of k*G."""
+    x, y = p256_mul(k)
+    return x.to_bytes(32, "big") + y.to_bytes(32, "big")
 
 
 def sha256(b):

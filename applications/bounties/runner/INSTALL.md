@@ -37,7 +37,7 @@ You need:
 From `applications/bounties/runner`:
 
 ```sh
-python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
+python3 -I doctor.py --api https://pod.dstack.soc1024.com/bounty-mac-pilot \
   --home "$HOME/.dm" --node /PATH/TO/NODE24 \
   --public-key "$PWD/release-public.pem"
 ```

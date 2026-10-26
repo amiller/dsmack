@@ -14,7 +14,7 @@ for file in manifest.py lowering.py security.py browser-sandbox-v1.json; do
  install -m0644 "/w/source/runner-content/lib/dsmack_compose_contract/$file" "$RDEST/lib/dsmack_compose_contract/$file"
 done
 install -m0644 /w/source/runner-content/dsmack_compose_runner/lifecycle.py "$RDEST/dsmack_compose_runner/lifecycle.py"
-for file in agent.py guest_attest.py dsmack_dstack.py; do
+for file in agent.py guest_attest.py dsmack_dstack.py secret_box.py; do
  install -D -m0644 "/w/dstack-compat/$file" "$TREE/usr/local/lib/dsmack/dstack-agent/$file"
 done
 (cd "$RDEST" && find . -type f ! -name SHA256SUMS ! -path '*/__pycache__/*' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum > SHA256SUMS)

@@ -63,24 +63,28 @@ def manifest(starter, files):
 
 
 def main(repo, files, starter, out):
+    pack(repo, files, starter, out, NAME, manifest(starter, files))
+
+
+def pack(repo, files, starter, out, name, mb):
+    """Validate manifest bytes mb and pack them with the image and the starter's OCI layout into out/workload.img."""
     sys.path[:0] = [str(repo / "applications/pilot-client/workload"),
                     str(repo / "base-vm/browser-sandbox-v1/source/runner-content/lib")]
     from transport_loader import load
     from dsmack_compose_contract.manifest import validate_manifest_bytes
-    mb = manifest(starter, files)
     validate_manifest_bytes(mb)
     osh = fsha(files / "sha256sum.txt")
     out.mkdir(mode=0o700)
     tree = out / "public-tree"
     for n in ("manifests", "admission", "base-bundle", "closure-context"):
         (tree / n).mkdir(parents=True)
-    (tree / "manifests" / (NAME + ".app-compose.json")).write_bytes(mb)
+    (tree / "manifests" / (name + ".app-compose.json")).write_bytes(mb)
     for n in ("Image", "initramfs.cpio.gz", "rootfs.squashfs.verity", "metadata.json", "sha256sum.txt"):
         shutil.copyfile(files / n, tree / "base-bundle" / n)
     (tree / "admission/base-admission.json").write_bytes(canon({"admission_version": 1, "allowed_os_image_hashes": [osh]}))
     (tree / "closure-context/context.json").write_bytes(canon({"schema": "dsmack-result-closure-context/1",
-                                                              "attempt_id": secrets.token_hex(16), "selectors": [NAME]}))
-    (tree / "WORKLOAD").write_text(NAME + "\n")
+                                                              "attempt_id": secrets.token_hex(16), "selectors": [name]}))
+    (tree / "WORKLOAD").write_text(name + "\n")
     shutil.copytree(starter / "oci-layout", tree / "oci-layout")
     t = load(repo / "base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py")
     t.start_overall_deadline(300)

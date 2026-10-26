@@ -4,6 +4,8 @@ The canary contract on Base Sepolia (chain 84532) holds entries that pay the fir
 that a dsmack isolation boundary broke. Every entry is bound to the approved runner build.
 
 ```sh
+cast wallet import claimer --interactive   # once: store your key in a foundry keystore
+ACCOUNT=claimer
 RPC=https://sepolia.base.org
 CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6
 VERIFIER=0xa3C174D19EB421C2e68B737CA90fe267055E6215
@@ -50,7 +52,7 @@ head -c 32 /dev/urandom > challenge.bin
 open -n -W DsmackRunner.app --args enroll $PWD/enroll $PWD/challenge.bin
 read LEAF AUTH < <(PYTHONPATH=$DSMACK $PY -c "import sys;from verifier.core import decode;a=decode(open(sys.argv[1],'rb').read());print('0x'+a['attStmt']['x5c'][0].hex(),'0x'+a['authData'].hex())" enroll/attestation.cbor)
 cast send $VERIFIER 'enroll(bytes,bytes,bytes,bytes32)' $LEAF $AUTH 0x$(xxd -p enroll/clientData.bin | tr -d '\n') \
-  0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90 --gas-limit 16000000 --rpc-url $RPC --private-key $KEY
+  0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90 --gas-limit 16000000 --rpc-url $RPC --account $ACCOUNT
 ```
 
 ## 2. Run the canary workload
@@ -83,7 +85,7 @@ is the `canary-guest-key` or `canary-runner-key` event in the attestation. Then:
 ID=2   # 1 Runner, 2 Guest, 3 Owner
 $PY $DSMACK/contracts/canary_claim.py $(cat run-1/attestation.hex) <key hex> $CLAIMANT $ID $CANARY 84532 > claim.json
 cast call $CANARY $(python3 -c "import json;print(json.load(open('claim.json'))['calldata'])") --rpc-url $RPC
-cast send $CANARY $(python3 -c "import json;print(json.load(open('claim.json'))['calldata'])") --rpc-url $RPC --private-key $KEY
+cast send $CANARY $(python3 -c "import json;print(json.load(open('claim.json'))['calldata'])") --rpc-url $RPC --account $ACCOUNT
 ```
 
 Assertions by one key are accepted in counter order. Claim with the Attest assertion
@@ -107,7 +109,7 @@ kid = base64.b64decode(open('enroll/keyId.txt').read())
 print('0x' + encode(['bytes32', 'bytes', 'uint256', 'uint256'], [kid, m['authenticatorData'], r, s]).hex())
 EOF
 )
-cast send $CANARY 'claimForgery(uint256,address,bytes)' 0 $CLAIMANT $PROOF --rpc-url $RPC --private-key $KEY
+cast send $CANARY 'claimForgery(uint256,address,bytes)' 0 $CLAIMANT $PROOF --rpc-url $RPC --account $ACCOUNT
 ```
 
 A claimed entry stays burned on chain as public evidence of the break.

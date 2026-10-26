@@ -17,12 +17,11 @@ entitlement keys match the approved build.
 ## Check the binary as shipped
 
 Run the commands below in the directory holding the release files, with a checkout of
-github.com/amiller/dsmack and its Python packages (Python 3.10 or later; macOS's
-`/usr/bin/python3` is 3.9 and cannot install `requirements.txt`):
+github.com/amiller/dsmack and its Python packages:
 
 ```sh
 git clone https://github.com/amiller/dsmack.git ~/dsmack
-python3 -m venv ~/dsmack/venv && ~/dsmack/venv/bin/pip install -r ~/dsmack/requirements.txt
+python3 -m venv ~/dsmack/venv && ~/dsmack/venv/bin/pip install -r ~/dsmack/requirements-runtime.txt cbor2 eth-account
 DSMACK=~/dsmack PY=~/dsmack/venv/bin/python
 $PY $DSMACK/tools/release/inspect_runner.py dsmack-runner \
   --expected-cdhash 7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970 \
@@ -57,9 +56,10 @@ $PY $DSMACK/tools/release/inspect_runner.py DsmackRunner.app/Contents/MacOS/dsma
   --expected-cdhash YOUR_CDHASH --expected-team $TEAM --expected-bundle $BUNDLE
 $PY $DSMACK/contracts/cd_args.py DsmackRunner.app/Contents/MacOS/dsmack-runner > build.json
 b(){ python3 -c "import json,sys;print(json.load(open('build.json'))[sys.argv[1]])" $1; }
-CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6 RPC=https://sepolia.base.org
+cast wallet import claimer --interactive   # once: store your key in a foundry keystore
+ACCOUNT=claimer CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6 RPC=https://sepolia.base.org
 cast call $CDS 'registerBuild(bytes,bytes,bytes)(bytes32)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC
-cast send $CDS 'registerBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC --private-key $KEY
+cast send $CDS 'registerBuild(bytes,bytes,bytes)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC --account $ACCOUNT
 cast call $CDS 'rpIdHash(bytes32)(bytes32)' $(b cdhash) --rpc-url $RPC
 ```
 

@@ -69,5 +69,5 @@ and mints one admission into `<dir>/out/admission`. Check that admission on the
 Mac with the alpha coordinator's verify path:
 
 ```sh
-ssh mini-mesh python3 -I - <admission dir> <install dir> < applications/coordinator/alpha_check.py
+ssh $DSMACK_MAC_HOST python3 -I - <admission dir> <install dir> < applications/coordinator/alpha_check.py
 ```

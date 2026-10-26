@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator side of the Mac transport, run on zed /data: the agent-turns image and its signed release,
+"""Operator side of the Mac transport, run on the operator host: the agent-turns image and its signed release,
 per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
 for the v0.2.0-canary.1 runner and base image instead, where the turn binds its results with a guest Attest.
 
@@ -34,12 +34,11 @@ REPO = 'agent-turns'
 SLOTS = {'tree': 16 << 20, 'turn': 1 << 20}
 ARTIFACTS = ['patch', 'run-1-transcript', 'run-1-stderr', 'verdict']
 PYTHON = '304aa87a76ebb13fd22d253ac157f14980ff2cdb23e6274f3b045571405e07dc'
-# The qualified 0.7.1.broker-timeout-v1 base (rootfs c62f6746) and its guest-input builder.
-BUILD = Path('/data/amiller/dsmack/broker-timeout-v1-20261022/build-2')
-BASE = BUILD/'build/legs/diagnostic/files'
-# The v0.2.0-canary.1 base image (os_image_hash 3bec88ca) with the guest Attest agent.
-V02 = Path('/data/amiller/dsmack/canary-release-20261025/assets')
-POLICY = '/data/amiller/dsmack/arcade-pilot-runtime-20261023/PUBLIC-OPERATOR-POLICY.json'
+# Operator paths, read when used:
+# DSMACK_BROKER_BUILD: the qualified 0.7.1.broker-timeout-v1 build (rootfs c62f6746) and its guest-input builder.
+# DSMACK_V02_ASSETS: the v0.2.0-canary.1 base image (os_image_hash 3bec88ca) with the guest Attest agent.
+# DSMACK_OPERATOR_POLICY: the public operator policy JSON for the run-result verifier.
+env = lambda name: Path(os.environ[name])
 CORE, EXTRACTOR = ('13214b3711f2c69e145a11eee22c3f1c522d7d63f535bcf1ba5f5f9804ea8cb5',
                    'd8d3959fe11b32233f4291b795cb4ce2b8b8e6cbd2a467eebecedfe943a6dcd2')
 # Pilot-client files a release ships at the same relative path.
@@ -150,11 +149,12 @@ def compose_manifest(reference, digest):
 def compose_manifest_v02(alpha_raw, digest):
     """The alpha edit-turn manifest on the v0.2 base: its base_vm, the dstack socket and an `attestation` artifact."""
     m = json.loads(alpha_raw)
-    meta = json.loads((V02/'metadata.json').read_bytes())
+    v02 = env('DSMACK_V02_ASSETS')
+    meta = json.loads((v02/'metadata.json').read_bytes())
     root = dict(t.split('=', 1) for t in meta['cmdline'].split() if '=' in t)['dstack.rootfs_hash']
-    m['base_vm'].update(cmdline=meta['cmdline'], initrd_sha256=file_sha(V02/'initramfs.cpio.gz'),
-                        kernel_sha256=file_sha(V02/'Image'), metadata_sha256=file_sha(V02/'metadata.json'),
-                        os_image_hash=file_sha(V02/'sha256sum.txt'), rootfs_sha256=file_sha(V02/'rootfs.squashfs.verity'),
+    m['base_vm'].update(cmdline=meta['cmdline'], initrd_sha256=file_sha(v02/'initramfs.cpio.gz'),
+                        kernel_sha256=file_sha(v02/'Image'), metadata_sha256=file_sha(v02/'metadata.json'),
+                        os_image_hash=file_sha(v02/'sha256sum.txt'), rootfs_sha256=file_sha(v02/'rootfs.squashfs.verity'),
                         verity_root_hash=root)
     compose = json.loads(m['docker_compose_file'])
     service = compose['services']['agent']
@@ -219,7 +219,7 @@ def release(args):
     print(json.dumps({'inventory_sha256': sha(raw), 'manifest_sha256': sha(manifest), 'sequence': args.sequence}))
 
 
-def public_disk(out, manifest_raw, projection, context, oci, base=BASE):
+def public_disk(out, manifest_raw, projection, context, oci, base):
     """The measured workload disk: manifest, base bundle, commitment declaration, closure context and image."""
     from transport_loader import execute, load, raw
     transport = load(GUEST/'smoke/launch_vm_dstack_arm64.py')
@@ -227,7 +227,7 @@ def public_disk(out, manifest_raw, projection, context, oci, base=BASE):
     for name in ('closure', 'oci_publish'):
         path = GUEST/'runner-content/dsmack_guest_io'/(name + '.py')
         setattr(package, name, execute('dsmack_guest_io.' + name, path, raw(path)))
-    builder = BUILD/'source/build/make_guest_inputs.py'
+    builder = env('DSMACK_BROKER_BUILD')/'source/build/make_guest_inputs.py'
     guest_inputs = execute('make_guest_inputs', builder, raw(builder))
     manifest = json.loads(manifest_raw)
     tree = out/'public-tree'
@@ -283,7 +283,7 @@ def admit(args):
     out, authority = args.out, args.authority
     inventory_raw = (args.release/'release.json').read_bytes()
     manifest_raw = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
-    attempt, closure, disk = prepare(out, manifest_raw, args, BASE)
+    attempt, closure, disk = prepare(out, manifest_raw, args, env('DSMACK_BROKER_BUILD')/'build/legs/diagnostic/files')
     key_id = (authority/'keyId.txt').read_text().strip()
     challenge = secrets.token_bytes(32)
     (out/'challenge.bin').write_bytes(challenge)
@@ -313,7 +313,7 @@ def admit_v02(args):
     """Mint one v0.2 attempt: the manifest, projection and measured disk. The Mac stages the private disk and launches."""
     alpha = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
     manifest_raw = compose_manifest_v02(alpha, json.loads((args.oci/'index.json').read_bytes())['manifests'][0]['digest'])
-    attempt, _, disk = prepare(args.out, manifest_raw, args, V02)
+    attempt, _, disk = prepare(args.out, manifest_raw, args, env('DSMACK_V02_ASSETS'))
     print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk}))
 
 
@@ -330,7 +330,7 @@ def authorize(args):
     (a/'report.json').write_bytes(canonical({'key_id': 'agent-turns-mac-report-1', 'public_b64': base64.b64encode(public).decode()}))
     for name in ('attestation.cbor', 'clientData.bin', 'keyId.txt'):
         shutil.copyfile(args.registration/name, a/name)
-    rows = verifier(a, 'operator', 'enroll', '--policy', POLICY, '--secret-file', a/'operator-secret',
+    rows = verifier(a, 'operator', 'enroll', '--policy', env('DSMACK_OPERATOR_POLICY'), '--secret-file', a/'operator-secret',
                     '--store', a/'enrollment.sqlite', '--attestation', a/'attestation.cbor', '--key-id-file', a/'keyId.txt',
                     '--challenge', a/'clientData.bin', '--out', a/'enrollment.json', '--replay', a/'replay.sqlite',
                     '--min-counter', 0)
@@ -346,7 +346,7 @@ def verify(args):
     verifier(a, 'prepare', 'prepare', '--app-out', args.evidence, '--enrollment', a/'enrollment.json',
              '--context', context, '--bundle', job/'bundle')
     rows = verifier(a, 'prepare', 'verify', '--bundle', job/'bundle', '--context', context, '--retained', job/'retained',
-                    '--policy', POLICY, '--secret-file', a/'operator-secret', '--signing-key-file', a/'report-key.raw',
+                    '--policy', env('DSMACK_OPERATOR_POLICY'), '--secret-file', a/'operator-secret', '--signing-key-file', a/'report-key.raw',
                     '--report-key-id', report['key_id'], '--store', a/'enrollment.sqlite', '--replay', a/'replay.sqlite',
                     '--work-root', job, '--extractor-sha256', EXTRACTOR)
     full = rows[-1]

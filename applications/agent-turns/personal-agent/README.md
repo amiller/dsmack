@@ -1,8 +1,8 @@
 # Agent turns with a head-keeping coordinator
 
 A personal agent's state carried across VM runs. Each turn is one boot of the
-mac-compose runner (`private-code/runner/`, the build installed on the mini at
-`~/vz-runner/runner/build/Runner.app`), not the V3 runner. The turn decrypts the
+mac-compose runner (installed on the Mac at `~/vz-runner/runner/build/Runner.app`),
+not the V3 runner. The turn decrypts the
 agent's state, increments a counter, encrypts the new state for the next turn,
 and has the runner assert `{state_in, state_out, turn}` with App Attest.
 
@@ -18,11 +18,11 @@ advances the head.
 
 Files:
 - `guest/turn.py`, `guest/Dockerfile`: the turn workload (alpine, python3, cryptography).
-- `run_turn.sh`: boots one turn on the mini from the laptop and fetches its outputs.
+- `run_turn.sh`: boots one turn on the Mac from the laptop and fetches its outputs.
 
 ## Run
 
-On zed, from a copy of this repository under `/data`, build the turn image:
+On a docker host, from a copy of this repository, build the turn image:
 
 ```sh
 SOURCE_DATE_EPOCH=0 docker buildx build --builder abalone-oci --platform linux/arm64 \
@@ -35,15 +35,15 @@ Run the coordinator (see its README) and create the agent with an operator call:
 "docker.io/dsmack/personal-agent-turn@sha256:<manifest digest>", "port": 19471,
 "ciphertext": <genesis state blob, base64>}`.
 
-From the laptop, forward the coordinator to the laptop's and the mini's loopback
+From the laptop, forward the coordinator to the laptop's and the Mac's loopback
 through the existing control masters:
 
 ```sh
-ssh -O forward -L 127.0.0.1:19471:<coordinator host:port> zed-mesh
-ssh -O forward -R 127.0.0.1:19471:127.0.0.1:19471 mini-mesh
+ssh -O forward -L 127.0.0.1:19471:<coordinator host:port> <coordinator ssh host>
+ssh -O forward -R 127.0.0.1:19471:127.0.0.1:19471 $DSMACK_MAC_HOST
 ```
 
-On the mini, make `~/personal-agent-turns-20261025/` holding `turn.oci.tar` and a `base/`
+On the Mac, make `~/personal-agent-turns-20261025/` holding `turn.oci.tar` and a `base/`
 with `vmlinux-arm64` linked to `~/vz-runner/vmlinux-arm64` and `store/` cloned
 (`cp -c`) from `~/vz-runner/store/{content,state.json}`. Then:
 

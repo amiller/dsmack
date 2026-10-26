@@ -111,10 +111,10 @@ copied byte for byte from `/usr/local/lib/dsmack/sentinel` in the
 ## Dispatch to the Mac
 
 `skill/dsmack-agent run` snapshots a local working tree and runs an edit turn in
-the attested guest on the Mac mini; [`skill/SKILL.md`](skill/SKILL.md) tells a
+the attested guest on a Mac; [`skill/SKILL.md`](skill/SKILL.md) tells a
 local agent how to use it. The run follows [docs/running.md](../../docs/running.md):
 
-1. zed (`mac.py admit`) puts the request in file slot `turn` and a tar of the
+1. The operator host (`mac.py admit`) puts the request in file slot `turn` and a tar of the
    snapshot in slot `tree` (at most 16 MiB), builds the measured workload disk
    with the image and the commitment declaration, has the
    [coordinator](../coordinator/README.md) sign a workload admission for a fresh
@@ -122,15 +122,17 @@ local agent how to use it. The run follows [docs/running.md](../../docs/running.
 2. The Mac pipes its local Claude login through `export_subscription.py` into
    `stage_private.py`, then runs `alpha_coordinator.py` prepare, check-only and
    execute on the installed release (profile `agent-turns-edit-v1`).
-3. zed (`mac.py verify`) runs the run-result verifier on the Mac's original
+3. The operator host (`mac.py verify`) runs the run-result verifier on the Mac's original
    evidence, and `turn.from_receipt` reads the verified receipt and artifacts.
 
 The guest runs `find.py` as the compose workload with `--inputs` pointing at
 the tar; it checks the unpacked tree against the request's `inputs_sha256`.
 
-One-time operator setup on zed `/data/amiller/dsmack/mac-dispatch-20261025`, with
+One-time operator setup in `$DSMACK_OPERATOR_DIR` on the operator host, with
 `source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
-(the coordinator's URL) and `DSMACK_OPERATOR_TOKEN`. `release` has the coordinator
+(the coordinator's URL), `DSMACK_OPERATOR_TOKEN` and the paths `mac.py` reads
+(`DSMACK_BROKER_BUILD`, `DSMACK_V02_ASSETS`, `DSMACK_OPERATOR_POLICY`).
+`skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. `release` has the coordinator
 sign the inventory under its key id:
 
 ```sh
@@ -161,7 +163,7 @@ the Attest assertion over the rebuilt client data, the replayed event log
 ending in `system-ready`, that `run` is the launch assertion's client data, the
 compose and image hashes, and `report_data` against the artifacts.
 
-Setup: `image-4` built by `mac.py image` in zed `/data/amiller/dsmack/agent-turns-v02-20261025`,
+Setup: `image-4` built by `mac.py image` in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
 and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
 
 For private inputs, `compose-private.yml` runs the sentinel as a container on two

@@ -47,8 +47,7 @@ python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
 ```
 
 It prints the artifact directory and the image digest (`digest.txt`, the
-SHA-256 of `sha256sum.txt`), which must equal `image.sha256` (the
-`v0.2.0-canary.1` image). The `image-repro` workflow runs this derivation on
+SHA-256 of `sha256sum.txt`), which must equal `image.sha256`. The `image-repro` workflow runs this derivation on
 GitHub Actions and fails on any other digest; a change that alters the image
 updates `image.sha256` in the same PR.
 

@@ -56,6 +56,15 @@ contract AppleAttestRegistryV1Test is Test {
         (recorded,,,,counter)=adapter.assertionEvidence(kid);
         assertEq(recorded,context);assertEq(counter,3);
     }
+    function test_EnrolledKeyOutlivesLeaf() public {
+        mac(true);adapter.enroll(cert,auth,clientData,EF.id());vm.warp(1789761030+30 days);
+        (bytes32 context,bytes memory proof)=assertion("assert");assertEq(adapter.verify(context,proof),kid);
+    }
+    function test_SupersededBuildStopsKey() public {
+        mac(true);adapter.enroll(cert,auth,clientData,EF.id());
+        string memory b=vm.readFile("fixtures/cd-args-developer-id.json");cds.setBuild(vm.parseJsonBytes(b,".cd"),vm.parseJsonBytes(b,".page0"),vm.parseJsonBytes(b,".ent"));
+        (bytes32 context,bytes memory proof)=assertion("assert");vm.expectRevert("build not admitted");adapter.verify(context,proof);
+    }
     function test_MacUnregisteredBuildRejected() public {mac(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData,EF.id());}
     function test_IPhoneEnrollAndAssertThroughRegistry() public {
         iphone(true);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);

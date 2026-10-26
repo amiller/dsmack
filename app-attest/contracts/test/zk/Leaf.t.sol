@@ -34,7 +34,7 @@ contract LeafEnrollmentTest is Test {
     function run(bool ios,bool fresh) internal {
         (MacAppAttestZKV1 a,bytes memory proof,bytes memory client,AppleAttestZK.PublicValues memory p,string memory f)=load(ios,fresh);
         bytes32 kid=vm.parseJsonBytes32(f,".kid");assertEq(a.enrollLeafProof(proof,client,p,key,EF.id()),kid);
-        (uint256 x,uint256 y,uint64 expiry,uint32 count,bool enrolled)=a.keys(kid);assertEq(x,p.x);assertEq(y,p.y);(,,,uint64 end)=a.endorsements().intermediates(EF.id());assertEq(expiry,p.notAfter<end?p.notAfter:end);assertEq(count,0);assertTrue(enrolled);
+        (uint256 x,uint256 y,uint64 expiry,uint32 count,bool enrolled)=a.keys(kid);assertEq(x,p.x);assertEq(y,p.y);(,,,uint64 end)=a.endorsements().intermediates(EF.id());assertEq(expiry,end);assertEq(count,0);assertTrue(enrolled);
         if(!ios && !fresh)return; // real-apple.json has no assertion for this key.
         bytes32 context=sha256(vm.parseJsonBytes(f,".assert.context"));bytes memory assertion=abi.encode(kid,vm.parseJsonBytes(f,".assert.auth"),uint256(vm.parseJsonBytes32(f,".assert.r")),uint256(vm.parseJsonBytes32(f,".assert.s")));
         assertEq(a.verify(context,assertion),kid);

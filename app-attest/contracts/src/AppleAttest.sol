@@ -44,7 +44,7 @@ abstract contract AppleAttest {
         require(P384.verify(
             ca.key.xhi,ca.key.xlo,ca.key.yhi,ca.key.ylo,
             uint256(leaf.tbsHash),leaf.rhi,leaf.rlo,leaf.shi,leaf.slo),"Apple certificate signature");
-        _storeKey(kid,leaf.x,leaf.y,leaf.expires<ca.notAfter?leaf.expires:ca.notAfter);
+        _storeKey(kid,leaf.x,leaf.y,ca.notAfter);
     }
     function _checkNewKey(bytes32 kid) internal view {require(!keys[kid].enrolled,"already enrolled");}
     function _storeKey(bytes32 kid,uint256 x,uint256 y,uint64 expires) internal {

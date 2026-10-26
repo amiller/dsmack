@@ -22,6 +22,21 @@
       "testnet": true,
       "rpc": "https://sepolia.base.org",
       "name": "Build-bound canary",
+      "address": "0x93942c82aef24c596a90c447f5afaf083abf926f",
+      "explorer_url": "https://sepolia.basescan.org/address/0x93942c82aef24c596a90c447f5afaf083abf926f",
+      "deployment_block": 50546118,
+      "deployment_tx": "0x92801a8a2f51a496586cf8c34e8bdb8a5b2aec1a98d7fdfe538845b2f44e6ff4",
+      "runtime_sha256": "586a6b885b6b45259723f18205179cf5cc0fde6786c3aed546831a41388b9c01",
+      "codec": "canary-read-codec/2",
+      "void": false,
+      "note": null
+    },
+    {
+      "chain_id": 84532,
+      "network": "Base Sepolia",
+      "testnet": true,
+      "rpc": "https://sepolia.base.org",
+      "name": "Build-bound canary (3-day keys)",
       "address": "0x65094121f566ca226e02f9a246283d91b6b24658",
       "explorer_url": "https://sepolia.basescan.org/address/0x65094121f566ca226e02f9a246283d91b6b24658",
       "deployment_block": 50215123,
@@ -29,7 +44,7 @@
       "runtime_sha256": "83cd68d5804f561c3a370813f6197f268d0dcd1ef74ce8e2735ad454c5f31a31",
       "codec": "canary-read-codec/2",
       "void": false,
-      "note": null
+      "note": "Superseded 2026-10-26 by 0x9394…926f; its keys expire 3 days after enrollment"
     },
     {
       "chain_id": 84532,

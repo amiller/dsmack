@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Operator side of the Mac transport, run on the operator host: the agent-turns image and its signed release,
 per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
-for the v0.2.0-canary.1 runner instead, where the turn binds its results with a guest Attest.
+for the v0.2.0-canary.1 runner instead, where the turn binds its results with a guest Attest, and admits
+its compose at the coordinator's /admit-compose.
 
 The release key is in the coordinator app (applications/coordinator): release and admit call its
 /sign-release and /admit at $DSMACK_COORDINATOR with $DSMACK_OPERATOR_TOKEN.
@@ -327,7 +328,9 @@ def admit_v02(args):
     alpha = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
     manifest_raw = compose_manifest_v02(alpha, json.loads((args.oci/'index.json').read_bytes())['manifests'][0]['digest'], args.base)
     attempt, _, disk = prepare(args.out, manifest_raw, args, args.base)
-    print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk}))
+    admitted = coordinator('/admit-compose', {'compose_manifest_sha256': sha(manifest_raw)})
+    print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk,
+                      'expires_at': admitted['expires_at']}))
 
 
 def authorize(args):

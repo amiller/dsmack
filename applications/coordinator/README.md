@@ -31,7 +31,8 @@ Turns speak the mac-compose runner's KMS protocol. Point the runner at
 - `POST /grant {task_id, key_id, compose_hash, run, seal_pub, assertion}`: the v3 runner
   app's worker-grant request ([dstack-compat](../../dstack-compat/README.md)). Checks the
   App Attest assertion over the request by an enrolled key, above its last counter, from a
-  CDRegistry-admitted build, and that this app admitted a workload with that compose hash.
+  CDRegistry-admitted build, and that this app admitted a workload with that compose hash
+  and the admission has not expired.
   Returns the grant with its root key sealed to `seal_pub`.
 - `GET /head/<agent>`, `GET /compose/<agent>`: the head and the compose a turn from it runs.
 - `GET /keys`: the release key, its dstack signature chain and the app id.
@@ -42,6 +43,9 @@ Operator calls carry `Authorization: Bearer $OPERATOR_TOKEN`:
 - `POST /sign-release {inventory}`: sign an alpha release inventory with `key_id` set to ours.
 - `POST /admit {release_inventory_sha256, profile, closure_context, workload_disk}`:
   one `dsmack-alpha-workload-admission/1` per attempt id, for a profile of a release this app signed.
+  Its compose is admitted for `/grant` until the admission's `expires_at`.
+- `POST /admit-compose {compose_manifest_sha256}`: admit a compose built outside a release
+  profile (`mac.py admit-v02`) for `/grant` for two hours.
 - `POST /enroll {attestation, key_id, client_data}`: record a Mac's App Attest key for `/grant`.
   A key that is already enrolled is refused.
 

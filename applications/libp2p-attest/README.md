@@ -19,7 +19,7 @@ which the runner writes after the VM halts.
 ## Run
 
 ```sh
-cd peer && CGO_ENABLED=0 go build -o ../dsmack-peer-amd64 . && CGO_ENABLED=0 GOARCH=arm64 go build -o ../dsmack-peer-arm64 .
+(cd peer && CGO_ENABLED=0 go build -o ../dsmack-peer-amd64 . && CGO_ENABLED=0 GOARCH=arm64 go build -o ../dsmack-peer-arm64 .)
 ./dsmack-peer-amd64 keygen relay.key
 docker build -f relay.Dockerfile -t dsmack-libp2p-relay .
 docker run -d --network host -v $PWD/relay.key:/relay.key:ro dsmack-libp2p-relay relay /ip4/<host ip>/tcp/4012 /relay.key

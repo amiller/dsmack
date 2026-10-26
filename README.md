@@ -70,7 +70,7 @@ needs an Apple silicon Mac with Xcode:
 
 ```sh
 runner-vm/native/build.sh
-runner-vm/packaging/build.sh runner-vm/native/source-tree/apple-static/target/aarch64-apple-darwin/release
+runner-vm/packaging/build.sh runner-vm/native/source-tree/target/aarch64-apple-darwin/release
 ```
 
 The guest image, on a Linux builder:

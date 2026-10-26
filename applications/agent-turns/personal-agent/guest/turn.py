@@ -1,6 +1,6 @@
 """One agent turn inside the mac-compose runner: fetch the state blob, decrypt it with
 /key, increment the counter, re-encrypt for the next turn, assert the transition with
-/attest and commit it to the head keeper."""
+/attest and commit it to the coordinator (applications/coordinator)."""
 import base64, hashlib, json, os, socket
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
@@ -34,7 +34,7 @@ def runner(path, obj):
     return json.loads(http(egress(), 'POST', 'runner.local', path, canonical(obj)))
 
 
-def keeper(method, path, body=b''):
+def coordinator(method, path, body=b''):
     s = egress()
     s.sendall(f'CONNECT 127.0.0.1:{PORT} HTTP/1.1\r\nHost: 127.0.0.1:{PORT}\r\n\r\n'.encode())
     head = b''
@@ -45,7 +45,7 @@ def keeper(method, path, body=b''):
 
 
 key = lambda turn: bytes.fromhex(runner('/key', {'path': f'agent-state/{turn}'})['key'])
-blob = keeper('GET', f'/state/{STATE_IN}')
+blob = coordinator('GET', f'/turn/state/{STATE_IN}')
 assert hashlib.sha256(blob).hexdigest() == STATE_IN, 'state blob does not match STATE_IN'
 state = json.loads(AESGCM(key(TURN)).decrypt(blob[:12], blob[12:], b'agent-state'))
 state = {'counter': state['counter'] + 1, 'log': state['log'] + [f'turn {TURN} ran on the mini']}
@@ -53,5 +53,5 @@ nonce = os.urandom(12)
 out = nonce + AESGCM(key(TURN + 1)).encrypt(nonce, canonical(state), b'agent-state')
 transition = {'state_in': STATE_IN, 'state_out': hashlib.sha256(out).hexdigest(), 'turn': TURN}
 evidence = runner('/attest', {'data': canonical(transition).decode()})
-reply = keeper('POST', '/commit', canonical({'ciphertext': base64.b64encode(out).decode(), 'evidence': evidence, **transition}))
-print(json.dumps({'transition': transition, 'counter': state['counter'], 'keeper': json.loads(reply)}))
+reply = coordinator('POST', '/turn/commit', canonical({'ciphertext': base64.b64encode(out).decode(), 'evidence': evidence, **transition}))
+print(json.dumps({'transition': transition, 'counter': state['counter'], 'coordinator': json.loads(reply)}))

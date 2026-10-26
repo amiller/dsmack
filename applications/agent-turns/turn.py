@@ -10,8 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-
-from cryptography import x509
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT/'base-vm/browser-sandbox-v1/source/runner-content/lib'), str(ROOT/'dstack-compat'),
@@ -19,7 +18,7 @@ sys.path[:0] = [str(ROOT), str(ROOT/'base-vm/browser-sandbox-v1/source/runner-co
 from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_commitment
 import find
 import guest_attest
-from verifier.core import decode, require, unb64, unique_json, verify_assertion, verify_attestation
+from verifier.core import require, unb64, unique_json, verify_assertion, verify_attestation, verify_key
 from verifier.macos_policy import policy, root
 
 SCOPE = {'include': ['files'], 'file_slots': ['turn']}
@@ -92,9 +91,7 @@ def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_
     rule = policy(bytes.fromhex(cdhash))
     attestation = (enrollment/'attestation.cbor').read_bytes()
     key_id = (enrollment/'keyId.txt').read_text().strip()
-    leaf = x509.load_der_x509_certificate(decode(attestation)['attStmt']['x5c'][0])
-    key = verify_attestation(attestation, key_id, (enrollment/'clientData.bin').read_bytes(), rule, root(),
-                             at_time=leaf.not_valid_before_utc.timestamp() + 60)['public_key']
+    key = verify_key(attestation, key_id, (enrollment/'clientData.bin').read_bytes(), rule, root(), time.time())['public_key']
     require(a['key_id'] == unb64(key_id), 'Attest key is not the enrolled key')
     signed = verify_assertion(a['assertion'], guest_attest.client_data(a['os_image_hash'], a['manifest_sha256'], a['run'],
                               a['head'], a['caller'], a['report_data']), key, 0, rule)

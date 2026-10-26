@@ -13,7 +13,9 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import turn
-from verifier.core import Reject
+import datetime
+from verifier.core import Reject, unb64, verify_key
+from verifier.macos_policy import policy, root
 
 DATA = Path(__file__).parent/'testdata'
 AGENT = DATA/'personal-agent'
@@ -38,6 +40,15 @@ class TurnTest(unittest.TestCase):
         t1, t2 = mac_turn(1), mac_turn(2)
         with self.assertRaisesRegex(Reject, 'does not continue'):
             turn.check_chain([t1, t2, t2], t1['state_in'])
+
+    def test_key_outlives_leaf_until_intermediate_expires(self):
+        e = json.loads((AGENT/'evidence-turn-1.json').read_bytes())
+        check = lambda day: verify_key(unb64(e['attestation']), e['keyId'], unb64(e['bootClientData']),
+                                       policy(bytes.fromhex((AGENT/'cdhash').read_text().strip())), root(),
+                                       datetime.datetime.fromisoformat(day).timestamp())
+        self.assertTrue(check('2026-11-27T00:00:00+00:00')['public_key'])  # leaf expired 2026-10-27
+        with self.assertRaisesRegex(Reject, 'intermediate_expired'):
+            check('2030-03-14T00:00:00+00:00')
 
     def test_finding_is_one_stateless_turn(self):
         spec = json.loads((DATA/'finding'/'spec.json').read_bytes())

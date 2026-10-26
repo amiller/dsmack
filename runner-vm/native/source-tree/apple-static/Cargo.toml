@@ -13,4 +13,3 @@ devices = { package = "krun-devices", path = "../source/src/devices", default-fe
 libc = "0.2"
 dsmack-backend-v3 = { path = "backend-v3" }
 
-[workspace]

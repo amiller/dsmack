@@ -145,4 +145,23 @@ def args(path):
     ent = next((blob[8:] for m, blob in blobs.values() if m == 0xfade7172), b"")
     return {"cdhash": "0x" + hashlib.sha256(cd).hexdigest(), "cd": "0x" + cd.hex(), "page0": "0x" + b[:16384].hex(),
             "ent": "0x" + ent.hex()}
-if __name__ == "__main__": json.dump(args(sys.argv[1]), sys.stdout, indent=1)
+def measure(path):
+    """CDRegistry.measure's code fields as sha256 digests (the contract uses keccak; equal inputs, equal digests).
+    Read from the file's pages, so an unsigned build compares with a signed one; header and entitlements come from the CodeDirectory."""
+    b = open(path, "rb").read()
+    ncmds, off, page0 = struct.unpack_from("<I", b, 16)[0], 32, bytearray(b[:16384])
+    for _ in range(ncmds):
+        cmd, sz = struct.unpack_from("<II", page0, off)
+        if cmd == 0x19 and page0[off + 8:off + 24] == b"__LINKEDIT".ljust(16, b"\0"): page0[off + 32:off + 40] = page0[off + 48:off + 56] = bytes(8)
+        if cmd == 0x1d: limit = struct.unpack_from("<I", page0, off + 8)[0]; page0[off + 12:off + 16] = bytes(4)
+        off += sz
+    pages = b"".join(hashlib.sha256(b[i:min(i + 16384, limit)]).digest() for i in range(16384, limit, 16384))
+    m = {"codeLimit": limit, "rest": hashlib.sha256(pages).hexdigest(), "maskedPage0": hashlib.sha256(page0).hexdigest()}
+    if struct.unpack_from(">I", b, limit)[0] == 0xfade0cc0:
+        a = args(path); cd = bytes.fromhex(a["cd"][2:]); v = struct.unpack_from(">I", cd, 8)[0]
+        m["header"] = hashlib.sha256(cd[8:16] + cd[0x24:0x30] + cd[0x34:0x60 if v >= 0x20500 else 0x58]).hexdigest()
+        m["entitlements"] = hashlib.sha256(bytes.fromhex(a["ent"][2:])).hexdigest()
+    return m
+if __name__ == "__main__":
+    if sys.argv[1] == "--measure": json.dump(measure(sys.argv[2]), sys.stdout, indent=1)
+    else: json.dump(args(sys.argv[1]), sys.stdout, indent=1)

@@ -1,11 +1,15 @@
 #!/bin/bash
-# Unsigned build of build/DsmackRunner.app. Usage: build.sh <dir containing libdsmack_hvf_returning.a>
+# Unsigned, reproducible build of build/DsmackRunner.app. Usage: build.sh <dir containing libdsmack_hvf_returning.a>
 # Set PROFILE to embed a provisioning profile.
 set -euo pipefail
 cd "$(dirname "$0")"
 archive_dir="$(cd "${1:?archive dir}" && pwd)"
 app="$PWD/build/DsmackRunner.app"
-(cd ../app-src && DSMACK_V3_ARCHIVE_DIR="$archive_dir" swift build -c release --product mar)
+swift_version="swiftlang-6.4.0.34.1 clang-2100.3.34.1"
+swift --version 2>&1 | grep -qF "$swift_version" || { echo "reproducible build needs Xcode 27.0 (27A266a), $swift_version" >&2; exit 1; }
+# -Xlinker -S drops the debug map, which records build-directory object paths.
+(cd ../app-src && DSMACK_V3_ARCHIVE_DIR="$archive_dir" swift build -c release --product mar \
+  -Xlinker -S)
 mkdir -p "$app/Contents/MacOS"
 cp ../app-src/.build/release/mar "$app/Contents/MacOS/dsmack-runner"
 if [ -n "${PROFILE:-}" ]; then cp "$PROFILE" "$app/Contents/embedded.provisionprofile"; fi

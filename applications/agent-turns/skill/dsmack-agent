@@ -70,7 +70,7 @@ $C --execute --plan $PLAN > execute.json
 # key's attestation.cbor, clientData.bin, keyId.txt).
 V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
-V02_OS_IMAGE = 'b7d1a8a5cb57e56bdd118540858c747861ce22b35190aec3e6e6d10a08dacda5'
+V02_OS_IMAGE = 'c6bc2b7f0bddd086bce43638303b5a74fc02dc1f69d2d2b47f9bd85b9d51e42a'
 
 # On the Mac: stage the credential through the pipe, then one hvf-v3 launch of the attempt with that private disk.
 MAC_RUN_V02 = r'''set -euo pipefail

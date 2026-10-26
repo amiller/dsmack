@@ -155,7 +155,7 @@ so it boots the B44 base (`os_image_hash` `b44abf14…`); a derived image
 ### On the v0.2.0-canary.1 runner
 
 `skill/dsmack-agent run-v02` runs the same turn on the v0.2.0-canary.1 runner
-(CDHash `7011178c…`) and the derived image `image.sha256` (`b7d1a8a5…`), without the
+(CDHash `7011178c…`) and the derived image `image.sha256` (`c6bc2b7f…`), without the
 alpha installer. `mac.py admit-v02` takes the alpha manifest, swaps in the `base_vm`
 of `--base`, binds `/var/run/dstack.sock` and adds `find.py --attest`. After the
 turn, `find.py` calls `/v1/Attest` with `report_data` = `find.report`: the

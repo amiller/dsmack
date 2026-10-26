@@ -23,7 +23,7 @@ conversation.
 
 ```sh
 DSMACK_AGENT=<dsmack checkout>/applications/agent-turns/skill/dsmack-agent
-export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR_V02_DIR=<dir> DSMACK_MAC_HOST=<ssh host>
+export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR_V02_DIR=<dir> DSMACK_MAC_HOST=<ssh host> DSMACK_OPERATOR_FETCH_ADDR=<operator IP the Mac reaches>
 "$DSMACK_AGENT" run --repo "$REPO" --prompt "$PROMPT" \
   --out "$SCRATCH/dispatch-$(date +%s)"
 ```

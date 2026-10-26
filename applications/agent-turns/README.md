@@ -132,7 +132,9 @@ One-time operator setup in `$DSMACK_OPERATOR_DIR` on the operator host, with
 `source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
 (the coordinator's URL), `DSMACK_OPERATOR_TOKEN` and the paths `mac.py` reads
 (`DSMACK_BROKER_BUILD`, `DSMACK_OPERATOR_POLICY`).
-`skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. `release` has the coordinator
+`skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. The Mac fetches
+the attempt files over HTTP from `$DSMACK_OPERATOR_FETCH_ADDR:8765`, which the operator host serves for the
+transfer, and checks each file's sha256 before use. `release` has the coordinator
 sign the inventory under its key id:
 
 ```sh

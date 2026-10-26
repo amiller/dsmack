@@ -47,3 +47,19 @@ def test_worker_chain_reaches_kms_root_and_is_not_a_coordinator_key():
         verify_dstack_chain(pub, chain, "worker-signing", "secp256k1", app_id)
     with pytest.raises(ValueError, match="expired"):
         verify_worker_chain(pub, chain, "worker-signing", "secp256k1", app_id, g, 2000)
+
+
+def test_stdlib_primitives_match_reference_libraries():
+    # The guest has no crypto packages; its keccak and ECDSA must equal pycryptodome's and libsecp256k1's.
+    import os
+    from Crypto.Hash import keccak
+    from coincurve import PublicKey
+    from dsmack_dstack import keccak256, recover
+    for n in (0, 1, 135, 136, 137, 300):
+        m = os.urandom(n)
+        assert keccak256(m) == keccak.new(digest_bits=256, data=m).digest()
+    for _ in range(8):
+        k, d = os.urandom(32), os.urandom(32)
+        sig = sign(k, d)
+        assert sig == PrivateKey(k).sign_recoverable(d, hasher=None)
+        assert recover(sig, d) == PrivateKey(k).public_key.format() == PublicKey.from_signature_and_message(sig, d, hasher=None).format()

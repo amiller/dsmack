@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Operator side of the Mac transport, run on zed /data: the agent-turns image and its signed release,
+"""Operator side of the Mac transport, run on the operator host: the agent-turns image and its signed release,
 per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
 for the v0.2.0-canary.1 runner instead, where the turn binds its results with a guest Attest.
 
@@ -34,10 +34,11 @@ REPO = 'agent-turns'
 SLOTS = {'tree': 16 << 20, 'turn': 1 << 20}
 ARTIFACTS = ['patch', 'run-1-transcript', 'run-1-stderr', 'verdict']
 PYTHON = '304aa87a76ebb13fd22d253ac157f14980ff2cdb23e6274f3b045571405e07dc'
-# The qualified 0.7.1.broker-timeout-v1 build, for its guest-input builder.
-BUILD = Path('/data/amiller/dsmack/broker-timeout-v1-20261022/build-2')
+# Operator paths, read when used:
+# DSMACK_BROKER_BUILD: the qualified 0.7.1.broker-timeout-v1 build, for its guest-input builder.
+# DSMACK_OPERATOR_POLICY: the public operator policy JSON for the run-result verifier.
+env = lambda name: Path(os.environ[name])
 IMAGE_FILES = ('Image', 'initramfs.cpio.gz', 'rootfs.squashfs.verity', 'metadata.json', 'sha256sum.txt')
-POLICY = '/data/amiller/dsmack/arcade-pilot-runtime-20261023/PUBLIC-OPERATOR-POLICY.json'
 CORE, EXTRACTOR = ('13214b3711f2c69e145a11eee22c3f1c522d7d63f535bcf1ba5f5f9804ea8cb5',
                    'd8d3959fe11b32233f4291b795cb4ce2b8b8e6cbd2a467eebecedfe943a6dcd2')
 # Pilot-client files a release ships at the same relative path.
@@ -239,7 +240,7 @@ def public_disk(out, manifest_raw, projection, context, oci, base):
     for name in ('closure', 'oci_publish'):
         path = GUEST/'runner-content/dsmack_guest_io'/(name + '.py')
         setattr(package, name, execute('dsmack_guest_io.' + name, path, raw(path)))
-    builder = BUILD/'source/build/make_guest_inputs.py'
+    builder = env('DSMACK_BROKER_BUILD')/'source/build/make_guest_inputs.py'
     guest_inputs = execute('make_guest_inputs', builder, raw(builder))
     manifest = json.loads(manifest_raw)
     tree = out/'public-tree'
@@ -342,7 +343,7 @@ def authorize(args):
     (a/'report.json').write_bytes(canonical({'key_id': 'agent-turns-mac-report-1', 'public_b64': base64.b64encode(public).decode()}))
     for name in ('attestation.cbor', 'clientData.bin', 'keyId.txt'):
         shutil.copyfile(args.registration/name, a/name)
-    rows = verifier(a, 'operator', 'enroll', '--policy', POLICY, '--secret-file', a/'operator-secret',
+    rows = verifier(a, 'operator', 'enroll', '--policy', env('DSMACK_OPERATOR_POLICY'), '--secret-file', a/'operator-secret',
                     '--store', a/'enrollment.sqlite', '--attestation', a/'attestation.cbor', '--key-id-file', a/'keyId.txt',
                     '--challenge', a/'clientData.bin', '--out', a/'enrollment.json', '--replay', a/'replay.sqlite',
                     '--min-counter', 0)
@@ -358,7 +359,7 @@ def verify(args):
     verifier(a, 'prepare', 'prepare', '--app-out', args.evidence, '--enrollment', a/'enrollment.json',
              '--context', context, '--bundle', job/'bundle')
     rows = verifier(a, 'prepare', 'verify', '--bundle', job/'bundle', '--context', context, '--retained', job/'retained',
-                    '--policy', POLICY, '--secret-file', a/'operator-secret', '--signing-key-file', a/'report-key.raw',
+                    '--policy', env('DSMACK_OPERATOR_POLICY'), '--secret-file', a/'operator-secret', '--signing-key-file', a/'report-key.raw',
                     '--report-key-id', report['key_id'], '--store', a/'enrollment.sqlite', '--replay', a/'replay.sqlite',
                     '--work-root', job, '--extractor-sha256', EXTRACTOR)
     full = rows[-1]

@@ -1,6 +1,6 @@
 ---
 name: dsmack-dispatch
-description: Hand a bounded coding task on a local git checkout to the pinned dsmack agent, which edits a snapshot in the attested guest on the Mac mini and returns a patch, its transcript and a turn record. Use when the user asks to dispatch, delegate or send a task to a remote worker or the pinned agent, or wants a change made by the pinned agent rather than by you.
+description: Hand a bounded coding task on a local git checkout to the pinned dsmack agent, which edits a snapshot in the attested guest on a Mac and returns a patch, its transcript and a turn record. Use when the user asks to dispatch, delegate or send a task to a remote worker or the pinned agent, or wants a change made by the pinned agent rather than by you.
 ---
 
 # Dispatch a task to the pinned agent
@@ -23,6 +23,7 @@ conversation.
 
 ```sh
 DSMACK_AGENT=<dsmack checkout>/applications/agent-turns/skill/dsmack-agent
+export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR_V02_DIR=<dir> DSMACK_MAC_HOST=<ssh host>
 "$DSMACK_AGENT" run --repo "$REPO" --prompt "$PROMPT" \
   --out "$SCRATCH/dispatch-$(date +%s)"
 ```

@@ -1,6 +1,6 @@
 """testdata/ holds real outputs. personal-agent/: the keeper state from the two-turn spike of
 25 October 2026 (worktree personal-agent-turns-20261025, 64d3bc6), without master.key.
-finding/: find.py's fake-CLI run in the agent image on zed, flattened to artifact names
+finding/: find.py's fake-CLI run in the agent image, flattened to artifact names
 (run-1/transcript.jsonl is run-1-transcript, finding.json is verdict). That run had no receipt,
 so the finding test builds the receipt's commitment and artifact list over those files."""
 import base64

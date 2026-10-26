@@ -31,6 +31,11 @@ DSMACK_AGENT=<dsmack checkout>/applications/agent-turns/skill/dsmack-agent
   (`~/.dsmack/private-inputs/claude-subscription.json` there). If staging
   refuses it as expired, ask the user to log in on the Mac; never copy a
   credential between machines yourself.
+- `run-v02` takes the same arguments and runs on the v0.2.0-canary.1 runner and
+  base image. `--out` then also holds `artifacts/attestation` (the guest Attest
+  over the request, patch, transcript and verdict), `out/` (the runner's launch
+  evidence), `result/` and `turn.json` with the checked `attest` fields. A
+  run takes about three minutes.
 - `--tools` defaults to `Read,Grep,Glob,Edit,Write`; pass `Read,Grep,Glob` for a
   read-only task.
 - `--wall-seconds` (480) and `--max-turns` (30) match the Mac develop recipe.

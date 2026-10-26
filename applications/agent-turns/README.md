@@ -142,6 +142,24 @@ $M authorize --authority authority --registration DIR   # attestation.cbor, clie
 Then install `release-1` on the Mac with `alpha-bootstrap.mjs` and `alpha_stage.py`
 into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md.
 
+### On the v0.2.0-canary.1 runner
+
+`skill/dsmack-agent run-v02` runs the same turn on the v0.2.0-canary.1 runner
+(CDHash `7011178c…`) and base image (`os_image_hash` `3bec88ca…`), without the
+alpha installer. `mac.py admit-v02` takes the alpha manifest, swaps in the v0.2
+`base_vm`, binds `/var/run/dstack.sock` and adds `find.py --attest`. After the
+turn, `find.py` calls `/v1/Attest` with `report_data` = `find.report`: the
+sha256 of `{request, patch, transcripts, verdict, dashcam, state_out}`, and
+writes the attestation as the `attestation` artifact. The Mac stages the
+credential as above and launches `DsmackRunner.app hvf-v3` with that private
+disk. `turn.from_guest_attest` checks the runner key's App Attest attestation,
+the Attest assertion over the rebuilt client data, the replayed event log
+ending in `system-ready`, that `run` is the launch assertion's client data, the
+compose and image hashes, and `report_data` against the artifacts.
+
+Setup: `image-4` built by `mac.py image` in zed `/data/amiller/dsmack/agent-turns-v02-20261025`,
+and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
+
 For private inputs, `compose-private.yml` runs the sentinel as a container on two
 networks and the agent on an internal one only. `gateway_mode_ipv4: isolated`
 (Docker 28) removes the bridge gateway, so the agent cannot reach the host either;

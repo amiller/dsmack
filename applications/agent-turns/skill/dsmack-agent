@@ -8,7 +8,6 @@ signed release's guest, zed verifies the evidence, and turn.from_receipt reads t
 its results with the guest Attest, and turn.from_guest_attest checks that here.
 """
 import argparse
-import gzip
 import io
 import json
 import os
@@ -70,14 +69,12 @@ $C --execute --plan $PLAN > execute.json
 V02_ZED_DIR, V02_IMAGE, V02_MAC_DIR = '/data/amiller/dsmack/agent-turns-v02-20261025', 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
 V02_OS_IMAGE = '3bec88cae3271ce70661c55c8f0a0cf13b98700a3dcb8d45199d1af8329cdce7'
-# Bulk transfers to the Mac stay off the shared control master.
-BULK = ['-o', 'ControlMaster=no', '-o', 'ControlPath=/tmp/agentturns-%C']
 
 # On the Mac: stage the credential through the pipe, then one hvf-v3 launch of the attempt with that private disk.
 MAC_RUN_V02 = r'''set -euo pipefail
 D=$HOME/$1; T=$D/t/$2; S=$D/source
 [ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 12582912 ] || { echo 'the Mac needs 12 GiB free' >&2; exit 3; }
-! pgrep -f dsmack-runner >/dev/null || { echo 'another runner VM is running on the Mac' >&2; exit 3; }
+! pgrep -f MacOS/dsmack-runner >/dev/null || { echo 'another runner VM is running on the Mac' >&2; exit 3; }
 W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
 cd "$T"; mkdir -m700 private tmp
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
@@ -179,23 +176,26 @@ def mac_v02(request, inputs, out):
                         f'--release {ZED_DIR}/{RELEASE} --oci {V02_IMAGE}/oci-layout --request {zed}/request.json '
                         f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    pipe(f'tar -c -C {zed}/admit workload.img preparation closure-context.json',
-         f'mkdir -m700 -p {mac_t} && tar -x -C {mac_t} && chmod -R go-rwx {mac_t}', dst_opts=BULK)
+    # The disk shares the Mac's control master with other sessions, so zed throttles it.
+    pipe(f'set -o pipefail; tar -c -C {zed}/admit workload.img preparation closure-context.json | pv -q -L 20m',
+         f'mkdir -m700 -p {mac_t} && tar -x -C {mac_t} && chmod -R go-rwx {mac_t}')
+    ssh(ZED, f'rm {zed}/admit/workload.img {zed}/tree.tar')
     try:
         ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN_V02.encode())
     finally:
         # private-input.img holds the credential.
         ssh(MAC, f'rm -rf {mac_t}/private {mac_t}/tmp {mac_t}/workload.img')
-    pulled = subprocess.run(['ssh', *BULK, MAC, f'tar -c -C {mac_t} out stage.json stdout.txt stderr.txt session.json '
-                             f'-C ../.. enrollment'], check=True, capture_output=True).stdout
+    try:
+        # The VM has exited once open -W returns; its staged disks and 4 GiB scratch stay behind.
+        pulled = ssh(MAC, f'tar -cz --exclude "*.staged" --exclude scratch.img -C {mac_t} '
+                          f'out stage.json stdout.txt stderr.txt session.json -C ../.. enrollment', capture_output=True).stdout
+    finally:
+        ssh(MAC, f'rm -rf {mac_t}')
     with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
         tar.extractall(out, filter='data')
-    ssh(MAC, f'rm -rf {mac_t}')
-    with gzip.open(out/'out/result.img.gz') as image:
-        (out/'result.img').write_bytes(image.read())
     (out/'result').mkdir()
-    subprocess.run(['/sbin/debugfs', '-R', f'rdump / {out/"result"}', str(out/'result.img')], check=True, capture_output=True)
-    (out/'result.img').unlink()
+    subprocess.run(['/sbin/debugfs', '-R', f'rdump / {out/"result"}', str(out/'out/result.img')], check=True, capture_output=True)
+    subprocess.run(['gzip', str(out/'out/result.img')], check=True)
     shutil.copytree(out/'result'/SELECTOR/'outputs/artifacts', out/'artifacts')
     return turn.from_guest_attest((out/'artifacts/attestation').read_bytes(), request, out/'artifacts', out/'out',
                                   out/'enrollment', V02_CDHASH, V02_OS_IMAGE)
@@ -216,10 +216,10 @@ def bundle(request, inputs):
     return raw.getvalue()
 
 
-def pipe(source, sink, src=ZED, dst=MAC, dst_opts=()):
+def pipe(source, sink, src=ZED, dst=MAC):
     """Stream a tar from one host to another through this machine."""
     reader = subprocess.Popen(['ssh', src, source], stdout=subprocess.PIPE)
-    subprocess.run(['ssh', *dst_opts, dst, sink], stdin=reader.stdout, check=True)
+    subprocess.run(['ssh', dst, sink], stdin=reader.stdout, check=True)
     assert reader.wait() == 0, f'{src}: {source}'
 
 

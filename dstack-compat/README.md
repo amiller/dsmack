@@ -44,7 +44,7 @@ unchanged.
   returns the task secret sealed to that `secret-key`. A replayed attestation only yields another
   ciphertext for the same run's in-memory key, so the policy keeps no state. Every service in the
   task's compose can fetch its secret; give a secret its own task to scope it to one service.
-- `secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <host:port>` builds a
+- `secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <policy url>` builds a
   workload that attests, asks the policy, and opens the secret through `/v1/GetSecret`.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary
   workload: one `/v1/Attest` with zero `report_data`, written to its outputs, then a sleep.
@@ -64,14 +64,17 @@ python3 -m pytest dstack-compat
 ```
 
 The secret-release tests (`test_secret_box.py`, `node --test secret-release`) need node.
-Run the policy locally:
+Run the policy locally, with `config.json` beside `server.ts`:
 
 ```sh
-SECRET_RELEASE_FILE=config.json deno run --allow-net --allow-read --allow-env \
-  dstack-compat/secret-release/server.ts 127.0.0.1 8787
+deno run --allow-net --allow-read --allow-write dstack-compat/secret-release/server.ts serve 127.0.0.1 8787 <data dir>
 ```
 
-`config.json` is `{rpc, attest, canary, tasks: {<task id>: {manifest, images, secret}}}`, hex values.
+`config.json` is `{rpc, attest, canary, tasks: {<task id>: {manifest, images, wrapped}}}`, hex values.
+The server keeps its key in `<data dir>`; `GET /public-key` returns it, and
+`echo <secret hex> | deno run server.ts wrap <pub> <task id> <manifest> <image>...` prints `wrapped`.
+On dstack-webhost deploy it with `isolation: container`, so `<data dir>` is a volume only its own
+container mounts; the daemon's shared runtime can read every project's env.
 
 End to end, on a docker host. `<dir>` holds `sim/` (dstack's
 `sdk/simulator` files plus a running `dstack-simulator` built with

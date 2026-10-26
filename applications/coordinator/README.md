@@ -18,7 +18,7 @@ is in `/state`, the app's encrypted volume.
 Turns speak the mac-compose runner's KMS protocol. Point the runner at
 `--kms http://<coordinator>/turn`.
 
-- `GET /turn/nonce`
+- `GET /turn/nonce`: a nonce for one launch within 60 s; `429` while 64 are outstanding.
 - `POST /turn/release`: the runner's launch request. Checks the App Attest
   attestation against Apple's root under the macOS policy, that `CDRegistry.rpIdHash`
   of the attested CDHash is our RP ID, that the compose hash is an agent's current
@@ -43,6 +43,7 @@ Operator calls carry `Authorization: Bearer $OPERATOR_TOKEN`:
 - `POST /admit {release_inventory_sha256, profile, closure_context, workload_disk}`:
   one `dsmack-alpha-workload-admission/1` per attempt id, for a profile of a release this app signed.
 - `POST /enroll {attestation, key_id, client_data}`: record a Mac's App Attest key for `/grant`.
+  A key that is already enrolled is refused.
 
 Environment: `OPERATOR_TOKEN`, `API_KEY`, `RPC_URL`, `CDREGISTRY`.
 

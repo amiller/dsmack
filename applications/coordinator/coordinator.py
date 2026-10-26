@@ -36,6 +36,7 @@ HEX64, HEX32, NAME = re.compile('[0-9a-f]{64}'), re.compile('[0-9a-f]{32}'), re.
 POLICY = Policy(APP_ID, environment='production', categories=(MACOS_VALIDATION_CATEGORY,), require_macos_acl=True)
 RP_ID_HASH = hashlib.sha256(APP_ID.encode()).digest()
 LOCK = threading.Lock()
+NONCE_TTL, MAX_NONCES = 60, 64
 
 canonical = lambda o: json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()
 sha = lambda b: hashlib.sha256(b).hexdigest()
@@ -107,21 +108,37 @@ def head_of(compose_hash, reason):
     return agent, json.loads((STATE / 'agents' / agent / 'head.json').read_bytes())
 
 
+def new_nonce():
+    """Unauthenticated: drop expired nonces and refuse past MAX_NONCES outstanding."""
+    live = 0
+    for p in (STATE / 'nonces').iterdir():
+        if time.time() - float(p.read_text()) >= NONCE_TTL:
+            p.unlink()
+        else:
+            live += 1
+    require(live < MAX_NONCES, 'too_many_outstanding_nonces')
+    nonce = secrets.token_hex(32)
+    (STATE / 'nonces' / nonce).write_text(str(time.time()))
+    return {'nonce': nonce}
+
+
 def take_nonce(nonce):
     require(isinstance(nonce, str) and HEX64.fullmatch(nonce) and (STATE / 'nonces' / nonce).exists(), 'unknown_or_stale_nonce')
     issued = float((STATE / 'nonces' / nonce).read_text())
     (STATE / 'nonces' / nonce).unlink()
-    require(time.time() - issued < 60, 'unknown_or_stale_nonce')
+    require(time.time() - issued < NONCE_TTL, 'unknown_or_stale_nonce')
 
 
 def genesis(req):
     agent = req['agent']
     require(isinstance(agent, str) and NAME.fullmatch(agent), 'bad_agent_name')
+    require(isinstance(req['image'], str) and type(req['port']) is int and 0 < req['port'] < 65536, 'bad_agent_config')
+    config, blob = canonical({'image': req['image'], 'port': req['port']}), base64.b64decode(req['ciphertext'], validate=True)
     d = STATE / 'agents' / agent
     require(not d.exists(), 'agent_exists')
     d.mkdir()
-    (d / 'config.json').write_bytes(canonical({'image': req['image'], 'port': int(req['port'])}))
-    return set_head(agent, store(base64.b64decode(req['ciphertext'])), 1)
+    (d / 'config.json').write_bytes(config)
+    return set_head(agent, store(blob), 1)
 
 
 def release(req):
@@ -175,6 +192,7 @@ def mac_path(key_id):
 
 def enroll(req):
     """Record a Mac's App Attest key for /grant; the attestation must be of a CDRegistry-admitted build."""
+    require(not mac_path(req['key_id']).exists(), 'mac_already_enrolled')
     info = launch(req['attestation'], req['key_id'], unb64(req['client_data']))
     mac_path(req['key_id']).write_bytes(canonical({'key_id': req['key_id'], 'public_key': info['public_key'], 'counter': 0}))
     return {'key_id': req['key_id'], 'cdhash': info['signals']['cdhash']}
@@ -254,13 +272,16 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/turn/nonce':
-            nonce = secrets.token_hex(32)
-            (STATE / 'nonces' / nonce).write_text(str(time.time()))
-            return self.reply(200, canonical({'nonce': nonce}))
+            try:
+                with LOCK:
+                    out = new_nonce()
+            except Reject as e:
+                return self.reply(429, canonical({'error': str(e)}))
+            return self.reply(200, canonical(out))
         if self.path == '/keys':
             return self.reply(200, KEYS)
         kind, _, name = self.path.removeprefix('/').partition('/')
-        if kind in ('head', 'compose') and NAME.fullmatch(name) and (STATE / 'agents' / name).exists():
+        if kind in ('head', 'compose') and NAME.fullmatch(name) and (STATE / 'agents' / name / 'head.json').exists():
             head = (STATE / 'agents' / name / 'head.json').read_bytes()
             return self.reply(200, head if kind == 'head' else (STATE / 'agents' / name / f'compose-turn-{json.loads(head)["turn"]}.json').read_bytes())
         if self.path.startswith('/turn/state/') and HEX64.fullmatch(h := self.path.removeprefix('/turn/state/')) and (STATE / 'blobs' / h).exists():

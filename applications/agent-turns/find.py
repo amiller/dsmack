@@ -8,12 +8,14 @@ output files, so their names are the receipt's artifact names.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import selectors
 import shutil
 import signal
+import socket
 import subprocess
 import tarfile
 import tempfile
@@ -23,6 +25,7 @@ MAX_STDOUT = 8*1024*1024
 MAX_STDERR = 65536
 READ_ONLY_TOOLS = {'Read', 'Grep', 'Glob'}
 EDIT_TOOLS = READ_ONLY_TOOLS | {'Edit', 'Write'}
+DSTACK_SOCK = '/var/run/dstack.sock'
 
 
 def require(ok, reason):
@@ -226,15 +229,44 @@ def run(spec, inputs, output, cli):
     return verdict
 
 
+def report(request, outputs):
+    """The sha256 that a guest Attest signs as report_data: the request and the turn's results."""
+    def digest(name):
+        return file_sha(outputs/name) if (outputs/name).exists() else None
+    head = outputs/'dashcam-head'
+    return hashlib.sha256(canonical({
+        'schema': 'dsmack-agent-turn-report/1', 'request': sha(request), 'patch': digest('patch'),
+        'transcripts': [file_sha(p) for p in sorted(outputs.glob('run-*-transcript'))], 'verdict': digest('verdict'),
+        'dashcam': head.read_text().strip() if head.exists() else None, 'state_out': digest('state')})).digest()
+
+
+def attest(report_data, output):
+    """POST /v1/Attest on the guest's dstack socket; the VersionedAttestation becomes the `attestation` artifact."""
+    class Unix(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.connect(DSTACK_SOCK)
+    conn = Unix('localhost')
+    conn.request('POST', '/v1/Attest', json.dumps({'report_data': report_data.hex()}), {'Content-Type': 'application/json'})
+    response = conn.getresponse()
+    body = json.loads(response.read())
+    require(response.status == 200, 'Attest: ' + str(body.get('error')))
+    (output/'attestation').write_bytes(bytes.fromhex(body['attestation']))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--spec', type=Path, required=True)
     parser.add_argument('--inputs', type=Path, required=True, help='directory, or a tar of one')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cli', type=Path, default=Path('/usr/local/bin/claude'))
+    parser.add_argument('--attest', action='store_true', help='bind the results with a guest Attest on ' + DSTACK_SOCK)
     args = parser.parse_args()
     inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
-    verdict = run(json.loads(args.spec.read_bytes()), inputs, args.output, args.cli)
+    request = args.spec.read_bytes()
+    verdict = run(json.loads(request), inputs, args.output, args.cli)
+    if args.attest:
+        attest(report(request, args.output), args.output)
     print(json.dumps(verdict, indent=2))
 
 

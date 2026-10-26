@@ -4,8 +4,11 @@
 The working tree is snapshotted and sent with a dsmack-agent-turn/1 request to the attested Mac.
 zed admits the attempt (mac.py admit), the Mac stages the subscription credential and runs it in the
 signed release's guest, zed verifies the evidence, and turn.from_receipt reads the verified receipt.
+`run-v02` runs the turn on the v0.2.0-canary.1 runner and base image instead (mac_v02): the workload signs
+its results with the guest Attest, and turn.from_guest_attest checks that here.
 """
 import argparse
+import gzip
 import io
 import json
 import os
@@ -27,6 +30,7 @@ ZED, ZED_DIR = 'zed-mesh', '/data/amiller/dsmack/mac-dispatch-20261025'
 RELEASE, IMAGE = 'release-3', 'image-3'
 MAC, MAC_DIR = 'mini-mesh', 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
+SELECTOR = 'agent-turns-edit-v1'
 ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.json checker-context.json challenge.bin keyId.txt preparation'
 
 # On the Mac: stage the credential through the pipe, write the local task, prepare, check and launch once.
@@ -59,6 +63,67 @@ $C --check-only --plan $PLAN
 $C --execute --plan $PLAN > execute.json
 '''
 
+# v0.2.0-canary.1: zed holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
+# base/ (the release's Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
+# source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source) and enrollment/ (the runner
+# key's attestation.cbor, clientData.bin, keyId.txt).
+V02_ZED_DIR, V02_IMAGE, V02_MAC_DIR = '/data/amiller/dsmack/agent-turns-v02-20261025', 'image-4', 'dsmack-agent-turns-v02-20261025'
+V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
+V02_OS_IMAGE = '3bec88cae3271ce70661c55c8f0a0cf13b98700a3dcb8d45199d1af8329cdce7'
+# Bulk transfers to the Mac stay off the shared control master.
+BULK = ['-o', 'ControlMaster=no', '-o', 'ControlPath=/tmp/agentturns-%C']
+
+# On the Mac: stage the credential through the pipe, then one hvf-v3 launch of the attempt with that private disk.
+MAC_RUN_V02 = r'''set -euo pipefail
+D=$HOME/$1; T=$D/t/$2; S=$D/source
+[ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 12582912 ] || { echo 'the Mac needs 12 GiB free' >&2; exit 3; }
+! pgrep -f dsmack-runner >/dev/null || { echo 'another runner VM is running on the Mac' >&2; exit 3; }
+W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
+cd "$T"; mkdir -m700 private tmp
+P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
+python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \
+python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
+  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp > stage.json
+python3 -I - "$D" "$T" <<'PY'
+import hashlib,json,secrets,subprocess,sys,time
+from pathlib import Path
+d,t=Path(sys.argv[1]),Path(sys.argv[2]);b=d/'base';rt=Path.home()/'.ap/runtime'
+canon=lambda v:json.dumps(v,sort_keys=True,separators=(',',':')).encode()
+def fsha(p):
+ h=hashlib.sha256()
+ with open(p,'rb') as f:
+  for c in iter(lambda:f.read(1<<20),b''):h.update(c)
+ return h.hexdigest()
+desc=lambda p:{'path':str(p),'sha256':fsha(p),'bytes':p.stat().st_size}
+meta=json.loads((b/'metadata.json').read_bytes());osh=fsha(b/'sha256sum.txt');args=dict(x.split('=',1) for x in meta['cmdline'].split() if '=' in x)
+image={'schema':'dsmack-general-launcher/image-manifest/1','arch':'aarch64','description':'agent turns v0.2','image_id':osh,'cmdline':meta['cmdline'],
+ 'guest':{'console':'hvc0','scratch_device':'vdb','workload_device':'vdc','supervisor_markers':'DSMACK_RESULT_CLOSED_V1'},
+ 'kernel':desc(b/'Image'),'initrd':desc(b/'initramfs.cpio.gz'),'system_disk':dict(desc(b/'rootfs.squashfs.verity'),format='raw',verity_root_hash=args['dstack.rootfs_hash']),
+ 'resource_profiles':{'mini-4096':{'mem_mib':4096,'vcpus':1,'basis':'agent turns:4096MiB/1vCPU'}},'provenance':{'profile_id':'agent-turns-edit-v1','release_inventory_sha256':'0'*64}}
+ir=canon(image);(t/'image-manifest.json').write_bytes(ir)
+(t/'policy.json').write_bytes(canon({'schema':'dsmack-general-launcher/admission-policy/1','policy_id':'agent-turns-4096-1-900','notes':'agent turns v0.2',
+ 'admitted_images':[{'image_id':osh,'manifest_sha256':hashlib.sha256(ir).hexdigest(),'admitted_by':'local:agent-turns-v02'}],
+ 'resource_limits':{'max_mem_mib':4096,'max_vcpus':1,'max_runtime_seconds':900},'device_contract':{'system':'vda','scratch':'vdb','workload':'vdc'}}))
+(t/'admission.json').write_bytes(canon({'admission_version':1,'allowed_os_image_hashes':[osh]}))
+(t/'challenge.bin').write_bytes(secrets.token_bytes(32))
+tpl=lambda n:{n+'_template_path':str(rt/'base'/(n+'-template.ext4')),n+'_template_sha256':args['dstack.%s_template_sha256'%n],n+'_template_bytes':(rt/'base'/(n+'-template.ext4')).stat().st_size}
+(t/'session.json').write_bytes(canon({'schema':'dsmack-general-launcher/session/3','policy_path':str(t/'policy.json'),'image_manifest_path':str(t/'image-manifest.json'),
+ 'checksum_manifest_path':str(b/'sha256sum.txt'),'metadata_path':str(b/'metadata.json'),'admission_path':str(t/'admission.json'),
+ 'compose_manifest_path':str(t/'preparation/compose-manifest.json'),'profile':'mini-4096','workload_disk_path':str(t/'workload.img'),
+ 'workload_sha256':fsha(t/'workload.img'),'workload_id':'agent-turns-edit-v1','runtime_seconds':900,
+ 'private_input_path':str(t/'private/turn/private-input.img'),'net_socket_path':str(t/'net.sock'),**tpl('scratch'),**tpl('result')}))
+net=subprocess.Popen([str(rt/'helper/gvproxy-darwin'),'-listen-qemu','unix://%s'%(t/'net.sock'),'-ssh-port','-1','-log-file',str(t/'gvproxy.log')])
+while not (t/'net.sock').exists():
+ assert net.poll() is None,'gvproxy exited'
+ time.sleep(0.1)
+try:subprocess.run(['/usr/bin/open','-n','-W','--stdout',str(t/'stdout.txt'),'--stderr',str(t/'stderr.txt'),str(d/'DsmackRunner.app'),
+ '--args','hvf-v3',str(t/'out'),str(t/'session.json'),str(t/'challenge.bin'),str(d/'enrollment/keyId.txt')],check=True,timeout=1320)
+finally:net.terminate();net.wait()
+PY
+'''
+
+
 def snapshot(repo, inputs):
     names = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z', '-co', '--exclude-standard', '--deduplicate'],
                            check=True, capture_output=True).stdout.decode().split('\0')
@@ -76,20 +141,10 @@ def ssh(host, command, **kw):
 
 
 def mac(request, inputs, out):
-    """Run the turn in the signed release's guest on the Mac. Returns the verified receipt v4."""
+    """Run the turn in the signed release's guest on the Mac. Returns the turn record of the verified receipt v4."""
     run_id = uuid.uuid4().hex[:12]
     zed = f'{ZED_DIR}/attempts/{run_id}'
-    tree = io.BytesIO()
-    with tarfile.open(fileobj=tree, mode='w', format=tarfile.USTAR_FORMAT) as tar:
-        for path in sorted(p for p in inputs.rglob('*') if p.is_file()):
-            tar.add(path, str(path.relative_to(inputs)))
-    bundle = io.BytesIO()
-    with tarfile.open(fileobj=bundle, mode='w') as tar:
-        for name, raw in (('request.json', request), ('tree.tar', tree.getvalue())):
-            info = tarfile.TarInfo(name)
-            info.size = len(raw)
-            tar.addfile(info, io.BytesIO(raw))
-    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle.getvalue())
+    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle(request, inputs))
     admitted = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
                         f'--oci {IMAGE}/oci-layout --authority authority --request {zed}/request.json '
                         f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
@@ -112,13 +167,59 @@ def mac(request, inputs, out):
     pulled = ssh(ZED, f'tar -c -C {zed}/verify/retained receipt.json report.json -C outputs artifacts', capture_output=True).stdout
     with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
         tar.extractall(out, filter='data')
-    return json.loads((out/'receipt.json').read_bytes())
+    return turn.from_receipt(json.loads((out/'receipt.json').read_bytes()), request, out/'artifacts')
 
 
-def pipe(source, sink, src=ZED, dst=MAC):
+def mac_v02(request, inputs, out):
+    """Run the turn on the v0.2.0-canary.1 runner and base image on the Mac. Returns the checked turn record."""
+    run_id = uuid.uuid4().hex[:12]
+    zed, mac_t = f'{V02_ZED_DIR}/attempts/{run_id}', f'{V02_MAC_DIR}/t/{run_id}'
+    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle(request, inputs))
+    admitted = ssh(ZED, f'cd {V02_ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit-v02 '
+                        f'--release {ZED_DIR}/{RELEASE} --oci {V02_IMAGE}/oci-layout --request {zed}/request.json '
+                        f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
+    (out/'admission.json').write_bytes(admitted.splitlines()[-1])
+    pipe(f'tar -c -C {zed}/admit workload.img preparation closure-context.json',
+         f'mkdir -m700 -p {mac_t} && tar -x -C {mac_t} && chmod -R go-rwx {mac_t}', dst_opts=BULK)
+    try:
+        ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN_V02.encode())
+    finally:
+        # private-input.img holds the credential.
+        ssh(MAC, f'rm -rf {mac_t}/private {mac_t}/tmp {mac_t}/workload.img')
+    pulled = subprocess.run(['ssh', *BULK, MAC, f'tar -c -C {mac_t} out stage.json stdout.txt stderr.txt session.json '
+                             f'-C ../.. enrollment'], check=True, capture_output=True).stdout
+    with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
+        tar.extractall(out, filter='data')
+    ssh(MAC, f'rm -rf {mac_t}')
+    with gzip.open(out/'out/result.img.gz') as image:
+        (out/'result.img').write_bytes(image.read())
+    (out/'result').mkdir()
+    subprocess.run(['/sbin/debugfs', '-R', f'rdump / {out/"result"}', str(out/'result.img')], check=True, capture_output=True)
+    (out/'result.img').unlink()
+    shutil.copytree(out/'result'/SELECTOR/'outputs/artifacts', out/'artifacts')
+    return turn.from_guest_attest((out/'artifacts/attestation').read_bytes(), request, out/'artifacts', out/'out',
+                                  out/'enrollment', V02_CDHASH, V02_OS_IMAGE)
+
+
+def bundle(request, inputs):
+    """A tar of request.json and tree.tar, the snapshot as the turn's `tree` slot."""
+    tree = io.BytesIO()
+    with tarfile.open(fileobj=tree, mode='w', format=tarfile.USTAR_FORMAT) as tar:
+        for path in sorted(p for p in inputs.rglob('*') if p.is_file()):
+            tar.add(path, str(path.relative_to(inputs)))
+    raw = io.BytesIO()
+    with tarfile.open(fileobj=raw, mode='w') as tar:
+        for name, body in (('request.json', request), ('tree.tar', tree.getvalue())):
+            info = tarfile.TarInfo(name)
+            info.size = len(body)
+            tar.addfile(info, io.BytesIO(body))
+    return raw.getvalue()
+
+
+def pipe(source, sink, src=ZED, dst=MAC, dst_opts=()):
     """Stream a tar from one host to another through this machine."""
     reader = subprocess.Popen(['ssh', src, source], stdout=subprocess.PIPE)
-    subprocess.run(['ssh', dst, sink], stdin=reader.stdout, check=True)
+    subprocess.run(['ssh', *dst_opts, dst, sink], stdin=reader.stdout, check=True)
     assert reader.wait() == 0, f'{src}: {source}'
 
 
@@ -133,8 +234,7 @@ def run(args):
                               'inputs_sha256': snapshot(repo, out/'inputs'), 'state_in': None})
     (out/'request.json').write_bytes(request)
     print('out:', out, file=sys.stderr)
-    receipt = mac(request, out/'inputs', out)
-    record = turn.from_receipt(receipt, request, out/'artifacts')
+    record = args.transport(request, out/'inputs', out)
     (out/'turn.json').write_text(json.dumps(record, indent=2))
     patch = out/'artifacts'/'patch'
     subprocess.run(['git', '-C', str(repo), 'apply', '--check', str(patch)], check=True)
@@ -144,7 +244,13 @@ def run(args):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(required=True)
-    p = sub.add_parser('run', help='dispatch one coding turn')
+    add_run(sub.add_parser('run', help='dispatch one coding turn to the alpha release'), mac)
+    add_run(sub.add_parser('run-v02', help='dispatch one coding turn to the v0.2.0-canary.1 runner'), mac_v02)
+    args = parser.parse_args()
+    args.func(args)
+
+
+def add_run(p, transport):
     p.add_argument('--repo', type=Path, required=True, help='git checkout; its working tree is the input')
     p.add_argument('--prompt', required=True)
     p.add_argument('--out', type=Path, required=True, help='new local directory for the request and artifacts')
@@ -152,9 +258,7 @@ def main():
     p.add_argument('--model', default='claude-opus-4-8')
     p.add_argument('--max-turns', type=int, default=30)
     p.add_argument('--wall-seconds', type=int, default=480)
-    p.set_defaults(func=run)
-    args = parser.parse_args()
-    args.func(args)
+    p.set_defaults(func=run, transport=transport)
 
 
 if __name__ == '__main__':

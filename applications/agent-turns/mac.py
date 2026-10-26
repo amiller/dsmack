@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Operator side of the Mac transport, run on zed /data: the agent-turns image and its signed release,
-per-attempt workload admissions, and verification of the Mac's run evidence.
+per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
+for the v0.2.0-canary.1 runner and base image instead, where the turn binds its results with a guest Attest.
 
 The admission signer runs here with the release key for now; it moves into a dstack app that holds the key.
 """
@@ -34,6 +35,8 @@ PYTHON = '304aa87a76ebb13fd22d253ac157f14980ff2cdb23e6274f3b045571405e07dc'
 # The qualified 0.7.1.broker-timeout-v1 base (rootfs c62f6746) and its guest-input builder.
 BUILD = Path('/data/amiller/dsmack/broker-timeout-v1-20261022/build-2')
 BASE = BUILD/'build/legs/diagnostic/files'
+# The v0.2.0-canary.1 base image (os_image_hash 3bec88ca) with the guest Attest agent.
+V02 = Path('/data/amiller/dsmack/canary-release-20261025/assets')
 KEY_ID = 'dsmack-alpha-20261022-86473863'
 RELEASE_KEY = Path('/data/amiller/dsmack/alpha-release-authority-20261022/864738631abef8cc88c98597/release-signing-key.pem')
 POLICY = '/data/amiller/dsmack/arcade-pilot-runtime-20261023/PUBLIC-OPERATOR-POLICY.json'
@@ -143,6 +146,26 @@ def compose_manifest(reference, digest):
     return raw
 
 
+def compose_manifest_v02(alpha_raw, digest):
+    """The alpha edit-turn manifest on the v0.2 base: its base_vm, the dstack socket and an `attestation` artifact."""
+    m = json.loads(alpha_raw)
+    meta = json.loads((V02/'metadata.json').read_bytes())
+    root = dict(t.split('=', 1) for t in meta['cmdline'].split() if '=' in t)['dstack.rootfs_hash']
+    m['base_vm'].update(cmdline=meta['cmdline'], initrd_sha256=file_sha(V02/'initramfs.cpio.gz'),
+                        kernel_sha256=file_sha(V02/'Image'), metadata_sha256=file_sha(V02/'metadata.json'),
+                        os_image_hash=file_sha(V02/'sha256sum.txt'), rootfs_sha256=file_sha(V02/'rootfs.squashfs.verity'),
+                        verity_root_hash=root)
+    compose = json.loads(m['docker_compose_file'])
+    service = compose['services']['agent']
+    service.update(image=f'127.0.0.1:5005/{REPO}@{digest}', command=service['command'] + ['--attest'])
+    service['volumes'].append('/var/run/dstack.sock:/var/run/dstack.sock:ro')
+    m['docker_compose_file'] = canonical(compose).decode()
+    m['outputs']['artifacts'].append({'name': 'attestation', 'path': '/workspace/artifacts/attestation'})
+    raw = canonical(m)
+    validate_manifest_bytes(raw)
+    return raw
+
+
 def release(args):
     """Sign a release that is a prior private-develop release with the agent-turns profile and current sources."""
     out = args.out
@@ -193,7 +216,7 @@ def release(args):
     print(json.dumps({'inventory_sha256': sha(raw), 'manifest_sha256': sha(manifest), 'sequence': args.sequence}))
 
 
-def public_disk(out, manifest_raw, projection, context, oci):
+def public_disk(out, manifest_raw, projection, context, oci, base=BASE):
     """The measured workload disk: manifest, base bundle, commitment declaration, closure context and image."""
     from transport_loader import execute, load, raw
     transport = load(GUEST/'smoke/launch_vm_dstack_arm64.py')
@@ -209,7 +232,7 @@ def public_disk(out, manifest_raw, projection, context, oci):
         (tree/name).mkdir(parents=True)
     (tree/'manifests'/(SELECTOR + '.app-compose.json')).write_bytes(manifest_raw)
     for name in ('Image', 'initramfs.cpio.gz', 'rootfs.squashfs.verity', 'metadata.json', 'sha256sum.txt'):
-        shutil.copyfile(BASE/name, tree/'base-bundle'/name)
+        shutil.copyfile(base/name, tree/'base-bundle'/name)
     (tree/'admission/base-admission.json').write_bytes(
         canonical({'admission_version': 1, 'allowed_os_image_hashes': [manifest['base_vm']['os_image_hash']]}))
     guest_inputs.emit_commitment_declaration(str(tree), SELECTOR, projection, sha(manifest_raw))
@@ -232,12 +255,9 @@ def verifier(authority, *argv):
     return [json.loads(line) for line in result.stdout.splitlines() if line.strip()]
 
 
-def admit(args):
-    """Mint one attempt: projection, measured disk, checker context, signed admission and a fresh challenge."""
-    out, authority = args.out, args.authority
+def prepare(out, manifest_raw, args, base):
+    """The attempt's public projection, closure context and measured workload disk."""
     out.mkdir()
-    inventory_raw = (args.release/'release.json').read_bytes()
-    manifest_raw = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
     manifest = json.loads(manifest_raw)
     files = {'tree': args.inputs_tar.read_bytes(), 'turn': args.request.read_bytes()}
     projection = {'runtime_input_version': 4, 'manifest_sha256': sha(manifest_raw),
@@ -251,7 +271,16 @@ def admit(args):
     attempt = secrets.token_hex(16)
     closure = {'schema': 'dsmack-result-closure-context/1', 'attempt_id': attempt, 'selectors': [SELECTOR]}
     (out/'closure-context.json').write_bytes(canonical(closure))
-    disk = public_disk(out, manifest_raw, projection, canonical(closure), args.oci)
+    disk = public_disk(out, manifest_raw, projection, canonical(closure), args.oci, base)
+    return attempt, closure, disk
+
+
+def admit(args):
+    """Mint one attempt: projection, measured disk, checker context, signed admission and a fresh challenge."""
+    out, authority = args.out, args.authority
+    inventory_raw = (args.release/'release.json').read_bytes()
+    manifest_raw = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
+    attempt, closure, disk = prepare(out, manifest_raw, args, BASE)
     key_id = (authority/'keyId.txt').read_text().strip()
     challenge = secrets.token_bytes(32)
     (out/'challenge.bin').write_bytes(challenge)
@@ -279,6 +308,14 @@ def admit(args):
     verifier(authority, 'operator', 'issue-challenge', '--replay', authority/'replay.sqlite', '--key-id', key_id,
              '--manifest-sha256', sha(manifest_raw), '--ttl', 7200, '--challenge', challenge.hex())
     print(json.dumps({'attempt_id': attempt, 'workload_disk': disk}))
+
+
+def admit_v02(args):
+    """Mint one v0.2 attempt: the manifest, projection and measured disk. The Mac stages the private disk and launches."""
+    alpha = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
+    manifest_raw = compose_manifest_v02(alpha, json.loads((args.oci/'index.json').read_bytes())['manifests'][0]['digest'])
+    attempt, _, disk = prepare(args.out, manifest_raw, args, V02)
+    print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk}))
 
 
 def authorize(args):
@@ -341,6 +378,10 @@ def main():
     for name in ('release', 'oci', 'authority', 'request', 'inputs-tar', 'out'):
         p.add_argument('--' + name, type=Path, required=True)
     p.set_defaults(func=admit)
+    p = sub.add_parser('admit-v02')
+    for name in ('release', 'oci', 'request', 'inputs-tar', 'out'):
+        p.add_argument('--' + name, type=Path, required=True)
+    p.set_defaults(func=admit_v02)
     p = sub.add_parser('verify')
     for name in ('authority', 'attempt', 'evidence', 'job'):
         p.add_argument('--' + name, type=Path, required=True)

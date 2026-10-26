@@ -59,6 +59,7 @@ Declared artifacts, flat names (the receipt allows 16 single-segment names):
 | `state` | new state ciphertext; absent for a stateless turn |
 | `patch` | `git diff --binary` of an edit turn against the inputs |
 | `verdict` | `{answer, aggregate, run_answers, observed_models}`; `answer` is null when the rule is not met |
+| `verdict` (edit turn) | `{answer: null, summary, num_turns, observed_models}` |
 | `run-N-transcript` | raw stream-json of run N |
 | `run-N-verdict` | `{answer, rationale, citations, num_turns, observed_models}` |
 | `run-N-stderr` | CLI stderr |

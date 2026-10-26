@@ -192,9 +192,13 @@ def edit(spec, inputs, output, cli, endpoint):
         git('init', '-q')
         git('add', '-A', '-f')
         git('commit', '-q', '--allow-empty', '-m', 'inputs')
-        agent_run(cli, spec['agent'], edit_prompt(spec), work, output/'run-1', endpoint, True)
+        summary, models, turns = agent_run(cli, spec['agent'], edit_prompt(spec), work, output/'run-1', endpoint, True)
         git('add', '-A')
         (output/'patch').write_bytes(git('diff', '--cached', '--binary'))
+    # The manifest declares `verdict`, and a declared artifact that is missing fails the run.
+    verdict = {'answer': None, 'summary': summary[:1000], 'num_turns': turns, 'observed_models': models}
+    (output/'verdict').write_bytes(canonical(verdict))
+    return verdict
 
 
 def run(spec, inputs, output, cli):

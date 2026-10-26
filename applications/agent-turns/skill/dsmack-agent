@@ -24,7 +24,7 @@ import turn
 CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
 MAX_INPUTS = 16 << 20
 ZED, ZED_DIR = 'zed-mesh', '/data/amiller/dsmack/mac-dispatch-20261025'
-RELEASE, IMAGE = 'release-2', 'image-2'
+RELEASE, IMAGE = 'release-3', 'image-3'
 MAC, MAC_DIR = 'mini-mesh', 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
 ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.json checker-context.json challenge.bin keyId.txt preparation'

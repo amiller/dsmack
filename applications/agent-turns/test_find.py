@@ -64,9 +64,9 @@ class FindTest(unittest.TestCase):
         for key in ('answers', 'runs', 'aggregate'):
             del self.spec[key]
         self.spec['agent']['tools'] = ['Read', 'Edit', 'Write']
-        self.assertIsNone(self.run_mode('edit'))
+        self.assertEqual(self.run_mode('edit')['answer'], None)
         out = self.tmp/'out-edit'
-        self.assertEqual(sorted(p.name for p in out.iterdir()), ['patch', 'run-1-stderr', 'run-1-transcript'])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ['patch', 'run-1-stderr', 'run-1-transcript', 'verdict'])
         local = self.tmp/'local'
         shutil.copytree(self.inputs, local)
         subprocess.run(['git', 'apply', str(out/'patch')], cwd=local, check=True)

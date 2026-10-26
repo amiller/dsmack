@@ -82,8 +82,8 @@ def from_mac_compose(evidence, compose_bytes, cdhash, blobs):
             'outputs': {'state': transition['state_out']}, 'transcripts': [], 'verdict': None, 'dashcam': None}
 
 
-def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_image_hash):
-    """Check the turn's guest Attest: the App Attest key and launch, the sealed event log and report_data.
+def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_image_hash, manifest_sha256):
+    """Check the turn's guest Attest of the admitted manifest: the App Attest key and launch, the sealed event log and report_data.
 
     run holds the runner's launch-client-data.bin, launch-assertion.cbor and compose-manifest.bin;
     enrollment holds the key's attestation.cbor, clientData.bin and keyId.txt.
@@ -101,6 +101,7 @@ def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_
     launch_data = (run/'launch-client-data.bin').read_bytes()
     launch = verify_assertion((run/'launch-assertion.cbor').read_bytes(), launch_data, key, signed['counter'], rule)
     compose = (run/'compose-manifest.bin').read_bytes()
+    require(sha(compose) == manifest_sha256, 'compose is not the admitted manifest')
     require(a['run'] == hashlib.sha256(launch_data).digest(), 'Attest is not from this launch')
     require(a['manifest_sha256'].hex() == sha(compose) and a['os_image_hash'].hex() == os_image_hash,
             'Attest is not for this compose and image')

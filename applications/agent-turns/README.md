@@ -165,7 +165,7 @@ credential as above and launches `DsmackRunner.app hvf-v3` with that private
 disk. `turn.from_guest_attest` checks the runner key's App Attest attestation,
 the Attest assertion over the rebuilt client data, the replayed event log
 ending in `system-ready`, that `run` is the launch assertion's client data, the
-compose and image hashes, and `report_data` against the artifacts.
+compose (the manifest `admit-v02` admitted) and image hashes, and `report_data` against the artifacts.
 
 Setup: `image-4` built by `mac.py image` and `base/` (the `derive.py` artifacts) in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
 and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.

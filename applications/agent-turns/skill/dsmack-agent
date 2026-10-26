@@ -177,6 +177,7 @@ def mac_v02(request, inputs, out):
     admitted = ssh(OPERATOR, f'cd {V02_OPERATOR_DIR} && . {OPERATOR_DIR}/coordinator.env && python3 -B source/applications/agent-turns/mac.py admit-v02 '
                         f'--release {OPERATOR_DIR}/{RELEASE} --base base --oci {V02_IMAGE}/oci-layout --request {op}/request.json '
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
+    admission = json.loads(admitted.splitlines()[-1])
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
     # The disk shares the Mac's control master with other sessions, so the operator host throttles it.
     pipe(f'set -o pipefail; tar -c -C {op}/admit workload.img preparation closure-context.json | pv -q -L 20m',
@@ -200,7 +201,7 @@ def mac_v02(request, inputs, out):
     subprocess.run(['gzip', str(out/'out/result.img')], check=True)
     shutil.copytree(out/'result'/SELECTOR/'outputs/artifacts', out/'artifacts')
     return turn.from_guest_attest((out/'artifacts/attestation').read_bytes(), request, out/'artifacts', out/'out',
-                                  out/'enrollment', V02_CDHASH, V02_OS_IMAGE)
+                                  out/'enrollment', V02_CDHASH, V02_OS_IMAGE, admission['manifest_sha256'])
 
 
 def bundle(request, inputs):

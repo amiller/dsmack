@@ -1,0 +1,1 @@
+{"answer":null,"num_turns":3,"observed_models":["claude-opus-4-8"],"summary":"Fixed `add` in `src/calc.py`: it was returning `a - b`, now returns `a + b`."}

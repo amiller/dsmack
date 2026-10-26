@@ -16,10 +16,15 @@ entitlement keys match the approved build.
 
 ## Check the binary as shipped
 
-From a checkout of the repository:
+Run the commands below in the directory holding the release files, with a checkout of
+github.com/amiller/dsmack and its Python packages (Python 3.10 or later; macOS's
+`/usr/bin/python3` is 3.9 and cannot install `requirements.txt`):
 
 ```sh
-python3 tools/release/inspect_runner.py dsmack-runner \
+git clone https://github.com/amiller/dsmack.git ~/dsmack
+python3 -m venv ~/dsmack/venv && ~/dsmack/venv/bin/pip install -r ~/dsmack/requirements.txt
+DSMACK=~/dsmack PY=~/dsmack/venv/bin/python
+$PY $DSMACK/tools/release/inspect_runner.py dsmack-runner \
   --expected-cdhash 7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970 \
   --expected-team DC9JH5DRMY --expected-bundle dev.dsmack.provider
 ```
@@ -28,7 +33,8 @@ python3 tools/release/inspect_runner.py dsmack-runner \
 
 In your Apple Developer account: an explicit App ID (say `com.example.dsmack`) with the
 App Attest capability, an Apple Development certificate, your Mac's provisioning UDID
-registered, and a macOS development profile for that App ID and Mac.
+registered, and a macOS development profile for that App ID and Mac. The hypervisor
+entitlement needs no capability in the profile.
 
 ```sh
 TEAM=ABCDE12345 BUNDLE=com.example.dsmack ID="Apple Development: Your Name (XXXXXXXXXX)"
@@ -47,9 +53,9 @@ Keep the five entitlement keys as they are apart from the team and bundle values
 registry compares the rest byte for byte. Then check your copy and register it:
 
 ```sh
-python3 tools/release/inspect_runner.py DsmackRunner.app/Contents/MacOS/dsmack-runner \
+$PY $DSMACK/tools/release/inspect_runner.py DsmackRunner.app/Contents/MacOS/dsmack-runner \
   --expected-cdhash YOUR_CDHASH --expected-team $TEAM --expected-bundle $BUNDLE
-python3 contracts/cd_args.py DsmackRunner.app/Contents/MacOS/dsmack-runner > build.json
+$PY $DSMACK/contracts/cd_args.py DsmackRunner.app/Contents/MacOS/dsmack-runner > build.json
 b(){ python3 -c "import json,sys;print(json.load(open('build.json'))[sys.argv[1]])" $1; }
 CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6 RPC=https://sepolia.base.org
 cast call $CDS 'registerBuild(bytes,bytes,bytes)(bytes32)' $(b cd) $(b page0) $(b ent) --rpc-url $RPC

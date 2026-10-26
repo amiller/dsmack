@@ -57,6 +57,9 @@ WORKLOAD_UID = 1000
 WORKLOAD_GID = 1000
 SENTINEL_ENV_NAME = "DSMACK_SENTINEL_ENDPOINT"
 AGENT_SOCKET_DIR = "/run/dsmack-agent"
+# The supervisor writes the guest resolver here. Docker's embedded DNS (127.0.0.11) needs xt DNAT/SNAT,
+# which the guest kernel lacks (CONFIG_NETFILTER_XT_NAT unset), so networked containers use it directly.
+GUEST_RESOLV_CONF = "/run/resolv-guest.conf"
 
 
 def _target_segment(target):
@@ -427,6 +430,10 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
     if DSTACK_SOCK_VOLUME in _compose_doc(manifest)["services"][service_name].get("volumes", []):
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": "/var/run/dstack.sock", "type": "bind"}
+        )
+    if manifest["network"]["mode"] != "none":
+        mounts.append(
+            {"create_host_path": False, "mode": "ro", "slot": "resolv", "source": GUEST_RESOLV_CONF, "target": "/etc/resolv.conf", "type": "bind"}
         )
     return mounts
 

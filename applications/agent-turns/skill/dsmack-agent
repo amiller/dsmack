@@ -24,6 +24,7 @@ import turn
 CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
 MAX_INPUTS = 16 << 20
 ZED, ZED_DIR = 'zed-mesh', '/data/amiller/dsmack/mac-dispatch-20261025'
+RELEASE, IMAGE = 'release-2', 'image-2'
 MAC, MAC_DIR = 'mini-mesh', 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
 ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.json checker-context.json challenge.bin keyId.txt preparation'
@@ -89,8 +90,8 @@ def mac(request, inputs, out):
             info.size = len(raw)
             tar.addfile(info, io.BytesIO(raw))
     ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle.getvalue())
-    admitted = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit --release release-1 '
-                        f'--oci image-1/oci-layout --authority authority --request {zed}/request.json '
+    admitted = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
+                        f'--oci {IMAGE}/oci-layout --authority authority --request {zed}/request.json '
                         f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
     attempt = json.loads(admitted.splitlines()[-1])['attempt_id']
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
@@ -98,11 +99,13 @@ def mac(request, inputs, out):
     evidence = f'{MAC_DIR}/r/attempt-{attempt}'
     try:
         ssh(MAC, f'bash -s {MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN.encode())
-        pipe(f'tar -c --exclude scratch.img --exclude scratch-template.img.staged -C {evidence} .', f'mkdir {zed}/evidence && tar -x -C {zed}/evidence', MAC, ZED)
+        pipe(f'tar -c --exclude scratch.img --exclude "*.staged" -C {evidence} .', f'mkdir {zed}/evidence && tar -x -C {zed}/evidence', MAC, ZED)
     finally:
         # The VM has exited once execute returns; its two 4 GiB scratch copies are the run's only large residue.
-        ssh(MAC, f'cd {evidence} 2>/dev/null && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
-                 f'&& rm -f scratch.img scratch-template.img.staged; rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/workload.img')
+        # private-input.img holds the credential.
+        ssh(MAC, f'rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/tmp {MAC_DIR}/t/{run_id}/workload.img; '
+                 f'cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
+                 f'&& rm -f scratch.img *.staged')
     result = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
                       f'--attempt {zed}/admit --evidence {zed}/evidence --job {zed}/verify', capture_output=True).stdout
     (out/'verification.json').write_bytes(result.splitlines()[-1])

@@ -304,6 +304,7 @@ def authorize(args):
 def verify(args):
     """Full verification of the Mac's original evidence; leaves retained/receipt.json and retained/outputs."""
     a, job = args.authority, args.job
+    job.mkdir(mode=0o700)
     report = json.loads((a/'report.json').read_bytes())
     context = args.attempt/'checker-context.json'
     verifier(a, 'prepare', 'prepare', '--app-out', args.evidence, '--enrollment', a/'enrollment.json',

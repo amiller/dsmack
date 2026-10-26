@@ -167,7 +167,8 @@ def aggregate(answers, rule):
 
 def agent_run(cli, agent, text, cwd, run, endpoint, check_version):
     with tempfile.TemporaryDirectory() as home:
-        env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
+        # The guest's root is read-only, so the CLI's temporary files go in the per-run home.
+        env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'TMPDIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
                'LANG': 'C.UTF-8', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                'DISABLE_AUTOUPDATER': '1', 'ANTHROPIC_BASE_URL': endpoint,
                'ANTHROPIC_AUTH_TOKEN': endpoint.rsplit('/', 1)[1]}

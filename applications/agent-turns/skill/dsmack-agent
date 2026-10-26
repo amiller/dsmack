@@ -127,6 +127,7 @@ def snapshot(repo, inputs):
     names = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z', '-co', '--exclude-standard', '--deduplicate'],
                            check=True, capture_output=True).stdout.decode().split('\0')
     for name in filter(None, names):
+        find.require(not (repo/name).is_symlink(), f'{name} is a symlink; a turn takes regular files only')
         if os.path.lexists(repo/name):
             (inputs/name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(repo/name, inputs/name, follow_symlinks=False)
@@ -157,9 +158,10 @@ def mac(request, inputs, out):
     finally:
         # The VM has exited once execute returns; its two 4 GiB scratch copies are the run's only large residue.
         # private-input.img holds the credential.
+        # A launch that failed before prepare has no evidence dir.
         ssh(MAC, f'rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/tmp {MAC_DIR}/t/{run_id}/workload.img; '
-                 f'cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
-                 f'&& rm -f scratch.img *.staged')
+                 f'[ ! -d {evidence} ] || {{ cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
+                 f'&& rm -f scratch.img *.staged; }}')
     result = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
                       f'--attempt {op}/admit --evidence {op}/evidence --job {op}/verify', capture_output=True).stdout
     (out/'verification.json').write_bytes(result.splitlines()[-1])

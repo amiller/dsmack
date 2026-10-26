@@ -85,12 +85,13 @@ def verify_app(a,sp,tool,*,root,checked,alpha):
  return metadata
 
 PROFILE_INSTANCES={'bounty-board-search-generate-v1-judge1': 'bounty-board-search-generate-v1', 'bounty-board-search-generate-v1-judge2': 'bounty-board-search-generate-v1', 'bounty-board-search-generate-v1-judge3': 'bounty-board-search-generate-v1', 'bounty-board-search-browser-review-v1-suite1': 'bounty-board-search-browser-review-v1', 'bounty-board-search-browser-review-v1-suite2': 'bounty-board-search-browser-review-v1', 'bounty-board-search-browser-review-v1-suite3': 'bounty-board-search-browser-review-v1', 'bounty-board-search-browser-review-v1-baseline1': 'bounty-board-search-browser-review-v1', 'bounty-board-search-browser-review-v1-baseline2': 'bounty-board-search-browser-review-v1', 'bounty-board-search-browser-review-v1-baseline3': 'bounty-board-search-browser-review-v1', 'bounty-board-search-primary-review-v1-primary': 'bounty-board-search-primary-review-v1'}
+PRIVATE_PROFILES=('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1','agent-turns-edit-v1')
 def canonical_profile(profile):
  return PROFILE_INSTANCES.get(profile,profile)
 
 def task_inputs(path,c,profile):
  protected(path);raw=read(path,65536,True);task=c['load_bytes'](raw)
- developing=canonical_profile(profile) in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1')
+ developing=canonical_profile(profile) in PRIVATE_PROFILES
  fields={'schema','profile_id','closure_context','checker_context','challenge','key_id','workload_disk','workload_admission','workload_signature'}
  if developing:fields.add('private_input_path')
  need(set(task)==fields and task['schema']==('dsmack-alpha-local-task/3' if developing else 'dsmack-alpha-local-task/2') and task['profile_id']==profile,'task fields/profile')
@@ -99,7 +100,7 @@ def task_inputs(path,c,profile):
  return task,closure['attempt_id']
 
 def private_input(task,profile):
- need(profile['schema']=='dsmack-alpha-profile/3' and canonical_profile(profile['profile_id']) in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1'),'Explicit private profile required')
+ need(profile['schema']=='dsmack-alpha-profile/3' and canonical_profile(profile['profile_id']) in PRIVATE_PROFILES,'Explicit private profile required')
  policy=profile['private_input_policy'];need(policy=={'schema':'dsmack-alpha-private-channel/1','channel':'runtime-envelope-v1','max_bytes':1073741824,'public_runtime_envelope':False},'Private channel policy')
  path=task.get('private_input_path');need(isinstance(path,str) and path and '\0' not in path,'Private input path required');protected(path)
  fd=os.open(path,os.O_RDONLY|os.O_NOFOLLOW|os.O_NONBLOCK)

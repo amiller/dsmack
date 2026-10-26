@@ -19,7 +19,7 @@ mkdir -p "$D/mac"
 python3 -c 'import json,sys; c=open(sys.argv[1]).read(); print(json.dumps({"manifest_version":2,"name":"worker","runner":"docker-compose","docker_compose_file":c}),end="")' \
   "$D/compat/docker-compose.json" > "$D/mac/app-compose.json"
 hash=$(sha256sum "$D/mac/app-compose.json" | cut -d' ' -f1)
-py grant.py /w/sim/dstack.sock task-1 mac-mini-7 "$hash" 600 > "$D/mac/grant.json"
+py grant.py mint /w/sim/dstack.sock task-1 mac-mini-7 "$hash" 600 > "$D/mac/grant.json"
 docker run -d --rm --name dstack-compat-shim-$$ -v "$D:/w" -w /w/compat -e PYTHONPATH=/w/pylib "$PY" \
   python3 agent.py --grant /w/mac/grant.json --dir /w/mac worker >/dev/null
 until [ -S "$D/mac/worker.sock" ]; do sleep 0.2; done

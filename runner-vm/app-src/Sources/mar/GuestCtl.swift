@@ -2,7 +2,9 @@
 // guest runs. Frames are uint32_be(len) || JSON, at most 4 KiB, one request at
 // a time; the guest agent (dstack-compat/agent.py) is the only peer and speaks
 // first: the guest kernel drops port input that arrives before the port is
-// opened. The app answers hello, and event/seal/attest under GuestEventLog's seal rule.
+// opened. The app answers hello, and grant/event/seal/attest under GuestEventLog's seal rule.
+// grant (before seal, once) hands the guest the run's worker grant, fetched by
+// fetchWorkerGrant and held only in this process, and logs its digest as worker-grant.
 // The log starts with the app's canary-runner-key event: a P-256 key made here, kept
 // only in this process for the run and zeroed when the handler ends (Canary kind Runner).
 // A refusal or a failed assertion is an {"error"} reply; a malformed frame ends the
@@ -18,7 +20,26 @@ import marAttest
 
 let guestCtlMaxFrame = 4096
 
-func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: Data, run: Data) async throws {
+/// POSTs the grant request to the coordinator's /grant (applications/coordinator) with an App Attest
+/// assertion over it; the reply's root key is sealed to a P-256 key that exists only here.
+func fetchWorkerGrant(url: URL, taskId: String, keyId: String, manifestSha256: Data, run: Data) async throws -> WorkerGrant {
+    let key = P256.KeyAgreement.PrivateKey()
+    let sealPub = key.publicKey.x963Representation
+    let cd = grantRequestClientData(manifestSha256: manifestSha256, run: run, sealPub: sealPub, taskId: taskId)
+    let assertion = try await DCAppAttestService.shared.generateAssertion(keyId, clientDataHash: Data(SHA256.hash(data: cd)))
+    var req = URLRequest(url: url, timeoutInterval: 60)
+    req.httpMethod = "POST"
+    req.httpBody = try JSONSerialization.data(withJSONObject: [
+        "task_id": taskId, "key_id": keyId, "compose_hash": hex(manifestSha256), "run": hex(run),
+        "seal_pub": hex(sealPub), "assertion": hex(assertion)])
+    let (body, resp) = try await URLSession.shared.data(for: req)
+    guard (resp as? HTTPURLResponse)?.statusCode == 200, let r = try JSONSerialization.jsonObject(with: body) as? [String: Any] else {
+        throw Fail("coordinator refused the grant: \(String(decoding: body.prefix(512), as: UTF8.self))")
+    }
+    return try WorkerGrant(sealed: r, key: key)
+}
+
+func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: Data, run: Data, grant: WorkerGrant?) async throws {
     guard let keyIdBytes = Data(base64Encoded: keyId) else { throw Fail("keyId is not base64") }
     let canaryKey = UnsafeMutableRawBufferPointer.allocate(byteCount: 32, alignment: 1)
     defer { memset_s(canaryKey.baseAddress, 32, 0, 32); canaryKey.deallocate() }
@@ -32,7 +53,11 @@ func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: 
         var reply: [String: Any]
         do {
             switch m["op"] as? String {
-            case "hello": reply = ["os_image_hash": hex(osImageHash), "manifest_sha256": hex(manifestSha256), "run": hex(run)]
+            case "hello": reply = ["os_image_hash": hex(osImageHash), "manifest_sha256": hex(manifestSha256), "run": hex(run),
+                                   "grant": grant != nil]
+            case "grant":
+                guard let g = grant else { throw GuestAttestRefusal("no grant for this run") }
+                reply = ["head": hex(try log.grant(g.digest)), "grant": g.text, "root_key": hex(g.rootKey)]
             case "event": reply = ["head": hex(try log.event(try field(m, "name"), try guestHex(try field(m, "payload"))))]
             case "seal": reply = ["head": hex(try log.seal())]
             case "attest":

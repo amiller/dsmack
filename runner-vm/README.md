@@ -16,7 +16,9 @@ the kernel/initrd bytes, a launch spec and five disks (vda system, vdb scratch,
 vdc workload, vdd result, optional vde private input), plus an optional
 virtio-net descriptor. After the guest halts it finalizes the result disk and
 console, writes a run-result envelope, and produces two App Attest assertions
-(launch evidence and result). The app carries no image identity; admitting a
+(launch evidence and result). A session with `"grant": {"url", "task_id"}` also fetches
+the run's worker grant from that coordinator before boot and hands it to the guest
+agent over the `dsmack-ctl` port (`dstack-compat/README.md`). The app carries no image identity; admitting a
 new base image is a policy and manifest change. Base images and the application
 client (`applications/pilot-client`) live elsewhere in this repository.
 

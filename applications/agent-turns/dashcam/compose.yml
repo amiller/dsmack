@@ -1,0 +1,41 @@
+# The user reaches only the agent's pty, through the relay. Relay and sentinel hold the chain.
+services:
+  sentinel:
+    image: ${RECORDER_IMAGE}
+    command: [python3, /opt/dashcam/sentinel_rec.py, --dashcam, /dashcam, --sentinel-source, /opt/sentinel,
+              --run-id, "${RUN_ID}", --token, "${SENTINEL_TOKEN}", --listen-port, "8100",
+              --provider-route, https://api.anthropic.com, --ca-bundle, /etc/ssl/certs/ca-certificates.crt,
+              --credential-file, /run/credential]
+    volumes:
+      - ${DASHCAM_SOURCE}:/opt/dashcam:ro
+      - ${SENTINEL_SOURCE}:/opt/sentinel:ro
+      - ${CREDENTIAL_FILE}:/run/credential:ro
+      - ${CHAIN}:/dashcam
+    networks: [private, egress]
+  relay:
+    image: ${RECORDER_IMAGE}
+    command: [sleep, infinity]
+    working_dir: /opt/dashcam
+    volumes:
+      - ${DASHCAM_SOURCE}:/opt/dashcam:ro
+      - ${CHAIN}:/dashcam
+      - transcripts:/transcripts:ro
+      - ${OUTPUT}:/out
+    networks: [private]
+  agent:
+    image: ${AGENT_IMAGE}
+    environment:
+      ANTHROPIC_BASE_URL: http://sentinel:8100/${SENTINEL_TOKEN}
+      ANTHROPIC_AUTH_TOKEN: placeholder
+    volumes:
+      - transcripts:/home/node/.claude/projects
+    depends_on: [sentinel]
+    networks: [private]
+volumes:
+  transcripts: {}
+networks:
+  private:
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.gateway_mode_ipv4: isolated
+  egress: {}

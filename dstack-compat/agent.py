@@ -7,8 +7,11 @@ guest-root tmpfs) and adds its public key as the canary-guest-key event. --secre
 P-256 key kept only in the agent's memory, adds its public key as the secret-key event and serves
 /v1/GetSecret, which opens a task secret sealed to that key (secret_box.py) for the calling service.
 With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
-sends the supervisor's system events and the seal, writes <dir>/sealed and then
-serves /v1/Attest. With --grant it serves /v1/GetKey. /v1/Info and /v1/Version
+takes the run's worker grant if the app offers one (the app logs its digest as the
+worker-grant event), sends the supervisor's system events and the seal, writes
+<dir>/sealed and then serves /v1/Attest. With a grant, from the app or from
+--grant (a file of the same {"grant", "root_key"} shape, for tests off the Mac),
+it serves /v1/GetKey. /v1/Info and /v1/Version
 always. Each service gets <dir>/<service>.sock, which lowering binds to that
 service's /var/run/dstack.sock; the socket that accepted a call is its caller tag.
 """
@@ -72,9 +75,9 @@ def methods(ctl, hello, grant, secret=None):
         if hello:
             i.update(compose_hash=hello["manifest_sha256"], instance_id=hello["run"], os_image_hash=hello["os_image_hash"])
         if grant:
-            i.update(app_id=grant["app_id"], app_name=grant["task_id"], compose_hash=grant["compose_hash"],
-                     instance_id=grant["worker_id"].encode().hex(),
-                     key_provider_info=json.dumps({"dsmack_worker_grant": grant}))
+            g = json.loads(grant["grant"])
+            i.update(app_id=g["app_id"], app_name=g["task_id"], compose_hash=g["compose_hash"],
+                     instance_id=g["worker_id"].encode().hex(), key_provider_info=grant["grant"])
         return i
 
     def attest(req, caller):
@@ -94,8 +97,8 @@ def methods(ctl, hello, grant, secret=None):
             secret, r["task_id"], *(bytes.fromhex(r[f]) for f in ("epk", "iv", "ct"))).hex()}
     if grant:
         from dsmack_dstack import get_key
-        root = bytes.fromhex(grant.pop("root_key"))
-        m["GetKey"] = lambda r, _: get_key(root, r["domain"], r["algorithm"], grant["chain"])
+        root, chain = bytes.fromhex(grant["root_key"]), json.loads(grant["grant"])["chain"]
+        m["GetKey"] = lambda r, _: get_key(root, r["domain"], r["algorithm"], chain)
     return m
 
 
@@ -135,6 +138,8 @@ def start(sockdir, services, ctl_fd=None, events=(), grant=None, secret=None):
     if ctl_fd is not None:
         ctl = Ctl(ctl_fd)
         hello = ctl.call({"op": "hello"})
+        if hello.get("grant"):
+            grant = ctl.call({"op": "grant"})
         for name, payload in events:
             ctl.call({"op": "event", "name": name, "payload": payload.hex()})
         ctl.call({"op": "seal"})

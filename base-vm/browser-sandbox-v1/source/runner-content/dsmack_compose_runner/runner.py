@@ -27,6 +27,7 @@ from dsmack_compose_contract import (
     validate_runtime_inputs_bytes,
 )
 from dsmack_compose_contract.image_admission import admit_image
+from dsmack_compose_contract.lowering import local_image_ref
 from dsmack_compose_contract.manifest import _effective_limits
 
 from .control import ControlContext
@@ -244,10 +245,10 @@ def run_manifest(
             image_identity[service] = {
                 "pin": pin,
                 "resolved_manifest_digest": "sha256:" + pin.split("@sha256:", 1)[1],
-                **ensure_image(control, pin, manifest["image_platform"]),
+                **ensure_image(control, local_image_ref(pin), manifest["image_platform"]),
             }
         completion_pin = image_identity[completion_service]["pin"]
-        harness_observation = resolve_harness(control, manifest, completion_pin)
+        harness_observation = resolve_harness(control, manifest, local_image_ref(completion_pin))
 
         # -- 7. runtime inputs (validated envelope; optional) ----------------
         envelope_dict = None

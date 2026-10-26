@@ -45,7 +45,7 @@ def scan_payload(descriptor,selector,manifest_sha256,expected_closure=None,cap=C
    if m.isdir() and name.endswith('/'):name=name[:-1]
    expected_name=m.name[:-1] if m.isdir() and m.name.endswith('/') else m.name
    need(re.fullmatch('[A-Za-z0-9._/-]+',name) and not name.startswith('/') and all(p and p not in ('.','..') for p in name.split('/')) and name==expected_name,'canonical public member path')
-   if selector in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1'):need(name not in ('public-inputs','envelopes','broker') and not name.startswith(('public-inputs/','envelopes/','broker/')),'Private develop forbids public runtime channel')
+   if selector in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','agent-turns-edit-v1'):need(name not in ('public-inputs','envelopes','broker') and not name.startswith(('public-inputs/','envelopes/','broker/')),'Private develop forbids public runtime channel')
    need(not name.startswith('manifests/') or name=='manifests/'+selector+'.app-compose.json','unexpected public manifest member')
    need(not name.startswith('closure-context/') or name==CONTEXT,'unexpected public closure member')
    need(name not in files and name not in dirs,'duplicate public member')

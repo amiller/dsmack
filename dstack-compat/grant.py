@@ -1,20 +1,32 @@
 """Coordinator side, run inside the dstack app: mint a worker grant.
 
-python3 grant.py <dstack.sock> <task_id> <worker_id> <worker_compose_hash> <ttl_s>
+python3 grant.py mint <dstack.sock> <task_id> <worker_id> <worker_compose_hash> <ttl_s>
 
 The scoped root is GetKey on the coordinator's own socket under a per-(task, worker)
 domain, so the coordinator can reissue it and the Mac never sees the app root key.
-In deployment the release policy encrypts the output to the attested guest key.
+A grant is {"grant": <public grant JSON text>, "root_key": hex}; the runner app logs
+sha256(grant text) as the guest's worker-grant event.
+
+The coordinator app (applications/coordinator) serves the release policy at POST /grant and
+seals root_key to the runner app's seal_pub with `seal` (P-256 ECDH, HKDF-SHA256, AES-GCM with
+sha256(grant text) as associated data). Only ciphertext of the root key crosses the network.
+The grant is signed with libsecp256k1 (coincurve); the guest's stdlib secp256k1 is not constant-time.
 """
+import hashlib
 import http.client
 import json
+import os
 import socket
 import sys
 import time
 
-from dsmack_dstack import grant_statement, sign
+from coincurve import PrivateKey
+
+from dsmack_dstack import grant_statement
 
 SIGNER_DOMAIN = "dsmack-grant-signer/1"
+REQUEST_DOMAIN = b"dsmack.appattest.grant-request/1"
+SEAL_INFO = b"dsmack-grant-seal/1"
 
 
 class UnixHTTP(http.client.HTTPConnection):
@@ -43,10 +55,31 @@ def mint(sock, task_id, worker_id, compose_hash, ttl):
     g = {"task_id": task_id, "worker_id": worker_id, "compose_hash": compose_hash,
          "expires": int(time.time()) + ttl, "root_pub": root["public_key"],
          "signer_domain": SIGNER_DOMAIN, "app_id": call(sock, "Info", {})["app_id"]}
-    g["chain"] = [sign(bytes.fromhex(signer["key"]), grant_statement(g)).hex()] + signer["signature_chain"]
-    g["root_key"] = root["key"]
-    return g
+    g["chain"] = [PrivateKey(bytes.fromhex(signer["key"])).sign_recoverable(grant_statement(g), hasher=None).hex()] + signer["signature_chain"]
+    return {"grant": json.dumps(g, sort_keys=True, separators=(",", ":")), "root_key": root["key"]}
+
+
+def grant_request_client_data(manifest_sha256, run, seal_pub, task_id):
+    """32-byte domain || manifest_sha256 || run || sha256(seal_pub) || sha256(task_id) = 160 bytes."""
+    h = lambda b: hashlib.sha256(b).digest()
+    return REQUEST_DOMAIN + manifest_sha256 + run + h(seal_pub) + h(task_id.encode())
+
+
+def seal(grant, seal_pub, eph=None, nonce=None):
+    from cryptography.hazmat.primitives.asymmetric import ec
+    from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+    from cryptography.hazmat.primitives.hashes import SHA256
+    from cryptography.hazmat.primitives.kdf.hkdf import HKDF
+    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
+    eph = eph or ec.generate_private_key(ec.SECP256R1())
+    nonce = nonce or os.urandom(12)
+    epk = eph.public_key().public_bytes(Encoding.X962, PublicFormat.UncompressedPoint)
+    shared = eph.exchange(ec.ECDH(), ec.EllipticCurvePublicKey.from_encoded_point(ec.SECP256R1(), seal_pub))
+    key = HKDF(SHA256(), 32, None, SEAL_INFO + seal_pub + epk).derive(shared)
+    ct = AESGCM(key).encrypt(nonce, bytes.fromhex(grant["root_key"]), hashlib.sha256(grant["grant"].encode()).digest())
+    return {"grant": grant["grant"], "epk": epk.hex(), "nonce": nonce.hex(), "ct": ct.hex()}
 
 
 if __name__ == "__main__":
-    print(json.dumps(mint(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5]))))
+    a = sys.argv
+    print(json.dumps(mint(a[2], a[3], a[4], a[5], int(a[6]))))

@@ -4,9 +4,7 @@ import argparse,json,subprocess
 from pathlib import Path
 
 HERE=Path(__file__).resolve().parent
-BUILDER='sha256:df98b52ea039e4bbb40c52ca51f869c908d687ab5ea4154e1678afd0da0a04e9'
-
-def command(base,templates,out,builder=BUILDER):
+def command(base,templates,out,builder):
     return ['docker','run','--rm','--cpus','4','--memory','4g','--pids-limit','256','--network','none',
       '--mount',f'type=bind,src={out},dst=/w','--mount',f'type=bind,src={HERE}/source,dst=/w/source,readonly',
       '--mount',f'type=bind,src={HERE}/derive-in-container.sh,dst=/derive.sh,readonly',
@@ -17,7 +15,7 @@ def command(base,templates,out,builder=BUILDER):
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for n in ('base-bundle','templates','out'):p.add_argument('--'+n,required=True)
-    p.add_argument('--builder',default=BUILDER)
+    p.add_argument('--builder',required=True,help='image built from builder/Dockerfile')
     a=p.parse_args()
     base,templates,out=(Path(x).absolute() for x in (a.base_bundle,a.templates,a.out))
     out.mkdir(mode=0o700)

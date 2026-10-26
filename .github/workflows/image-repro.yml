@@ -52,6 +52,7 @@ jobs:
           for t in scratch result; do gunzip -c inputs/templates/$t-template.ext4.gz > templates/$t-template.ext4; done
       - run: docker build --no-cache -t dsmack-builder base-vm/browser-sandbox-v1/builder
       - name: Derive and check
+        shell: bash
         run: |
           python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
             --base-bundle inputs/b44 --templates templates --out derive | tee derive.json

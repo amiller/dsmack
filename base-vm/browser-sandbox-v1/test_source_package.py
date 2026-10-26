@@ -3,7 +3,7 @@ here=pathlib.Path(__file__).parent
 spec=importlib.util.spec_from_file_location('base_deriver',here/'derive.py');d=importlib.util.module_from_spec(spec);spec.loader.exec_module(d)
 class Derive(unittest.TestCase):
  def test_container_is_offline_with_readonly_inputs(self):
-  argv=d.command('/base','/templates','/out')
+  argv=d.command('/base','/templates','/out','dsmack-builder')
   self.assertEqual(argv[argv.index('--network')+1],'none')
   for dst in ('/w/source','/prior-image','/selected-templates','/derive.sh'):
    self.assertTrue(any(a.endswith(f'dst={dst},readonly') for a in argv),dst)

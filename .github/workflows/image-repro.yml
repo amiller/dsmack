@@ -1,0 +1,62 @@
+name: image-repro
+on:
+  pull_request:
+    paths: &paths
+      - base-vm/browser-sandbox-v1/**
+      - dstack-compat/agent.py
+      - dstack-compat/guest_attest.py
+      - .github/workflows/image-repro.yml
+  push:
+    branches: [main]
+    paths: *paths
+  release:
+    types: [published]
+  workflow_dispatch:
+concurrency:
+  group: image-repro-${{ github.ref }}
+  cancel-in-progress: true
+permissions:
+  contents: read
+env:
+  B44: b44abf143bc7a4c6f3463bdda2c9fceefc8ec7bd63204de0a71ed714bdbbc143
+  GH_TOKEN: ${{ github.token }}
+jobs:
+  derive:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - id: cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: inputs
+          key: image-inputs-${{ env.B44 }}-canary.1
+      - name: Download inputs
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir -p inputs/templates
+          gh release download runner-v0.1.0-alpha.1 -R "$GITHUB_REPOSITORY" -p release-starter-friend-r1.tar.gz
+          tar -xzf release-starter-friend-r1.tar.gz -C inputs base/Image base/initramfs.cpio.gz base/metadata.json base/rootfs.squashfs.verity base/sha256sum.txt
+          mv inputs/base inputs/b44
+          gh release download v0.2.0-canary.1 -R "$GITHUB_REPOSITORY" -D inputs/b44 -p config-6.18.40-dstack
+          gh release download v0.2.0-canary.1 -R "$GITHUB_REPOSITORY" -D inputs/templates \
+            -p disk-templates.json -p scratch-template.ext4.gz -p result-template.ext4.gz
+      - name: Verify B44 base
+        run: |
+          echo "$B44  inputs/b44/sha256sum.txt" | sha256sum -c
+          (cd inputs/b44 && sha256sum -c sha256sum.txt)
+      - name: Unpack templates
+        run: |
+          mkdir templates
+          cp inputs/templates/disk-templates.json templates/
+          for t in scratch result; do gunzip -c inputs/templates/$t-template.ext4.gz > templates/$t-template.ext4; done
+      - run: docker build --no-cache -t dsmack-builder base-vm/browser-sandbox-v1/builder
+      - name: Derive and check
+        run: |
+          python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
+            --base-bundle inputs/b44 --templates templates --out derive | tee derive.json
+          sha256sum derive/build/legs/diagnostic/files/*
+          got=$(jq -r .image_sha256 derive.json)
+          want=$(cat base-vm/browser-sandbox-v1/image.sha256)
+          echo "image_sha256 $got expected $want"
+          test "$got" = "$want"

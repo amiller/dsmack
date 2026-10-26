@@ -5,7 +5,7 @@ cd "$(dirname "$0")"
 for d in tests tools base-vm runner-vm applications/{bounties,bounty-dashboard,pilot-client}; do
     python3 -m pytest -q -p no:cacheprovider "$d"
 done
-node --test $(find applications -name node_modules -prune -o -name primary-original -prune -o \( -name '*.test.mjs' -o -name '*.test.cjs' -o -name 'test_*.mjs' \) -print)
+node --test $(find applications dstack-compat -name node_modules -prune -o -name primary-original -prune -o \( -name '*.test.mjs' -o -name '*.test.cjs' -o -name 'test_*.mjs' \) -print)
 . app-attest/circuit/env.sh
 forge test --root contracts --offline --use "$SOLC"
 forge test --root contracts/work-escrow --offline --use "$SOLC"

@@ -132,7 +132,11 @@ with claim steps. For that image:
 
 ## Key canaries
 
-Guest (#1), Runner (#2) and Owner (#3) entries pay a P-256 signature over
+Outsider steps (re-sign the runner, register, enroll, run, claim) are maintained in
+[docs/canary/](../docs/canary/); the release assets are the 2026-10-25 originals.
+
+
+Guest, Runner and Owner entries (boundaries #1, #2, #3) pay a P-256 signature over
 `claimDigest(id, claimant)` by a canary key whose public key (x || y) is a system event
 in a guest Attest assertion by the entry's build. `claimKey` replays the event head,
 rebuilds the 255-byte client data and verifies the assertion through `attest`. The log

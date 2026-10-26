@@ -48,7 +48,7 @@ contract Canary {
     /// Entries are append-only; a zero image/manifest admits any. Funds return only after `until`.
     /// Guest/Owner keys live in the guest, so an unbound image would let the owner boot one that leaks its key.
     function arm(Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint64 until) external payable returns (uint256 id) {
-        require(msg.value > 0 && until > block.timestamp && build != 0, "terms");
+        require(msg.value > 0 && until >= block.timestamp + NOTICE && build != 0, "terms");
         require(kind == Kind.Forgery || kind == Kind.Runner || image != 0, "unbound image");
         require(kind != Kind.Owner || manifest != 0, "unbound manifest");
         id = entries.length;
@@ -108,7 +108,7 @@ contract Canary {
     /// Brings `until` to at most NOTICE from now. Claims never close; reclaim opens after `until`.
     function retire(uint256 id) external {
         Entry storage e = entries[id];
-        require(msg.sender == e.funder, "funder");
+        require(msg.sender == e.funder && !e.burned, "funder");
         if (block.timestamp + NOTICE < e.until) e.until = uint64(block.timestamp + NOTICE);
         emit Retired(id, e.kind, e.amount, e.until);
     }

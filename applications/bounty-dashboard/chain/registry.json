@@ -44,7 +44,7 @@
       "runtime_sha256": "83cd68d5804f561c3a370813f6197f268d0dcd1ef74ce8e2735ad454c5f31a31",
       "codec": "canary-read-codec/2",
       "void": false,
-      "note": "Superseded 2026-10-26 by 0x9394…926f; its keys expire 3 days after enrollment"
+      "note": "Superseded for new pots by 0x9394\u2026926f; still claimable while build 0xc930\u2026 is approved (keys in its verifier expire 3 days after enrollment)"
     },
     {
       "chain_id": 84532,
@@ -73,8 +73,8 @@
       "deployment_tx": "0x742f4873ef4704106b969b52d1fa96836592ca8c0bd54733b8142288c6aa73c3",
       "runtime_sha256": "3bc20bcbb6a3a7b3d347e4a29e0159cebcc716bf9fde970cf4f74ed4334560f5",
       "codec": "canary-read-codec/0",
-      "void": true,
-      "note": "Predates the cdhash binding; claimable with the App Attest probe, so a burn is not evidence"
+      "void": false,
+      "note": "Void while the App Attest probe was the approved build; since the 2026-10-25 setBuild only the fixed-domain runner is admitted, so a burn is evidence"
     }
   ]
 }

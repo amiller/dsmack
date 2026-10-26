@@ -8,14 +8,14 @@ cast wallet import claimer --interactive   # once: store your key in a foundry k
 ACCOUNT=claimer
 RPC=https://sepolia.base.org
 CDS=0xD6567Da581BCcA8Ce965cD16785a43acbf3378f6
-VERIFIER=0xa3C174D19EB421C2e68B737CA90fe267055E6215
-CANARY=0x65094121F566Ca226e02F9a246283d91b6B24658
+VERIFIER=0x08351Cf4B691721fF8F2D7d737E41Eb2FD2c0fD9
+CANARY=0x93942C82Aef24C596A90C447f5AfAF083abF926F
 CLAIMANT=0xYourAddress
 cast call $CANARY 'entries(uint256)(uint8,bytes32,bytes32,bytes32,address,uint64,uint256,bool)' 0 --rpc-url $RPC
 ```
 
 An entry's fields are kind (0 Forgery, 1 Guest, 2 Runner, 3 Owner), build, image, manifest,
-funder, until, amount, burned. Armed entries, each 0.01 ETH until 2027-01-23:
+funder, until, amount, burned. Armed entries, each 0.01 ETH until 2027-01-24:
 
 | id | kind | boundary | binds |
 |---|---|---|---|

@@ -1,8 +1,10 @@
 """testdata/ holds real outputs. personal-agent/: the keeper state from the two-turn spike of
 25 October 2026 (worktree personal-agent-turns-20261025, 64d3bc6), without master.key.
-finding/: find.py's fake-CLI run in the agent image on zed, flattened to artifact names
+finding/: find.py's fake-CLI run in the agent image, flattened to artifact names
 (run-1/transcript.jsonl is run-1-transcript, finding.json is verdict). That run had no receipt,
-so the finding test builds the receipt's commitment and artifact list over those files."""
+so the finding test builds the receipt's commitment and artifact list over those files.
+v02-turn/: the release-b7d1 run-v02 turn of 25 October 2026 (image b7d1a8a5): its request, artifacts,
+the runner's launch files and compose-manifest.bin, and the runner key's enrollment."""
 import base64
 import json
 from pathlib import Path
@@ -11,10 +13,13 @@ import unittest
 
 sys.path.insert(0, str(Path(__file__).parent))
 import turn
-from verifier.core import Reject
+import datetime
+from verifier.core import Reject, unb64, verify_key
+from verifier.macos_policy import policy, root
 
 DATA = Path(__file__).parent/'testdata'
 AGENT = DATA/'personal-agent'
+V02 = DATA/'v02-turn'
 
 
 def mac_turn(n):
@@ -36,6 +41,15 @@ class TurnTest(unittest.TestCase):
         with self.assertRaisesRegex(Reject, 'does not continue'):
             turn.check_chain([t1, t2, t2], t1['state_in'])
 
+    def test_key_outlives_leaf_until_intermediate_expires(self):
+        e = json.loads((AGENT/'evidence-turn-1.json').read_bytes())
+        check = lambda day: verify_key(unb64(e['attestation']), e['keyId'], unb64(e['bootClientData']),
+                                       policy(bytes.fromhex((AGENT/'cdhash').read_text().strip())), root(),
+                                       datetime.datetime.fromisoformat(day).timestamp())
+        self.assertTrue(check('2026-11-27T00:00:00+00:00')['public_key'])  # leaf expired 2026-10-27
+        with self.assertRaisesRegex(Reject, 'intermediate_expired'):
+            check('2030-03-14T00:00:00+00:00')
+
     def test_finding_is_one_stateless_turn(self):
         spec = json.loads((DATA/'finding'/'spec.json').read_bytes())
         request = {k: v for k, v in spec.items() if k != 'question'}
@@ -55,6 +69,17 @@ class TurnTest(unittest.TestCase):
         self.assertIsNone(turn.check_chain([t]))
         with self.assertRaisesRegex(Reject, 'committed input'):
             turn.from_receipt(receipt, request.replace(b'unanimous', b'majority'), outputs)
+
+    def test_guest_attest_needs_the_admitted_manifest(self):
+        def check(manifest_sha256):
+            return turn.from_guest_attest((V02/'artifacts/attestation').read_bytes(), (V02/'request.json').read_bytes(),
+                                          V02/'artifacts', V02/'run', V02/'enrollment',
+                                          '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970',
+                                          'b7d1a8a5cb57e56bdd118540858c747861ce22b35190aec3e6e6d10a08dacda5', manifest_sha256)
+        admitted = turn.sha((V02/'run/compose-manifest.bin').read_bytes())
+        self.assertEqual(check(admitted)['manifest_sha256'], admitted)
+        with self.assertRaisesRegex(Reject, 'not the admitted manifest'):
+            check(turn.sha(b'another manifest'))
 
 
 if __name__ == '__main__':

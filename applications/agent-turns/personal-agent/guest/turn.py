@@ -8,17 +8,25 @@ STATE_IN, TURN, PORT = os.environ['STATE_IN'], int(os.environ['TURN']), int(os.e
 canonical = lambda o: json.dumps(o, sort_keys=True, separators=(',', ':')).encode()
 
 
+def recv(sock, n=65536):
+    chunk = sock.recv(n)
+    if not chunk:
+        raise ConnectionError('peer closed before the response was complete')
+    return chunk
+
+
 def http(sock, method, host, path, body=b''):
     sock.sendall(f'{method} {path} HTTP/1.1\r\nHost: {host}\r\nContent-Type: application/json\r\n'
                  f'Content-Length: {len(body)}\r\nConnection: close\r\n\r\n'.encode() + body)
     # Read by Content-Length: the runner's CONNECT relay does not pass the server's close through.
     raw = b''
     while b'\r\n\r\n' not in raw:
-        raw += sock.recv(65536)
+        raw += recv(sock)
     head, _, data = raw.partition(b'\r\n\r\n')
-    length = int(next(l.split(b':', 1)[1] for l in head.split(b'\r\n') if l.lower().startswith(b'content-length:')))
+    fields = {k.strip().lower(): v.strip() for k, v in (l.split(b':', 1) for l in head.split(b'\r\n')[1:])}
+    length = int(fields[b'content-length'])
     while len(data) < length:
-        data += sock.recv(65536)
+        data += recv(sock)
     status = int(head.split(b' ')[1])
     assert status == 200, (method, host, path, status, data[:500])
     return data
@@ -39,7 +47,7 @@ def coordinator(method, path, body=b''):
     s.sendall(f'CONNECT 127.0.0.1:{PORT} HTTP/1.1\r\nHost: 127.0.0.1:{PORT}\r\n\r\n'.encode())
     head = b''
     while b'\r\n\r\n' not in head:
-        head += s.recv(1)
+        head += recv(s, 1)
     assert b' 200' in head.split(b'\r\n')[0], head
     return http(s, method, '127.0.0.1', path, body)
 

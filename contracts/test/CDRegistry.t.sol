@@ -38,7 +38,7 @@ contract CDRegistryTest is Test {
         string[4] memory noEnt = ["B-adhoc", "C-adhoc-otherid", "H-strip-then-adhoc", "E-dev-noent"];
         for (uint256 i; i < 4; i++) { vm.expectRevert("entitlements slot"); r.registerBuild(rd(noEnt[i], ".cd"), rd(noEnt[i], ".page0"), rd(noEnt[i], ".ent")); }
         // Different code.
-        vm.expectRevert("page0"); r.registerBuild(rd("M-modified", ".cd"), rd("M-modified", ".page0"), rd("M-modified", ".ent"));
+        vm.expectRevert("not an approved build"); r.registerBuild(rd("M-modified", ".cd"), rd("M-modified", ".page0"), rd("M-modified", ".ent"));
         bytes memory p = rd("A-original", ".page0"); p[100] ^= 0x01;
         vm.expectRevert("page0 hash"); r.registerBuild(rd("A-original", ".cd"), p, rd("A-original", ".ent"));
     }
@@ -78,13 +78,13 @@ contract CDRegistryTest is Test {
         bytes memory ent = rd("A-original", ".ent");
         assertEq(r.rpIdHash(admit(r, patched(351 - 1, 0x01), page0, ent)), OURS);    // Info.plist slot
         assertEq(r.rpIdHash(admit(r, patched(351 - 64, 0x01), page0, ent)), OURS);   // requirements slot
-        vm.expectRevert("header"); r.registerBuild(patched(0x0d, 0x01), page0, ent);  // flags
-        vm.expectRevert("header"); r.registerBuild(patched(0x57, 0x10), page0, ent);  // execSeg flags
-        vm.expectRevert("header"); r.registerBuild(patched(0x5b, 0x01), page0, ent);  // runtime
+        vm.expectRevert("not an approved build"); r.registerBuild(patched(0x0d, 0x01), page0, ent);  // flags
+        vm.expectRevert("not an approved build"); r.registerBuild(patched(0x57, 0x10), page0, ent);  // execSeg flags
+        vm.expectRevert("not an approved build"); r.registerBuild(patched(0x5b, 0x01), page0, ent);  // runtime
         vm.expectRevert("entitlements slot"); r.registerBuild(rd("A-original", ".cd"), page0, bytes.concat(ent, hex"00"));
         bytes memory e = rd("A-original", ".ent"); e[134] = "X";                       // app-attest-opt-in value
         bytes memory cd = withEnt(e);
-        vm.expectRevert("entitlements"); r.registerBuild(cd, page0, e);
+        vm.expectRevert("not an approved build"); r.registerBuild(cd, page0, e);
         e = rd("A-original", ".ent"); for (uint256 i = 181; i < 191; i++) e[i] = "Z";   // team-identifier value
         assertEq(r.rpIdHash(admit(r, withEnt(e), page0, e)), OURS);
         e = rd("A-original", ".ent"); for (uint256 i = 47; i < 57; i++) e[i] = "Z";     // application-identifier value
@@ -132,6 +132,9 @@ contract CDRegistryTest is Test {
         assertEq(r.teamIdHash(a), 0);
         assertEq(r.bundleIdHash(a), 0);
         assertEq(r.rpIdHash(admit(r, cd, page0, ent)), OURS);
+        // Pinning consumers (Canary) still resolve the superseded build.
+        assertEq(r.rpOf(a), OURS);
+        assertTrue(r.buildOf(a) != r.buildId() && r.approved(r.buildOf(a)));
     }
     function test_iphoneBuild() public {
         CDRegistry r = jsonRegistry("iphone-honest");
@@ -140,7 +143,7 @@ contract CDRegistryTest is Test {
         assertEq(h, 0x5395bf39ecded47ab804eb78b7f878c246baa4860ca32cad1c63ed468783b591);
         assertEq(r.rpIdHash(h), OURS);
         (cd, page0, ent) = json("iphone-modified");
-        vm.expectRevert("code slots"); r.registerBuild(cd, page0, ent);
+        vm.expectRevert("not an approved build"); r.registerBuild(cd, page0, ent);
     }
     /// Synthetic identity metadata on our own node; not Apple-signed second-team evidence.
     function test_syntheticTeamIdentity() public {
@@ -178,6 +181,6 @@ contract CDRegistryTest is Test {
         assertTrue(a != b);
         assertEq(r.rpIdHash(b), OURS);
         (cd, page0, ent) = json("node-modified");
-        vm.expectRevert("code slots"); r.registerBuild(cd, page0, ent);
+        vm.expectRevert("not an approved build"); r.registerBuild(cd, page0, ent);
     }
 }

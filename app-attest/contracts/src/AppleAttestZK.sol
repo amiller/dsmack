@@ -30,7 +30,7 @@ abstract contract AppleAttestZK is AppleAttest {
         bytes32[] memory inputs; (kid,inputs)=_proofInputs(clientData,p,24);
         for(uint256 i;i<6;i++)inputs[16+i]=bytes32(uint256(key[i]));_split(inputs,22,uint256(ca.subject));
         require(leafVerifier.verify(proof,inputs),"attestation proof");
-        _storeKey(kid,p.x,p.y,p.notAfter<ca.notAfter?p.notAfter:ca.notAfter);
+        _storeKey(kid,p.x,p.y,ca.notAfter);
     }
     function _proofInputs(bytes calldata clientData,PublicValues calldata p,uint256 size) private view returns(bytes32 kid,bytes32[] memory inputs){
         require(sha256(clientData)==p.clientDataHash,"client data hash");

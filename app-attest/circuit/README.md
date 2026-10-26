@@ -53,9 +53,10 @@ hi128 then lo128; P384 coordinates use three big-endian 128-bit limbs each.
 `enrollLeafProof(proof, clientData, p, key, id)` checks the six intermediate
 limbs against the shared entry `id` and supplies its subject hash as fields
 22–23. Entry IDs are SHA256(abi.encode(subjectSHA256, P384.C384Elm)). It checks
-both validity windows at the current block time and stores min(leaf notAfter,
-intermediate notAfter). The root cutoff is 2373148800 (2045-03-15). Profile,
-client-data hash, admission policy and duplicate-key checks remain on chain.
+both validity windows at the current block time and stores the intermediate
+notAfter as the key's expiry, so an enrolled key outlives its 3-day leaf. The
+root cutoff is 2373148800 (2045-03-15). Profile, client-data hash, admission
+policy and duplicate-key checks remain on chain.
 
 The parser is `core/src/certificate.nr`. High-s P384 signatures are
 normalized inside the circuit to match Solidity. Issuer Name contents and

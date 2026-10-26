@@ -3,7 +3,7 @@ pragma solidity ^0.8.21;
 import {AppleEndorsements} from "attest/AppleEndorsements.sol";
 import {EndorsementFixture as EF} from "attest-test/EndorsementFixture.sol";
 import {Test} from "forge-std/Test.sol";
-import {AppleAttestRegistryV1} from "../src/AppleAttestRegistryV1.sol";
+import {AppleAttestRegistryV1, AppleAttestAnyBuildV1} from "../src/AppleAttestRegistryV1.sol";
 import {AppleAuthData} from "attest/AppleAuthData.sol";
 import {CDRegistry} from "../src/CDRegistry.sol";
 import {P256Verifier} from "attest-test/P256Verifier.sol";
@@ -55,6 +55,18 @@ contract AppleAttestRegistryV1Test is Test {
         adapter.verify(context,proof);
         (recorded,,,,counter)=adapter.assertionEvidence(kid);
         assertEq(recorded,context);assertEq(counter,3);
+    }
+    function test_EnrolledKeyOutlivesLeaf() public {
+        mac(true);adapter.enroll(cert,auth,clientData,EF.id());vm.warp(1789761030+30 days);
+        (bytes32 context,bytes memory proof)=assertion("assert");assertEq(adapter.verify(context,proof),kid);
+    }
+    /// Revocation: setBuild stops the main verifier at once, while the canary verifier keeps the key.
+    function test_SupersededBuildStopsKey() public {
+        mac(true);adapter.enroll(cert,auth,clientData,EF.id());
+        AppleAttestAnyBuildV1 any=new AppleAttestAnyBuildV1(adapter.endorsements(),address(this),cds,aaguid,3,false);any.enroll(cert,auth,clientData,EF.id());
+        string memory b=vm.readFile("fixtures/cd-args-developer-id.json");cds.setBuild(vm.parseJsonBytes(b,".cd"),vm.parseJsonBytes(b,".page0"),vm.parseJsonBytes(b,".ent"));
+        (bytes32 context,bytes memory proof)=assertion("assert");vm.expectRevert("build not admitted");adapter.verify(context,proof);
+        assertEq(any.verify(context,proof),kid);
     }
     function test_MacUnregisteredBuildRejected() public {mac(false);vm.expectRevert("build not admitted");adapter.enroll(cert,auth,clientData,EF.id());}
     function test_IPhoneEnrollAndAssertThroughRegistry() public {

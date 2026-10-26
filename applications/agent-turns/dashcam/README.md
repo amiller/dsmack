@@ -26,7 +26,7 @@ shared file, so the relay and sentinel append to one sequence.
 
 ## Run
 
-On Zed, with a dummy credential file:
+On a docker host, with a dummy credential file:
 
 ```sh
 docker build -f Dockerfile.agent -t dashcam-agent:spike .
@@ -40,7 +40,7 @@ docker compose -p dashcam --env-file env -f compose.yml up -d
 From the laptop:
 
 ```sh
-ssh -t zed-mesh docker exec -it dashcam-relay-1 python3 relay.py
+ssh -t <docker host> docker exec -it dashcam-relay-1 python3 relay.py
 ```
 
 Detach and reattach freely; the tmux session lives in the agent container. To finish:

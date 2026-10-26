@@ -10,6 +10,7 @@ sha256(grant text) as the guest's worker-grant event.
 The coordinator app (applications/coordinator) serves the release policy at POST /grant and
 seals root_key to the runner app's seal_pub with `seal` (P-256 ECDH, HKDF-SHA256, AES-GCM with
 sha256(grant text) as associated data). Only ciphertext of the root key crosses the network.
+The grant is signed with libsecp256k1 (coincurve); the guest's stdlib secp256k1 is not constant-time.
 """
 import hashlib
 import http.client
@@ -19,7 +20,9 @@ import socket
 import sys
 import time
 
-from dsmack_dstack import grant_statement, sign
+from coincurve import PrivateKey
+
+from dsmack_dstack import grant_statement
 
 SIGNER_DOMAIN = "dsmack-grant-signer/1"
 REQUEST_DOMAIN = b"dsmack.appattest.grant-request/1"
@@ -52,7 +55,7 @@ def mint(sock, task_id, worker_id, compose_hash, ttl):
     g = {"task_id": task_id, "worker_id": worker_id, "compose_hash": compose_hash,
          "expires": int(time.time()) + ttl, "root_pub": root["public_key"],
          "signer_domain": SIGNER_DOMAIN, "app_id": call(sock, "Info", {})["app_id"]}
-    g["chain"] = [sign(bytes.fromhex(signer["key"]), grant_statement(g)).hex()] + signer["signature_chain"]
+    g["chain"] = [PrivateKey(bytes.fromhex(signer["key"])).sign_recoverable(grant_statement(g), hasher=None).hex()] + signer["signature_chain"]
     return {"grant": json.dumps(g, sort_keys=True, separators=(",", ":")), "root_key": root["key"]}
 
 

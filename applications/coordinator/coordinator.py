@@ -9,7 +9,7 @@ Turns speak the mac-compose runner's KMS protocol (run it with --kms http://<hos
 A turn's STATE_IN is in its compose environment, so a compose hash names one (agent, head).
 /turn/release gives the turn key only to an App Attest launch of a CDRegistry-admitted build
 whose compose is an agent's current head; /turn/commit advances that head once.
-/grant gives a worker grant to an enrolled Mac's App Attest assertion, for a compose this app admitted.
+/grant gives a worker grant to an enrolled Mac's App Attest assertion, for a compose this app admitted and not yet expired.
 
 env: OPERATOR_TOKEN, API_KEY, RPC_URL, CDREGISTRY
 """
@@ -19,7 +19,7 @@ from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(REPO), str(REPO / 'dstack-compat')]
-from verifier.core import Policy, Reject, require, unb64, unique_json, verify_assertion, verify_attestation
+from verifier.core import Policy, Reject, require, unb64, unique_json, verify_assertion, verify_key
 from verifier.macos_policy import APP_ID, MACOS_VALIDATION_CATEGORY, root
 from grant import call, grant_request_client_data, mint, seal as seal_grant
 from dsmack_dstack import keccak256
@@ -36,6 +36,7 @@ HEX64, HEX32, NAME = re.compile('[0-9a-f]{64}'), re.compile('[0-9a-f]{32}'), re.
 POLICY = Policy(APP_ID, environment='production', categories=(MACOS_VALIDATION_CATEGORY,), require_macos_acl=True)
 RP_ID_HASH = hashlib.sha256(APP_ID.encode()).digest()
 LOCK = threading.Lock()
+NONCE_TTL, MAX_NONCES = 60, 64
 
 canonical = lambda o: json.dumps(o, sort_keys=True, separators=(',', ':'), ensure_ascii=False, allow_nan=False).encode()
 sha = lambda b: hashlib.sha256(b).hexdigest()
@@ -67,7 +68,7 @@ def registry_rp(cdhash):
 
 def launch(attestation, key_id, client_data):
     """App Attest chain to Apple's root under the macOS policy; the attested CDHash must resolve in CDRegistry to our RP ID."""
-    info = verify_attestation(unb64(attestation), key_id, client_data, POLICY, root())
+    info = verify_key(unb64(attestation), key_id, client_data, POLICY, root(), time.time())
     cdhash = info['signals']['cdhash']
     require(cdhash is not None and HEX64.fullmatch(cdhash), 'missing_cdhash')
     require(registry_rp(cdhash) == RP_ID_HASH, 'build_not_in_cdregistry')
@@ -107,21 +108,37 @@ def head_of(compose_hash, reason):
     return agent, json.loads((STATE / 'agents' / agent / 'head.json').read_bytes())
 
 
+def new_nonce():
+    """Unauthenticated: drop expired nonces and refuse past MAX_NONCES outstanding."""
+    live = 0
+    for p in (STATE / 'nonces').iterdir():
+        if time.time() - float(p.read_text()) >= NONCE_TTL:
+            p.unlink()
+        else:
+            live += 1
+    require(live < MAX_NONCES, 'too_many_outstanding_nonces')
+    nonce = secrets.token_hex(32)
+    (STATE / 'nonces' / nonce).write_text(str(time.time()))
+    return {'nonce': nonce}
+
+
 def take_nonce(nonce):
     require(isinstance(nonce, str) and HEX64.fullmatch(nonce) and (STATE / 'nonces' / nonce).exists(), 'unknown_or_stale_nonce')
     issued = float((STATE / 'nonces' / nonce).read_text())
     (STATE / 'nonces' / nonce).unlink()
-    require(time.time() - issued < 60, 'unknown_or_stale_nonce')
+    require(time.time() - issued < NONCE_TTL, 'unknown_or_stale_nonce')
 
 
 def genesis(req):
     agent = req['agent']
     require(isinstance(agent, str) and NAME.fullmatch(agent), 'bad_agent_name')
+    require(isinstance(req['image'], str) and type(req['port']) is int and 0 < req['port'] < 65536, 'bad_agent_config')
+    config, blob = canonical({'image': req['image'], 'port': req['port']}), base64.b64decode(req['ciphertext'], validate=True)
     d = STATE / 'agents' / agent
     require(not d.exists(), 'agent_exists')
     d.mkdir()
-    (d / 'config.json').write_bytes(canonical({'image': req['image'], 'port': int(req['port'])}))
-    return set_head(agent, store(base64.b64decode(req['ciphertext'])), 1)
+    (d / 'config.json').write_bytes(config)
+    return set_head(agent, store(blob), 1)
 
 
 def release(req):
@@ -175,6 +192,7 @@ def mac_path(key_id):
 
 def enroll(req):
     """Record a Mac's App Attest key for /grant; the attestation must be of a CDRegistry-admitted build."""
+    require(not mac_path(req['key_id']).exists(), 'mac_already_enrolled')
     info = launch(req['attestation'], req['key_id'], unb64(req['client_data']))
     mac_path(req['key_id']).write_bytes(canonical({'key_id': req['key_id'], 'public_key': info['public_key'], 'counter': 0}))
     return {'key_id': req['key_id'], 'cdhash': info['signals']['cdhash']}
@@ -187,8 +205,8 @@ def grant(req):
     path = mac_path(req['key_id'])
     require(path.exists(), 'mac_not_enrolled')
     mac = json.loads(path.read_bytes())
-    require(isinstance(req['compose_hash'], str) and HEX64.fullmatch(req['compose_hash'])
-            and (STATE / 'composes' / req['compose_hash']).exists(), 'compose_not_admitted')
+    admitted = STATE / 'composes' / req['compose_hash']
+    require(HEX64.fullmatch(req['compose_hash']) and admitted.exists() and time.time() < float(admitted.read_text()), 'compose_not_admitted')
     seal_pub = bytes.fromhex(req['seal_pub'])
     cd = grant_request_client_data(bytes.fromhex(req['compose_hash']), bytes.fromhex(req['run']), seal_pub, req['task_id'])
     a = verify_assertion(bytes.fromhex(req['assertion']), cd, mac['public_key'], mac['counter'], POLICY)
@@ -236,12 +254,22 @@ def admit(req):
                  'attempt_id': attempt, 'closure_context_sha256': sha(canonical(closure)), 'workload_disk': disk,
                  'issued_at': stamp(now), 'expires_at': stamp(expires)}
     raw = canonical(admission)
-    (STATE / 'composes' / admission['compose_manifest_sha256']).touch()
+    (STATE / 'composes' / admission['compose_manifest_sha256']).write_text(str(expires.timestamp()))
     return {'admission': raw.decode(), 'signature': sign(admission['schema'], raw)}
 
 
+def admit_compose(req):
+    """A compose the operator built outside a release profile (mac.py admit-v02): /grant serves it for two hours."""
+    h = req['compose_manifest_sha256']
+    require(isinstance(h, str) and HEX64.fullmatch(h), 'bad_compose_hash')
+    expires = datetime.datetime.now(datetime.timezone.utc) + datetime.timedelta(hours=2)
+    (STATE / 'composes' / h).write_text(str(expires.timestamp()))
+    return {'compose_manifest_sha256': h, 'expires_at': stamp(expires)}
+
+
 POSTS = {'/turn/release': (release, False), '/turn/commit': (commit, False), '/grant': (grant, False),
-         '/agent': (genesis, True), '/sign-release': (sign_release, True), '/admit': (admit, True), '/enroll': (enroll, True)}
+         '/agent': (genesis, True), '/sign-release': (sign_release, True), '/admit': (admit, True),
+         '/admit-compose': (admit_compose, True), '/enroll': (enroll, True)}
 
 
 class H(BaseHTTPRequestHandler):
@@ -254,13 +282,16 @@ class H(BaseHTTPRequestHandler):
 
     def do_GET(self):
         if self.path == '/turn/nonce':
-            nonce = secrets.token_hex(32)
-            (STATE / 'nonces' / nonce).write_text(str(time.time()))
-            return self.reply(200, canonical({'nonce': nonce}))
+            try:
+                with LOCK:
+                    out = new_nonce()
+            except Reject as e:
+                return self.reply(429, canonical({'error': str(e)}))
+            return self.reply(200, canonical(out))
         if self.path == '/keys':
             return self.reply(200, KEYS)
         kind, _, name = self.path.removeprefix('/').partition('/')
-        if kind in ('head', 'compose') and NAME.fullmatch(name) and (STATE / 'agents' / name).exists():
+        if kind in ('head', 'compose') and NAME.fullmatch(name) and (STATE / 'agents' / name / 'head.json').exists():
             head = (STATE / 'agents' / name / 'head.json').read_bytes()
             return self.reply(200, head if kind == 'head' else (STATE / 'agents' / name / f'compose-turn-{json.loads(head)["turn"]}.json').read_bytes())
         if self.path.startswith('/turn/state/') and HEX64.fullmatch(h := self.path.removeprefix('/turn/state/')) and (STATE / 'blobs' / h).exists():

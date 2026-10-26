@@ -1,4 +1,4 @@
-# Build on Zed /data. QUALIFIED_CLAUDE_REPOSITORY is a local name for the qualified source image.
+# Build on the operator host. QUALIFIED_CLAUDE_REPOSITORY is a local name for the qualified source image.
 ARG QUALIFIED_CLAUDE_REPOSITORY
 FROM --platform=linux/arm64 ${QUALIFIED_CLAUDE_REPOSITORY}@sha256:dedc08251681f537d3c4fc8d3e9a3bc70f666bf979946e6daadee35178f0c418
 USER root

@@ -10,8 +10,7 @@ import hashlib
 import json
 from pathlib import Path
 import sys
-
-from cryptography import x509
+import time
 
 ROOT = Path(__file__).resolve().parents[2]
 sys.path[:0] = [str(ROOT), str(ROOT/'base-vm/browser-sandbox-v1/source/runner-content/lib'), str(ROOT/'dstack-compat'),
@@ -19,7 +18,7 @@ sys.path[:0] = [str(ROOT), str(ROOT/'base-vm/browser-sandbox-v1/source/runner-co
 from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_commitment
 import find
 import guest_attest
-from verifier.core import decode, require, unb64, unique_json, verify_assertion, verify_attestation
+from verifier.core import require, unb64, unique_json, verify_assertion, verify_attestation, verify_key
 from verifier.macos_policy import policy, root
 
 SCOPE = {'include': ['files'], 'file_slots': ['turn']}
@@ -82,8 +81,8 @@ def from_mac_compose(evidence, compose_bytes, cdhash, blobs):
             'outputs': {'state': transition['state_out']}, 'transcripts': [], 'verdict': None, 'dashcam': None}
 
 
-def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_image_hash):
-    """Check the turn's guest Attest: the App Attest key and launch, the sealed event log and report_data.
+def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_image_hash, manifest_sha256):
+    """Check the turn's guest Attest of the admitted manifest: the App Attest key and launch, the sealed event log and report_data.
 
     run holds the runner's launch-client-data.bin, launch-assertion.cbor and compose-manifest.bin;
     enrollment holds the key's attestation.cbor, clientData.bin and keyId.txt.
@@ -92,15 +91,14 @@ def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_
     rule = policy(bytes.fromhex(cdhash))
     attestation = (enrollment/'attestation.cbor').read_bytes()
     key_id = (enrollment/'keyId.txt').read_text().strip()
-    leaf = x509.load_der_x509_certificate(decode(attestation)['attStmt']['x5c'][0])
-    key = verify_attestation(attestation, key_id, (enrollment/'clientData.bin').read_bytes(), rule, root(),
-                             at_time=leaf.not_valid_before_utc.timestamp() + 60)['public_key']
+    key = verify_key(attestation, key_id, (enrollment/'clientData.bin').read_bytes(), rule, root(), time.time())['public_key']
     require(a['key_id'] == unb64(key_id), 'Attest key is not the enrolled key')
     signed = verify_assertion(a['assertion'], guest_attest.client_data(a['os_image_hash'], a['manifest_sha256'], a['run'],
                               a['head'], a['caller'], a['report_data']), key, 0, rule)
     launch_data = (run/'launch-client-data.bin').read_bytes()
     launch = verify_assertion((run/'launch-assertion.cbor').read_bytes(), launch_data, key, signed['counter'], rule)
     compose = (run/'compose-manifest.bin').read_bytes()
+    require(sha(compose) == manifest_sha256, 'compose is not the admitted manifest')
     require(a['run'] == hashlib.sha256(launch_data).digest(), 'Attest is not from this launch')
     require(a['manifest_sha256'].hex() == sha(compose) and a['os_image_hash'].hex() == os_image_hash,
             'Attest is not for this compose and image')

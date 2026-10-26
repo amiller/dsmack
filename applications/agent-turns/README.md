@@ -111,10 +111,10 @@ copied byte for byte from `/usr/local/lib/dsmack/sentinel` in the
 ## Dispatch to the Mac
 
 `skill/dsmack-agent run` snapshots a local working tree and runs an edit turn in
-the attested guest on the Mac mini; [`skill/SKILL.md`](skill/SKILL.md) tells a
+the attested guest on a Mac; [`skill/SKILL.md`](skill/SKILL.md) tells a
 local agent how to use it. The run follows [docs/running.md](../../docs/running.md):
 
-1. zed (`mac.py admit`) puts the request in file slot `turn` and a tar of the
+1. The operator host (`mac.py admit`) puts the request in file slot `turn` and a tar of the
    snapshot in slot `tree` (at most 16 MiB), builds the measured workload disk
    with the image and the commitment declaration, has the
    [coordinator](../coordinator/README.md) sign a workload admission for a fresh
@@ -122,15 +122,17 @@ local agent how to use it. The run follows [docs/running.md](../../docs/running.
 2. The Mac pipes its local Claude login through `export_subscription.py` into
    `stage_private.py`, then runs `alpha_coordinator.py` prepare, check-only and
    execute on the installed release (profile `agent-turns-edit-v1`).
-3. zed (`mac.py verify`) runs the run-result verifier on the Mac's original
+3. The operator host (`mac.py verify`) runs the run-result verifier on the Mac's original
    evidence, and `turn.from_receipt` reads the verified receipt and artifacts.
 
 The guest runs `find.py` as the compose workload with `--inputs` pointing at
 the tar; it checks the unpacked tree against the request's `inputs_sha256`.
 
-One-time operator setup on zed `/data/amiller/dsmack/mac-dispatch-20261025`, with
+One-time operator setup in `$DSMACK_OPERATOR_DIR` on the operator host, with
 `source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
-(the coordinator's URL) and `DSMACK_OPERATOR_TOKEN`. `release` has the coordinator
+(the coordinator's URL), `DSMACK_OPERATOR_TOKEN` and the paths `mac.py` reads
+(`DSMACK_BROKER_BUILD`, `DSMACK_OPERATOR_POLICY`).
+`skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. `release` has the coordinator
 sign the inventory under its key id:
 
 ```sh
@@ -138,20 +140,24 @@ M="python3 -B source/applications/agent-turns/mac.py"
 $M image --out image-1          # Dockerfile on the qualified 2.1.187 parent, as a gzip OCI layout
 . ./coordinator.env
 $M release --base-inventory BASE.json --base-archive BASE.tar.gz --oci image-1/oci-layout \
-  --sequence 30 --out release-1  # a prior private-develop release with this profile and current pilot-client
+  --base BASE-IMAGE --sequence 30 --out release-1  # a prior release with this profile; current pilot-client
 $M authorize --authority authority --registration DIR   # attestation.cbor, clientData.bin, keyId.txt of the Mac key
 ```
 
 Then install `release-1` on the Mac with `alpha-bootstrap.mjs` and `alpha_stage.py`
 into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md, with the
 coordinator's `public_pem` from `GET /keys` as the bootstrap trust key.
+`--base` is the guest image the release ships in `base/`. The alpha app (CDHash
+`6b9baf8b…`) predates the guest Attest agent and does not answer on `dsmack-ctl`,
+so it boots the B44 base (`os_image_hash` `b44abf14…`); a derived image
+(`image.sha256`) stops with supervisor code 33 when the agent cannot seal.
 
 ### On the v0.2.0-canary.1 runner
 
 `skill/dsmack-agent run-v02` runs the same turn on the v0.2.0-canary.1 runner
-(CDHash `7011178c…`) and base image (`os_image_hash` `3bec88ca…`), without the
-alpha installer. `mac.py admit-v02` takes the alpha manifest, swaps in the v0.2
-`base_vm`, binds `/var/run/dstack.sock` and adds `find.py --attest`. After the
+(CDHash `7011178c…`) and the derived image `image.sha256` (`c6bc2b7f…`), without the
+alpha installer. `mac.py admit-v02` takes the alpha manifest, swaps in the `base_vm`
+of `--base`, binds `/var/run/dstack.sock` and adds `find.py --attest`. After the
 turn, `find.py` calls `/v1/Attest` with `report_data` = `find.report`: the
 sha256 of `{request, patch, transcripts, verdict, dashcam, state_out}`, and
 writes the attestation as the `attestation` artifact. The Mac stages the
@@ -159,9 +165,9 @@ credential as above and launches `DsmackRunner.app hvf-v3` with that private
 disk. `turn.from_guest_attest` checks the runner key's App Attest attestation,
 the Attest assertion over the rebuilt client data, the replayed event log
 ending in `system-ready`, that `run` is the launch assertion's client data, the
-compose and image hashes, and `report_data` against the artifacts.
+compose (the manifest `admit-v02` admitted) and image hashes, and `report_data` against the artifacts.
 
-Setup: `image-4` built by `mac.py image` in zed `/data/amiller/dsmack/agent-turns-v02-20261025`,
+Setup: `image-4` built by `mac.py image` and `base/` (the `derive.py` artifacts) in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
 and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
 
 For private inputs, `compose-private.yml` runs the sentinel as a container on two

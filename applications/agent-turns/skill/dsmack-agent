@@ -2,8 +2,8 @@
 """dsmack-agent run: hand a coding task on a git checkout to the pinned agent and get back a patch.
 
 The working tree is snapshotted and sent with a dsmack-agent-turn/1 request to the attested Mac.
-zed admits the attempt (mac.py admit), the Mac stages the subscription credential and runs it in the
-signed release's guest, zed verifies the evidence, and turn.from_receipt reads the verified receipt.
+The operator host admits the attempt (mac.py admit), the Mac stages the subscription credential and runs it
+in the signed release's guest, the operator host verifies the evidence, and turn.from_receipt reads the verified receipt.
 `run-v02` runs the turn on the v0.2.0-canary.1 runner and base image instead (mac_v02): the workload signs
 its results with the guest Attest, and turn.from_guest_attest checks that here.
 """
@@ -25,9 +25,11 @@ import turn
 
 CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
 MAX_INPUTS = 16 << 20
-ZED, ZED_DIR = 'zed-mesh', '/data/amiller/dsmack/mac-dispatch-20261025'
-RELEASE, IMAGE = 'release-4', 'image-3'
-MAC, MAC_DIR = 'mini-mesh', 'dsmack-mac-dispatch-20261025'
+# ssh hosts and the operator's dispatch directories (README.md, Dispatch to the Mac).
+OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC = (os.environ[k] for k in (
+    'DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST'))
+RELEASE, IMAGE = 'release-6', 'image-3'
+MAC_DIR = 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
 SELECTOR = 'agent-turns-edit-v1'
 ADMITTED = 'workload.img workload-admission.json workload.sig closure-context.json checker-context.json challenge.bin keyId.txt preparation'
@@ -62,13 +64,13 @@ $C --check-only --plan $PLAN
 $C --execute --plan $PLAN > execute.json
 '''
 
-# v0.2.0-canary.1: zed holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
-# base/ (the release's Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
+# v0.2.0-canary.1: the operator host holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
+# base/ (the same files as the operator's V02 dir base/: Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
 # source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source) and enrollment/ (the runner
 # key's attestation.cbor, clientData.bin, keyId.txt).
-V02_ZED_DIR, V02_IMAGE, V02_MAC_DIR = '/data/amiller/dsmack/agent-turns-v02-20261025', 'image-4', 'dsmack-agent-turns-v02-20261025'
+V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
-V02_OS_IMAGE = '3bec88cae3271ce70661c55c8f0a0cf13b98700a3dcb8d45199d1af8329cdce7'
+V02_OS_IMAGE = 'c6bc2b7f0bddd086bce43638303b5a74fc02dc1f69d2d2b47f9bd85b9d51e42a'
 
 # On the Mac: stage the credential through the pipe, then one hvf-v3 launch of the attempt with that private disk.
 MAC_RUN_V02 = r'''set -euo pipefail
@@ -125,6 +127,7 @@ def snapshot(repo, inputs):
     names = subprocess.run(['git', '-C', str(repo), 'ls-files', '-z', '-co', '--exclude-standard', '--deduplicate'],
                            check=True, capture_output=True).stdout.decode().split('\0')
     for name in filter(None, names):
+        find.require(not (repo/name).is_symlink(), f'{name} is a symlink; a turn takes regular files only')
         if os.path.lexists(repo/name):
             (inputs/name).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(repo/name, inputs/name, follow_symlinks=False)
@@ -140,28 +143,29 @@ def ssh(host, command, **kw):
 def mac(request, inputs, out):
     """Run the turn in the signed release's guest on the Mac. Returns the turn record of the verified receipt v4."""
     run_id = uuid.uuid4().hex[:12]
-    zed = f'{ZED_DIR}/attempts/{run_id}'
-    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle(request, inputs))
-    admitted = ssh(ZED, f'cd {ZED_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
-                        f'--oci {IMAGE}/oci-layout --authority authority --request {zed}/request.json '
-                        f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
+    op = f'{OPERATOR_DIR}/attempts/{run_id}'
+    ssh(OPERATOR, f'mkdir -p {op} && tar -x -C {op}', input=bundle(request, inputs))
+    admitted = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
+                        f'--oci {IMAGE}/oci-layout --authority authority --request {op}/request.json '
+                        f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
     attempt = json.loads(admitted.splitlines()[-1])['attempt_id']
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    pipe(f'tar -c -C {zed}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id} && chmod -R go-rwx {MAC_DIR}/t/{run_id}')
+    pipe(f'tar -c -C {op}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id} && chmod -R go-rwx {MAC_DIR}/t/{run_id}')
     evidence = f'{MAC_DIR}/r/attempt-{attempt}'
     try:
         ssh(MAC, f'bash -s {MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN.encode())
-        pipe(f'tar -c --exclude scratch.img --exclude "*.staged" -C {evidence} .', f'mkdir {zed}/evidence && tar -x -C {zed}/evidence', MAC, ZED)
+        pipe(f'tar -c --exclude scratch.img --exclude "*.staged" -C {evidence} .', f'mkdir {op}/evidence && tar -x -C {op}/evidence', MAC, OPERATOR)
     finally:
         # The VM has exited once execute returns; its two 4 GiB scratch copies are the run's only large residue.
         # private-input.img holds the credential.
+        # A launch that failed before prepare has no evidence dir.
         ssh(MAC, f'rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/tmp {MAC_DIR}/t/{run_id}/workload.img; '
-                 f'cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
-                 f'&& rm -f scratch.img *.staged')
-    result = ssh(ZED, f'cd {ZED_DIR} && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
-                      f'--attempt {zed}/admit --evidence {zed}/evidence --job {zed}/verify', capture_output=True).stdout
+                 f'[ ! -d {evidence} ] || {{ cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
+                 f'&& rm -f scratch.img *.staged; }}')
+    result = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
+                      f'--attempt {op}/admit --evidence {op}/evidence --job {op}/verify', capture_output=True).stdout
     (out/'verification.json').write_bytes(result.splitlines()[-1])
-    pulled = ssh(ZED, f'tar -c -C {zed}/verify/retained receipt.json report.json -C outputs artifacts', capture_output=True).stdout
+    pulled = ssh(OPERATOR, f'tar -c -C {op}/verify/retained receipt.json report.json -C outputs artifacts', capture_output=True).stdout
     with tarfile.open(fileobj=io.BytesIO(pulled)) as tar:
         tar.extractall(out, filter='data')
     return turn.from_receipt(json.loads((out/'receipt.json').read_bytes()), request, out/'artifacts')
@@ -170,16 +174,17 @@ def mac(request, inputs, out):
 def mac_v02(request, inputs, out):
     """Run the turn on the v0.2.0-canary.1 runner and base image on the Mac. Returns the checked turn record."""
     run_id = uuid.uuid4().hex[:12]
-    zed, mac_t = f'{V02_ZED_DIR}/attempts/{run_id}', f'{V02_MAC_DIR}/t/{run_id}'
-    ssh(ZED, f'mkdir -p {zed} && tar -x -C {zed}', input=bundle(request, inputs))
-    admitted = ssh(ZED, f'cd {V02_ZED_DIR} && python3 -B source/applications/agent-turns/mac.py admit-v02 '
-                        f'--release {ZED_DIR}/{RELEASE} --oci {V02_IMAGE}/oci-layout --request {zed}/request.json '
-                        f'--inputs-tar {zed}/tree.tar --out {zed}/admit', capture_output=True).stdout
+    op, mac_t = f'{V02_OPERATOR_DIR}/attempts/{run_id}', f'{V02_MAC_DIR}/t/{run_id}'
+    ssh(OPERATOR, f'mkdir -p {op} && tar -x -C {op}', input=bundle(request, inputs))
+    admitted = ssh(OPERATOR, f'cd {V02_OPERATOR_DIR} && . {OPERATOR_DIR}/coordinator.env && python3 -B source/applications/agent-turns/mac.py admit-v02 '
+                        f'--release {OPERATOR_DIR}/{RELEASE} --base base --oci {V02_IMAGE}/oci-layout --request {op}/request.json '
+                        f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
+    admission = json.loads(admitted.splitlines()[-1])
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    # The disk shares the Mac's control master with other sessions, so zed throttles it.
-    pipe(f'set -o pipefail; tar -c -C {zed}/admit workload.img preparation closure-context.json | pv -q -L 20m',
+    # The disk shares the Mac's control master with other sessions, so the operator host throttles it.
+    pipe(f'set -o pipefail; tar -c -C {op}/admit workload.img preparation closure-context.json | pv -q -L 20m',
          f'mkdir -m700 -p {mac_t} && tar -x -C {mac_t} && chmod -R go-rwx {mac_t}')
-    ssh(ZED, f'rm {zed}/admit/workload.img {zed}/tree.tar')
+    ssh(OPERATOR, f'rm {op}/admit/workload.img {op}/tree.tar')
     try:
         ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN_V02.encode())
     finally:
@@ -198,7 +203,7 @@ def mac_v02(request, inputs, out):
     subprocess.run(['gzip', str(out/'out/result.img')], check=True)
     shutil.copytree(out/'result'/SELECTOR/'outputs/artifacts', out/'artifacts')
     return turn.from_guest_attest((out/'artifacts/attestation').read_bytes(), request, out/'artifacts', out/'out',
-                                  out/'enrollment', V02_CDHASH, V02_OS_IMAGE)
+                                  out/'enrollment', V02_CDHASH, V02_OS_IMAGE, admission['manifest_sha256'])
 
 
 def bundle(request, inputs):
@@ -216,7 +221,7 @@ def bundle(request, inputs):
     return raw.getvalue()
 
 
-def pipe(source, sink, src=ZED, dst=MAC):
+def pipe(source, sink, src=OPERATOR, dst=MAC):
     """Stream a tar from one host to another through this machine."""
     reader = subprocess.Popen(['ssh', src, source], stdout=subprocess.PIPE)
     subprocess.run(['ssh', dst, sink], stdin=reader.stdout, check=True)

@@ -101,9 +101,10 @@ Both contracts are source-verified on Basescan.
 
 The 2026-10-25 instance (canary `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C`,
 verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates build binding:
-its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe and is void
-as evidence. The `0x469B…24c0` instance binds one CDHash, so only that signer's
-device can claim it, and it stops resolving once a later build is approved.
+its entry 0 (0.01 ETH, until 2027-01-23) was claimable with the probe while the probe
+was the approved build. Since the 2026-10-25 `setBuild` its verifier admits only the
+fixed-domain runner, so a claim now is a real forgery. The `0x469B…24c0` instance binds
+one CDHash that no longer resolves, so it is unclaimable.
 
 ## Build-bound canary, Base Sepolia, 2026-10-25
 
@@ -129,6 +130,68 @@ workload (manifest `ab59dfd00d28a6ba430ec8610068dc853514c99e1b866e94aa9af00f40cd
 with claim steps. For that image:
 2 Guest (`0xc33e33fc8ca945baeae6d5c64aae503bf26b86670906e19428c3d7f640145f1f`),
 3 Owner, binding the canary manifest (`0xb6005f0a3cd3fc076ada3954c7d98efcb7652fa770ebe970ccc39ed08426a0c3`).
+
+## Intermediate-expiry redeploy, Base Sepolia, 2026-10-26
+
+Enrolled keys now expire at the Apple intermediate's notAfter instead of the
+3-day leaf's; enrollment still checks the leaf. Both verifiers were redeployed
+with the same `CDRegistry`, adapter policy and `buildId` `0xc930…a758`. The main
+verifier replaces `0x697b…8670` (runtime keccak256
+`0xcb58b4af4dd77f47c85393c28e742588632cfb8db5b2e69ecfada54ceaadc148`).
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| AppleAttestRegistryV1 | `0x357e2bcd445d4d3f1Cfe4C40A51a824Ab3e409Ad` | `0x934d72539be1f876089356a0fbae04d9cfb4d4bf886056e2ba886055ba193ae2` | 4,429,427 |
+| AppleAttestRegistryV1 (canary verifier) | `0x08351Cf4B691721fF8F2D7d737E41Eb2FD2c0fD9` | `0x94ddeb2c5689ee060614b8ca73ac3455f6bc4ea84adfde441ba4b4d6db6f18da` | 4,429,427 |
+| Canary | `0x93942C82Aef24C596A90C447f5AfAF083abF926F` | `0x92801a8a2f51a496586cf8c34e8bdb8a5b2aec1a98d7fdfe538845b2f44e6ff4` | 1,163,993 |
+
+Entries, each 0.01 ETH until 1800807101 (2027-01-24), bound to that `buildId`:
+0 Forgery (`0x542f035e4d08a5c1d03ef1c1a4083c5dec1509d06416b61c2efd85674fe9625c`),
+1 Runner (`0x1fed1c9ff75968648bff7b97a4b7e9cf1f2fcd008a5a9ce8ed1f557226dedc7e`),
+2 Guest, image `3bec88ca…` (`0x62199596e3bc65850b3f9b861a76751a458a2246857be641a24a2ae863586fcb`),
+3 Owner, image `3bec88ca…`, manifest `ab59dfd0…` (`0x870e06a109aed1fdbe66d23a4bccfa6e1025c86c3c1976839b745dd825ef5d26`).
+All three contracts are source-verified on Basescan. The re-signed outsider key
+`0x6ff08d2895eafb44178d7daec7f1db26e3b7c238bf7ca85ec0eb77e7e776afd4` enrolled in the
+canary verifier in `0x1be70634d0b95c1a1f826e225c34844655eb9029ac63292c76ad28a72b4f616a`
+(14,120,588 gas) and expires 2030-03-13.
+
+A Mac enrolls its key once per verifier, and the key stays valid until a `setBuild`
+rotates the build. The 2026-10-25 canary `0x6509…4658` and its verifier `0xa3C1…6215`
+are superseded for new pots but still claimable: their entries name build `0xc930…`,
+which is still approved. A claimant enrolls in `0xa3C1…` (keys there expire 3 days after
+creation). One break of the current build pays `0x9394…`, `0x6509…` and `0x7c66…`.
+
+## Pinned-build canary (source; not deployed)
+
+The deployed instances above follow the registry's current build, so a `setBuild`
+strands a claim in flight. In this source an entry pins its build at arm time:
+
+- `CDRegistry` keeps every build it has approved. `registerBuild` admits a copy of
+  any of them, and public `buildOf(cdhash)` and `rpOf(cdhash)` resolve it whatever
+  the current build. `rpIdHash`, `teamIdHash` and `bundleIdHash` still resolve only
+  the current build, so `AppleAttestRegistryV1` (the main verifier) still revokes a
+  superseded build at once.
+- The canary verifier is `AppleAttestAnyBuildV1`: it admits a CDHash of any approved
+  build. `Canary` reads the assertion's CDHash from `assertionEvidence(kid)` and
+  requires `cds.buildOf(cdhash) == entry.build`.
+- `retire(id)` (funder) brings `until` to at most `NOTICE` (14 days) from now and
+  emits `Retired`. Claims never close; `reclaim` opens after `until`.
+- A claim after the pot is reclaimed still burns the entry and emits `Burned` with
+  amount 0.
+
+A pinned build stays claimable for as long as the entry exists, including after it is
+revoked for users; the entry measures that build. The secret-release policy and claim
+path should refuse a build with no unburned Forgery entry holding at least `NOTICE`
+of term (rotation: arm the new build, `setBuild`, then `retire` the old entries).
+
+Deploying it needs a new `CDRegistry` (re-run `setBuild` and `registerBuild` for the
+current runner, and repoint the main verifier, so a new `AppleAttestRegistryV1` too),
+a new `AppleAttestAnyBuildV1` with `registry` = the canary's predicted address, then
+the `Canary`, re-enrollment of each key in both verifiers, and `arm` (each entry's
+term is at least `NOTICE`). Deploy from the current owner key: `owner` is the deployer.
+Off chain, repoint the coordinator's `CDREGISTRY`, the secret-release policy's `attest`
+and `canary`, the dashboard `registry.json` entry (`canary-read-codec/3`), and `$CDS`
+in docs/canary/RUNNER-README.md.
 
 ## Key canaries
 

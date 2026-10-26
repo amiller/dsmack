@@ -8,13 +8,16 @@ output files, so their names are the receipt's artifact names.
 """
 import argparse
 import hashlib
+import http.client
 import json
 import os
 from pathlib import Path
 import selectors
 import shutil
 import signal
+import socket
 import subprocess
+import tarfile
 import tempfile
 import time
 
@@ -22,6 +25,7 @@ MAX_STDOUT = 8*1024*1024
 MAX_STDERR = 65536
 READ_ONLY_TOOLS = {'Read', 'Grep', 'Glob'}
 EDIT_TOOLS = READ_ONLY_TOOLS | {'Edit', 'Write'}
+DSTACK_SOCK = '/var/run/dstack.sock'
 
 
 def require(ok, reason):
@@ -49,6 +53,17 @@ def tree_digest(root):
     files = sorted(p for p in root.rglob('*') if not p.is_dir())
     require(all(p.is_file() and not p.is_symlink() for p in files), 'inputs must be regular files')
     return sha(canonical([[str(p.relative_to(root)), file_sha(p)] for p in files]))
+
+
+def unpack(archive):
+    root = Path(tempfile.mkdtemp())/'inputs'
+    with tarfile.open(archive) as tar:
+        members = tar.getmembers()
+        # The image's Python 3.11.2 has no extraction filter; a member outside the root could overwrite artifacts.
+        require(all((m.isfile() or m.isdir()) and not m.name.startswith('/') and '..' not in m.name.split('/')
+                    for m in members), 'inputs tar member')
+        tar.extractall(root, members)
+    return root
 
 
 def check_digest(spec):
@@ -155,7 +170,8 @@ def aggregate(answers, rule):
 
 def agent_run(cli, agent, text, cwd, run, endpoint, check_version):
     with tempfile.TemporaryDirectory() as home:
-        env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
+        # The guest's root is read-only, so the CLI's temporary files go in the per-run home.
+        env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'TMPDIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
                'LANG': 'C.UTF-8', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                'DISABLE_AUTOUPDATER': '1', 'ANTHROPIC_BASE_URL': endpoint,
                'ANTHROPIC_AUTH_TOKEN': endpoint.rsplit('/', 1)[1]}
@@ -179,9 +195,13 @@ def edit(spec, inputs, output, cli, endpoint):
         git('init', '-q')
         git('add', '-A', '-f')
         git('commit', '-q', '--allow-empty', '-m', 'inputs')
-        agent_run(cli, spec['agent'], edit_prompt(spec), work, output/'run-1', endpoint, True)
+        summary, models, turns = agent_run(cli, spec['agent'], edit_prompt(spec), work, output/'run-1', endpoint, True)
         git('add', '-A')
         (output/'patch').write_bytes(git('diff', '--cached', '--binary'))
+    # The manifest declares `verdict`, and a declared artifact that is missing fails the run.
+    verdict = {'answer': None, 'summary': summary[:1000], 'num_turns': turns, 'observed_models': models}
+    (output/'verdict').write_bytes(canonical(verdict))
+    return verdict
 
 
 def run(spec, inputs, output, cli):
@@ -209,14 +229,44 @@ def run(spec, inputs, output, cli):
     return verdict
 
 
+def report(request, outputs):
+    """The sha256 that a guest Attest signs as report_data: the request and the turn's results."""
+    def digest(name):
+        return file_sha(outputs/name) if (outputs/name).exists() else None
+    head = outputs/'dashcam-head'
+    return hashlib.sha256(canonical({
+        'schema': 'dsmack-agent-turn-report/1', 'request': sha(request), 'patch': digest('patch'),
+        'transcripts': [file_sha(p) for p in sorted(outputs.glob('run-*-transcript'))], 'verdict': digest('verdict'),
+        'dashcam': head.read_text().strip() if head.exists() else None, 'state_out': digest('state')})).digest()
+
+
+def attest(report_data, output):
+    """POST /v1/Attest on the guest's dstack socket; the VersionedAttestation becomes the `attestation` artifact."""
+    class Unix(http.client.HTTPConnection):
+        def connect(self):
+            self.sock = socket.socket(socket.AF_UNIX)
+            self.sock.connect(DSTACK_SOCK)
+    conn = Unix('localhost')
+    conn.request('POST', '/v1/Attest', json.dumps({'report_data': report_data.hex()}), {'Content-Type': 'application/json'})
+    response = conn.getresponse()
+    body = json.loads(response.read())
+    require(response.status == 200, 'Attest: ' + str(body.get('error')))
+    (output/'attestation').write_bytes(bytes.fromhex(body['attestation']))
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--spec', type=Path, required=True)
-    parser.add_argument('--inputs', type=Path, required=True)
+    parser.add_argument('--inputs', type=Path, required=True, help='directory, or a tar of one')
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cli', type=Path, default=Path('/usr/local/bin/claude'))
+    parser.add_argument('--attest', action='store_true', help='bind the results with a guest Attest on ' + DSTACK_SOCK)
     args = parser.parse_args()
-    verdict = run(json.loads(args.spec.read_bytes()), args.inputs.resolve(), args.output, args.cli)
+    inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
+    request = args.spec.read_bytes()
+    verdict = run(json.loads(request), inputs, args.output, args.cli)
+    if args.attest:
+        attest(report(request, args.output), args.output)
     print(json.dumps(verdict, indent=2))
 
 

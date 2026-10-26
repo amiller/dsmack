@@ -141,7 +141,7 @@ def execution_profile(final,s,inputs):
   return 1073741824,268435456,1073741824
  exact(q,('schema','profile_id','workload_id','resource_profile','memory_mib','vcpus','runtime_seconds','scratch_template_bytes','result_template_bytes','compose_manifest_sha256','model_profile','security_preset'))
  need(q['schema']=='dsmack-protected-execution-profile/1','execution profile schema')
- allowed={'claude-broker-diagnostic-v1':4294967296,'bounty-board-search-generate-v1':4294967296,'bounty-board-search-develop-v1':4294967296,'bounty-board-search-primary-review-v1':4294967296,'bounty-board-search-browser-review-v1':4294967296,'codex-private-sample':1073741824}
+ allowed={'claude-broker-diagnostic-v1':4294967296,'bounty-board-search-generate-v1':4294967296,'bounty-board-search-develop-v1':4294967296,'agent-turns-edit-v1':4294967296,'bounty-board-search-primary-review-v1':4294967296,'bounty-board-search-browser-review-v1':4294967296,'codex-private-sample':1073741824}
  need(isinstance(q['profile_id'],str) and q['profile_id'] in allowed,'reviewed execution profile ID')
  need(q['workload_id']==q['profile_id']==s['workload_id'],'execution profile workload')
  need(q['resource_profile']==s['profile']=='mini-4096','execution resource profile')
@@ -152,7 +152,7 @@ def execution_profile(final,s,inputs):
  for key in ('model_profile','security_preset'):
   need(isinstance(q[key],str) and re.fullmatch('[A-Za-z0-9][A-Za-z0-9._/-]{0,127}',q[key]) is not None,'reviewed '+key+' identifier')
  if q['profile_id']=='claude-broker-diagnostic-v1':need(q['model_profile']=='none' and q['security_preset']=='none','Closed diagnostic tuple')
- if q['profile_id'] in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1'):need(q['model_profile']=='claude-opus-4-8' and q['security_preset']=='none','Closed develop model/security tuple')
+ if q['profile_id'] in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','agent-turns-edit-v1'):need(q['model_profile']=='claude-opus-4-8' and q['security_preset']=='none','Closed develop model/security tuple')
  return q['scratch_template_bytes'],q['result_template_bytes'],q['scratch_template_bytes']
 
 def credential_free_profile(final):
@@ -216,7 +216,7 @@ def _validate_runtime(p,m,mode,final,tool=run_tool,app_verifier=verify_app,*,exp
    need(s['private_input_path']=='','credential-free profile forbids private input')
   else:
    need(os.path.isabs(s['private_input_path']),'private path');st=regular(s['private_input_path'],True)
-   if final.get('execution_profile',{}).get('profile_id') in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1'):
+   if final.get('execution_profile',{}).get('profile_id') in ('bounty-board-search-develop-v1','bounty-board-search-generate-v1','claude-broker-diagnostic-v1','agent-turns-edit-v1'):
     need(st.st_nlink==1 and stat.S_IMODE(st.st_mode)==0o600 and 0<st.st_size<=min(1073741824,scratch_bytes),'Develop private metadata/cap')
  exact(p['helper'],('launcher','gvproxy','run_dir'))
  for k in ('launcher','gvproxy'): pin(p['helper'][k])

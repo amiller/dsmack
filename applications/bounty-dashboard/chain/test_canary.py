@@ -29,4 +29,10 @@ class Tests(unittest.TestCase):
   live,burned=meta['entries'];self.assertEqual((live['kind'],live['pot_wei'],live['until'],live['burned'],live['funder']),('Forgery','10000000000000000','1800731481',False,'0x97883cb4b2f21530277f86490d8881654e36e6aa'));self.assertEqual(live['cdhash'],'0x9e733cee03debdd1080c9de6f1a3cdd23fdacdfb74c15fd48c8fe02069d62bb8')
   self.assertTrue(burned['burned']);self.assertEqual(burned['pot_wei'],'0')
   b=meta['events'][2];self.assertEqual((b['event'],b['id'],b['claimant'],b['amount_wei']),('Burned','1','0x'+'0'*38+'c1','5'))
+ def test_retired_event_decoded(self):
+  # A Retired log under an older codec would make the whole canary 'unknown event'.
+  c=copy.deepcopy(C);c['runtime_sha256']=hashlib.sha256(b'\x01').hexdigest();c['codec']='canary-read-codec/3'
+  retired={'address':C['address'],'topics':['0xbc624e7bcbb380f666ca42954621dcefec3dd510ccfdf5f6845df845a208374b','0x'+word(0)],'data':'0x'+word(0)+word(0x2386f26fc10000)+word(0x6b54fb59)}
+  meta,_=m.collect_canary(c,Chain('0x01',[ARMED,retired]),None,1);self.assertEqual(meta['status'],'observed',meta['error'])
+  r=meta['events'][1];self.assertEqual((r['event'],r['id'],r['kind'],r['amount_wei']),('Retired','0','Forgery','10000000000000000'))
 if __name__=='__main__':unittest.main()

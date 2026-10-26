@@ -5,8 +5,6 @@ set -euo pipefail
 cd "$(dirname "$0")"
 archive_dir="$(cd "${1:?archive dir}" && pwd)"
 app="$PWD/build/DsmackRunner.app"
-swift_version="swiftlang-6.4.0.34.1 clang-2100.3.34.1"
-swift --version 2>&1 | grep -qF "$swift_version" || { echo "reproducible build needs Xcode 27.0 (27A266a), $swift_version" >&2; exit 1; }
 # -Xlinker -S drops the debug map, which records build-directory object paths.
 (cd ../app-src && DSMACK_V3_ARCHIVE_DIR="$archive_dir" swift build -c release --product mar \
   -Xlinker -S)

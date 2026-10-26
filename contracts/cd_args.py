@@ -160,7 +160,7 @@ def measure(path):
     if struct.unpack_from(">I", b, limit)[0] == 0xfade0cc0:
         a = args(path); cd = bytes.fromhex(a["cd"][2:]); v = struct.unpack_from(">I", cd, 8)[0]
         m["header"] = hashlib.sha256(cd[8:16] + cd[0x24:0x30] + cd[0x34:0x60 if v >= 0x20500 else 0x58]).hexdigest()
-        m["entitlements"] = hashlib.sha256(bytes.fromhex(a["ent"][2:])).hexdigest()
+        m["entitlements_der"] = hashlib.sha256(bytes.fromhex(a["ent"][2:])).hexdigest()
     return m
 if __name__ == "__main__":
     if sys.argv[1] == "--measure": json.dump(measure(sys.argv[2]), sys.stdout, indent=1)

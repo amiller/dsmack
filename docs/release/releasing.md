@@ -8,7 +8,8 @@ verifier that reads its evidence.
 
 1. Tag a reviewed commit `vX.Y.Z`. Never move a released tag or replace an asset.
 2. Build unsigned with `runner-vm/native/build.sh` and `runner-vm/packaging/build.sh`
-   (see [runner-vm](../../runner-vm/README.md)). Record the unsigned executable hash.
+   on Xcode 27.0, and publish `contracts/cd_args.py --measure` of the executable so a rebuild
+   can be compared (see [runner-vm](../../runner-vm/README.md)). Record the unsigned executable hash.
 3. Sign with `runner-vm/packaging/sign.sh` and the five-key
    `DsmackRunner.entitlements`. Record the signed executable hash, the full
    SHA-256 CodeDirectory digest, Team ID, bundle ID and provisioning profile.

@@ -63,7 +63,7 @@ docker run --rm -u "$(id -u):$(id -g)" -e CARGO_HOME=/tmp/cargo -v "$PWD":/src -
 ```
 
 CDRegistry admits a re-signed copy of the approved build when its code slots,
-masked page 0, CodeDirectory header and entitlement shape match; the signature is
+masked page 0 and CodeDirectory header match (`entitlements_der` is the raw DER; the registry compares its shape); the signature is
 free. Signing changes only page 0 fields that CDRegistry masks and the signature
 appended after the code, so an unsigned rebuild compares directly with a signed
 release:

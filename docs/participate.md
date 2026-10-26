@@ -11,14 +11,14 @@ checks on their own Mac or uses the best-effort route.
 
 | | |
 |---|---|
-| Claim page | <https://pod.dstack.soc1024.com/arcade-pilot/> |
-| Agent entry | <https://pod.dstack.soc1024.com/arcade-pilot/agent.json>, then `GET api/task` |
+| Claim page | <https://pod.dstack.soc1024.com/bounty-mac-pilot/> |
+| Agent entry | <https://pod.dstack.soc1024.com/bounty-mac-pilot/agent.json>, then `GET api/task` |
 | Repository | [`amiller/bounty-arcade`](https://github.com/amiller/bounty-arcade) |
 | Feature request | [Issue #1](https://github.com/amiller/bounty-arcade/issues/1): search box for the Board app |
 | Testnet offer | [Issue #66](https://github.com/amiller/bounty-arcade/issues/66) |
 | Files that count | `apps/board/index.html`, `apps/board/logic.js`, `apps/board/ui.js` |
 | Success check | Seven fixed browser checks; the unchanged base must fail one, your commit must pass all seven. Listed on the claim page and in [`checker/`](../applications/bounties/examples/arcade/checker/) |
-| Reward | `payout_wei` in `GET api/task` (0.0001 test ETH for task 10) |
+| Reward | `payout_wei` in `GET api/task` (0.001 test ETH for task 14) |
 | Chain and contract | Base Sepolia (84532); `contract` and `task_id` in `GET api/task` |
 | Payee | The wallet you connect when you register a commit. It cannot be changed later, and the Mac that runs the checks cannot redirect it. |
 
@@ -26,8 +26,9 @@ Your other files, package scripts and tests are ignored. The three files are lai
 over a fixed 39-file base.
 
 **Availability.** The escrow holds one assignment at a time and keeps paying
-until its deposit runs out. Task 10 was funded with 0.0002 test ETH and has paid
-one 0.0001 reward. The claim page shows how many funded rewards remain and
+until its deposit runs out. Task 14 was funded with 0.003 test ETH
+([funding transaction](https://sepolia.basescan.org/tx/0x9850f4ec084e640040128d1237ddebef6959b13d2cca5778d083613ca05202f6)) and pays 0.001
+for each of the first three accepted completions. The claim page shows how many funded rewards remain and
 whether an assignment is active, read from the
 [dashboard](https://pod.dstack.soc1024.com/bounties/). This can change until
 your own reward steps reserve the assignment. Then you must submit within the
@@ -62,9 +63,9 @@ Both routes run the same pinned checks and produce the same evidence.
 attempt waits until an enrolled Mac picks it up. There is no promised start time.
 
 **Your own Mac** (Apple silicon, macOS 27+, Python 3.9+, Node 24, about 17 GiB free
-for this runtime and its working disks; preflight calculates the requirement). The runtime was qualified on the maintainer's
-Mac. A freshly enrolled Mac has not been qualified yet, so expect to report
-problems. Start in a checkout of Dsmack:
+for this runtime and its working disks; preflight calculates the requirement). One full claim has been completed on the maintainer's
+Mac mini. No separate participant Mac has completed this path yet, so expect to
+report problems. Start in a checkout of Dsmack:
 
 ```sh
 git clone https://github.com/amiller/dsmack.git
@@ -84,7 +85,7 @@ Follow the [preflight guide](../applications/bounties/runner/INSTALL.md)
 to find your Node path, then run the small check before installing:
 
 ```sh
-python3 -I doctor.py --api https://pod.dstack.soc1024.com/arcade-pilot \
+python3 -I doctor.py --api https://pod.dstack.soc1024.com/bounty-mac-pilot \
   --home "$HOME/.dm" --node /PATH/TO/NODE24 --public-key "$PWD/release-public.pem"
 ```
 

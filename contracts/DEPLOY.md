@@ -101,9 +101,10 @@ Both contracts are source-verified on Basescan.
 
 The 2026-10-25 instance (canary `0x7c66C53f45c53c2DDB23aa9B665D593c5845432C`,
 verifier `0x5Fd60f7367884dA510E47722F0498f23F6F5d9a7`) predates build binding:
-its entry 0 (0.01 ETH, until 2027-01-23) is claimable with the probe and is void
-as evidence. The `0x469B…24c0` instance binds one CDHash, so only that signer's
-device can claim it, and it stops resolving once a later build is approved.
+its entry 0 (0.01 ETH, until 2027-01-23) was claimable with the probe while the probe
+was the approved build. Since the 2026-10-25 `setBuild` its verifier admits only the
+fixed-domain runner, so a claim now is a real forgery. The `0x469B…24c0` instance binds
+one CDHash that no longer resolves, so it is unclaimable.
 
 ## Build-bound canary, Base Sepolia, 2026-10-25
 
@@ -156,8 +157,9 @@ canary verifier in `0x1be70634d0b95c1a1f826e225c34844655eb9029ac63292c76ad28a72b
 
 A Mac enrolls its key once per verifier, and the key stays valid until a `setBuild`
 rotates the build. The 2026-10-25 canary `0x6509…4658` and its verifier `0xa3C1…6215`
-are superseded; their keys expire 3 days after creation and their entries stay locked
-until 2027-01-23.
+are superseded for new pots but still claimable: their entries name build `0xc930…`,
+which is still approved. A claimant enrolls in `0xa3C1…` (keys there expire 3 days after
+creation). One break of the current build pays `0x9394…`, `0x6509…` and `0x7c66…`.
 
 ## Key canaries
 

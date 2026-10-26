@@ -57,7 +57,8 @@ contract AppleAttestZKTest is Test {
         vm.expectRevert("empty policy");new MacAppAttestZKV1(e,address(this),bytes32(0),bytes32(uint256(1)),hex"61707061747465737400000000000000",3,false,mock);
         vm.expectRevert("empty policy");new MacAppAttestZKV1(e,address(this),bytes32(uint256(1)),bytes32(0),hex"61707061747465737400000000000000",3,false,mock);
     }
-    function test_EnrollmentAndAssertion() public {enroll();(uint256 x,uint256 y,uint64 expires,uint32 count,bool ok)=adapter.keys(kid);assertEq(x,p.x);assertEq(y,p.y);assertEq(expires,p.notAfter);assertEq(count,0);assertTrue(ok);assertion();}
+    function intermediateEnd() internal view returns(uint64 end){(,,,end)=adapter.endorsements().intermediates(EF.id());}
+    function test_EnrollmentAndAssertion() public {enroll();(uint256 x,uint256 y,uint64 expires,uint32 count,bool ok)=adapter.keys(kid);assertEq(x,p.x);assertEq(y,p.y);assertEq(expires,intermediateEnd());assertEq(count,0);assertTrue(ok);assertion();}
     function test_IOS() public {load("../app-attest/contracts/fixtures/iphone-apple.json",true);enroll();assertion();}
     function nativeEnroll(bytes memory data) internal {adapter.enroll(vm.parseJsonBytes(fixture,".cert"),vm.parseJsonBytes(fixture,".auth"),data,EF.id());}
     function test_NativeClientLength() public {vm.expectRevert("anchor expiry/client data");nativeEnroll(new bytes(2049));}

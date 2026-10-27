@@ -16,6 +16,7 @@ from pathlib import Path
 
 d, t = Path(sys.argv[1]), Path(sys.argv[2])
 b, rt = d/'base', Path.home()/'.ap/runtime'
+workload_id = json.loads((t/'compose-manifest.json').read_bytes())['name']
 
 
 def canon(v):
@@ -62,7 +63,7 @@ ir = canon(image)
     'image_manifest_path': str(t/'image-manifest.json'), 'checksum_manifest_path': str(b/'sha256sum.txt'),
     'metadata_path': str(b/'metadata.json'), 'admission_path': str(t/'admission.json'),
     'compose_manifest_path': str(t/'compose-manifest.json'), 'profile': 'mini-4096', 'workload_disk_path': str(t/'workload.img'),
-    'workload_sha256': fsha(t/'workload.img'), 'workload_id': 'libp2p-peer-v1', 'runtime_seconds': 600,
+    'workload_sha256': fsha(t/'workload.img'), 'workload_id': workload_id, 'runtime_seconds': 600,
     'private_input_path': '', 'net_socket_path': str(t/'net.sock'), **template('scratch'), **template('result')}))
 net = subprocess.Popen([str(rt/'helper/gvproxy-darwin'), '-listen-qemu', 'unix://%s' % (t/'net.sock'), '-ssh-port', '-1',
                         '-log-file', str(t/'gvproxy.log')])

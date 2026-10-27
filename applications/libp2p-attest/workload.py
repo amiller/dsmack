@@ -23,8 +23,8 @@ def canon(v):
     return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def oci_layout(binary, out):
-    """A one-layer arm64 image with the binary at PATH; returns its manifest digest."""
+def oci_layout(binary, out, path=PATH, image_name="dsmack-peer"):
+    """A one-layer arm64 image with the binary at path; returns its manifest digest."""
     blobs = out / "oci-layout/blobs/sha256"
     blobs.mkdir(parents=True)
 
@@ -39,11 +39,11 @@ def oci_layout(binary, out):
             info.type, info.mode = tarfile.DIRTYPE, 0o755
             tar.addfile(info)
         raw = binary.read_bytes()
-        info = tarfile.TarInfo(PATH.lstrip("/"))
+        info = tarfile.TarInfo(path.lstrip("/"))
         info.size, info.mode = len(raw), 0o755
         tar.addfile(info, io.BytesIO(raw))
     tar_raw = layer.getvalue()
-    config = blob(canon({"architecture": "arm64", "os": "linux", "config": {"Entrypoint": [PATH]},
+    config = blob(canon({"architecture": "arm64", "os": "linux", "config": {"Entrypoint": [path]},
                          "rootfs": {"type": "layers", "diff_ids": ["sha256:" + hashlib.sha256(tar_raw).hexdigest()]}}))
     gz = blob(gzip.compress(tar_raw, mtime=0))
     manifest = {"schemaVersion": 2, "mediaType": "application/vnd.oci.image.manifest.v1+json",
@@ -52,7 +52,7 @@ def oci_layout(binary, out):
     top = blob(canon(manifest))
     (out / "oci-layout/index.json").write_bytes(canon({"schemaVersion": 2, "manifests": [
         {"mediaType": manifest["mediaType"], **top, "platform": {"architecture": "arm64", "os": "linux"},
-         "annotations": {"org.opencontainers.image.ref.name": "dsmack-peer"}}]}))
+         "annotations": {"org.opencontainers.image.ref.name": image_name}}]}))
     (out / "oci-layout/oci-layout").write_text('{"imageLayoutVersion":"1.0.0"}')
     return top["digest"]
 

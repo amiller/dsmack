@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack the attested egress relay as one v0.2 guest service.
 
-workload.py <repo> <base files> <canary manifest> <arm64 binary> <relay> <task> <policy url> <wg endpoint> <out>
+workload.py <repo> <base files> <canary manifest> <arm64 binary> <relay> <task> <policy url> <wg endpoint> <broker public key hex> <out>
 """
 import hashlib
 import importlib.util
@@ -38,12 +38,14 @@ def egress(relay, policy_url, wg_endpoint):
                   (443 if policy.scheme == "https" else 80))]
 
 
-def manifest(starter, binary, digest, relay, task, policy_url, wg_endpoint):
+def manifest(starter, binary, digest, relay, task, policy_url, wg_endpoint, broker_key):
+    if len(bytes.fromhex(broker_key)) != 32:
+        raise ValueError("broker key must be 32 bytes")
     m = json.loads(starter.read_bytes())
     service = {
         "image": "127.0.0.1:5005/dsmack-egress@" + digest,
         "entrypoint": [PATH],
-        "command": ["serve", relay, str(SERVE_S), task, policy_url],
+        "command": ["serve", relay, str(SERVE_S), task, policy_url, broker_key],
         "read_only": True,
         "volumes": ["artifacts:/workspace/artifacts:rw", "/var/run/dstack.sock:/var/run/dstack.sock:ro"],
     }
@@ -54,14 +56,14 @@ def manifest(starter, binary, digest, relay, task, policy_url, wg_endpoint):
                  "sha256": hashlib.sha256(binary.read_bytes()).hexdigest(), "version": "egress-relay-1"},
         docker_compose_file=canon({"services": {"peer": service}}).decode(),
         outputs={"artifacts": [{"name": name, "path": "/workspace/artifacts/" + name}
-                               for name in ("attestation", "peer-id")], "capture": ["stdout", "stderr"]},
+                               for name in ("attestation", "peer-id", "receipt-key", "receipts")], "capture": ["stdout", "stderr"]},
     )
     return canon(m)
 
 
 def main():
     repo, files, starter, binary = map(Path, sys.argv[1:5])
-    relay, task, policy_url, wg_endpoint, output = sys.argv[5:10]
+    relay, task, policy_url, wg_endpoint, broker_key, output = sys.argv[5:11]
     out = Path(output)
     spec = importlib.util.spec_from_file_location("peer_workload", repo / "applications/libp2p-attest/workload.py")
     peer_workload = importlib.util.module_from_spec(spec)
@@ -71,7 +73,7 @@ def main():
     out.mkdir(mode=0o700)
     image = out / "image"
     digest = peer_workload.oci_layout(binary, image, path=PATH, image_name="dsmack-egress")
-    mb = manifest(starter, binary, digest, relay, task, policy_url, wg_endpoint)
+    mb = manifest(starter, binary, digest, relay, task, policy_url, wg_endpoint, broker_key)
     (out / "compose-manifest.json").write_bytes(mb)
     canary_workload.pack(repo, files, image, out / "disk", NAME, mb)
 

@@ -3,6 +3,7 @@
 import argparse
 import json
 import os
+import secrets
 from pathlib import Path
 import socket
 import subprocess
@@ -49,7 +50,9 @@ def main():
     if a.grant:
         raw = a.grant.read_bytes().strip()
     elif a.broker_url:
-        request = Request(base + "/grant", data=json.dumps(dict(relay_peer=relay, client_peer=client, bytes=a.bytes)).encode(),
+        fields = dict(relay_peer=relay, client_peer=client, amount=a.bytes, unit="bytes", nonce=secrets.token_hex(16))
+        signed = subprocess.check_output([binary, "sign", str(a.client_key)], input=json.dumps(fields).encode())
+        request = Request(base + "/grant", data=signed,
                           headers={"Content-Type": "application/json"})
         with urlopen(request, timeout=30) as response:
             raw = response.read()

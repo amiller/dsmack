@@ -1,7 +1,8 @@
 # Relay broker
 
-A dstack-webhost Deno handler that verifies Mac egress relays and issues Ed25519
-byte-budget grants. Traffic goes directly from the libp2p client to the relay.
+A dstack-webhost Deno handler that verifies Mac relays and compute nodes and
+issues Ed25519 byte- or second-budget grants. Jobs and traffic travel directly
+over libp2p.
 The broker gives each client PeerId four grants and 64 MiB of free testnet credit
 per hour. `authorizePayment()` in `broker.mjs` is the payment authorization seam.
 
@@ -68,9 +69,8 @@ python3 dev.py /absolute/path/to/sim/dstack.sock /absolute/path/to/broker-data
 
 Requires Python 3.8+ and Deno (`~/.deno/bin/deno`, or set `DENO`). `dev.py` calls
 the simulator through the handler's real `GetKey` call, using the same project
-key path as the scoped webhost socket. It generates a local test operator token
-in `broker-data/operator.token` and passes its SHA-256 digest and socket path to
-the handler over stdin. It keeps the signing seed in memory.
+key path as the scoped webhost socket. It passes the socket path to the handler over stdin and keeps the signing seed
+in memory.
 Use `python3 dev.py SOCKET DATA HOST PORT` to choose a listener.
 
 ## HTTP API
@@ -78,17 +78,22 @@ Use `python3 dev.py SOCKET DATA HOST PORT` to choose a listener.
 - `GET /key` → `{"algorithm":"Ed25519","public_key":"<32-byte hex>"}`.
 - `GET /relays` → an array of relays with verified attestation details and lease
   expiry. `GET /` shows them with client connection commands.
-- `POST /relays`, authenticated with `Authorization: Bearer <operator token>`,
-  accepts `{relay_peer, relay_maddr, manifest_sha256, os_image_hash, cdhash, receipt_key,
-  attestation}`. `attestation` is the hex guest `/v1/Attest` blob obtained over
-  `/dsmack/attest/1` or from the runner's `attestation` artifact. The broker checks
-  the approved tuple, caller service, PeerId binding, signed event log, App Attest
-  key, assertion signature, build approval and burns before adding it. It checks the
-  receipt key against the second half of report_data. The circuit
-  address ends in `/p2p-circuit/p2p/<relay_peer>`.
-- `POST /grant {relay_peer, client_peer, bytes}` → a signed grant. Byte budgets
-  are positive integers up to 67,108,864. Unknown/expired relays return 404;
-  exhausted credit returns 429. No operator token is needed for free credit.
+- `GET /nodes` lists compute nodes. Their `kind` is `compute`; `relay_peer`
+  and `relay_maddr` remain the grant target and circuit address fields.
+- `POST /relays` or `POST /nodes` accepts `{kind, relay_peer, relay_maddr,
+  manifest_sha256, os_image_hash, cdhash, receipt_key, attestation}`. Compute
+  nodes also send their P-256 `secret_key`. Registration needs only attestation.
+  The broker verifies the admitted measurements, caller, key bindings, event
+  log, App Attest assertion, build approval and canary burns.
+- `POST /grant {relay_peer, client_peer, unit, amount, nonce, sig}` issues a
+  grant signed by the broker. The client signs the canonical request without
+  `sig` with its inline libp2p Ed25519 key. Nonces are 16 random bytes in hex
+  and cannot repeat, including across quota windows and broker restarts. `unit` is
+  `bytes` (default) or `seconds`. Limits are 64 MiB or 1800 seconds per client
+  per hour, and four grants total. Compute grants require `seconds`; relay
+  grants require `bytes`. A grant contains `unit` and its corresponding
+  `bytes` or `seconds` budget. Unknown/expired peers return 404; exhausted
+  credit returns 429. See [the compute protocol](../compute-node/PROTOCOL.md).
 
 Operators renew registrations every 30 seconds while their relay is serving;
 leases expire after 60 seconds. This is operator-reported liveness, with the
@@ -96,39 +101,11 @@ attestation verified at registration. Broker restarts clear registrations;
 operators register again. Hourly client quotas persist in `credits.json` in
 `ctx.dataDir`, with serialized atomic updates.
 
-Create a registration JSON from a relay's artifact and its admitted measurements:
-
-```sh
-python3 - PEER CIRCUIT_ADDRESS MANIFEST_SHA256 OS_IMAGE_HASH CDHASH RECEIPT_KEY attestation.bin <<'PY' > registration.json
-import json, sys
-from pathlib import Path
-peer, addr, manifest, image, cdhash, receipt_key, blob = sys.argv[1:]
-print(json.dumps(dict(relay_peer=peer, relay_maddr=addr, manifest_sha256=manifest,
-                     os_image_hash=image, cdhash=cdhash, receipt_key=receipt_key, attestation=Path(blob).read_bytes().hex())))
-PY
-BROKER=http://127.0.0.1:18270
-curl --fail-with-body "$BROKER/key" > key.json
-# OPERATOR_TOKEN is the broker's token on the machine running these commands.
-curl --fail-with-body "$BROKER/relays" \
-  -H "Authorization: Bearer $OPERATOR_TOKEN" -H 'Content-Type: application/json' \
-  --data-binary @registration.json
-curl --fail-with-body "$BROKER/grant" -H 'Content-Type: application/json' \
-  --data '{"relay_peer":"PEER","client_peer":"CLIENT_PEER","bytes":1048576}' > grant.json
-python3 verify-grant.py key.json grant.json
-```
-
-Grants are sorted-key, no-space UTF-8 JSON. Ed25519 signs the canonical object
-without `sig`:
-
-```json
-{"bytes":1048576,"client_peer":"CLIENT_PEER","expires_at":1793120000,"grant_id":"0123456789abcdef0123456789abcdef","relay_peer":"PEER","v":1}
-```
-
-The response adds `sig` as 64-byte lowercase hex, also in canonical key order.
-`grant_id` is 16 random bytes as 32 lowercase hex characters. Expiry is the earlier
-of five minutes and the relay lease. The relay authenticates `client_peer` through
-the libp2p Noise handshake and enforces the byte budget. The relay's measured
-configuration pins the public key returned by `/key`.
+Grants are sorted-key, no-space UTF-8 JSON. Ed25519 signs every field except
+`sig`; `sig` is 64-byte lowercase hex. `grant_id` is 16 random bytes as 32 hex
+characters. Byte grants expire at the earlier of five minutes and the relay
+lease; compute grants expire after five minutes. Guests enforce authenticated
+client, target, expiry and budget against their pinned broker key.
 
 ## Deploy on dstack-webhost
 

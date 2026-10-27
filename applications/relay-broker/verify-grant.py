@@ -16,9 +16,11 @@ def main():
     key = json.loads(a.key.read_bytes())
     grant = json.loads(a.grant.read_bytes())
     sig = bytes.fromhex(grant.pop('sig'))
-    assert set(grant) == {'v', 'grant_id', 'relay_peer', 'client_peer', 'bytes', 'expires_at'}
+    unit = grant.get('unit', 'bytes')
+    assert unit in ('bytes', 'seconds')
+    assert set(grant) == {'v', 'grant_id', 'relay_peer', 'client_peer', unit, 'expires_at'} | ({'unit'} if 'unit' in grant else set())
     assert grant['v'] == 1 and len(bytes.fromhex(grant['grant_id'])) == 16
-    assert type(grant['bytes']) is int and grant['bytes'] > 0
+    assert type(grant[unit]) is int and grant[unit] > 0
     assert type(grant['expires_at']) is int and grant['expires_at'] > (a.at if a.at is not None else time.time())
     raw = json.dumps(grant, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode('utf-8')
     Ed25519PublicKey.from_public_bytes(bytes.fromhex(key['public_key'])).verify(sig, raw)

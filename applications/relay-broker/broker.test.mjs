@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { createPublicKey, verify } from "node:crypto";
+import { createPublicKey, verify, generateKeyPairSync, sign, randomBytes } from "node:crypto";
 import { test } from "node:test";
 import { Broker, limits } from "./broker.mjs";
 import { canonical, grantBytes, signingKey, signGrant } from "./grants.mjs";
@@ -19,7 +19,17 @@ const key = await signingKey("42".repeat(32));
 function broker(options = {}) {
   return new Broker({ cfg, chain: chain(), key, now: () => NOW, saveCredits: async () => {}, ...options });
 }
-const request = { relay_peer: r.relay_peer, client_peer: r.relay_peer, bytes: 1024 };
+const client = generateKeyPairSync("ed25519");
+const pub = client.publicKey.export({format:"der",type:"spki"}).subarray(-32);
+const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
+let n = BigInt("0x002408011220" + pub.toString("hex")), encoded = "";
+while (n) { encoded = alphabet[Number(n % 58n)] + encoded; n /= 58n; }
+const clientPeer = "1" + encoded;
+const request = { relay_peer: r.relay_peer, client_peer: clientPeer, bytes: 1024 };
+function signed(r) {
+  const fields = {amount:r.amount ?? r.bytes,client_peer:r.client_peer,nonce:randomBytes(16).toString("hex"),relay_peer:r.relay_peer,unit:r.unit ?? "bytes"};
+  return {...fields,sig:sign(null,grantBytes(fields),client.privateKey).toString("hex")};
+}
 
 test("canonical grant bytes have sorted keys, UTF-8 and no spaces", () => {
   assert.equal(canonical({ v: 1, relay_peer: "peer", grant_id: "a", expires_at: 10, client_peer: "é", bytes: 4 }),
@@ -39,12 +49,12 @@ test("GetKey seed survives reload and grants verify with independent Node Ed2551
 
 test("unregistered peers cannot get grants; the real signed relay proof admits them", async () => {
   const b = broker();
-  await assert.rejects(b.grant(request), /not live/);
+  await assert.rejects(b.grant(signed(request)), /not live/);
   const registered = await b.register(r);
   assert.equal(registered.attestation.status, "verified");
   assert.equal(registered.attestation.receipt_key, r.receipt_key);
   assert.equal(b.live().length, 1);
-  const grant = await b.grant(request);
+  const grant = await b.grant(signed(request));
   assert.equal(grant.expires_at, registered.expires_at);
 });
 
@@ -92,36 +102,72 @@ test("expired operator lease disappears and cannot authorize grants", async () =
   await b.register(r);
   now += limits.relay_lease_seconds;
   assert.deepEqual(b.live(), []);
-  await assert.rejects(b.grant(request), /not live/);
+  await assert.rejects(b.grant(signed(request)), /not live/);
 });
 
 test("concurrent grants share one quota, quota persists and the window renews", async () => {
   let saved, now = NOW;
   const b = broker({ saveCredits: async (c) => { saved = c; } });
   await b.register(r);
-  const results = await Promise.allSettled(Array.from({ length: 6 }, () => b.grant(request)));
+  const results = await Promise.allSettled(Array.from({ length: 6 }, () => b.grant(signed(request))));
   assert.equal(results.filter((r) => r.status === "fulfilled").length, limits.grants_per_hour);
   assert(results.filter((r) => r.status === "rejected").every((r) => r.reason.status === 429));
   const restarted = broker({ credits: saved, now: () => now });
   await restarted.register(r);
-  await assert.rejects(restarted.grant(request), /credit exhausted/);
+  await assert.rejects(restarted.grant(signed(request)), /credit exhausted/);
   now += 3600;
   await restarted.register(r);
-  await restarted.grant(request);
+  await restarted.grant(signed(request));
 });
 
 test("byte quota and network byte-budget validation prevent oversize grants", async () => {
   const b = broker();
   await b.register(r);
-  for (const bytes of [0, -1, 0.5, "1024", limits.max_bytes + 1]) await assert.rejects(b.grant({ ...request, bytes }), /bytes must/);
-  await b.grant({ ...request, bytes: limits.max_bytes });
-  await assert.rejects(b.grant(request), /credit exhausted/);
+  for (const bytes of [0, -1, 0.5, "1024", limits.max_bytes + 1]) await assert.rejects(b.grant(signed({ ...request, bytes })), /bytes must/);
+  await b.grant(signed({ ...request, bytes: limits.max_bytes }));
+  await assert.rejects(b.grant(signed(request)), /credit exhausted/);
 });
 
 test("a quota persistence failure returns no grant and later requests still run", async () => {
   const b = broker({ saveCredits: async () => { throw new Error("disk full"); } });
   await b.register(r);
-  await assert.rejects(b.grant(request), /disk full/);
+  await assert.rejects(b.grant(signed(request)), /disk full/);
   b.saveCredits = async () => {};
-  await b.grant(request);
+  await b.grant(signed(request));
+});
+
+test("signed client cannot be impersonated and captured nonce cannot spend twice", async () => {
+  const b = broker(); await b.register(r);
+  await assert.rejects(b.grant(request), /signed nonce/);
+  const req = signed(request);
+  await assert.rejects(b.grant({...req, amount:2048}), /client signature/);
+  await b.grant(req);
+  await assert.rejects(b.grant(req), /nonce replay/);
+});
+test("seconds grants use independent compute quota and reject relay units", async () => {
+  const b = broker(); await b.register(r);
+  await assert.rejects(b.grant(signed({...request,unit:"seconds",amount:20})), /node kind/);
+  b.relays.get(r.relay_peer).kind = "compute";
+  const g = await b.grant(signed({...request,unit:"seconds",amount:20}));
+  assert.equal(g.unit,"seconds"); assert.equal(g.seconds,20); assert.equal(g.bytes,undefined);
+  await assert.rejects(b.grant(signed(request)), /node kind/);
+});
+
+test("signed nonce stays spent after quota window rollover and restart", async () => {
+  let saved,now=NOW;const req=signed(request);
+  const b=broker({now:()=>now,saveCredits:async v=>{saved=v;}});await b.register(r);await b.grant(req);
+  now+=3600;const restarted=broker({now:()=>now,credits:saved});await restarted.register(r);
+  await assert.rejects(restarted.grant(req),/nonce replay/);
+  await restarted.grant(signed(request));
+});
+
+test("real compute assertion binds node identity, bundle key and receipt key", async () => {
+  const compute=JSON.parse(readFileSync(new URL("fixtures/compute.json",import.meta.url)));
+  const b=broker({cfg:{workloads:[{...compute,service:"node"}]}});
+  const registered=await b.register(compute);
+  assert.equal(registered.kind,"compute");assert.equal(registered.secret_key,compute.secret_key);
+  await assert.rejects(b.register({...compute,secret_key:"42".repeat(64)}),/compute key binding/);
+  await assert.rejects(b.register({...compute,receipt_key:"42".repeat(32)}),/compute key binding/);
+  const g=await b.grant(signed({...request,relay_peer:compute.relay_peer,unit:"seconds",amount:30}));
+  assert.equal(g.seconds,30);
 });

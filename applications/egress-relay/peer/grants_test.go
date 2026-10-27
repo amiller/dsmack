@@ -43,7 +43,7 @@ func TestGrantSignaturePeersExpiryAndFraming(t *testing.T) {
 	key, secret, _ := ed25519.GenerateKey(rand.Reader)
 	relay, client := testPeer(t), testPeer(t)
 	now := time.Now()
-	g := grantBody{100, client.String(), now.Unix() + 60, "0123456789abcdef0123456789abcdef", relay.String(), 1}
+	g := grantBody{100, client.String(), now.Unix() + 60, "0123456789abcdef0123456789abcdef", relay.String(), "", 1}
 	raw := signedGrant(g, secret)
 	if _, err := verifyGrant(raw, key, relay, client, now); err != nil {
 		t.Fatal(err)
@@ -77,9 +77,9 @@ func TestGrantSignaturePeersExpiryAndFraming(t *testing.T) {
 		})
 	}
 	for _, bad := range []grantBody{
-		{0, g.ClientPeer, g.ExpiresAt, g.GrantID, g.RelayPeer, 1},
-		{100, g.ClientPeer, g.ExpiresAt, "bad", g.RelayPeer, 1},
-		{100, g.ClientPeer, g.ExpiresAt, g.GrantID, g.RelayPeer, 2},
+		{0, g.ClientPeer, g.ExpiresAt, g.GrantID, g.RelayPeer, "", 1},
+		{100, g.ClientPeer, g.ExpiresAt, "bad", g.RelayPeer, "", 1},
+		{100, g.ClientPeer, g.ExpiresAt, g.GrantID, g.RelayPeer, "", 2},
 	} {
 		if _, err := verifyGrant(signedGrant(bad, secret), key, relay, client, now); err == nil {
 			t.Fatal("invalid grant terms accepted")
@@ -113,7 +113,7 @@ func TestGrantSignaturePeersExpiryAndFraming(t *testing.T) {
 func TestConcurrentAccountingCutoffReuseAndReceipts(t *testing.T) {
 	key, secret, _ := ed25519.GenerateKey(rand.Reader)
 	relay, client := testPeer(t), testPeer(t)
-	g := grantBody{200000, client.String(), time.Now().Unix() + 60, "0123456789abcdef0123456789abcdef", relay.String(), 1}
+	g := grantBody{200000, client.String(), time.Now().Unix() + 60, "0123456789abcdef0123456789abcdef", relay.String(), "", 1}
 	book := &grantBook{}
 	var group sync.WaitGroup
 	var outputs [8]bytes.Buffer

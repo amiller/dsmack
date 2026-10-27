@@ -21,6 +21,7 @@ type grantBody struct {
 	ExpiresAt  int64  `json:"expires_at"`
 	GrantID    string `json:"grant_id"`
 	RelayPeer  string `json:"relay_peer"`
+	Unit       string `json:"unit,omitempty"`
 	V          int    `json:"v"`
 }
 type grant struct {
@@ -38,11 +39,14 @@ func verifyGrant(raw []byte, key ed25519.PublicKey, relay, client peer.ID, now t
 	// Re-encode decoded fields, so alternate escapes, unknown/duplicate fields
 	// and whitespace cannot bypass the shared canonical JSON format.
 	fields := map[string]any{"bytes": g.Bytes, "client_peer": g.ClientPeer, "expires_at": g.ExpiresAt, "grant_id": g.GrantID, "relay_peer": g.RelayPeer, "sig": g.Sig, "v": g.V}
+	if g.Unit != "" {
+		fields["unit"] = g.Unit
+	}
 	if !bytes.Equal(raw, canonical(fields)) {
 		return g.grantBody, fmt.Errorf("grant must be canonical JSON with seven fields")
 	}
 	id, err := hex.DecodeString(g.GrantID)
-	if err != nil || len(id) != 16 || g.V != 1 || g.Bytes <= 0 {
+	if err != nil || len(id) != 16 || g.V != 1 || g.Bytes <= 0 || (g.Unit != "" && g.Unit != "bytes") {
 		return g.grantBody, fmt.Errorf("invalid grant version, id or budget")
 	}
 	sig, err := hex.DecodeString(g.Sig)

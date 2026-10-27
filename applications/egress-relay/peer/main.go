@@ -265,6 +265,17 @@ func main() {
 		_, err = f.Write(raw)
 		must(err)
 		must(f.Close())
+	case len(a) == 2 && a[0] == "sign":
+		raw, err := os.ReadFile(a[1])
+		must(err)
+		key, err := crypto.UnmarshalPrivateKey(raw)
+		must(err)
+		var fields map[string]any
+		must(json.NewDecoder(io.LimitReader(os.Stdin, 4096)).Decode(&fields))
+		sig, err := key.Sign(canonical(fields))
+		must(err)
+		fields["sig"] = hex.EncodeToString(sig)
+		os.Stdout.Write(canonical(fields))
 	case len(a) == 2 && a[0] == "id":
 		h := clientHost(a[1])
 		defer h.Close()

@@ -1,4 +1,4 @@
-import { hex, rpcChain, sha256 } from "../../dstack-compat/secret-release/policy.mjs";
+import { rpcChain } from "../../dstack-compat/secret-release/policy.mjs";
 import { withEnrollment } from "./attestation.mjs";
 import { Broker, Refused, limits } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
@@ -7,7 +7,6 @@ import { getSigningKey } from "./key.ts";
 type Context = { env: Record<string, string>; dataDir: string };
 async function load(ctx: Context) {
   const cfg = JSON.parse(await Deno.readTextFile(new URL("config.json", import.meta.url)));
-  if (!/^[0-9a-f]{64}$/.test(ctx.env.OPERATOR_TOKEN_SHA256)) throw new Error("OPERATOR_TOKEN_SHA256 must be a SHA-256 digest");
   if (!ctx.dataDir) throw new Error("webhost must provide a persistent dataDir");
   const key = await getSigningKey(ctx.env.DSTACK_SOCKET);
   const path = ctx.dataDir + "/credits.json";
@@ -23,12 +22,12 @@ async function load(ctx: Context) {
 
 const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]!));
 function page(b: Broker) {
-  const rows = b.live().map((r) => {
+  const rows = b.live().filter((r) => r.kind === "relay").map((r) => {
     let command = b.cfg.client_command;
-    for (const k of ["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"]) command = command.replaceAll("{" + k + "}", r[k]);
-    return `<article><h2>${escape(r.relay_peer)}</h2><p>Attestation: verified · lease until ${new Date(r.expires_at * 1000).toISOString()}</p><dl>${["manifest_sha256", "os_image_hash", "cdhash"].map((k) => `<dt>${k}</dt><dd>${escape(r[k])}</dd>`).join("")}</dl><pre>${escape(command)}</pre></article>`;
+    for (const k of ["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"]) command = command.replaceAll("{" + k + "}", String(r[k]));
+    return `<article><h2>${escape(r.relay_peer)}</h2><p>Attestation: verified · lease until ${new Date(r.expires_at * 1000).toISOString()}</p><dl>${["manifest_sha256", "os_image_hash", "cdhash"].map((k) => `<dt>${k}</dt><dd>${escape(String(r[k]))}</dd>`).join("")}</dl><pre>${escape(command)}</pre></article>`;
   }).join("");
-  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Attested egress relay</title><style>body{font:16px system-ui;max-width:65rem;margin:3rem auto;padding:0 1rem;background:#101828;color:#edf2fa}a{color:#8cd8ff}article{border:1px solid #475467;border-radius:12px;padding:1rem;margin:1rem 0}h2,dd,pre{overflow-wrap:anywhere}h2{font-size:1rem}dd{margin:0 0 1rem}pre{white-space:pre-wrap;background:#1d2939;padding:1rem}</style><h1>Attested egress relay</h1><p>Free testnet credit: ${limits.max_bytes / 1048576} MiB and ${limits.grants_per_hour} grants per client PeerId per hour. Relays renew their operator registration every 60 seconds.</p><p><a href="key">Broker public key</a> · <a href="relays">Relay registry</a></p>${rows || "<p>No live relays.</p>"}</html>`;
+  return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Attested egress relay</title><style>body{font:16px system-ui;max-width:65rem;margin:3rem auto;padding:0 1rem;background:#101828;color:#edf2fa}a{color:#8cd8ff}article{border:1px solid #475467;border-radius:12px;padding:1rem;margin:1rem 0}h2,dd,pre{overflow-wrap:anywhere}h2{font-size:1rem}dd{margin:0 0 1rem}pre{white-space:pre-wrap;background:#1d2939;padding:1rem}</style><h1>Attested egress relay</h1><p>Free testnet credit: ${limits.max_bytes / 1048576} MiB and ${limits.grants_per_hour} grants per client PeerId per hour. Nodes renew their registration every 25–30 seconds.</p><p><a href="key">Broker public key</a> · <a href="relays">Relay registry</a> · <a href="nodes">Compute nodes</a></p>${rows || "<p>No live relays.</p>"}</html>`;
 }
 
 async function body(req: Request) {
@@ -54,11 +53,10 @@ export default async function handler(req: Request, ctx: Context) {
   try {
     let response;
     if (req.method === "GET" && path === "/key") response = Response.json({ algorithm: "Ed25519", public_key: b.key.public_key });
-    else if (req.method === "GET" && path === "/relays") response = Response.json(b.live());
+    else if (req.method === "GET" && path === "/relays") response = Response.json(b.live().filter((r) => r.kind === "relay"));
+    else if (req.method === "GET" && path === "/nodes") response = Response.json(b.live().filter((r) => r.kind === "compute"));
     else if (req.method === "GET" && path === "/") response = new Response(page(b), { headers: { "content-type": "text/html; charset=utf-8" } });
-    else if (req.method === "POST" && path === "/relays") {
-      const auth = req.headers.get("authorization") ?? "";
-      if (!auth.startsWith("Bearer ") || hex(await sha256(new TextEncoder().encode(auth.slice(7)))) !== ctx.env.OPERATOR_TOKEN_SHA256) throw new Refused("operator authentication required", 401);
+    else if (req.method === "POST" && (path === "/relays" || path === "/nodes")) {
       response = Response.json(await b.register(await body(req)), { status: 201 });
     } else if (req.method === "POST" && path === "/grant") response = new Response(canonical(await b.grant(await body(req))), { headers: { "content-type": "application/json" } });
     else response = new Response("not found", { status: 404 });

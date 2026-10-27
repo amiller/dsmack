@@ -34,8 +34,15 @@ export async function verifyRelay(r, cfg, chain, now) {
   require(hex(a.os_image_hash) === r.os_image_hash, "image mismatch");
   require(hex(a.caller) === hex(await sha256(enc.encode(workload.service))), "caller is not the relay service");
   require(typeof r.receipt_key === "string" && /^[0-9a-f]{64}$/.test(r.receipt_key), "receipt key must be Ed25519 hex");
-  require(hex(a.report_data.slice(0, 32)) === hex(await sha256(cat(enc.encode("dsmack-libp2p-peer/1"), peer))), "PeerId binding");
-  require(hex(a.report_data.slice(32)) === r.receipt_key, "receipt key binding");
+  require(r.kind === undefined || r.kind === "relay" || r.kind === "compute", "node kind");
+  if (r.kind === "compute") {
+    require(typeof r.secret_key === "string" && /^[0-9a-f]{128}$/.test(r.secret_key), "P-256 secret public key");
+    require(hex(a.report_data) === hex(cat(await sha256(cat(enc.encode("dsmack-compute-node/1"), peer,
+      unhex(r.secret_key), unhex(r.receipt_key))), new Uint8Array(32))), "compute key binding");
+  } else {
+    require(hex(a.report_data.slice(0, 32)) === hex(await sha256(cat(enc.encode("dsmack-libp2p-peer/1"), peer))), "PeerId binding");
+    require(hex(a.report_data.slice(32)) === r.receipt_key, "receipt key binding");
+  }
   // checkAssertion verifies the signature, enrollment lifetime, approved build, counter and canary.
   // Capture the authenticated CDHash during its category/authenticator check.
   let cdhash;

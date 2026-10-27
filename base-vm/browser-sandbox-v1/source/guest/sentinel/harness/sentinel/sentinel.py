@@ -86,6 +86,22 @@ CREDENTIAL_HEADERS = ("x-api-key", "authorization")
 FORBIDDEN_REQUEST_HEADERS = CREDENTIAL_HEADERS + ("host", "content-length", "connection")
 
 
+def provider_connection(host, ca_bundle, timeout):
+    """TLS remains in the guest when a measured CONNECT proxy is configured."""
+    from urllib.parse import urlsplit
+    proxy = os.environ.get('HTTPS_PROXY')
+    if not proxy:
+        return http.client.HTTPSConnection(host, timeout=timeout,
+                                          context=ssl.create_default_context(cafile=ca_bundle))
+    route = urlsplit(proxy)
+    if host != 'api.anthropic.com' or route.scheme != 'http' or not route.hostname or not route.port or route.username or route.path:
+        raise SentinelError('invalid measured CONNECT route')
+    conn = http.client.HTTPSConnection(route.hostname, route.port, timeout=timeout,
+                                      context=ssl.create_default_context(cafile=ca_bundle))
+    conn.set_tunnel(host, 443)
+    return conn
+
+
 class SentinelError(Exception):
     pass
 
@@ -136,11 +152,7 @@ class RunSentinel:
         upstream_path = upstream_path.rstrip("/")
         upstream_host = path_base.split("/", 1)[0]
         forward_path = upstream_path + client_path_after_token
-        conn = http.client.HTTPSConnection(
-            upstream_host,
-            timeout=UPSTREAM_CONNECT_TIMEOUT_S,
-            context=ssl.create_default_context(cafile=self.ca_bundle),
-        )
+        conn = provider_connection(upstream_host, self.ca_bundle, UPSTREAM_CONNECT_TIMEOUT_S)
         # R07: impose an ABSOLUTE upstream deadline (total connect+send+read),
         # not just a per-operation idle timeout. A watchdog closes the socket
         # when the whole exchange exceeds UPSTREAM_TOTAL_TIMEOUT_S, so a slow

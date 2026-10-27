@@ -180,7 +180,6 @@ def agent_run(cli, agent, text, cwd, run, endpoint, check_version):
             require(version.stdout.split()[0].decode() == agent['cli_version'], 'CLI version')
         stdout, stderr, code, failure = bounded_process(cli_command(cli, agent, text), cwd, env, agent['wall_seconds'])
     Path(f'{run}-transcript').write_bytes(stdout)
-    Path(f'{run}-stderr').write_bytes(stderr)
     require(not failure and code == 0, f'{run.name}: CLI {failure or "exit " + str(code)}')
     return observe(stdout, agent)
 
@@ -264,10 +263,9 @@ def main():
     args = parser.parse_args()
     inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
     request = args.spec.read_bytes()
-    verdict = run(json.loads(request), inputs, args.output, args.cli)
+    run(json.loads(request), inputs, args.output, args.cli)
     if args.attest:
         attest(report(request, args.output), args.output)
-    print(json.dumps(verdict, indent=2))
 
 
 if __name__ == '__main__':

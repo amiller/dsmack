@@ -58,7 +58,7 @@ class FindTest(unittest.TestCase):
         self.assertEqual((verdict['answer'], verdict['run_answers']), ('yes', ['yes']*3))
         self.assertEqual(verdict['observed_models'], ['claude-opus-4-8'])
         self.assertEqual(sorted(p.name for p in (self.tmp/'out-ok').iterdir()),
-                         sorted(['verdict'] + [f'run-{n}-{k}' for n in (1, 2, 3) for k in ('transcript', 'stderr', 'verdict')]))
+                         sorted(['verdict'] + [f'run-{n}-{k}' for n in (1, 2, 3) for k in ('transcript', 'verdict')]))
 
     def test_edit_turn_patch_applies(self):
         for key in ('answers', 'runs', 'aggregate'):
@@ -66,7 +66,7 @@ class FindTest(unittest.TestCase):
         self.spec['agent']['tools'] = ['Read', 'Edit', 'Write']
         self.assertEqual(self.run_mode('edit')['answer'], None)
         out = self.tmp/'out-edit'
-        self.assertEqual(sorted(p.name for p in out.iterdir()), ['patch', 'run-1-stderr', 'run-1-transcript', 'verdict'])
+        self.assertEqual(sorted(p.name for p in out.iterdir()), ['patch', 'run-1-transcript', 'verdict'])
         local = self.tmp/'local'
         shutil.copytree(self.inputs, local)
         subprocess.run(['git', 'apply', str(out/'patch')], cwd=local, check=True)

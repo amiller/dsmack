@@ -344,9 +344,11 @@ class SentinelServer(http.server.ThreadingHTTPServer):
 
 def _load_credential(args):
     """Read the provider credential ONCE from the broker-provided source.
-    Supported: --credential-fd N (broker passes a pipe/fd; preferred — keeps
-    the credential out of argv and the filesystem) or --credential-file P
-    (broker per-run store, 0600). No other channel exists; no discovery."""
+    Default: /run/dsmack/credential on tmpfs (0400, owned by sentinel uid).
+    Explicit --credential-fd or --credential-file remain available to local
+    callers. No environment credential discovery."""
+    if args.credential_fd is None and args.credential_file is None:
+        args.credential_file = "/run/dsmack/credential"
     if (args.credential_fd is None) == (args.credential_file is None):
         raise SentinelError("exactly one credential source is required: --credential-fd or --credential-file")
     if args.credential_fd is not None:
@@ -356,7 +358,12 @@ def _load_credential(args):
         st = os.lstat(args.credential_file)
         if (st.st_mode & 0o077) and not args.allow_group_readable_credential_file:
             raise SentinelError("credential file must not be group/world readable")
-        with open(args.credential_file, "rb") as fh:
+        fd = os.open(args.credential_file, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            if args.credential_file == "/run/dsmack/credential":
+                if (st.st_mode & 0o777) != 0o400 or st.st_uid != os.geteuid():
+                    raise SentinelError("tmpfs credential must be 0400 and owned by sentinel uid")
             data = fh.read(65536)
     cred = data.decode("utf-8").strip()
     if not cred or "\x00" in cred:

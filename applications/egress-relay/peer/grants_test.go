@@ -2,11 +2,14 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
+	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"io"
 	"os"
 	"path/filepath"
@@ -221,6 +224,20 @@ func TestClientHostUsesSavedIdentity(t *testing.T) {
 	want, err := peer.IDFromPrivateKey(key)
 	if err != nil {
 		t.Fatal(err)
+	}
+	receiver, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"), libp2p.Security(noise.ID, noise.New))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer receiver.Close()
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	if err := h.Connect(ctx, peer.AddrInfo{ID: receiver.ID(), Addrs: receiver.Addrs()}); err != nil {
+		t.Fatal(err)
+	}
+	connections := receiver.Network().ConnsToPeer(want)
+	if len(connections) == 0 || connections[0].ConnState().Security != noise.ID {
+		t.Fatal("saved identity was not authenticated over Noise")
 	}
 	if h.ID() != want {
 		t.Fatalf("client identity %s, want %s", h.ID(), want)

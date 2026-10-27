@@ -16,6 +16,7 @@ import (
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
+	"github.com/libp2p/go-libp2p/p2p/security/noise"
 	"io"
 	"log"
 	"net"
@@ -92,7 +93,7 @@ func serve(relay string, seconds int, task, url, brokerHex string) {
 	stack, closeWG, err := uplink(raw)
 	must(err)
 	defer closeWG()
-	h := p2p.NewHost(libp2p.NoListenAddrs, libp2p.EnableRelay())
+	h := p2p.NewHost(libp2p.NoListenAddrs, libp2p.EnableRelay(), libp2p.Security(noise.ID, noise.New))
 	defer h.Close()
 	info, err := peer.AddrInfoFromString(relay)
 	must(err)
@@ -278,7 +279,7 @@ func clientHost(keyFile string) host.Host {
 	must(err)
 	key, err := crypto.UnmarshalPrivateKey(raw)
 	must(err)
-	h, err := libp2p.New(libp2p.Identity(key), libp2p.NoListenAddrs, libp2p.EnableRelay())
+	h, err := libp2p.New(libp2p.Identity(key), libp2p.NoListenAddrs, libp2p.EnableRelay(), libp2p.Security(noise.ID, noise.New))
 	must(err)
 	return h
 }

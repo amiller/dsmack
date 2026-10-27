@@ -12,10 +12,12 @@ import io
 import json
 import os
 from pathlib import Path
+import shlex
 import shutil
 import subprocess
 import sys
 import tarfile
+from urllib.parse import quote
 import uuid
 
 TURNS = Path(__file__).resolve().parents[1]
@@ -25,9 +27,11 @@ import turn
 
 CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2'
 MAX_INPUTS = 16 << 20
-# ssh hosts and the operator's dispatch directories (README.md, Dispatch to the Mac).
-OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC = (os.environ[k] for k in (
-    'DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST'))
+# ssh hosts, the operator's dispatch directories and the operator address the Mac fetches attempt files from
+# (README.md, Dispatch to the Mac).
+OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC, FETCH_ADDR = (os.environ[k] for k in (
+    'DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST', 'DSMACK_OPERATOR_FETCH_ADDR'))
+FETCH_PORT = 8765
 RELEASE, IMAGE = 'release-6', 'image-3'
 MAC_DIR = 'dsmack-mac-dispatch-20261025'
 CREDENTIAL = '.dsmack/private-inputs/claude-subscription.json'
@@ -148,13 +152,14 @@ def mac(request, inputs, out):
     admitted = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
                         f'--oci {IMAGE}/oci-layout --authority authority --request {op}/request.json '
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
-    attempt = json.loads(admitted.splitlines()[-1])['attempt_id']
+    admission = json.loads(admitted.splitlines()[-1])
+    attempt = admission['attempt_id']
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    pipe(f'tar -c -C {op}/admit {ADMITTED}', f'mkdir -m700 -p {MAC_DIR}/t/{run_id} && tar -x -C {MAC_DIR}/t/{run_id} && chmod -R go-rwx {MAC_DIR}/t/{run_id}')
+    fetch(f'{op}/admit', ADMITTED, f'{MAC_DIR}/t/{run_id}', admission['workload_disk']['sha256'])
     evidence = f'{MAC_DIR}/r/attempt-{attempt}'
     try:
         ssh(MAC, f'bash -s {MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN.encode())
-        pipe(f'tar -c --exclude scratch.img --exclude "*.staged" -C {evidence} .', f'mkdir {op}/evidence && tar -x -C {op}/evidence', MAC, OPERATOR)
+        pipe(f'tar -c --exclude scratch.img --exclude "*.staged" -C {evidence} .', f'mkdir {op}/evidence && tar -x -C {op}/evidence')
     finally:
         # The VM has exited once execute returns; its two 4 GiB scratch copies are the run's only large residue.
         # private-input.img holds the credential.
@@ -181,9 +186,7 @@ def mac_v02(request, inputs, out):
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
     admission = json.loads(admitted.splitlines()[-1])
     (out/'admission.json').write_bytes(admitted.splitlines()[-1])
-    # The disk shares the Mac's control master with other sessions, so the operator host throttles it.
-    pipe(f'set -o pipefail; tar -c -C {op}/admit workload.img preparation closure-context.json | pv -q -L 20m',
-         f'mkdir -m700 -p {mac_t} && tar -x -C {mac_t} && chmod -R go-rwx {mac_t}')
+    fetch(f'{op}/admit', 'workload.img preparation closure-context.json', mac_t, admission['workload_disk']['sha256'])
     ssh(OPERATOR, f'rm {op}/admit/workload.img {op}/tree.tar')
     try:
         ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN_V02.encode())
@@ -221,7 +224,24 @@ def bundle(request, inputs):
     return raw.getvalue()
 
 
-def pipe(source, sink, src=OPERATOR, dst=MAC):
+def fetch(src, names, dst, disk_sha256):
+    """The operator host serves `names` under src over HTTP; the Mac fetches them into dst and checks each file's sha256."""
+    sums = ssh(OPERATOR, f'cd {src} && find {names} -type f -print0 | xargs -0 sha256sum', capture_output=True, text=True).stdout
+    find.require(f'{disk_sha256}  workload.img\n' in sums, 'the operator\'s workload.img is not the admitted disk')
+    curl = ' '.join(f'-o {shlex.quote(p)} http://{FETCH_ADDR}:{FETCH_PORT}/{quote(p)}' for p in (l.split('  ', 1)[1] for l in sums.splitlines()))
+    server = subprocess.Popen(['ssh', OPERATOR, f'cd {src} && echo $$ && exec timeout 900 python3 -u -m http.server {FETCH_PORT} --bind {FETCH_ADDR}'],
+                              stdout=subprocess.PIPE, text=True)
+    pid = server.stdout.readline().strip()
+    try:
+        find.require(server.stdout.readline().startswith('Serving HTTP'), 'the operator host did not start its file server')
+        ssh(MAC, f'mkdir -m700 -p {dst} && cd {dst} && curl -fsS --create-dirs {curl} && shasum -a 256 -c --quiet && chmod -R go-rwx .',
+            input=sums.encode())
+    finally:
+        ssh(OPERATOR, f'kill {pid}')
+        server.wait()
+
+
+def pipe(source, sink, src=MAC, dst=OPERATOR):
     """Stream a tar from one host to another through this machine."""
     reader = subprocess.Popen(['ssh', src, source], stdout=subprocess.PIPE)
     subprocess.run(['ssh', dst, sink], stdin=reader.stdout, check=True)

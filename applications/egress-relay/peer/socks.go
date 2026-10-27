@@ -28,6 +28,10 @@ func bridge(a stream, b stream) {
 
 // socks handles RFC 1928 no-auth CONNECT; address resolution uses only dial.
 func socks(s stream, dial dialFunc) error {
+	return socksWithBridge(s, dial, bridge)
+}
+
+func socksWithBridge(s stream, dial dialFunc, transfer func(stream, stream)) error {
 	defer s.Close()
 	s.SetDeadline(time.Now().Add(30 * time.Second))
 	var h [4]byte
@@ -109,6 +113,6 @@ func socks(s stream, dial dialFunc) error {
 		return err
 	}
 	s.SetDeadline(time.Time{})
-	bridge(s, c.(stream))
+	transfer(s, c.(stream))
 	return nil
 }

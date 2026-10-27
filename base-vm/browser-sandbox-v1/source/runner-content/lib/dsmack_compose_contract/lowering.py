@@ -46,6 +46,7 @@ from .errors import LoweringError
 from .manifest import (
     ARTIFACTS_ROOT,
     DSTACK_SOCK_VOLUME,
+    DSMACK_RUNTIME_VOLUMES,
     DEFAULT_USER_CONFIG_TARGET,
     INPUTS_ROOT,
     RUN_ID_RE,
@@ -434,6 +435,12 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": "/var/run/dstack.sock", "type": "bind"}
         )
+    for volume in _compose_doc(manifest)["services"][service_name].get("volumes", []):
+        if volume in DSMACK_RUNTIME_VOLUMES:
+            mounts.append(
+                {"create_host_path": False, "mode": volume.rsplit(":", 1)[1], "slot": "runtime",
+                 "source": "/run/dsmack", "target": "/run/dsmack", "type": "bind"}
+            )
     if manifest["network"]["mode"] != "none":
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "resolv", "source": GUEST_RESOLV_CONF, "target": "/etc/resolv.conf", "type": "bind"}

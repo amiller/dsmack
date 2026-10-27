@@ -45,7 +45,7 @@ export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR
 It prints the path of the patch on success. `--out` then holds `request.json`,
 `inputs/` (the snapshot), `admission.json`, `verification.json`, the verified
 `receipt.json` and signed `report.json`, `turn.json` (the turn record from
-`turn.py`) and `artifacts/` (`patch`, `run-1-transcript`, `run-1-stderr`). A
+`turn.py`) and `artifacts/` (`patch`, `run-1-transcript`). A
 run takes about ten minutes. A failed run exits non-zero with the reason; the
 out path is printed first.
 

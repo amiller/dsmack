@@ -76,7 +76,8 @@ runner-vm/packaging/build.sh runner-vm/native/source-tree/target/aarch64-apple-d
 The guest image, on a Linux builder:
 
 ```sh
-python3 base-vm/browser-sandbox-v1/derive.py --base-bundle BASE --templates TEMPLATES --out OUT
+python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
+  --base-bundle BASE --templates TEMPLATES --kernel-source linux-6.18.40.tar.xz --out OUT
 ```
 
 Signing and release steps are in [docs/release/releasing.md](docs/release/releasing.md).

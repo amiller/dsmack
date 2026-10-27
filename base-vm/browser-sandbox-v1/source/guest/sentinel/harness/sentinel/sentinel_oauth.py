@@ -67,6 +67,7 @@ try:  # patched layout: same package as the frozen sentinel
         UPSTREAM_CONNECT_TIMEOUT_S,
         UPSTREAM_TOTAL_TIMEOUT_S,
         RunSentinel,
+        provider_connection,
         SentinelError,
         _load_credential,
         _redact_path,
@@ -82,6 +83,7 @@ except ImportError:  # lane-test layout: claude-inputs checkout on sys.path
         UPSTREAM_CONNECT_TIMEOUT_S,
         UPSTREAM_TOTAL_TIMEOUT_S,
         RunSentinel,
+        provider_connection,
         SentinelError,
         _load_credential,
         _redact_path,
@@ -177,11 +179,7 @@ class SubscriptionCredential:
             "anthropic-beta": OAUTH_BETA,
             "User-Agent": "dsmack-sentinel/1 (userOAuthProvider protocol)",
         }
-        conn = http.client.HTTPSConnection(
-            origin,
-            timeout=REFRESH_CONNECT_TIMEOUT_S,
-            context=ssl.create_default_context(cafile=self._ca_bundle),
-        )
+        conn = provider_connection(origin, self._ca_bundle, REFRESH_CONNECT_TIMEOUT_S)
         # S06: one ABSOLUTE deadline over the whole refresh exchange. The
         # watchdog closes the socket at the deadline, which terminates a
         # blocked connect/send/read (the blocked call raises); the chunked
@@ -293,11 +291,7 @@ class SubscriptionSentinel(RunSentinel):
             except SentinelError as exc:
                 self.log("upstream-auth unavailable (%s)" % exc.__class__.__name__)
                 return 502, {"content-type": "application/json"}, b'{"error":"upstream-auth-unavailable"}'
-            conn = http.client.HTTPSConnection(
-                upstream_host,
-                timeout=UPSTREAM_CONNECT_TIMEOUT_S,
-                context=ssl.create_default_context(cafile=self.ca_bundle),
-            )
+            conn = provider_connection(upstream_host, self.ca_bundle, UPSTREAM_CONNECT_TIMEOUT_S)
             # R07: absolute upstream deadline (total connect+send+read), as in
             # the api-key sentinel -- a slow upstream cannot hold the slot open.
             watchdog = threading.Timer(UPSTREAM_TOTAL_TIMEOUT_S, conn.close)

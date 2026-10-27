@@ -142,7 +142,11 @@ def parser_validate(control, lowered, project_name: str) -> dict:
             agent_sock = (source, volume.get("target"), volume.get("read_only")) == (
                 "%s/%s.sock" % (AGENT_SOCKET_DIR, name), "/var/run/dstack.sock", True)
             resolv = (source, volume.get("target"), volume.get("read_only")) == (GUEST_RESOLV_CONF, "/etc/resolv.conf", True)
-            if not source.startswith(ws + os.sep) and not agent_sock and not resolv:
+            runtime = any(m["slot"] == "runtime" and
+                          (source, volume.get("target"), volume.get("read_only", False)) ==
+                          (m["source"], m["target"], m["mode"] == "ro")
+                          for m in lowered["mounts_by_service"][name]["mounts"])
+            if not source.startswith(ws + os.sep) and not agent_sock and not resolv and not runtime:
                 raise RunnerError("config-mount-outside-workspace", "a mount source leaves the private per-run workspace")
         if (service.get("network_mode") or None) != lowered["network_mode"]:
             raise RunnerError("config-network-drift", "the normalized network mode does not equal the lowered mode")
@@ -318,7 +322,7 @@ def _execute_inner(control, lowered, manifest, workspace, compose_text: bytes, *
     # -- collect (after stop; no writer can mutate outputs) ----------------
     observation["stream_truncated"] = {"stdout": False, "stderr": False}
     try:
-        observation["streams"] = _capture_streams(control, services_out[completion_service], output_cap)
+        observation["streams"] = _capture_streams(control, services_out[completion_service], output_cap, manifest["outputs"]["capture"])
     except _StreamOverflow as overflow:
         # GIO06: an output-limit cancellation is a FROZEN-v4-COMPATIBLE
         # cancellation, NOT a lost receipt. The bounded bytes captured up to
@@ -444,7 +448,7 @@ class _StreamOverflow(Exception):
         self.stderr_overflow = stderr_overflow
 
 
-def _capture_streams(control, service_obs: dict, output_cap) -> dict:
+def _capture_streams(control, service_obs: dict, output_cap, capture) -> dict:
     """Capture the COMPLETION service's streams demuxed.
 
     `docker logs` relays the container's multiplexed stream with stdout
@@ -455,6 +459,8 @@ def _capture_streams(control, service_obs: dict, output_cap) -> dict:
     The cap is enforced WHILE reading (GIO06) -- an over-cap log is never
     fully materialized in memory. Unavailable logs fail closed -- the runner
     never records a stream digest it did not capture."""
+    if not capture:
+        return {}
     container = service_obs.get("container_name")
     if not container:
         raise RunnerError(
@@ -470,7 +476,7 @@ def _capture_streams(control, service_obs: dict, output_cap) -> dict:
                 "docker logs failed for the completion container; declared capture cannot be recorded "
                 "honestly (failing closed)",
             )
-        return {"stdout": out or b"", "stderr": err or b""}
+        return {s: data or b"" for s, data in (("stdout", out), ("stderr", err)) if s in capture}
     rc, out, err, out_over, err_over = control.run_capped(
         ["docker", "logs", container], cap_bytes=output_cap, timeout_s=300
     )
@@ -480,9 +486,11 @@ def _capture_streams(control, service_obs: dict, output_cap) -> dict:
             "docker logs failed for the completion container; declared capture cannot be recorded "
             "honestly (failing closed)",
         )
+    out_over = out_over and "stdout" in capture
+    err_over = err_over and "stderr" in capture
     if out_over or err_over:
-        raise _StreamOverflow(out, err, out_over, err_over)
-    return {"stdout": out, "stderr": err}
+        raise _StreamOverflow(out if "stdout" in capture else b"", err if "stderr" in capture else b"", out_over, err_over)
+    return {s: data for s, data in (("stdout", out), ("stderr", err)) if s in capture}
 
 
 def _collect_artifacts(manifest, workspace, observation) -> None:

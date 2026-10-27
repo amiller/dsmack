@@ -1,13 +1,14 @@
 # Agent with private inputs: the agent's only network peer is the sentinel.
 services:
   sentinel:
+    user: "1000:1000"
     image: ${SENTINEL_IMAGE}
     entrypoint: [python3, /opt/sentinel/harness/sentinel/sentinel.py, --run-id, "${RUN_ID}", --token, "${SENTINEL_TOKEN}",
               --listen-port, "8100", --provider-route, https://api.anthropic.com,
-              --ca-bundle, /etc/ssl/certs/ca-certificates.crt, --credential-file, /run/credential]
+              --ca-bundle, /etc/ssl/certs/ca-certificates.crt, --credential-file, /run/dsmack/credential]
     volumes:
       - ${SENTINEL_SOURCE}:/opt/sentinel:ro
-      - ${CREDENTIAL_FILE}:/run/credential:ro
+      - /run/dsmack:/run/dsmack:ro
     networks: [private, egress]
   agent:
     image: ${AGENT_IMAGE}

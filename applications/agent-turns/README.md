@@ -172,7 +172,9 @@ compose (the manifest `admit-v02` admitted) and image hashes, and `report_data` 
 Setup: `image-4` built by `mac.py image` and `base/` (the `derive.py` artifacts) in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
 and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
 
-For private inputs, `compose-private.yml` runs the sentinel as a container on two
+An in-guest process writes `/run/dsmack/credential` on tmpfs with mode 0400,
+owned by the sentinel uid. `compose-private.yml` mounts that directory read-only
+for the sentinel and runs it as a container on two
 networks and the agent on an internal one only. `gateway_mode_ipv4: isolated`
 (Docker 28) removes the bridge gateway, so the agent cannot reach the host either;
 with `internal: true` alone the host's listeners stay reachable.

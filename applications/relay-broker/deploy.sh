@@ -3,9 +3,9 @@
 # deploy.sh CONFIG_JSON OPERATOR_TOKEN_FILE EVIDENCE_DIR [WEBHOST_URL]
 set -euo pipefail
 set +x
-set +u
+set +eu
 . "$HOME/.oauth3-prod-secrets.env" >/dev/null 2>&1
-set -u
+set -eu
 : "${TEE_DAEMON_TOKEN:?TEE_DAEMON_TOKEN is missing from the local secrets file}"
 export TEE_DAEMON_TOKEN
 export RELAY_BROKER_SOURCE_DIR

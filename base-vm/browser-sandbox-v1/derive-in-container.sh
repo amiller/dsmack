@@ -7,10 +7,12 @@ unsquashfs -no-progress -processors 4 -d "$LEG/work/rootfs" /prior-image/rootfs.
 TREE=$LEG/work/rootfs
 RDEST=$TREE/usr/local/lib/dsmack/compose-runner
 install -m0755 /w/source/guest/supervisor-dstack-trixie.sh "$TREE/usr/bin/dsmack-supervisor"
+install -m0755 /guest-egress/usr/sbin/nft "$TREE/usr/sbin/nft"
+cp -a /guest-egress/usr/lib/aarch64-linux-gnu/*.so* "$TREE/usr/lib/aarch64-linux-gnu/"
 for file in public_inputs.py public_toc.py; do
  install -m0644 "/w/source/runner-content/dsmack_guest_io/$file" "$TREE/usr/local/lib/dsmack/guest-io/dsmack_guest_io/$file"
 done
-for file in manifest.py lowering.py security.py browser-sandbox-v1.json; do
+for file in manifest.py lowering.py egress.py security.py browser-sandbox-v1.json; do
  install -m0644 "/w/source/runner-content/lib/dsmack_compose_contract/$file" "$RDEST/lib/dsmack_compose_contract/$file"
 done
 install -m0644 /w/source/runner-content/dsmack_compose_runner/lifecycle.py "$RDEST/dsmack_compose_runner/lifecycle.py"

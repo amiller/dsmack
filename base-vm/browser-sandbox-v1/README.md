@@ -18,6 +18,17 @@ private disk.
 The host verifier (`applications/pilot-client/verifier-browser`) and the bounty
 applications import the contract library from this directory, so guest and
 verifier validate manifests and receipts with the same code.
+Networked workloads declare `network.egress`, a measured list of IP/CIDR,
+protocol (`tcp` or `udp`) and destination port tuples, for example:
+
+```json
+{"mode":"nat","listen_ports":[],"egress":[{"destination":"203.0.113.8/32","protocol":"udp","port":51820}]}
+```
+
+The supervisor applies nftables to guest output and container forwarding before
+starting brokers or compose. Missing or empty `egress` denies external traffic;
+loopback and replies to inbound connections remain available. DNS requires an
+explicit resolver IP and port entry, which permits queries for any name.
 `source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
 by `applications/pilot-client/workload/transport_loader.py`.
 

@@ -607,6 +607,10 @@ for mf in $APP/manifests/*.app-compose.json; do
   vrc=$?
   echo "DSMACK_RUNNER_VALIDATE $name rc=$vrc"
   [ $vrc -eq 0 ] || { runner_rc_total=1; echo "DSMACK_RUNNER_EXIT $name rc=$vrc phase=validate"; continue; }
+  # Filter guest output AND Docker forwarding before brokers or compose start.
+  # A failed atomic nft transaction aborts the VM; never run with open NAT.
+  python3 -m dsmack_compose_contract.egress "$mf" || fail 34
+  echo "DSMACK_EGRESS_APPLIED $name"
   ENVELOPE_ARG=""
   # Versioned measured public data for credential-free browser preset only.
   # The helper rejects competing private input, arbitrary public env/broker data,
@@ -663,6 +667,7 @@ for mf in $APP/manifests/*.app-compose.json; do
   stop_broker
   [ $rrc -eq 0 ] || runner_rc_total=1
   echo "DSMACK_RUNNER_EXIT $name rc=$rrc phase=run"
+  nft list table inet dsmack_egress || fail 34
   # R06: record the receipt the EXPORTER actually wrote on the result disk
   # (acceptance checks exactly these canonical bytes).
   if [ $rrc -eq 0 ] && [ -f "$EXPORT/$name/receipt.json" ]; then

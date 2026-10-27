@@ -34,6 +34,7 @@ v4 changes vs v3 (contract3-review D findings):
         manifest (the bytes live under the verity root).
 """
 
+import ipaddress
 import re
 
 from .canonical import load_json_bytes, sha256_hex
@@ -1675,10 +1676,32 @@ def _validate_runtime_inputs_decl(decl, allowed_envs, required_envs, compose_doc
 def _validate_network(network, runner, errors):
     if not _check_type(network, dict, "manifest.network", errors):
         return
-    _object_keys(network, {"mode", "listen_ports"}, "manifest.network", errors)
+    _object_keys(network, {"mode", "listen_ports", "egress"}, "manifest.network", errors)
     mode = network.get("mode")
     if mode not in ("none", "nat", "hostnet"):
         errors.append(ManifestError("manifest.network.mode must be 'none', 'nat' or 'hostnet'"))
+    egress = network.get("egress", [])
+    if _check_type(egress, list, "manifest.network.egress", errors):
+        if len(egress) > 256:
+            errors.append(ManifestError("manifest.network.egress exceeds 256 destinations"))
+        if mode == "none" and egress:
+            errors.append(ManifestError("manifest.network.mode 'none' forbids egress"))
+        for entry in egress:
+            if not _check_type(entry, dict, "manifest.network.egress[]", errors):
+                continue
+            _object_keys(entry, {"destination", "protocol", "port"}, "manifest.network.egress[]", errors)
+            destination = entry.get("destination")
+            try:
+                if not isinstance(destination, str) or "%" in destination:
+                    raise ValueError()
+                ipaddress.ip_network(destination, strict=True)
+            except ValueError:
+                errors.append(ManifestError("manifest.network.egress[].destination must be an IP address or network CIDR"))
+            if entry.get("protocol") not in ("tcp", "udp"):
+                errors.append(ManifestError("manifest.network.egress[].protocol must be 'tcp' or 'udp'"))
+            port = entry.get("port")
+            if not (_is_int(port) and 1 <= port <= 65535):
+                errors.append(ManifestError("manifest.network.egress[].port must be an integer in [1, 65535]"))
     runtime = runner.get("container_runtime") if isinstance(runner, dict) else None
     runtime_name = runner.get("runtime_name") if isinstance(runner, dict) else None
     runsc_network = None

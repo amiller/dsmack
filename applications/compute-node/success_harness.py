@@ -253,13 +253,14 @@ def primary(config, out):
         credential, prompt = plant(markers, repo, remote.read_credential(credential_path), prompt)
         sealed, output_key = client.prepare(node, job_id, grant, credential, repo, prompt)
         del credential
+        for name, value in [('discovery', node), ('grant', grant), ('sealed-input', sealed)]:
+            (out/(name + '.json')).write_bytes(canonical(value))
+        (out/'output-key.pem').write_bytes(output_key.private_bytes(serialization.Encoding.PEM,
+              serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
         exchange.send(sealed)
         client.bundles_sent += 1
         result = exchange.recv()
-    for name, value in [('discovery', node), ('grant', grant), ('sealed-input', sealed), ('result', result)]:
-        (out/(name + '.json')).write_bytes(canonical(value))
-    (out/'output-key.pem').write_bytes(output_key.private_bytes(serialization.Encoding.PEM,
-          serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    (out/'result.json').write_bytes(canonical(result))
     plain, turn = client.verify_result(node, discovery, result, job_id, grant, sealed, output_key)
     for name, raw in plain.items():
         (out/name).write_bytes(raw)

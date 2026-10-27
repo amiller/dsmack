@@ -103,17 +103,18 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 }
 
 type engine struct {
-	secret    *ecdh.PrivateKey
-	signer    ed25519.PrivateKey
-	broker    ed25519.PublicKey
-	node, run string
-	until     time.Time
-	worker    string
-	mu        sync.Mutex
-	seen      map[string]bool
-	used      map[string]int64
-	busy      bool
-	attest    func([]byte) ([]byte, error)
+	secret     *ecdh.PrivateKey
+	signer     ed25519.PrivateKey
+	broker     ed25519.PublicKey
+	node, run  string
+	until      time.Time
+	worker     string
+	resultPath string
+	mu         sync.Mutex
+	seen       map[string]bool
+	used       map[string]int64
+	busy       bool
+	attest     func([]byte) ([]byte, error)
 }
 
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
@@ -200,7 +201,7 @@ func (n *engine) handle(s interface {
 	cmd := exec.CommandContext(ctx, "python3", "-B", n.worker)
 	cmd.Stdin = bytes.NewReader(raw)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
 	cmd.WaitDelay = 3 * time.Second
 	// Never attach child stdout/stderr to the console or result disk.
 	var result limitedBuffer
@@ -242,7 +243,14 @@ func (n *engine) handle(s interface {
 	}
 	receipt := map[string]any{"client_peer": client, "node_peer": n.node, "run": n.run, "report_sha256": hex.EncodeToString(report[:]), "grant_id": t.id, "job_id": j.JobID, "seconds_used": used}
 	receipt["sig"] = hex.EncodeToString(ed25519.Sign(n.signer, canon(receipt)))
-	writeFrame(s, map[string]any{"status": "complete", "outputs": outputs, "statement": statement, "attestation": hex.EncodeToString(att), "receipt": receipt})
+	resultFrame := map[string]any{"status": "complete", "outputs": outputs, "statement": statement, "attestation": hex.EncodeToString(att), "receipt": receipt}
+	if n.resultPath != "" {
+		if e := os.WriteFile(n.resultPath, canon(resultFrame), 0644); e != nil {
+			refuse("execution")
+			return
+		}
+	}
+	writeFrame(s, resultFrame)
 }
 
 type limitedBuffer struct {

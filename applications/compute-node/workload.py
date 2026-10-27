@@ -30,7 +30,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds):
     m = json.loads(starter.read_bytes())
     service = {'image':'127.0.0.1:5005/compute-node@'+digest, 'entrypoint':['/usr/local/bin/dsmack-compute'],
                'command':['serve',relay,str(seconds),broker,key,cdhash,'/opt/compute-node/worker.py'],
-               'environment':{'HTTPS_PROXY':PROXY,'BROKER_IP':broker_ip}, 'read_only':True,
+               'environment':{'HTTPS_PROXY':PROXY,'BROKER_IP':broker_ip,'MODEL':'claude-opus-4-8'}, 'read_only':True,
                'volumes':['artifacts:/workspace/artifacts:rw','/var/run/dstack.sock:/var/run/dstack.sock:ro']}
     m.update(name=NAME, allowed_files=[],
              network={'mode':'nat','listen_ports':[], 'egress':[endpoint('192.168.100.3',18443),endpoint(host,port),
@@ -38,7 +38,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds):
              harness={'name':'compute-node','path':'/usr/local/bin/dsmack-compute',
                       'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'version':'compute-node-1'},
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
-             outputs={'capture':[], 'artifacts':[{'name':'registration','path':'/workspace/artifacts/registration'}]})
+             outputs={'capture':[], 'artifacts':[{'name':n,'path':'/workspace/artifacts/'+n} for n in ('registration','last-result','egress')]})
     m['limits'] = dict(m.get('limits',{}), workspace_max_bytes=256<<20)
     return canonical(m)
 

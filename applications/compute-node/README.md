@@ -5,12 +5,14 @@ relay. It generates its identity, P-256 bundle key and Ed25519 receipt key at
 boot, binds them with App Attest, and renews its broker registration every
 25 seconds. Jobs and results use the [job protocol](PROTOCOL.md).
 
-The image pins Claude Code 2.1.187 and `claude-opus-4-8`. `worker.py` calls
+The image pins Claude Code 2.1.187. The measured compose sets `MODEL`
+to `claude-opus-4-8`. `worker.py` calls
 `agent-turns/find.py` for one edit turn. `/run/dsmack` points to the container's
 `/dev/shm` tmpfs; the worker checks the mount before opening a credential. Its
 sentinel reads `/run/dsmack/credential`, and both the credential and temporary
 work tree are removed after the job. Outputs travel over pipes and are sealed
-before leaving the daemon. The sole result artifact is public registration.
+before leaving the daemon. Result artifacts contain public registration, the
+last sealed result, and network probe outcomes.
 
 ## Build on a Linux builder
 
@@ -60,3 +62,83 @@ wait for `ready` before sending its encrypted bundle.
 python3 -m unittest discover -s applications/compute-node -p 'test_*.py'
 node --test applications/relay-broker/broker.test.mjs
 ```
+
+## Run a remote turn
+
+Build the transport helper for the client machine on the Linux builder, then
+run from the source checkout:
+
+```sh
+applications/agent-turns/skill/dsmack-agent run-remote \
+  --repo ./my-checkout --prompt 'Fix add so it adds its arguments.' \
+  --out ./remote-turn --binary ./dsmack-compute --client-key ./client.key \
+  --manifest ./compose-manifest.json --enrollment ./enrollment \
+  --cdhash APPROVED_RUNNER_CDHASH --broker-key PINNED_BROKER_ED25519_HEX
+```
+
+The client discovers a registered node at the live broker, checks its Apple
+assertion and the current CDRegistry and canary state through read-only RPC,
+checks the exact compose and image, and fetches the registration directly over
+the authenticated relay stream. The measured compose binds the broker key.
+A signed seconds grant and the node's admission precede the credential read.
+The local credential defaults to
+`~/.dsmack/private-inputs/claude-subscription.json`; select another local store
+with `--credential`. It is projected and sealed in memory alongside the repo
+snapshot and prompt. The guest sentinel refreshes an expired access token.
+
+The client verifies the per-job assertion, receipt, sealed output digests and
+observed model/tool use, then applies the patch with `git apply`. `--out` receives
+the encrypted input and result, the verified plaintext patch, transcript and
+verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
+it runs no remote shell command.
+
+## Success-condition harness
+
+Run the client probes on the credential owner's Mac. Keep its user-side
+`client/` directory separate from the node's attempt directory and the builder's
+operator directory. A JSON config supplies `binary`, `client_key`, `manifest`,
+`enrollment`, `broker_key`, and `cdhash` using local paths; `broker`, `rpc`,
+`attest`, `canary`, `credential`, `seconds`, and `marker_file` are optional.
+`marker_file` names a shared JSON object mapping `credential`, `repo`, and
+`prompt` to three random 32-byte hex values. Without it, `primary` generates
+fresh markers. It keeps the provider tokens unchanged and marks accepted
+credential metadata in memory.
+
+```sh
+python3 applications/compute-node/success_harness.py primary --config client.json --out client/primary
+python3 applications/compute-node/success_harness.py expire --config client.json --capture client/primary --out expired.json
+```
+
+`primary` runs a real marked turn, verifies its attestation, receipt and model,
+applies and checks the toy patch, then probes repeated jobs, a wrong client and
+an exhausted grant. `expire` waits for that real signed grant to expire. After
+the owner stops the node and boots the same compose again, test the captured
+bundle under the new boot key:
+
+```sh
+python3 applications/compute-node/success_harness.py second-run --config client.json --capture client/primary --out replay.json
+```
+
+After the VM and network helper stop, scan every node-attempt and operator file.
+Run the same scan with `--control` against a marked current `run-v02` attempt;
+the control requires a hit for each marker.
+
+```sh
+python3 applications/compute-node/success_harness.py scan --root node-attempt --root operator-attempt --out scan.json < client/primary/markers.json
+```
+
+Change one ciphertext byte inside the stopped
+result disk's exported `last-result` artifact. Fetch both encrypted result
+versions to the user client and verify that only the original is accepted:
+
+```sh
+python3 applications/compute-node/success_harness.py flip-output --disk result.img --artifact /compute-node-v1/outputs/artifacts/last-result --out tamper --stopped
+python3 applications/compute-node/success_harness.py verify-tamper --config client.json --capture client/primary --original tamper/original.json --tampered tamper/tampered.json --out tamper-check.json
+```
+
+On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-output`.
+
+`policy-refusal` checks an actual variant registration against the original
+client config. `egress` joins the guest's network probe artifact with a verified
+model turn. `assemble` writes `check.json` from an object with success-condition
+keys `"1"` through `"7"` and each condition's evidence.

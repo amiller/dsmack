@@ -28,6 +28,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
+	protocolpkg "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 )
@@ -132,7 +133,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	if !ok {
 		log.Fatal("missing guest instance_id")
 	}
-	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
+	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
 	h.SetStreamHandler("/dsmack/attest/1", func(s network.Stream) {
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(20 * time.Second))
@@ -157,8 +158,10 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 		var out map[string]any
 		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", registration, &out)
 	}
-	must(renew())
 	must(os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644))
+	must(os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644))
+	must(os.WriteFile("/workspace/artifacts/egress", []byte("{}"), 0644))
+	must(renew())
 	fmt.Println("compute node registered", h.ID())
 	tick := time.NewTicker(25 * time.Second)
 	defer tick.Stop()
@@ -214,7 +217,7 @@ func main() {
 		must(e)
 		fields["sig"] = hex.EncodeToString(sig)
 		os.Stdout.Write(canon(fields))
-	case len(a) == 3 && a[0] == "exchange":
+	case len(a) == 3 && (a[0] == "exchange" || a[0] == "discover"):
 		h := hostFor(a[2])
 		defer h.Close()
 		info, e := peer.AddrInfoFromString(a[1])
@@ -222,14 +225,24 @@ func main() {
 		ctx, cancel := context.WithTimeout(network.WithAllowLimitedConn(context.Background(), "compute"), 30*time.Second)
 		defer cancel()
 		must(h.Connect(ctx, *info))
-		s, e := h.NewStream(ctx, info.ID, "/dsmack/job/1")
+		protocol := "/dsmack/job/1"
+		if a[0] == "discover" {
+			protocol = "/dsmack/attest/1"
+		}
+		s, e := h.NewStream(ctx, info.ID, protocolpkg.ID(protocol))
 		must(e)
 		defer s.Close()
+		if a[0] == "discover" {
+			s.SetDeadline(time.Now().Add(20 * time.Second))
+			_, e = io.Copy(os.Stdout, io.LimitReader(s, 150001))
+			must(e)
+			return
+		}
 		done := make(chan struct{})
 		go func() { io.Copy(s, os.Stdin); s.CloseWrite(); close(done) }()
 		_, e = io.Copy(os.Stdout, s)
 		must(e)
 	default:
-		log.Fatal("usage: serve RELAY SECONDS BROKER_URL BROKER_KEY CDHASH WORKER | keygen FILE | id FILE | sign FILE | exchange CIRCUIT KEY")
+		log.Fatal("usage: serve RELAY SECONDS BROKER_URL BROKER_KEY CDHASH WORKER | keygen FILE | id FILE | sign FILE | exchange CIRCUIT KEY | discover CIRCUIT KEY")
 	}
 }

@@ -8,6 +8,7 @@ from pathlib import Path
 import secrets
 import shutil
 import signal
+import socket
 import sys
 import tarfile
 import tempfile
@@ -20,7 +21,7 @@ from harness.sentinel.sentinel import SentinelServer
 from harness.sentinel.sentinel_oauth import SubscriptionSentinel, load_subscription_credential
 
 PIN = {'cli_version': '2.1.187', 'cli_sha256': 'b49be8a5e565bf2d45b50d2de62017b25462131acc9425d2fdb98b8f29c9dce2',
-       'model': 'claude-opus-4-8', 'tools': ['Read','Grep','Glob','Edit','Write'], 'max_turns': 8,
+       'model': os.environ['MODEL'], 'tools': ['Read','Grep','Glob','Edit','Write'], 'max_turns': 8,
        'wall_seconds': 240, 'settings': {'disableAllHooks': True}}
 ROOT = Path('/run/dsmack')
 
@@ -32,6 +33,14 @@ def main():
     # Refuse a misconfigured writable disk mount before handling any secret.
     if not any(line.split()[1:3] == [str(ROOT.resolve()), 'tmpfs'] for line in Path('/proc/mounts').read_text().splitlines()):
         raise ValueError('compute work root must be tmpfs')
+    probes = {}
+    for host, port in [('1.1.1.1', 443), ('192.168.100.3', 18080), ('192.168.100.3', 18443)]:
+        try:
+            with socket.create_connection((host, port), timeout=3):
+                probes[f'{host}:{port}'] = 'connected'
+        except OSError:
+            probes[f'{host}:{port}'] = 'refused'
+    Path('/workspace/artifacts/egress').write_bytes(find.canonical(probes))
     job = json.load(sys.stdin)
     workroot = ROOT/('job-' + job['job_id'])
     workroot.mkdir()
@@ -41,6 +50,7 @@ def main():
     server = None
     try:
         credential.write_bytes(find.canonical(job['credential']))
+        credential.chmod(0o400)
         args = SimpleNamespace(credential_fd=None, credential_file=str(credential), allow_group_readable_credential_file=False,
                                provider_route='https://api.anthropic.com', ca_bundle='/etc/ssl/certs/ca-certificates.crt')
         subscription = load_subscription_credential(args, lambda _: None)

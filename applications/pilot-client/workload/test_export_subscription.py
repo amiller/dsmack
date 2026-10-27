@@ -5,6 +5,10 @@ class Tests(unittest.TestCase):
  def setUp(self):self.v=e.validator();self.inner={'accessToken':'DUMMY-NOT-A-TOKEN','refreshToken':'DUMMY-NOT-A-REFRESH','expiresAt':int((time.time()+7200)*1000),'scopes':['user:inference']};self.doc={'claudeAiOauth':dict(self.inner,extraIgnoredMetadata={'model':'not exported'}),'unrelatedClientEntry':'not exported'}
  def test_fixed_auth_fields_only_original_validator_accepts(self):
   raw=e.project(json.dumps(self.doc).encode(),self.v,time.time());self.assertEqual(json.loads(raw),{'claudeAiOauth':self.inner});self.v.parse_subscription_document(raw)
+ def test_inference_only_has_no_lifetime_check(self):
+  oauth={'accessToken':'sk-ant-oat01-DUMMY','scopes':['user:inference']}
+  for raw in (b'sk-ant-oat01-DUMMY\n',json.dumps({'claudeAiOauth':oauth}).encode()):
+   exported=e.project(raw,self.v,4102444800);self.assertEqual(json.loads(exported),{'claudeAiOauth':oauth})
  def test_missing_required_or_short_lifetime_refuses(self):
   for inner in ({'refreshToken':'dummy'},dict(self.inner,expiresAt=1000)):
    with self.assertRaises(ValueError):e.project(json.dumps({'claudeAiOauth':inner}).encode(),self.v,time.time())

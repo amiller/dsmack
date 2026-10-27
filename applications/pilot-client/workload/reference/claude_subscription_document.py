@@ -21,10 +21,10 @@ claude-2.1.187-subscription-auth-evidence.md):
       }
     }
 
-`accessToken`, `refreshToken` and `expiresAt` are REQUIRED (the pinned store
-treats a missing refreshToken/expiresAt as an inference-only token; this
-profile is the REFRESHABLE subscription import — an inference-only token is
-a different, weaker input and is rejected here rather than half-imported).
+`accessToken` is required. `refreshToken` and `expiresAt` must either both
+be present (refreshable subscription) or both be absent (inference-only
+setup-token credential). Bare sk-ant-oat01 tokens are normalized to this
+document by parse_credential_source; they have no refresh or expiry fields.
 Everything else is rejected fail-closed with VALUE-FREE diagnostics: the
 caller-controlled field text is withheld, no value is echoed, and no
 secret-derived digest is ever computed on rejected input.
@@ -40,8 +40,8 @@ import re
 
 PROFILE = "claude-subscription/1"
 TOP_LEVEL_FIELDS = ("claudeAiOauth",)
-REQUIRED_OAUTH_FIELDS = ("accessToken", "refreshToken", "expiresAt")
-OPTIONAL_OAUTH_FIELDS = ("scopes", "subscriptionType", "rateLimitTier", "clientId")
+REQUIRED_OAUTH_FIELDS = ("accessToken",)
+OPTIONAL_OAUTH_FIELDS = ("refreshToken", "expiresAt", "scopes", "subscriptionType", "rateLimitTier", "clientId")
 ACCEPTED_OAUTH_FIELDS = REQUIRED_OAUTH_FIELDS + OPTIONAL_OAUTH_FIELDS
 
 MAX_FIELD_BYTES = 8192
@@ -144,14 +144,15 @@ def validate_subscription_object(obj):
             % len(missing),
         )
     _check_string(obj["accessToken"], "accessToken", MAX_FIELD_BYTES)
-    _check_string(obj["refreshToken"], "refreshToken", MAX_FIELD_BYTES)
-    exp = obj["expiresAt"]
-    if exp is None:
-        raise SubscriptionDocumentError(E_SOURCE, "expiresAt must not be null")
-    if isinstance(exp, bool) or not isinstance(exp, int):
-        raise SubscriptionDocumentError(E_SOURCE, "expiresAt must be an integer (epoch milliseconds)")
-    if exp <= 0 or exp > MAX_EXPIRES_AT_MS:
-        raise SubscriptionDocumentError(E_SOURCE, "expiresAt is outside the accepted epoch-ms range")
+    if ("refreshToken" in keys) != ("expiresAt" in keys):
+        raise SubscriptionDocumentError(E_SOURCE, "refreshToken and expiresAt must be supplied together")
+    if "refreshToken" in keys:
+        _check_string(obj["refreshToken"], "refreshToken", MAX_FIELD_BYTES)
+        exp = obj["expiresAt"]
+        if isinstance(exp, bool) or not isinstance(exp, int):
+            raise SubscriptionDocumentError(E_SOURCE, "expiresAt must be an integer (epoch milliseconds)")
+        if exp <= 0 or exp > MAX_EXPIRES_AT_MS:
+            raise SubscriptionDocumentError(E_SOURCE, "expiresAt is outside the accepted epoch-ms range")
     if "scopes" in keys:
         scopes = obj["scopes"]
         if not isinstance(scopes, list):
@@ -187,7 +188,7 @@ def parse_subscription_document(raw_bytes):
             "credential document exceeds the %d-byte document bound; rejected" % MAX_DOCUMENT_BYTES,
         )
     try:
-        doc = json.loads(raw_bytes.decode("utf-8"))
+        doc = json.loads(raw_bytes.decode("utf-8"), object_pairs_hook=_unique)
     except (UnicodeDecodeError, ValueError):
         raise SubscriptionDocumentError(
             E_SOURCE, "credential document is not a single valid JSON document"
@@ -236,3 +237,30 @@ def canonical_env_value(oauth_obj):
     (canonical JSON of the object). The sentinel parses this exact string
     back with parse_subscription_document — one vocabulary everywhere."""
     return json.dumps({"claudeAiOauth": oauth_obj}, sort_keys=True, separators=(",", ":"))
+
+
+def _unique(rows):
+    result = {}
+    for key, value in rows:
+        if key in result:
+            raise SubscriptionDocumentError(E_SOURCE, "duplicate credential member")
+        result[key] = value
+    return result
+
+
+def parse_credential_source(raw_bytes):
+    """Accept a credential document or a bare setup-token, with value-free errors."""
+    if not isinstance(raw_bytes, (bytes, bytearray)) or len(raw_bytes) > MAX_DOCUMENT_BYTES:
+        raise SubscriptionDocumentError(E_SOURCE, "credential source exceeds the byte bound")
+    raw = bytes(raw_bytes).strip()
+    if raw.startswith(b"sk-ant-oat01-"):
+        if not re.fullmatch(rb"sk-ant-oat01-[A-Za-z0-9_-]+", raw):
+            raise SubscriptionDocumentError(E_SOURCE, "invalid setup-token format")
+        return validate_subscription_object({"accessToken": raw.decode("ascii"), "scopes": [INFERENCE_SCOPE]})
+    return parse_subscription_document(raw)
+
+
+def default_credential_path(private_inputs):
+    """Prefer setup-token when installed; an invalid preferred token must fail."""
+    token = private_inputs / "claude-oauth-token"
+    return token if token.exists() else private_inputs / "claude-subscription.json"

@@ -21,11 +21,10 @@ def unique(rows):
  return d
 
 def credential(raw_doc,now,validator):
- # Reject duplicate keys before the unchanged original schema validator.
- json.loads(raw_doc,object_pairs_hook=unique)
- obj=validator.parse_subscription_document(raw_doc)
- need(obj['expiresAt']/1000-now>=MIN_TTL_SECONDS,'credential remaining lifetime too short')
- return validator.canonical_env_value(obj),obj['expiresAt']/1000
+ obj=validator.parse_credential_source(raw_doc)
+ expiry=obj['expiresAt']/1000 if 'expiresAt' in obj else None
+ need(expiry is None or expiry-now>=MIN_TTL_SECONDS,'credential remaining lifetime too short')
+ return validator.canonical_env_value(obj),expiry
 
 def bounded_stdin(stream,seconds=15):
  previous=signal.getsignal(signal.SIGALRM)
@@ -88,9 +87,9 @@ def main():
  transport.start_overall_deadline(300)
  with contextlib.redirect_stdout(io.StringIO()),contextlib.redirect_stderr(io.StringIO()):
   need(transport.build_private_disk(None,str(stage),str(out/'private-input.img'),1073741824),'private disk missing')
- need(expiry-time.time()>=MIN_TTL_SECONDS,'credential lifetime consumed during staging')
+ need(expiry is None or expiry-time.time()>=MIN_TTL_SECONDS,'credential lifetime consumed during staging')
  # Metadata only: NO private content/image digest, no raw exception/log output.
- print(json.dumps({'schema':'dsmack-jit-private-input-stage/1','transport_backend':a.transport_backend,'kernel_write_seals':a.transport_backend=='linux-memfd-v1','private_input_present':True,'complete_private_envelope':True,'manifest_sha256':a.expected_manifest_sha256,'public_projection_sha256':a.expected_projection_sha256,'remaining_lifetime_seconds':int(expiry-time.time()),'private_content_hashed_for_report':False,'provider_calls':False,'vm_launched':False,'private_residue_retained':True},sort_keys=True))
+ print(json.dumps({'schema':'dsmack-jit-private-input-stage/1','transport_backend':a.transport_backend,'kernel_write_seals':a.transport_backend=='linux-memfd-v1','private_input_present':True,'complete_private_envelope':True,'manifest_sha256':a.expected_manifest_sha256,'public_projection_sha256':a.expected_projection_sha256,'remaining_lifetime_seconds':int(expiry-time.time()) if expiry is not None else None,'private_content_hashed_for_report':False,'provider_calls':False,'vm_launched':False,'private_residue_retained':True},sort_keys=True))
 if __name__=='__main__':
  try:main()
  except SystemExit:raise

@@ -145,3 +145,9 @@ On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-out
 client config. `egress` joins the guest's network probe artifact with a verified
 model turn. `assemble` writes `check.json` from an object with success-condition
 keys `"1"` through `"7"` and each condition's evidence.
+
+`run-remote` prefers `~/.dsmack/private-inputs/claude-oauth-token` from
+`claude setup-token` when present, otherwise `claude-subscription.json`.
+Use `--credential PATH` to select a source explicitly. A setup-token is
+inference-only: it has no refresh token or local expiry and is sent as an
+OAuth Bearer token by the guest sentinel.

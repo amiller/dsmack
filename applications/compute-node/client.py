@@ -325,7 +325,10 @@ class Client:
 
 def read_credential(path):
     validator = export_subscription.validator()
-    store = unique_json(path.read_bytes())['claudeAiOauth']
+    raw = path.read_bytes()
+    if raw.strip().startswith(b'sk-ant-oat01-'):
+        return {'claudeAiOauth': validator.parse_credential_source(raw)}
+    store = unique_json(raw)['claudeAiOauth']
     document = {'claudeAiOauth': {k: store[k] for k in validator.ACCEPTED_OAUTH_FIELDS if k in store}}
     validator.parse_subscription_document(canonical(document))
     return document
@@ -353,7 +356,7 @@ def main(argv=None):
     for name in ('repo', 'out', 'manifest', 'enrollment', 'binary', 'client-key'):
         p.add_argument('--' + name, type=Path, required=True)
     p.add_argument('--prompt', required=True)
-    p.add_argument('--credential', type=Path, default=Path.home()/'.dsmack/private-inputs/claude-subscription.json')
+    p.add_argument('--credential', type=Path, default=export_subscription.validator().default_credential_path(Path.home()/'.dsmack/private-inputs'))
     p.add_argument('--broker', default=BROKER)
     p.add_argument('--broker-key', required=True)
     p.add_argument('--cdhash', required=True)

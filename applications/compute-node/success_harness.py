@@ -239,7 +239,7 @@ def primary(config, out):
     # This is user-side state, outside every owner/operator directory scanned
     # for SC2. It allows later scans and the independent current-path control.
     (out/'markers.json').write_bytes(canonical({k: v.hex() for k, v in markers.items()}))
-    credential_path = Path(config.get('credential', '~/.dsmack/private-inputs/claude-subscription.json')).expanduser()
+    credential_path = Path(config.get('credential', remote.export_subscription.validator().default_credential_path(Path.home()/'.dsmack/private-inputs'))).expanduser()
     client = load_client(config)
     node = client.discover(config.get('node_peer'))
     discovery, _ = client.policy.verify_registration(node)

@@ -7,7 +7,7 @@ import { canonical, grantBytes, signingKey, signGrant } from "./grants.mjs";
 import { withEnrollment } from "./attestation.mjs";
 import { unhex } from "../../dstack-compat/secret-release/policy.mjs";
 
-// Recorded public proof from the locked relay; no private keys or guest secrets.
+// Recorded public proof from the grant-aware relay; no private keys or guest secrets.
 const f = JSON.parse(readFileSync(new URL("fixtures/relay.json", import.meta.url)));
 const r = f.registration;
 const cfg = { workloads: [{ ...r, service: "peer" }] };
@@ -42,6 +42,7 @@ test("unregistered peers cannot get grants; the real signed relay proof admits t
   await assert.rejects(b.grant(request), /not live/);
   const registered = await b.register(r);
   assert.equal(registered.attestation.status, "verified");
+  assert.equal(registered.attestation.receipt_key, r.receipt_key);
   assert.equal(b.live().length, 1);
   const grant = await b.grant(request);
   assert.equal(grant.expires_at, registered.expires_at);
@@ -51,6 +52,13 @@ test("a proof for another PeerId cannot enter discovery", async () => {
   const b = broker();
   const other = "12D3KooWPdcePFHp8pmoxdwpNC2ADNivvsCFYH8KPSfqutt7GWzA";
   await assert.rejects(b.register({ ...r, relay_peer: other, relay_maddr: r.relay_maddr.replace(r.relay_peer, other) }), /PeerId binding/);
+  assert.equal(b.live().length, 0);
+});
+
+test("a substituted or missing receipt key cannot enter discovery", async () => {
+  const b = broker();
+  await assert.rejects(b.register({ ...r, receipt_key: "42".repeat(32) }), /receipt key binding/);
+  await assert.rejects(b.register({ ...r, receipt_key: undefined }), /receipt key must/);
   assert.equal(b.live().length, 0);
 });
 

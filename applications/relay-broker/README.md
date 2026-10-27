@@ -79,11 +79,12 @@ Use `python3 dev.py SOCKET DATA HOST PORT` to choose a listener.
 - `GET /relays` → an array of relays with verified attestation details and lease
   expiry. `GET /` shows them with client connection commands.
 - `POST /relays`, authenticated with `Authorization: Bearer <operator token>`,
-  accepts `{relay_peer, relay_maddr, manifest_sha256, os_image_hash, cdhash,
+  accepts `{relay_peer, relay_maddr, manifest_sha256, os_image_hash, cdhash, receipt_key,
   attestation}`. `attestation` is the hex guest `/v1/Attest` blob obtained over
   `/dsmack/attest/1` or from the runner's `attestation` artifact. The broker checks
   the approved tuple, caller service, PeerId binding, signed event log, App Attest
-  key, assertion signature, build approval and burns before adding it. The circuit
+  key, assertion signature, build approval and burns before adding it. It checks the
+  receipt key against the second half of report_data. The circuit
   address ends in `/p2p-circuit/p2p/<relay_peer>`.
 - `POST /grant {relay_peer, client_peer, bytes}` → a signed grant. Byte budgets
   are positive integers up to 67,108,864. Unknown/expired relays return 404;
@@ -98,12 +99,12 @@ operators register again. Hourly client quotas persist in `credits.json` in
 Create a registration JSON from a relay's artifact and its admitted measurements:
 
 ```sh
-python3 - PEER CIRCUIT_ADDRESS MANIFEST_SHA256 OS_IMAGE_HASH CDHASH attestation.bin <<'PY' > registration.json
+python3 - PEER CIRCUIT_ADDRESS MANIFEST_SHA256 OS_IMAGE_HASH CDHASH RECEIPT_KEY attestation.bin <<'PY' > registration.json
 import json, sys
 from pathlib import Path
-peer, addr, manifest, image, cdhash, blob = sys.argv[1:]
+peer, addr, manifest, image, cdhash, receipt_key, blob = sys.argv[1:]
 print(json.dumps(dict(relay_peer=peer, relay_maddr=addr, manifest_sha256=manifest,
-                     os_image_hash=image, cdhash=cdhash, attestation=Path(blob).read_bytes().hex())))
+                     os_image_hash=image, cdhash=cdhash, receipt_key=receipt_key, attestation=Path(blob).read_bytes().hex())))
 PY
 BROKER=http://127.0.0.1:18270
 curl --fail-with-body "$BROKER/key" > key.json

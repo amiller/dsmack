@@ -1,0 +1,5 @@
+{
+  "runtime": "deno",
+  "entry": "applications/relay-broker/server.ts",
+  "isolation": "shared"
+}

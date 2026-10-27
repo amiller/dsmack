@@ -23,11 +23,15 @@ Run the builds on a Linux builder, from this directory:
 ```sh
 (cd peer && CGO_ENABLED=0 go build -o ../dsmack-egress-amd64 . && CGO_ENABLED=0 GOARCH=arm64 go build -o ../dsmack-egress-arm64 .)
 python3 workload.py <repo> <base image files> <canary-v1.app-compose.json> \
-  dsmack-egress-arm64 <relay maddr> <task id> <policy url> wl
+  dsmack-egress-arm64 <relay maddr> <task id> <policy url> <WireGuard IP:port> wl
 ```
 
 The workload contains only the static executable. Its command measures the relay
-address, task ID and policy URL; its manifest keeps `network.mode: nat`. Outputs
+address, task ID and policy URL. Its measured `network.egress` permits exactly
+the WireGuard endpoint over UDP, the libp2p relay over TCP and the policy server
+over TCP. Use IP literals for these endpoints (bracket IPv6 endpoints with ports).
+The supervisor installs this allowlist before compose starts; recipient CONNECTs
+and DNS travel inside WireGuard. Outputs
 are `attestation` and `peer-id`. The service runs for 420 seconds.
 
 Start a circuit relay using [libp2p-attest's relay command](../libp2p-attest/README.md).

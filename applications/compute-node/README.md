@@ -10,8 +10,9 @@ to `claude-opus-4-8`. `worker.py` calls
 `agent-turns/find.py` for one edit turn. `/run/dsmack` points to the container's
 `/dev/shm` tmpfs; the worker checks the mount before opening a credential. Its
 sentinel reads `/run/dsmack/credential`, and both the credential and temporary
-work tree are removed after the job. Outputs travel over pipes and are sealed
-before leaving the daemon. Result artifacts contain public registration, the
+work tree are removed after the job. The worker writes the credential with mode
+`0400`, owned by the user running the sentinel. Outputs travel over pipes and
+are sealed before leaving the daemon. Result artifacts contain public registration, the
 last sealed result, and network probe outcomes.
 
 ## Build on a Linux builder
@@ -127,9 +128,11 @@ the control requires a hit for each marker.
 python3 applications/compute-node/success_harness.py scan --root node-attempt --root operator-attempt --out scan.json < client/primary/markers.json
 ```
 
-Change one ciphertext byte inside the stopped
-result disk's exported `last-result` artifact. Fetch both encrypted result
-versions to the user client and verify that only the original is accepted:
+Let the node finish its measured running period so the guest exports its result
+artifacts. After the VM and helper exit, preserve the original signed result
+disk, then change one ciphertext byte in its exported `last-result` artifact.
+Fetch both encrypted result versions to the user client and verify that only
+the original is accepted:
 
 ```sh
 python3 applications/compute-node/success_harness.py flip-output --disk result.img --artifact /compute-node-v1/outputs/artifacts/last-result --out tamper --stopped

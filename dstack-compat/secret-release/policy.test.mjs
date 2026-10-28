@@ -96,7 +96,9 @@ test("the Lit wrapper releases a secret provisioned to the action key, and only 
     + fs.readFileSync(new URL("lit-action.js", import.meta.url), "utf8")
     + `\nconst POLICY = ${JSON.stringify({ rpc: "http://rpc.invalid", attest: ATTEST, canary: CANARY })};\nmain`;
   globalThis.Lit = { Actions: { getLitActionPrivateKey: async () => "0x" + "42".repeat(32) } };
-  const main = (0, eval)(src);
+  // Replay the captured enrollment at the same time as the other fixture checks.
+  const main = new Function("Date", src + "; return main;")(
+    class extends Date { static now() { return NOW; } });
   const { pub } = await main({ op: "publicKey" });
   const task = { id: run.task_id, ...TASK };
   const label = "dsmack.secret-release/lit-task/1" + JSON.stringify([task.id, task.manifest, task.images]);

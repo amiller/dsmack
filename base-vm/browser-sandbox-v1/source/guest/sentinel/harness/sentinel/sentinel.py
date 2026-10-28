@@ -86,6 +86,22 @@ CREDENTIAL_HEADERS = ("x-api-key", "authorization")
 FORBIDDEN_REQUEST_HEADERS = CREDENTIAL_HEADERS + ("host", "content-length", "connection")
 
 
+def provider_connection(host, ca_bundle, timeout):
+    """TLS remains in the guest when a measured CONNECT proxy is configured."""
+    from urllib.parse import urlsplit
+    proxy = os.environ.get('HTTPS_PROXY')
+    if not proxy:
+        return http.client.HTTPSConnection(host, timeout=timeout,
+                                          context=ssl.create_default_context(cafile=ca_bundle))
+    route = urlsplit(proxy)
+    if host != 'api.anthropic.com' or route.scheme != 'http' or not route.hostname or not route.port or route.username or route.path:
+        raise SentinelError('invalid measured CONNECT route')
+    conn = http.client.HTTPSConnection(route.hostname, route.port, timeout=timeout,
+                                      context=ssl.create_default_context(cafile=ca_bundle))
+    conn.set_tunnel(host, 443)
+    return conn
+
+
 class SentinelError(Exception):
     pass
 
@@ -136,11 +152,7 @@ class RunSentinel:
         upstream_path = upstream_path.rstrip("/")
         upstream_host = path_base.split("/", 1)[0]
         forward_path = upstream_path + client_path_after_token
-        conn = http.client.HTTPSConnection(
-            upstream_host,
-            timeout=UPSTREAM_CONNECT_TIMEOUT_S,
-            context=ssl.create_default_context(cafile=self.ca_bundle),
-        )
+        conn = provider_connection(upstream_host, self.ca_bundle, UPSTREAM_CONNECT_TIMEOUT_S)
         # R07: impose an ABSOLUTE upstream deadline (total connect+send+read),
         # not just a per-operation idle timeout. A watchdog closes the socket
         # when the whole exchange exceeds UPSTREAM_TOTAL_TIMEOUT_S, so a slow
@@ -332,9 +344,11 @@ class SentinelServer(http.server.ThreadingHTTPServer):
 
 def _load_credential(args):
     """Read the provider credential ONCE from the broker-provided source.
-    Supported: --credential-fd N (broker passes a pipe/fd; preferred — keeps
-    the credential out of argv and the filesystem) or --credential-file P
-    (broker per-run store, 0600). No other channel exists; no discovery."""
+    Default: /run/dsmack/credential on tmpfs (0400, owned by sentinel uid).
+    Explicit --credential-fd or --credential-file remain available to local
+    callers. No environment credential discovery."""
+    if args.credential_fd is None and args.credential_file is None:
+        args.credential_file = "/run/dsmack/credential"
     if (args.credential_fd is None) == (args.credential_file is None):
         raise SentinelError("exactly one credential source is required: --credential-fd or --credential-file")
     if args.credential_fd is not None:
@@ -344,7 +358,12 @@ def _load_credential(args):
         st = os.lstat(args.credential_file)
         if (st.st_mode & 0o077) and not args.allow_group_readable_credential_file:
             raise SentinelError("credential file must not be group/world readable")
-        with open(args.credential_file, "rb") as fh:
+        fd = os.open(args.credential_file, os.O_RDONLY | os.O_NOFOLLOW)
+        with os.fdopen(fd, "rb") as fh:
+            st = os.fstat(fh.fileno())
+            if args.credential_file == "/run/dsmack/credential":
+                if (st.st_mode & 0o777) != 0o400 or st.st_uid != os.geteuid():
+                    raise SentinelError("tmpfs credential must be 0400 and owned by sentinel uid")
             data = fh.read(65536)
     cred = data.decode("utf-8").strip()
     if not cred or "\x00" in cred:

@@ -15,3 +15,10 @@ RUN printf 'deb [check-valid-until=no] http://snapshot.debian.org/archive/debian
        cpio pax-utils squashfs-tools cryptsetup \
        xz-utils kmod python3 curl rsync file gawk patch tar gzip jq busybox-static e2fsprogs \
     && rm -rf /var/lib/apt/lists/*
+RUN dpkg --add-architecture arm64 && apt-get update \
+    && mkdir -p /guest-egress /tmp/egress-debs && cd /tmp/egress-debs \
+    && apt-get download nftables:arm64 libnftables1:arm64 libedit2:arm64 libbsd0:arm64 \
+       libmd0:arm64 libmnl0:arm64 libnftnl11:arm64 libjansson4:arm64 libtinfo6:arm64 cryptsetup-bin:arm64 e2fsprogs:arm64 \
+       libext2fs2t64:arm64 libcom-err2:arm64 libss2:arm64 \
+    && for deb in *.deb; do dpkg-deb -x "$deb" /guest-egress; done \
+    && rm -rf /tmp/egress-debs /var/lib/apt/lists/*

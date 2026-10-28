@@ -6,6 +6,10 @@ v=types.ModuleType('validator');exec(compile(s.raw(P/'reference/claude_subscript
 class Tests(unittest.TestCase):
  def doc(self):return {'claudeAiOauth':{'accessToken':'DUMMY-ACCESS','refreshToken':'DUMMY-REFRESH','expiresAt':4000000,'scopes':['user:inference']}}
  def test_fresh(self):value,expiry=s.credential(json.dumps(self.doc()).encode(),1000,v);self.assertEqual(expiry,4000);self.assertEqual(json.loads(value),self.doc())
+ def test_inference_only_has_no_lifetime_check(self):
+  oauth={'accessToken':'sk-ant-oat01-DUMMY','scopes':['user:inference']}
+  for raw in (b'sk-ant-oat01-DUMMY\n',json.dumps({'claudeAiOauth':oauth}).encode()):
+   value,expiry=s.credential(raw,4102444800,v);self.assertIsNone(expiry);self.assertEqual(json.loads(value),{'claudeAiOauth':oauth})
  def test_ttl(self):
   for now in (2801,4000,5000):
    with self.assertRaises(ValueError):s.credential(json.dumps(self.doc()).encode(),now,v)

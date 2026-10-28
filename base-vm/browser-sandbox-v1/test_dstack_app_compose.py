@@ -1,6 +1,6 @@
 import hashlib, json, pathlib, sys, unittest
 
-sys.path.insert(0, str(pathlib.Path(__file__).parent / "source/runner-content/lib"))
+sys.path[:0] = [str(pathlib.Path(__file__).parent / p) for p in ("source/runner-content", "source/runner-content/lib")]
 from dsmack_compose_contract.errors import MultiError
 from dsmack_compose_contract.lowering import lower, render_compose_file
 from dsmack_compose_contract.manifest import validate_manifest_bytes
@@ -46,6 +46,24 @@ class DstackAppCompose(unittest.TestCase):
         for extra in ({"key_provider": "local"}, {"init_script": "true"}, {"manifest_version": 3}):
             with self.assertRaises(MultiError, msg=extra):
                 validate_manifest_bytes(app_compose(**extra))
+
+    def test_compute_node_tmpfs_mount_survives_compose_validation(self):
+        doc = json.loads(COMPOSE)
+        doc["services"]["worker"]["volumes"] = ["/run/dsmack:/run/dsmack:rw"]
+        m = json.loads(app_compose(docker_compose_file=json.dumps(doc)))
+        manifest, summary = validate_manifest_bytes(json.dumps(m).encode())
+        lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/d.sock", run_id="r" * 32,
+                        workspace_host_dir="/w")
+        rendered = json.loads(render_compose_file(manifest, lowered))
+        mount = next(v for v in rendered["services"]["worker"]["volumes"] if v["target"] == "/run/dsmack")
+        self.assertEqual((mount["source"], mount["read_only"], mount["bind"]["create_host_path"]),
+                         ("/run/dsmack", False, False))
+
+        from types import SimpleNamespace
+        from dsmack_compose_runner.lifecycle import parser_validate
+        control = SimpleNamespace(project_dir="/ctl", control_dir="/ctl",
+                                  run=lambda *a, **kw: (0, json.dumps(rendered).encode(), b""))
+        self.assertEqual(parser_validate(control, lowered, lowered["project_name"]), {"services": ["worker"]})
 
     def test_registry_named_images_pull_from_the_guest_publisher(self):
         raw = app_compose()

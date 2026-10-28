@@ -33,7 +33,7 @@ from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_
 SELECTOR = 'agent-turns-edit-v1'
 REPO = 'agent-turns'
 SLOTS = {'tree': 16 << 20, 'turn': 1 << 20}
-ARTIFACTS = ['patch', 'run-1-transcript', 'run-1-stderr', 'verdict']
+ARTIFACTS = ['patch', 'run-1-transcript', 'verdict']
 PYTHON = '304aa87a76ebb13fd22d253ac157f14980ff2cdb23e6274f3b045571405e07dc'
 # Operator paths, read when used:
 # DSMACK_BROKER_BUILD: the qualified 0.7.1.broker-timeout-v1 build, for its guest-input builder.
@@ -150,7 +150,7 @@ def compose_manifest(reference, digest, vm):
                + ['state:/workspace/state:rw', 'artifacts:/workspace/artifacts:rw']}
     m['docker_compose_file'] = canonical({'services': {'agent': service}}).decode()
     m['limits'] = dict(m['limits'], workspace_max_bytes=256 << 20)
-    m['outputs'] = {'capture': ['stdout', 'stderr'],
+    m['outputs'] = {'capture': [],
                     'artifacts': [{'name': n, 'path': '/workspace/artifacts/' + n} for n in ARTIFACTS]}
     raw = canonical(m)
     validate_manifest_bytes(raw)

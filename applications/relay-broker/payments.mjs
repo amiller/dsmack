@@ -154,62 +154,91 @@ export class Payments {
       r.payments && r.attestation.nodeBinding?.binding.expires > this.now()
     );
   }
-  async checkNode(node, s) {
-    await verifyRelay(
-      { ...node, attestation: node.proof },
-      this.brokerCfg,
-      withEnrollment(
-        await admissionChain(s, { ...this.brokerCfg, ...this.cfg }),
-        this.brokerCfg.enrollments,
-      ),
-      this.now(),
+  async authorize(r, forRun) {
+    const pub = peerBytes(r.client_peer);
+    require(pub.length === 38, "inline Ed25519 buyer key required");
+    const key = await crypto.subtle.importKey(
+      "raw",
+      pub.slice(6),
+      "Ed25519",
+      false,
+      ["verify"],
     );
+    const fields = {
+      client_peer: r.client_peer,
+      purchaseId: r.purchaseId,
+      txHash: r.txHash,
+    };
+    if (forRun) fields.runId = r.runId;
+    require(
+      typeof r.sig === "string" && /^[0-9a-f]{128}$/.test(r.sig) &&
+        await crypto.subtle.verify(
+          "Ed25519",
+          key,
+          unhex(r.sig),
+          grantBytes(fields),
+        ),
+      "buyer grant request signature",
+    );
+    return "0x" + hex(pub.slice(6));
+  }
+  confirm(r) {
+    return this.serial(async () => {
+      const buyer = await this.authorize(r, false),
+        s = await this.chain.snapshot();
+      const p = await this.chain.purchase(s, r.purchaseId, r.txHash);
+      require(
+        p.buyerKey === buyer,
+        "purchase buyerKey does not control this PeerId",
+      );
+      require(
+        Number(p.expires) > this.now(),
+        "purchase expired before activation",
+      );
+      const purchase = Object.fromEntries(
+        ["node", "buyerKey", "unit", "amount", "boughtAt", "expires"].map(
+          (k) => [k, String(p[k])],
+        ),
+      );
+      const old = this.state.confirmed?.[r.purchaseId];
+      require(!old || old.txHash === r.txHash, "purchase transaction changed");
+      const next = {
+        ...this.state,
+        confirmed: {
+          ...this.state.confirmed,
+          [r.purchaseId]: { purchase, txHash: r.txHash, block: s.block.hash },
+        },
+      };
+      await this.save(next);
+      this.state = next;
+      return { purchaseId: r.purchaseId, finalizedBlock: s.block.hash };
+    });
   }
   grant(r, relays) {
     return this.serial(async () => {
-      const pub = peerBytes(r.client_peer);
-      require(pub.length === 38, "inline Ed25519 buyer key required");
-      const key = await crypto.subtle.importKey(
-        "raw",
-        pub.slice(6),
-        "Ed25519",
-        false,
-        ["verify"],
-      );
-      const fields = {
-        client_peer: r.client_peer,
-        purchaseId: r.purchaseId,
-        txHash: r.txHash,
-        runId: r.runId,
-      };
+      const buyer = await this.authorize(r, true);
+      const confirmed = this.state.confirmed?.[r.purchaseId];
       require(
-        typeof r.sig === "string" && /^[0-9a-f]{128}$/.test(r.sig) &&
-          await crypto.subtle.verify(
-            "Ed25519",
-            key,
-            unhex(r.sig),
-            grantBytes(fields),
-          ),
-        "buyer grant request signature",
+        confirmed && confirmed.txHash === r.txHash,
+        "purchase must be confirmed by broker before launching the VM",
       );
-      const s = await this.chain.snapshot(),
-        p = await this.chain.purchase(s, r.purchaseId, r.txHash);
+      const p = confirmed.purchase;
       require(
-        p.buyerKey === "0x" + hex(pub.slice(6)),
+        p.buyerKey === buyer,
         "purchase buyerKey does not control this PeerId",
       );
       const node = relays.find((n) =>
         n.payments?.node === p.node && n.payments.runId === r.runId
       );
       require(node, "payment node is not live");
-      await this.checkNode(node, s);
       const nodeBinding = node.attestation.nodeBinding;
       require(nodeBinding?.binding.expires > this.now(), "run binding expired");
       const existing = this.state.grants[r.purchaseId];
       if (existing) {
         require(
           existing.txHash === r.txHash &&
-            existing.envelope.grant.buyerKey === p.buyerKey,
+            existing.envelope.grant.buyerKey === p.buyerKey &&
+            existing.envelope.grant.runId === r.runId,
           "purchase terms changed",
         );
         require(

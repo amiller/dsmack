@@ -211,7 +211,7 @@ test("paid grants require buyer control and persist fixed deadlines before retur
       saved = structuredClone(state);
     },
   });
-  broker.checkNode = async () => {}; // Apple assertion boundary is covered separately by broker.test.mjs.
+
   const fields = {
     client_peer,
     purchaseId: "1",
@@ -221,6 +221,20 @@ test("paid grants require buyer control and persist fixed deadlines before retur
   const request = {
     ...fields,
     sig: sign(null, grantBytes(fields), pair.privateKey).toString("hex"),
+  };
+  const confirmationFields = {
+    client_peer,
+    purchaseId: fields.purchaseId,
+    txHash: fields.txHash,
+  };
+  await broker.confirm({
+    ...confirmationFields,
+    sig: sign(null, grantBytes(confirmationFields), pair.privateKey).toString(
+      "hex",
+    ),
+  });
+  chain.snapshot = () => {
+    throw Error("grant activation must not wait for a chain read");
   };
   const result = await broker.grant(request, [node]);
   assert.equal(saved.grants["1"].envelope.grant.serviceUntil, now + 600);
@@ -235,7 +249,6 @@ test("paid grants require buyer control and persist fixed deadlines before retur
       throw Error("unexpected write");
     },
   });
-  restarted.checkNode = async () => {};
   assert.deepEqual(await restarted.grant(request, [node]), result);
   broker.save = () => {
     throw Error("disk full");

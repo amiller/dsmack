@@ -111,20 +111,24 @@ class PaidClient(free.Client):
         self.purchased_seconds = seconds
         fields = dict(client_peer=self.peer, purchaseId=self.purchase['purchaseId'], txHash=self.purchase['txHash'], runId=node['payments']['runId'])
         signed = json.loads(subprocess.check_output([str(self.binary), 'sign', str(self.key)], input=canonical(fields)))
-        deadline = time.monotonic() + 120
+        grant=request(self.broker+'/payments/grant',signed)
+        self.check_grant(node,grant)
+        self.grant_envelope=grant
+        return grant
+
+    def confirm_at_broker(self):
+        fields=dict(client_peer=self.peer,purchaseId=self.purchase['purchaseId'],txHash=self.purchase['txHash'])
+        signed=json.loads(subprocess.check_output([str(self.binary),'sign',str(self.key)],input=canonical(fields)))
+        deadline=time.monotonic()+3600
         while True:
             try:
-                grant = request(self.broker + '/payments/grant', signed)
-                self.check_grant(node, grant)
-                self.grant_envelope=grant
-                return grant
+                return request(self.broker+'/payments/confirm',signed)
             except HTTPError as e:
-                error = json.loads(e.read(4096)).get('error', '')
-                # Only finality is retried. Invalid terms/signatures fail immediately.
-                waiting = any(term in error for term in ('not finalized','RPC quorum','finalized RPC quorum','stale/future finalized head'))
-                if e.code != 403 or not waiting or time.monotonic() >= deadline:
+                error=json.loads(e.read(4096)).get('error','')
+                waiting=any(t in error for t in ('not finalized','RPC quorum','finalized RPC quorum','stale/future finalized head'))
+                if e.code!=403 or not waiting or time.monotonic()>=deadline:
                     raise
-                print('waiting for finalized payment confirmation: ' + error, file=sys.stderr)
+                print('waiting for broker finalized purchase confirmation: '+error,file=sys.stderr)
                 time.sleep(10)
 
     def on_receipt(self, result, out):
@@ -172,6 +176,9 @@ def run_paid(args):
         c.purchase=tool.run('confirm',c.state_path)
         c.purchase['amount']=str(args.seconds); prepared.write_bytes(canonical(c.purchase))
     require(c.purchase['amount']==str(args.seconds), 'prepared amount changed')
+    if not c.purchase.get('brokerConfirmation'):
+        c.purchase['brokerConfirmation']=c.confirm_at_broker()
+        prepared.write_bytes(canonical(c.purchase))
     if args.prepare_only:
         return c.purchase
     if not args.defer_settlement:

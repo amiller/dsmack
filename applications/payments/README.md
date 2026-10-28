@@ -7,7 +7,7 @@ with funded purchases and decays in empty epochs. The owner pins the broker's
 secp256k1 address once with `registerBroker`, then registers classes with
 `registerNode`. Purchases snapshot their class, buyer key, price and payout.
 
-Buy before starting the VM. All chain reads use matching replies from two of
+Buy and obtain the broker’s finalized purchase confirmation before starting the VM. All chain reads use matching replies from two of
 three independent RPCs at one common finalized block hash, with pinned code
 and a 30-minute staleness limit. After finality, launch the node, verify its
 Apple assertion and obtain the broker's signed run binding. Execute within the
@@ -87,7 +87,9 @@ respective machines. The helper refuses funding-wallet transactions below
 0.02 testnet ETH.
 
 `GET /payments/classes` exposes prices before a VM exists. `/payments/nodes`
-lists live attested runs. `/payments/grant` requires proof of the purchase's
+lists live attested runs. `/payments/confirm` records the finalized Purchase event and immutable allowance
+before VM launch. Grant activation uses that saved confirmation and the live
+attested binding, with no new purchase lookup. `/payments/grant` requires proof of the purchase's
 buyer libp2p key and persists one deterministic grant per purchase.
 `/payments/receipts` retains signed usage plus its independently submittable
 broker binding. `submit.mjs` settles a batch from one run, triggers timeout

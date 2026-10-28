@@ -76,6 +76,7 @@ export default async function handler(req: Request, ctx: Context) {
       if(req.method==="GET" && path==="/payments/challenge") response=Response.json(p.challenge());
       else if(req.method==="GET" && path==="/payments/classes") response=Response.json(JSON.parse(json(await p.classes())));
       else if(req.method==="GET" && path==="/payments/nodes") response=Response.json(await p.list(b.live()));
+      else if(req.method==="POST" && path==="/payments/confirm") response=Response.json(await p.confirm(await body(req)));
       else if(req.method==="POST" && path==="/payments/grant") response=Response.json(await p.grant(await body(req),b.live()));
       else if(req.method==="POST" && path==="/payments/receipts") response=Response.json(await p.collect(await body(req)));
       else if(req.method==="GET" && path==="/payments/receipts") response=Response.json(Object.values(p.state.receipts));

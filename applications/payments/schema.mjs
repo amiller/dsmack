@@ -49,6 +49,7 @@ export const domain = (escrow) => ({
   verifyingContract: getAddress(escrow),
 });
 export const abi = new Interface([
+  "function owner() view returns (address)",
   "function brokerSigner() view returns (address)",
   "function registerBroker(address)",
   "function registerNode(bytes32,address,uint8,uint128,uint128,bytes32,bytes32)",

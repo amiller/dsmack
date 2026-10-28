@@ -57,7 +57,9 @@ The measured guest `PAYMENTS_CONFIG` contains `node`, `escrow`, `operator`,
 `grantSigner`, `enrollmentKeyId`, `buildId`, `destinationPolicyHash` and
 `runExpires`. Set the workload/session lifetime below 900 seconds. Publish the
 class's compose and image hashes on chain before buying; wait for finalized
-registration before offering that class.
+registration before offering that class. Run `register-class.mjs CONFIG FUNDING_KEY
+MANIFEST` after the deployment is finalized to pin the broker and register the
+measured compute class.
 
 ```
 dsmack-agent run-remote --payments-config CONFIG --funding-key FUNDING_KEY \

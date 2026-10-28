@@ -188,8 +188,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 				writeFrame(s, map[string]string{"status": "busy"})
 				return
 			}
-			writeFrame(s, map[string]string{"status": "stopping"})
-			stopOnce.Do(func() { close(operatorStop) })
+			acknowledgeStop(s, func() { stopOnce.Do(func() { close(operatorStop) }) })
 		})
 		must(os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644))
 		n.publish = func(r payments.SignedReceipt) error {

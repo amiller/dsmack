@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"math"
 	"os"
 	"sync"
@@ -113,4 +114,13 @@ func paidReport(m *payments.Meter, registration map[string]any, legacy []byte, c
 		return nil, e
 	}
 	return m.Report(registration["relay_peer"].(string), registration["manifest_sha256"].(string), registration["os_image_hash"].(string), legacy, challenge)
+}
+
+// Let the peer receive the acknowledgement before closing the libp2p host.
+func acknowledgeStop(stream io.ReadWriter, stop func()) {
+	if writeFrame(stream, map[string]string{"status": "stopping"}) != nil {
+		return
+	}
+	io.Copy(io.Discard, stream)
+	stop()
 }

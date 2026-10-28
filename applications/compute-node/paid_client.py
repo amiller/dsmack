@@ -4,6 +4,7 @@ import json
 from pathlib import Path
 import secrets
 import subprocess
+import sys
 import time
 from urllib.error import HTTPError
 from urllib.request import Request, urlopen
@@ -115,8 +116,10 @@ class PaidClient(free.Client):
             except HTTPError as e:
                 error = json.loads(e.read(4096)).get('error', '')
                 # Only finality is retried. Invalid terms/signatures fail immediately.
-                if e.code != 403 or 'not finalized' not in error or time.monotonic() >= deadline:
+                waiting = any(term in error for term in ('not finalized','RPC quorum','finalized RPC quorum','stale/future finalized head'))
+                if e.code != 403 or not waiting or time.monotonic() >= deadline:
                     raise
+                print('waiting for finalized payment confirmation: ' + error, file=sys.stderr)
                 time.sleep(10)
 
     def on_receipt(self, result, out):

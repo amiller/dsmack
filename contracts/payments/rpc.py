@@ -53,6 +53,8 @@ class Quorum:
 
     def read(self, method, params):
         results=self.collect(method,params)
+        if method=="eth_getBlockByNumber":
+            results=[(u,{k:v[k] for k in ("number","hash","timestamp")} if v else None,e) for u,v,e in results]
         if method=="eth_getTransactionReceipt":
             fields=("transactionHash","blockHash","blockNumber","status","contractAddress","gasUsed","effectiveGasPrice")
             results=[(u,{k:v.get(k) for k in fields} if v else None,e) for u,v,e in results]

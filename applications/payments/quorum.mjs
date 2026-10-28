@@ -75,13 +75,14 @@ export class Quorum {
       a > b ? -1 : a < b ? 1 : 0
     );
     const height = heights[1];
-    const urls = good.filter((g) => BigInt(g.head.number) >= height).map((g) =>
-      g.url
+    const headUrls = good.filter((g) => BigInt(g.head.number) >= height).map(
+      (g) => g.url,
     );
+    const urls = good.map((g) => g.url);
     const block = await this.majority("eth_getBlockByNumber", [
       "0x" + height.toString(16),
       false,
-    ], urls);
+    ], headUrls);
     require(
       BigInt(block.number) === height &&
         this.now() - Number(BigInt(block.timestamp)) <= 1800 &&

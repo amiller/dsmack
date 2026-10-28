@@ -320,3 +320,17 @@ test("receipt storage rejects forged, regressing and over-budget usage before ac
   assert.deepEqual(await b.collect(reordered), { stored: true });
   await assert.rejects(b.collect(await signed(3, "3")), /already final/);
 });
+
+test("a provider with a lagging finalized tag can corroborate state at the quorum-pinned hash", async () => {
+  const { q } = rpc({
+    eth_getBlockByNumber: (url, params, value) =>
+      url.includes("c.invalid") && params[0] === "finalized"
+        ? { ...value, number: "0x10" }
+        : value,
+    eth_getCode: (url, _, value) => {
+      if (url.includes("b.invalid")) throw Error("data backend unavailable");
+      return value;
+    },
+  });
+  assert.equal((await q.snapshot()).block.number, "0x20");
+});

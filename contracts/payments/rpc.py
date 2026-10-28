@@ -29,6 +29,7 @@ class Quorum:
         if len(urls) != 3 or len(set(urls)) != 3:
             raise ValueError("three distinct independent RPC URLs required")
         self.urls = tuple(urls)
+        self.base_urls = self.urls
 
     def collect(self, method, params):
         def query(url):
@@ -58,6 +59,7 @@ class Quorum:
         return self.majority(results)[0]
 
     def finalized(self):
+        self.urls = self.base_urls
         # A wrong-chain provider is excluded before it can vote on state.
         chains = self.collect("eth_chainId", [])
         good = tuple(url for url, value, error in chains if not error and value == hex(CHAIN_ID))

@@ -11,6 +11,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -131,3 +132,41 @@ func testPaidJob(t *testing.T, cutoff, storageFailure bool) {
 }
 
 func keccakForTest(b []byte) []byte { h := sha3.NewLegacyKeccak256(); h.Write(b); return h.Sum(nil) }
+
+func TestFinalReceiptIncludesTimeWaitingForCheckpointAck(t *testing.T) {
+	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
+	m, e := payments.New(payments.Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x2000000000000000000000000000000000000002", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	if e != nil {
+		t.Fatal(e)
+	}
+	started := make(chan struct{})
+	release := make(chan struct{})
+	var once sync.Once
+	p := &paidJob{meter: m, grant: payments.Grant{PurchaseID: "1", Amount: "10", ServiceUntil: time.Now().Unix() + 60}, start: time.Now().Add(-1500 * time.Millisecond), left: 10, publish: func(r payments.SignedReceipt) error {
+		if !r.Receipt.FinalReceipt {
+			once.Do(func() { close(started) })
+			<-release
+		}
+		return nil
+	}}
+	p.begin()
+	<-started
+	done := make(chan *payments.SignedReceipt)
+	go func() {
+		r, err := p.finish()
+		if err != nil {
+			t.Error(err)
+		}
+		done <- r
+	}()
+	time.Sleep(1100 * time.Millisecond)
+	close(release)
+	final := <-done
+	if final == nil {
+		t.Fatal("missing final receipt")
+	}
+	used, err := strconv.ParseInt(final.Receipt.Used, 10, 64)
+	if err != nil || used < 4 {
+		t.Fatal("receipt excluded paid wall time while a checkpoint was pending", used, err)
+	}
+}

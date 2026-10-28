@@ -43,7 +43,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, payme
                       'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'version':'compute-node-1'},
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
              outputs={'capture':[], 'artifacts':[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts]})
-    m['limits'] = dict(m.get('limits',{}), workspace_max_bytes=256<<20)
+    m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
     return canonical(m)
 
 if __name__ == '__main__':

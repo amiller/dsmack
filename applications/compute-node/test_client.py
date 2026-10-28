@@ -57,6 +57,7 @@ class ClientBoundaryTests(unittest.TestCase):
                                 self.node['relay_maddr'].split('/p2p-circuit/')[0],
                                 'http://192.168.100.3:18271', '01' * 32, self.node['cdhash'], 420)
         validate_manifest_bytes(raw)
+        self.assertEqual(json.loads(raw)["limits"]["timeout_s"],420)
 
     def test_real_registration_requires_attested_peer_and_both_keys(self):
         a, signed = self.policy.verify_registration(self.node)

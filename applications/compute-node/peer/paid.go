@@ -78,9 +78,9 @@ func (p *paidJob) finish() (final *payments.SignedReceipt, err error) {
 		return p.final, p.err
 	}
 	defer func() { p.err = err }()
-	used := p.used()
 	close(p.done)
 	<-p.stopped
+	used := p.used()
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	r, e := p.meter.Receipt(p.grant, used, true)

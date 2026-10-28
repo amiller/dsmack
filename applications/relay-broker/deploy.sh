@@ -11,7 +11,7 @@ export TEE_DAEMON_TOKEN
 export RELAY_BROKER_SOURCE_DIR
 RELAY_BROKER_SOURCE_DIR=$(cd "$(dirname "$0")" && pwd)
 python3 - "$@" <<'PY'
-import hashlib, io, json, os, secrets, stat, subprocess, sys, tarfile, time
+import hashlib, io, json, os, secrets, stat, subprocess, sys, tarfile, time, tempfile
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -55,12 +55,20 @@ _, release_key_before = api('/secret-release/public-key')
 ref = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
 manifest = {'name': 'relay-broker', 'source': 'tarball://relay-broker', 'ref': ref,
             'env': {'OPERATOR_TOKEN_SHA256': hashlib.sha256(token.encode()).hexdigest()}}
-files = ['server.ts', 'key.ts', 'broker.mjs', 'grants.mjs', 'attestation.mjs']
+files = ['server.ts', 'key.ts', 'broker.mjs', 'grants.mjs', 'attestation.mjs', 'payments.mjs']
 package = io.BytesIO()
 with tarfile.open(fileobj=package, mode='w:gz') as tar:
     for name in files:
         tar.add(app / name, arcname='applications/relay-broker/' + name)
     tar.add(config, arcname='applications/relay-broker/config.json')
+    # Shared Deno serves a self-contained ethers bundle; no npm install on the pod.
+    with tempfile.TemporaryDirectory(prefix='relay-payments-') as tmp:
+        bundled = Path(tmp)/'schema.mjs'
+        subprocess.run(['deno','bundle','--platform=browser','--minify',
+                        str(repo/'applications/payments/schema.mjs'),'-o',str(bundled)],check=True)
+        tar.add(bundled, arcname='applications/payments/schema.mjs')
+    for name in ('quorum.mjs','admission.mjs'):
+        tar.add(repo/'applications/payments'/name, arcname='applications/payments/'+name)
     tar.add(repo / 'dstack-compat/secret-release/policy.mjs', arcname='dstack-compat/secret-release/policy.mjs')
     tar.add(app / 'project.json', arcname='project.json')
 boundary = 'relay-broker-' + secrets.token_hex(16)

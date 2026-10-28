@@ -19,9 +19,11 @@ import (
 	"os/signal"
 	"strconv"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 
+	payments "dsmack-payments"
 	"dsmack-peer/p2p"
 	"github.com/libp2p/go-libp2p"
 	lc "github.com/libp2p/go-libp2p/core/crypto"
@@ -109,6 +111,7 @@ func brokerClient(raw string) (*http.Client, error) {
 }
 
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
+	paid := paidMeter()
 	key, e := hex.DecodeString(brokerHex)
 	must(e)
 	if len(key) != 32 {
@@ -128,16 +131,20 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	hash := sha256.Sum256(rd)
 	att, e := attest(append(hash[:], make([]byte, 32)...))
 	must(e)
+	var registrationMu sync.Mutex
 	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": relay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
 	run, ok := info["instance_id"].(string)
 	if !ok {
 		log.Fatal("missing guest instance_id")
 	}
-	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
+	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
 	h.SetStreamHandler("/dsmack/attest/1", func(s network.Stream) {
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(20 * time.Second))
-		s.Write(canon(registration))
+		registrationMu.Lock()
+		raw := canon(registration)
+		registrationMu.Unlock()
+		s.Write(raw)
 	})
 	h.SetStreamHandler("/dsmack/job/1", func(s network.Stream) { defer s.Close(); n.handle(s, s.Conn().RemotePeer().String()) })
 	ri, e := peer.AddrInfoFromString(relay)
@@ -161,7 +168,93 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	must(os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644))
 	must(os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644))
 	must(os.WriteFile("/workspace/artifacts/egress", []byte("{}"), 0644))
-	must(renew())
+	if paid != nil {
+		must(os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644))
+		n.publish = func(r payments.SignedReceipt) error {
+			var out map[string]any
+			return post(c, strings.TrimRight(brokerURL, "/")+"/payments/receipts", r, &out)
+		}
+		legacy := append(hash[:], make([]byte, 32)...)
+		baseRegistration := map[string]any{}
+		for k, v := range registration {
+			baseRegistration[k] = v
+		}
+		h.SetStreamHandler("/dsmack/payments-attest/1", func(s network.Stream) {
+			defer s.Close()
+			s.SetDeadline(time.Now().Add(20 * time.Second))
+			var request struct {
+				Challenge string `json:"challenge"`
+			}
+			if readFrame(s, 4096, &request) != nil {
+				return
+			}
+			rd, err := paidReport(paid, baseRegistration, legacy, request.Challenge)
+			if err != nil {
+				return
+			}
+			att, err := attest(rd)
+			if err != nil {
+				return
+			}
+			copy := map[string]any{}
+			registrationMu.Lock()
+			for k, v := range registration {
+				copy[k] = v
+			}
+			registrationMu.Unlock()
+			payment := paid.Registration
+			payment.Challenge = request.Challenge
+			copy["payments"] = payment
+			copy["attestation"] = hex.EncodeToString(att)
+			s.Write(canon(copy))
+		})
+		renew = func() error {
+			response, err := c.Get(strings.TrimRight(brokerURL, "/") + "/payments/challenge")
+			if err != nil {
+				return err
+			}
+			defer response.Body.Close()
+			if response.StatusCode != 200 {
+				return fmt.Errorf("payment challenge: HTTP %d", response.StatusCode)
+			}
+			var challenge struct {
+				Challenge string `json:"challenge"`
+			}
+			if err = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&challenge); err != nil {
+				return err
+			}
+			rd, err := paidReport(paid, baseRegistration, legacy, challenge.Challenge)
+			if err != nil {
+				return err
+			}
+			att, err := attest(rd)
+			if err != nil {
+				return err
+			}
+			payment := paid.Registration
+			payment.Challenge = challenge.Challenge
+			registrationMu.Lock()
+			registration["payments"] = payment
+			registration["attestation"] = hex.EncodeToString(att)
+			snapshot := map[string]any{}
+			for k, v := range registration {
+				snapshot[k] = v
+			}
+			registrationMu.Unlock()
+			if err = os.WriteFile("/workspace/artifacts/registration", canon(snapshot), 0644); err != nil {
+				return err
+			}
+			var out map[string]any
+			return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
+		}
+	}
+	// Paid runs expose their attested admission for the owner before registration.
+	// An unregistered run cannot receive a grant; retries permit owner admission.
+	if paid == nil {
+		must(renew())
+	} else if err := renew(); err != nil {
+		fmt.Fprintln(os.Stderr, "awaiting paid admission:", err)
+	}
 	fmt.Println("compute node registered", h.ID())
 	tick := time.NewTicker(25 * time.Second)
 	defer tick.Stop()
@@ -174,7 +267,11 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 		select {
 		case <-tick.C:
 			must(reserve())
-			must(renew())
+			if paid == nil {
+				must(renew())
+			} else if err := renew(); err != nil {
+				fmt.Fprintln(os.Stderr, "paid registration:", err)
+			}
 		case <-timer.C:
 			return
 		case <-stop:
@@ -217,7 +314,7 @@ func main() {
 		must(e)
 		fields["sig"] = hex.EncodeToString(sig)
 		os.Stdout.Write(canon(fields))
-	case len(a) == 3 && (a[0] == "exchange" || a[0] == "discover"):
+	case len(a) == 3 && (a[0] == "exchange" || a[0] == "discover" || a[0] == "paid-discover"):
 		h := hostFor(a[2])
 		defer h.Close()
 		info, e := peer.AddrInfoFromString(a[1])
@@ -226,13 +323,21 @@ func main() {
 		defer cancel()
 		must(h.Connect(ctx, *info))
 		protocol := "/dsmack/job/1"
+		if a[0] == "paid-discover" {
+			protocol = "/dsmack/payments-attest/1"
+		}
 		if a[0] == "discover" {
 			protocol = "/dsmack/attest/1"
 		}
 		s, e := h.NewStream(ctx, info.ID, protocolpkg.ID(protocol))
 		must(e)
 		defer s.Close()
-		if a[0] == "discover" {
+		if a[0] == "discover" || a[0] == "paid-discover" {
+			if a[0] == "paid-discover" {
+				var q map[string]string
+				must(json.NewDecoder(io.LimitReader(os.Stdin, 4096)).Decode(&q))
+				must(writeFrame(s, q))
+			}
 			s.SetDeadline(time.Now().Add(20 * time.Second))
 			_, e = io.Copy(os.Stdout, io.LimitReader(s, 150001))
 			must(e)

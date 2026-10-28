@@ -261,9 +261,18 @@ class Client:
     def connect(self, node):
         return Exchange(self.binary, node, self.key)
 
+    def grant_id(self, grant):
+        return grant['grant_id']
+
+    def grant_seconds(self, grant):
+        return grant['seconds']
+
+    def on_receipt(self, result, out):
+        pass
+
     def prepare(self, node, job_id, grant, credential, repo, prompt):
         output_key = ec.generate_private_key(ec.SECP256R1())
-        raw = dict(job_id=job_id, grant_id=grant['grant_id'], credential=credential,
+        raw = dict(job_id=job_id, grant_id=self.grant_id(grant), credential=credential,
                    repo_tar=base64.b64encode(snapshot(repo)).decode(), prompt=prompt, output_pub=public(output_key).hex())
         return seal(bytes.fromhex(node['secret_key']), job_id, canonical(raw)), output_key
 
@@ -271,15 +280,15 @@ class Client:
         require(result.get('status') == 'complete', 'node job did not complete')
         statement = result['statement']
         require(set(statement) == {'job_id', 'bundle_sha256', 'outputs', 'grant_id', 'seconds_used'}, 'job statement fields')
-        require(statement['job_id'] == job_id and statement['grant_id'] == grant['grant_id'], 'result IDs')
+        require(statement['job_id'] == job_id and statement['grant_id'] == self.grant_id(grant), 'result IDs')
         require(statement['bundle_sha256'] == sha(canonical(sealed)), 'input bundle digest')
-        require(type(statement['seconds_used']) is int and 0 < statement['seconds_used'] <= grant['seconds'], 'result seconds')
+        require(type(statement['seconds_used']) is int and 0 < statement['seconds_used'] <= self.grant_seconds(grant), 'result seconds')
         a, signed = self.policy.verify(result['attestation'], hashlib.sha256(canonical(statement)).digest() + bytes(32), discovery['counter'])
         require(a['run'] == discovery['run'] and a['head'] == discovery['head'], 'result is from another node run')
         receipt = result['receipt']; body = {k: v for k, v in receipt.items() if k != 'sig'}
         Ed25519PublicKey.from_public_bytes(bytes.fromhex(node['receipt_key'])).verify(bytes.fromhex(receipt['sig']), canonical(body))
         require(body == dict(client_peer=self.peer, node_peer=node['relay_peer'], run=a['run'].hex(),
-                             report_sha256=sha(canonical(statement)), grant_id=grant['grant_id'], job_id=job_id,
+                             report_sha256=sha(canonical(statement)), grant_id=self.grant_id(grant), job_id=job_id,
                              seconds_used=statement['seconds_used']), 'receipt does not bind job')
         require(set(result['outputs']) == OUTPUTS and set(statement['outputs']) == OUTPUTS, 'output set')
         plain = {name: decrypt(output_key, job_id + '/' + name, box) for name, box in result['outputs'].items()}
@@ -288,7 +297,7 @@ class Client:
         summary, models, turns = find.observe(plain['transcript'], {'model': self.policy.model, 'tools': TOOLS})
         verdict = unique_json(plain['verdict'])
         require(verdict == dict(answer=None, summary=summary[:1000], num_turns=turns, observed_models=models), 'turn verdict mismatch')
-        turn = dict(job_id=job_id, grant_id=grant['grant_id'], run=a['run'].hex(), manifest_sha256=self.policy.measurement,
+        turn = dict(job_id=job_id, grant_id=self.grant_id(grant), run=a['run'].hex(), manifest_sha256=self.policy.measurement,
                     os_image_hash=self.policy.image, outputs=statement['outputs'], observed_models=models, num_turns=turns,
                     seconds_used=statement['seconds_used'], counter=signed['counter'])
         return plain, turn
@@ -312,6 +321,7 @@ class Client:
             stream.send(sealed); self.bundles_sent += 1
             result = stream.recv()
         (out/'result.json').write_bytes(canonical(result))
+        self.on_receipt(result, out)
         plain, turn = self.verify_result(node, discovery, result, job_id, grant, sealed, output_key)
         for name, raw in plain.items():
             (out/name).write_bytes(raw)
@@ -353,8 +363,12 @@ def snapshot(repo):
 
 def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
-    for name in ('repo', 'out', 'manifest', 'enrollment', 'binary', 'client-key'):
+    for name in ('repo', 'out', 'manifest', 'enrollment', 'binary'):
         p.add_argument('--' + name, type=Path, required=True)
+    p.add_argument('--client-key', type=Path)
+    p.add_argument('--payments-config', type=Path)
+    p.add_argument('--funding-key', type=Path)
+    p.add_argument('--send-payments', action='store_true')
     p.add_argument('--prompt', required=True)
     p.add_argument('--credential', type=Path, default=export_subscription.validator().default_credential_path(Path.home()/'.dsmack/private-inputs'))
     p.add_argument('--broker', default=BROKER)
@@ -368,6 +382,10 @@ def main(argv=None):
     p.add_argument('--node-peer')
     args = p.parse_args(argv)
     os.umask(0o077)
+    if args.payments_config:
+        from paid_client import run_paid
+        return run_paid(args)
+    require(args.client_key is not None, '--client-key required for free grants')
     selected = Policy(args.manifest.read_bytes(), args.enrollment, args.cdhash, args.rpc, args.attest, args.canary, args.model)
     client = Client(args.binary, args.client_key, args.broker, args.broker_key, selected)
     result = client.run(args.repo.resolve(), args.prompt, args.credential, args.out.resolve(), args.seconds, args.node_peer)

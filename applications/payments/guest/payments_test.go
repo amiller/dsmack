@@ -59,3 +59,25 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 		}
 	}
 }
+
+func TestOnlyOperatorCanStopAdmittedRun(t *testing.T) {
+	operator, _ := secp.GeneratePrivateKey()
+	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
+	m, e := New(Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	if e != nil {
+		t.Fatal(e)
+	}
+	expiry := time.Now().Unix() + 60
+	node, _ := raw(m.Node, 32)
+	d, _ := typed(m.Escrow, join(hash([]byte("Stop(bytes32 node,uint64 expires)")), node, uintWord(expiry)))
+	if e = m.VerifyStop(sign(operator, d), expiry); e != nil {
+		t.Fatal(e)
+	}
+	wrong, _ := secp.GeneratePrivateKey()
+	if e = m.VerifyStop(sign(wrong, d), expiry); e == nil {
+		t.Fatal("unapproved operator stopped run")
+	}
+	if e = m.VerifyStop(sign(operator, d), time.Now().Unix()-1); e == nil {
+		t.Fatal("expired stop request")
+	}
+}

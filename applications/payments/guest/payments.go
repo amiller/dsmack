@@ -284,3 +284,22 @@ func (m *Meter) Receipt(g Grant, used int64, final bool) (SignedReceipt, error) 
 	}
 	return SignedReceipt{r, sign(m.key, d)}, nil
 }
+
+// VerifyStop authorizes orderly shutdown by the attested operator, so the VM
+// can flush its result evidence after all jobs and receipts have completed.
+func (m *Meter) VerifyStop(signature string, expires int64) error {
+	now := time.Now().Unix()
+	if expires < now || expires > now+300 {
+		return fmt.Errorf("operator stop expired")
+	}
+	node, _ := raw(m.Node, 32)
+	d, e := typed(m.Escrow, join(hash([]byte("Stop(bytes32 node,uint64 expires)")), node, uintWord(expires)))
+	if e != nil {
+		return e
+	}
+	signer, e := recover(d, signature)
+	if e != nil || !strings.EqualFold(signer, m.Operator) {
+		return fmt.Errorf("operator stop signature")
+	}
+	return nil
+}

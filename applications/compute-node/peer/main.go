@@ -112,6 +112,8 @@ func brokerClient(raw string) (*http.Client, error) {
 
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	paid := paidMeter()
+	operatorStop := make(chan struct{})
+	var stopOnce sync.Once
 	key, e := hex.DecodeString(brokerHex)
 	must(e)
 	if len(key) != 32 {
@@ -169,6 +171,26 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	must(os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644))
 	must(os.WriteFile("/workspace/artifacts/egress", []byte("{}"), 0644))
 	if paid != nil {
+		h.SetStreamHandler("/dsmack/payments-stop/1", func(s network.Stream) {
+			defer s.Close()
+			s.SetDeadline(time.Now().Add(20 * time.Second))
+			var request struct {
+				Signature string `json:"signature"`
+				Expires   int64  `json:"expires"`
+			}
+			if readFrame(s, 4096, &request) != nil || paid.VerifyStop(request.Signature, request.Expires) != nil {
+				return
+			}
+			n.mu.Lock()
+			busy := n.busy
+			n.mu.Unlock()
+			if busy {
+				writeFrame(s, map[string]string{"status": "busy"})
+				return
+			}
+			writeFrame(s, map[string]string{"status": "stopping"})
+			stopOnce.Do(func() { close(operatorStop) })
+		})
 		must(os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644))
 		n.publish = func(r payments.SignedReceipt) error {
 			var out map[string]any
@@ -274,6 +296,8 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 			}
 		case <-timer.C:
 			return
+		case <-operatorStop:
+			return
 		case <-stop:
 			return
 		}
@@ -314,7 +338,7 @@ func main() {
 		must(e)
 		fields["sig"] = hex.EncodeToString(sig)
 		os.Stdout.Write(canon(fields))
-	case len(a) == 3 && (a[0] == "exchange" || a[0] == "discover" || a[0] == "paid-discover"):
+	case len(a) == 3 && (a[0] == "exchange" || a[0] == "discover" || a[0] == "paid-discover" || a[0] == "stop"):
 		h := hostFor(a[2])
 		defer h.Close()
 		info, e := peer.AddrInfoFromString(a[1])
@@ -323,6 +347,9 @@ func main() {
 		defer cancel()
 		must(h.Connect(ctx, *info))
 		protocol := "/dsmack/job/1"
+		if a[0] == "stop" {
+			protocol = "/dsmack/payments-stop/1"
+		}
 		if a[0] == "paid-discover" {
 			protocol = "/dsmack/payments-attest/1"
 		}
@@ -332,6 +359,15 @@ func main() {
 		s, e := h.NewStream(ctx, info.ID, protocolpkg.ID(protocol))
 		must(e)
 		defer s.Close()
+		if a[0] == "stop" {
+			var request map[string]any
+			must(json.NewDecoder(io.LimitReader(os.Stdin, 4096)).Decode(&request))
+			must(writeFrame(s, request))
+			var reply map[string]any
+			must(readFrame(s, 4096, &reply))
+			os.Stdout.Write(canon(reply))
+			return
+		}
 		if a[0] == "discover" || a[0] == "paid-discover" {
 			if a[0] == "paid-discover" {
 				var q map[string]string

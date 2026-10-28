@@ -23,12 +23,14 @@ export class Quorum {
     );
     Object.assign(this, { rpcs, escrow, codeHash, now, fetcher });
   }
-  async rpc(url, method, params) {
+  async rpc(url, method, params, signal) {
     const r = await this.fetcher(url, {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
-      signal: AbortSignal.timeout(12000),
+      signal: signal
+        ? AbortSignal.any([signal, AbortSignal.timeout(12000)])
+        : AbortSignal.timeout(12000),
     });
     require(r.ok, "RPC HTTP " + r.status);
     const b = await r.json();
@@ -36,25 +38,44 @@ export class Quorum {
     return b.result;
   }
   async majority(method, params, urls = this.rpcs) {
-    const replies = await Promise.allSettled(
-      urls.map(async (u) =>
-        normalize(method, await this.rpc(u, method, params))
-      ),
-    );
-    const groups = new Map();
-    for (const r of replies) {
-      if (r.status === "fulfilled") {
-        const value = r.value;
-        const key = JSON.stringify(value);
-        const g = groups.get(key) ?? { value, n: 0 };
-        g.n++;
-        groups.set(key, g);
+    const controller = new AbortController(), groups = new Map();
+    return await new Promise((resolve, reject) => {
+      let remaining = urls.length, done = false;
+      for (const url of urls) {
+        (async () => {
+          try {
+            const value = normalize(
+              method,
+              await this.rpc(url, method, params, controller.signal),
+            );
+            if (done) return;
+            const key = JSON.stringify(value),
+              group = groups.get(key) ?? { value, n: 0 };
+            group.n++;
+            groups.set(key, group);
+            if (group.n >= 2) {
+              done = true;
+              controller.abort();
+              resolve(group.value);
+            }
+          } catch {
+            /* A failed provider has no vote. */
+          } finally {
+            remaining--;
+            if (!remaining && !done) {
+              done = true;
+              reject(
+                new Error(
+                  "refused: RPC quorum disagreement/unavailable: " + method,
+                ),
+              );
+            }
+          }
+        })();
       }
-    }
-    const winner = [...groups.values()].find((g) => g.n >= 2);
-    require(winner, "RPC quorum disagreement/unavailable: " + method);
-    return winner.value;
+    });
   }
+
   async snapshot() {
     const heads = await Promise.allSettled(this.rpcs.map(async (u) => {
       require(

@@ -334,3 +334,28 @@ test("a provider with a lagging finalized tag can corroborate state at the quoru
   });
   assert.equal((await q.snapshot()).block.number, "0x20");
 });
+
+test("two matching state replies complete without waiting for a stalled third provider", async () => {
+  let cancelled = false;
+  const base = rpc();
+  const fetcher = async (url, opts) => {
+    const query = JSON.parse(opts.body);
+    if (url.includes("c.invalid") && query.method === "eth_getCode") {
+      return await new Promise((_, reject) =>
+        opts.signal.addEventListener("abort", () => {
+          cancelled = true;
+          reject(Error("aborted"));
+        }, { once: true })
+      );
+    }
+    let result = query.method === "eth_chainId"
+      ? "0x14a34"
+      : query.method === "eth_getBlockByNumber"
+      ? base.block
+      : code;
+    return Response.json({ jsonrpc: "2.0", id: 1, result });
+  };
+  const q = new Quorum({ ...cfg, now: () => now, fetcher });
+  await q.snapshot();
+  assert.equal(cancelled, true);
+});

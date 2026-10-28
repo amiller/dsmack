@@ -14,6 +14,7 @@ import {
 import { confirmedTransactions, Quorum } from "./quorum.mjs";
 import { admissionChain } from "./admission.mjs";
 import { sender, settle } from "./submit.mjs";
+import { withEnrollment } from "../relay-broker/attestation.mjs";
 
 export async function inspect(cfg, node) {
   const chain = new Quorum(cfg), s = await chain.snapshot();
@@ -38,7 +39,10 @@ export async function inspect(cfg, node) {
     n.runExpires > Math.floor(Date.now() / 1000) && Number(n.unit) === 1,
     "compute node expired or wrong unit",
   );
-  const admission = await admissionChain(s, cfg);
+  const admission = withEnrollment(
+    await admissionChain(s, cfg),
+    cfg.enrollments,
+  );
   // Return finalized chain reads to the Python Apple assertion verifier.
   const kid = Uint8Array.from(
     p.enrollmentKeyId.slice(2).match(/../g),

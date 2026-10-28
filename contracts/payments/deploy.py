@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Andrew-run deploy and funding, pinned to his owner address and Base Sepolia."""
+"""Deploy from the sprint test funding wallet on Base Sepolia."""
 import json
 import os
 from pathlib import Path
@@ -11,8 +11,8 @@ from eth_account import Account
 from eth_utils import keccak, to_checksum_address
 from rpc import CHAIN_ID, Quorum, call
 
-OWNER = "0x97883cb4B2f21530277F86490d8881654E36E6aA"
-FUNDING_WEI = 50_000_000_000_000_000
+OWNER = "0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b"
+MIN_RESERVE_WEI = 5_000_000_000_000_000
 CONTRACTS = Path(__file__).resolve().parents[1]
 
 
@@ -24,7 +24,7 @@ def load_owner(key_path):
     except Exception:
         raise ValueError("cannot load a valid raw owner key") from None
     if account.address.lower() != OWNER.lower():
-        raise ValueError("deployer key does not derive the required 0x9788...E6aA owner")
+        raise ValueError("deployer key does not derive the required 0x1FBe...6c5b funding wallet")
     return account
 
 
@@ -59,6 +59,10 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None):
     tx["gas"] = int(estimate, 16) * 12 // 10
     if tx["gas"] > 5_000_000:
         raise RuntimeError("gas estimate exceeds deployment cap")
+    head=quorum.finalized()
+    balance=int(quorum.at("eth_getBalance",[account.address],head),16)
+    if balance-value-tx["gas"]*gas_price < MIN_RESERVE_WEI:
+        raise RuntimeError("transaction would breach the 0.005 ETH reserve")
     signed = account.sign_transaction(tx)
     tx_hash = "0x" + keccak(signed.raw_transaction).hex()
     # Save the intended hash BEFORE sending so a timeout never encourages a blind resend.
@@ -82,13 +86,15 @@ def main():
     output = payments / "contract"
     output.mkdir(parents=True, exist_ok=True)
     funding = to_checksum_address((payments / "funding-wallet.address").read_text().strip())
-    if funding == account.address or int(funding, 16) == 0:
-        raise ValueError("invalid funding wallet")
+    if funding.lower() != account.address.lower():
+        raise ValueError("owner must be the configured sprint funding wallet")
     # No auto retry/resume after any partially submitted deployment.
     if any((output / f"{label}-transaction.json").exists() for label in ("deploy", "funding")):
         raise RuntimeError("existing submitted transaction record; inspect receipts before any new deployment")
     quorum = Quorum(tuple(os.environ.get("PAYMENTS_RPC_URLS", "").split(","))) if os.environ.get("PAYMENTS_RPC_URLS") else Quorum()
     header = quorum.finalized()
+    if int(quorum.at("eth_getBalance",[account.address],header),16)<20_000_000_000_000_000:
+        raise RuntimeError("funding wallet has not reached 0.02 ETH")
     persist(output / "deployment-preflight.json", {"chainId": CHAIN_ID, "finalized": header,
                                                   "fundingWallet": funding})
     subprocess.run(["forge", "build", "--root", str(CONTRACTS), "--skip", "test", "--offline"], check=True)
@@ -109,9 +115,8 @@ def main():
     persist(output / "deployment.json", {"chainId": CHAIN_ID, "address": address, "owner": OWNER,
                 "transactionHash": deploy["transactionHash"], "runtimeKeccak": "0x" + keccak(expected).hex(),
                 "fundingWallet": funding})
-    # Funding follows successful deploy + quorum runtime check, never before.
-    send(account, quorum, output, "funding", to=funding, value=FUNDING_WEI)
-    print(f"Contract: {address}\nFunding wallet: {funding} (0.05 testnet ETH)", flush=True)
+    persist(output / "deployed.json", json.loads((output / "deployment.json").read_text()))
+    print(f"Contract: {address}\nFunding wallet / owner: {funding}", flush=True)
     print(f"Next: bash {CONTRACTS / 'payments/verify.sh'} {address}")
 
 

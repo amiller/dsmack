@@ -51,7 +51,11 @@ class Quorum:
                                           if not error and json.dumps(value, sort_keys=True) == encoded)
 
     def read(self, method, params):
-        return self.majority(self.collect(method, params))[0]
+        results=self.collect(method,params)
+        if method=="eth_getTransactionReceipt":
+            fields=("transactionHash","blockHash","blockNumber","status","contractAddress","gasUsed","effectiveGasPrice")
+            results=[(u,{k:v.get(k) for k in fields} if v else None,e) for u,v,e in results]
+        return self.majority(results)[0]
 
     def finalized(self):
         # A wrong-chain provider is excluded before it can vote on state.

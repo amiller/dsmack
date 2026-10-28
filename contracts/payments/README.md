@@ -19,13 +19,14 @@ directory with `funding-wallet.address` containing the testnet funding wallet
 address, then run:
 
 ```sh
-bash contracts/payments/deploy-and-fund.sh /path/to/raw-owner.key /path/to/payments-dir
+bash contracts/payments/deploy-and-fund.sh /path/to/payments/funding-wallet.key /path/to/payments-dir
 bash contracts/payments/verify.sh 0xDEPLOYED_CONTRACT
 ```
 
 The signing process checks the owner address before network access, requires a
 finalized Base Sepolia RPC quorum, deploys, compares the deployed runtime against
-the compiled artifact, then sends 0.05 testnet ETH to the funding wallet.
+the compiled artifact. The funding wallet is the owner. Deployment requires
+0.02 testnet ETH and preserves a 0.005 ETH reserve.
 Transaction hashes and receipts go under `payments-dir/contract/`. Source
 verification reads the existing API key at `~/.config/basescan/api-key`.
 `PAYMENTS_RPC_URLS` can name three comma-separated independently operated HTTPS

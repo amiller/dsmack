@@ -78,7 +78,21 @@ export class Payments {
         runNode(p.enrollmentKeyId, p.runNonce) === p.node,
       "payment node/enrollment/run binding",
     );
+    // buildId is compared with CDRegistry at the same finalized block by verifyRelay.
+    require(
+      checked.build_id === p.buildId.slice(2).toLowerCase(),
+      "registered payment build mismatch",
+    );
     const n = await s.call("getNode", [p.node]);
+    // Verified pending runs are discoverable by the owner before its registration
+    // transaction finalizes. They cannot have purchases or receive grants yet.
+    if (
+      n.operator.toLowerCase() === "0x0000000000000000000000000000000000000000"
+    ) {
+      require(p.runExpires > this.now(), "pending run expired");
+      this.challenges.delete(p.challenge);
+      return { ...checked, pending: true, block: s.block.hash };
+    }
     require(
       n.runExpires > this.now() &&
         Number(n.unit) === (r.kind === "compute" ? 1 : 0),
@@ -94,11 +108,6 @@ export class Payments {
       n.attestationHash ===
         binding(p, r.relay_peer, r.manifest_sha256, r.os_image_hash),
       "payment attestation hash mismatch",
-    );
-    // buildId is compared with CDRegistry at the same finalized block by verifyRelay.
-    require(
-      checked.build_id === p.buildId.slice(2).toLowerCase(),
-      "registered payment build mismatch",
     );
     this.challenges.delete(p.challenge);
     return { ...checked, block: s.block.hash };

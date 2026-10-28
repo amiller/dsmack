@@ -37,6 +37,15 @@ export async function sender(cfg, keyPath, funding = true) {
         wallet.address.toLowerCase() === cfg.fundingAddress.toLowerCase(),
     "single configured funding wallet required",
   );
+  if (funding) {
+    const { Quorum } = await import("./quorum.mjs");
+    const s = await new Quorum(cfg).snapshot();
+    require(
+      BigInt(await s.read("eth_getBalance", [wallet.address, s.tag])) >=
+        5000000000000000n,
+      "funding wallet below 0.005 ETH reserve",
+    );
+  }
   return { provider, wallet, contract: new Contract(cfg.escrow, abi, wallet) };
 }
 export async function settle(cfg, contract, envelopes) {

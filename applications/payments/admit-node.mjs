@@ -1,4 +1,4 @@
-// Andrew invokes this locally after retrieving a fresh challenge-bound registration.
+// Admit a challenge-bound node using the Base Sepolia funding wallet.
 import {
   binding,
   CHAIN,
@@ -18,8 +18,8 @@ try {
   throw new Error("cannot load a valid raw owner key");
 }
 require(
-  owner.address.toLowerCase() === "0x97883cb4b2f21530277f86490d8881654e36e6aa",
-  "deployer key does not derive 0x9788...E6aA",
+  owner.address.toLowerCase() === "0x1fbe7a7b3f7a37a967f3d927abd6f04db2766c5b",
+  "owner must be the sprint funding wallet",
 );
 const cfg = JSON.parse(
   await Deno.readTextFile(
@@ -48,6 +48,8 @@ require(
   "fresh owner challenge required",
 );
 const s = await new Quorum(cfg).snapshot();
+const balance = BigInt(await s.read("eth_getBalance", [owner.address, s.tag]));
+require(balance >= 5000000000000000n, "funding wallet below 0.005 ETH reserve");
 const checked = await verifyRelay(
   node,
   broker,

@@ -73,6 +73,7 @@ export default async function handler(req: Request, ctx: Context) {
     else if (b.payments && path.startsWith("/payments/")) {
       const p=b.payments;
       if(req.method==="GET" && path==="/payments/challenge") response=Response.json(p.challenge());
+      else if(req.method==="GET" && path==="/payments/pending") response=Response.json(b.live().filter(r=>r.payments && r.attestation.pending));
       else if(req.method==="GET" && path==="/payments/nodes") response=Response.json(await p.list(b.live()));
       else if(req.method==="POST" && path==="/payments/grant") response=Response.json(await p.grant(await body(req),b.live()));
       else if(req.method==="POST" && path==="/payments/receipts") response=Response.json(await p.collect(await body(req)));

@@ -6,16 +6,35 @@ import secrets
 import subprocess
 import time
 from urllib.error import HTTPError
+from urllib.request import Request, urlopen
+from urllib.parse import urlsplit
 
 import client as free
 from client import canonical, require, request
 
 
 class PaymentTool:
-    def __init__(self, config):
+    def __init__(self, config, service=None):
         self.config = config.resolve()
+        self.service = service
+        if service:
+            endpoint=urlsplit(service)
+            require(endpoint.scheme=='http' and endpoint.hostname=='127.0.0.1', 'payment service must use SSH-forwarded loopback')
 
     def run(self, command, path, *args):
+        if self.service:
+            payload={'command':command,'stateId':hashlib.sha256(str(path.resolve()).encode()).hexdigest()}
+            if command in ('inspect','check-grant'):
+                payload['value']=json.loads(path.read_bytes())
+            elif command=='buy':
+                payload.update(node=json.loads(Path(args[1]).read_bytes()),buyerKey=args[2],amount=str(args[3]))
+            elif command=='finish':
+                payload['value']=json.loads(Path(args[1]).read_bytes())
+            else:
+                raise ValueError('unsupported remote payment command')
+            req=Request(self.service,data=canonical(payload),headers={'Content-Type':'application/json'})
+            with urlopen(req,timeout=3700) as response:
+                return json.load(response)
         raw = subprocess.check_output(['deno', 'run', '--allow-read', '--allow-write', '--allow-net', '--allow-env',
                                       str(free.ROOT/'applications/payments/client.mjs'), command, str(self.config), str(path),
                                       *map(str, args)])
@@ -34,7 +53,7 @@ class PaidPolicy(free.Policy):
         require(not approval['burnedBuild'] and not approval['burnedImage'], 'burned build/image')
         require(key['enrolled'] and key['expires'] >= time.time(), 'live Apple enrollment')
         registered = bytes(key['x']) + bytes(key['y'])
-        require(registered == self.key.public_bytes(free.serialization.Encoding.X962, free.serialization.PublicFormat.UncompressedPoint)[1:], 'on-chain enrolled Apple key')
+        require(registered == free.unb64(self.key)[1:], 'on-chain enrolled Apple key')
         require(node['payments']['enrollmentKeyId'][2:] == free.unb64(self.kid).hex(), 'payment enrollment key')
         peer = free.peer_bytes(node['relay_peer'])
         legacy = hashlib.sha256(b'dsmack-compute-node/1' + peer + bytes.fromhex(node['secret_key']) + bytes.fromhex(node['receipt_key'])).digest() + bytes(32)
@@ -110,11 +129,11 @@ class PaidClient(free.Client):
 
 
 def run_paid(args):
-    require(args.send_payments and args.funding_key is not None, 'paid run requires --funding-key and --send-payments')
+    require(args.send_payments and (args.funding_key is not None or args.payment_service), 'paid run requires a funding key or loopback payment service and --send-payments')
     require(not args.out.exists(), 'paid output directory must be new')
     args.out.mkdir(parents=True, mode=0o700)
     state = args.out/'payment-state'; state.mkdir(mode=0o700)
-    tool = PaymentTool(args.payments_config)
+    tool = PaymentTool(args.payments_config,args.payment_service)
     selected = PaidPolicy(args.manifest.read_bytes(), args.enrollment, args.cdhash, args.rpc, args.attest, args.canary, args.model)
     selected.payment_tool = tool
     selected.payment_config = json.loads(args.payments_config.read_bytes())
@@ -124,6 +143,6 @@ def run_paid(args):
     require(measured['grantSigner'].lower() == selected.payment_config['grantSigner'].lower(), 'compose grant signer')
     require(measured['destinationPolicyHash'] == selected.payment_config['destinationPolicyHash'], 'compose destination policy')
     c = PaidClient(args.binary, state/'buyer-libp2p.key', args.broker, args.broker_key, selected)
-    c.tool, c.state_dir, c.state_path, c.funding = tool, state, state/'buyer.json', args.funding_key.resolve()
+    c.tool, c.state_dir, c.state_path, c.funding = tool, state, state/'buyer.json', args.funding_key.resolve() if args.funding_key else None
     # Client.run creates the public result directory itself.
     return c.run(args.repo.resolve(), args.prompt, args.credential, args.out/'job', args.seconds, args.node_peer)

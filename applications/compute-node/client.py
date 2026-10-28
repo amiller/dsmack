@@ -368,6 +368,7 @@ def main(argv=None):
     p.add_argument('--client-key', type=Path)
     p.add_argument('--payments-config', type=Path)
     p.add_argument('--funding-key', type=Path)
+    p.add_argument('--payment-service', help='loopback payment helper through the operator SSH connection')
     p.add_argument('--send-payments', action='store_true')
     p.add_argument('--prompt', required=True)
     p.add_argument('--credential', type=Path, default=export_subscription.validator().default_credential_path(Path.home()/'.dsmack/private-inputs'))

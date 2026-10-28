@@ -10,8 +10,8 @@ refunds open one hour after purchase expiry.
 
 ## Configure and admit a node
 
-P1's `contracts/payments/deploy-and-fund.sh` deploys the escrow and funds the
-single test wallet. Its `deployment.json` supplies the address and runtime hash.
+P1's `contracts/payments/deploy-and-fund.sh` deploys the escrow from the
+single test wallet and makes that wallet the owner. Its `deployment.json` supplies the address and runtime hash.
 Create local configuration with Deno 2:
 
 ```sh
@@ -62,11 +62,11 @@ Path('local-data/payment-challenge.json').write_text(json.dumps({
 PY
 ./dsmack-compute paid-discover /NODE_CIRCUIT owner-libp2p.key \
   < local-data/payment-challenge.json > local-data/payment-node.json
-bash applications/payments/admit-node.sh ~/.foundry/keystores/deployer-new.key
+bash applications/payments/admit-node.sh /path/to/payments/funding-wallet.key
 ```
 
 Generate the temporary transport identity with `dsmack-compute keygen` first.
-`admit-node.sh` is run by the owner. It first verifies the required deployer
+`admit-node.sh` uses the sprint funding wallet as owner. It first verifies its
 address, then verifies the fresh Apple assertion, enrollment, approved build,
 compose/image, payment signer binding and finalized contract code. It registers
 that immutable run with a floor of 10^10 wei/second and target of 30 seconds per
@@ -131,3 +131,9 @@ The local EVM tests settle original Go/compute signatures, exercise operator and
 buyer withdrawals, timeout refunds and price rise/decay after two funded buyers.
 The compute tests exercise actual worker termination, final receipt retention,
 unused time, replay closure and cancellation on receipt-storage failure.
+
+For a Mac with its own inference token, use `--payment-service http://127.0.0.1:18455`
+in place of `--funding-key`. Run `applications/payments/service.py CONFIG FUNDING_KEY
+STATE_DIR 18455` on the wallet machine and forward that loopback port over the
+existing SSH control master. Payment keys and the inference token stay on their
+respective machines.

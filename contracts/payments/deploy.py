@@ -12,7 +12,7 @@ from eth_utils import keccak, to_checksum_address
 from rpc import CHAIN_ID, Quorum, call
 
 OWNER = "0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b"
-MIN_RESERVE_WEI = 5_000_000_000_000_000
+MIN_RESERVE_WEI = 20_000_000_000_000_000
 CONTRACTS = Path(__file__).resolve().parents[1]
 
 
@@ -62,7 +62,7 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None):
     head=quorum.finalized()
     balance=int(quorum.at("eth_getBalance",[account.address],head),16)
     if balance-value-tx["gas"]*gas_price < MIN_RESERVE_WEI:
-        raise RuntimeError("transaction would breach the 0.005 ETH reserve")
+        raise RuntimeError("transaction would breach the 0.02 ETH reserve")
     signed = account.sign_transaction(tx)
     tx_hash = "0x" + keccak(signed.raw_transaction).hex()
     # Save the intended hash BEFORE sending so a timeout never encourages a blind resend.

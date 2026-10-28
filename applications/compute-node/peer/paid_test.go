@@ -38,7 +38,7 @@ func testPaidJob(t *testing.T, cutoff, storageFailure bool) {
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
 	// Keccak public-key address: reuse libp2p's secp implementation is unnecessary.
 	pubHash := keccakForTest(coordinator.PubKey().SerializeUncompressed()[1:])
-	m, e := payments.New(payments.Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x" + hex.EncodeToString(pubHash[12:]), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x" + hex.EncodeToString(pubHash[12:]), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -46,7 +46,7 @@ func testPaidJob(t *testing.T, cutoff, storageFailure bool) {
 	if cutoff {
 		amount = "2"
 	}
-	g := payments.Grant{PurchaseID: "1", Node: m.Node, BuyerKey: "0x" + hex.EncodeToString(buyerPub), Unit: 1, Amount: amount, IssuedAt: time.Now().Unix(), ServiceUntil: time.Now().Unix() + 60, DestinationPolicyHash: zero}
+	g := payments.Grant{PurchaseID: "1", Node: m.Node, RunID: m.RunID, BuyerKey: "0x" + hex.EncodeToString(buyerPub), Unit: 1, Amount: amount, IssuedAt: time.Now().Unix(), ServiceUntil: time.Now().Unix() + 60, DestinationPolicyHash: zero}
 	digest, _ := g.Digest(m.Escrow)
 	sig := ecdsa.SignCompact(coordinator, digest, false)
 	envelope := payments.Envelope{Grant: g, Signature: "0x" + hex.EncodeToString(append(sig[1:], sig[0]))}
@@ -135,7 +135,7 @@ func keccakForTest(b []byte) []byte { h := sha3.NewLegacyKeccak256(); h.Write(b)
 
 func TestFinalReceiptIncludesTimeWaitingForCheckpointAck(t *testing.T) {
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, e := payments.New(payments.Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x2000000000000000000000000000000000000002", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x2000000000000000000000000000000000000002", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
 	if e != nil {
 		t.Fatal(e)
 	}

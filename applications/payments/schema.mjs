@@ -5,6 +5,7 @@ import {
   keccak256,
   sha256,
   toUtf8Bytes,
+  TypedDataEncoder,
   verifyTypedData,
 } from "npm:ethers@6.17.0";
 export {
@@ -33,6 +34,7 @@ export const Receipt = [
 export const Grant = [
   { name: "purchaseId", type: "uint256" },
   { name: "node", type: "bytes32" },
+  { name: "runId", type: "bytes32" },
   { name: "buyerKey", type: "bytes32" },
   { name: "unit", type: "uint8" },
   { name: "amount", type: "uint128" },
@@ -42,16 +44,20 @@ export const Grant = [
 ];
 export const domain = (escrow) => ({
   name: "DsmackUsageEscrow",
-  version: "1",
+  version: "2",
   chainId: CHAIN,
   verifyingContract: getAddress(escrow),
 });
 export const abi = new Interface([
+  "function brokerSigner() view returns (address)",
+  "function registerBroker(address)",
+  "function registerNode(bytes32,address,uint8,uint128,uint128,bytes32,bytes32)",
+  "function checkpoint(bytes32)",
   "function quote(bytes32) view returns (uint128)",
-  "function getNode(bytes32) view returns (tuple(address operator,address receiptSigner,bytes32 attestationHash,uint8 unit,uint128 floorPrice,uint128 target,uint128 price,uint128 booked,uint64 epoch,uint64 runExpires))",
-  "function getPurchase(uint256) view returns (tuple(bytes32 node,address payer,bytes32 buyerKey,address operator,address receiptSigner,uint8 unit,uint128 amount,uint128 price,uint128 floorPrice,uint64 boughtAt,uint64 expires,uint64 sequence,uint128 used,uint64 endedAt,bool closed))",
+  "function getNode(bytes32) view returns (tuple(address operator,uint8 unit,uint128 floorPrice,uint128 target,uint128 price,uint128 booked,uint64 epoch,bytes32 composeHash,bytes32 imageHash))",
+  "function getPurchase(uint256) view returns (tuple(bytes32 node,address payer,bytes32 buyerKey,address operator,uint8 unit,uint128 amount,uint128 price,uint128 floorPrice,uint64 boughtAt,uint64 expires,uint64 sequence,uint128 used,uint64 endedAt,bool closed,bytes32 bindingHash))",
   "function buy(bytes32,uint8,uint128,bytes32) payable returns (uint256)",
-  "function settle(tuple(uint256 purchaseId,uint64 sequence,uint128 used,uint64 endedAt,bool finalReceipt)[],bytes[])",
+  "function settle(tuple(uint256 purchaseId,uint64 sequence,uint128 used,uint64 endedAt,bool finalReceipt)[],bytes[],tuple(bytes32 node,address operator,address receiptSigner,bytes32 composeHash,bytes32 imageHash,bytes32 runId,uint64 expires),bytes)",
   "function refund(uint256)",
   "function withdraw()",
   "function credits(address) view returns (uint256)",
@@ -64,12 +70,31 @@ export const abi = new Interface([
 const coder = AbiCoder.defaultAbiCoder();
 export const runNode = (enrollmentKeyId, runNonce) =>
   keccak256(coder.encode(["bytes32", "bytes32"], [enrollmentKeyId, runNonce]));
+export const NodeBinding = [
+  { name: "node", type: "bytes32" },
+  { name: "operator", type: "address" },
+  { name: "receiptSigner", type: "address" },
+  { name: "composeHash", type: "bytes32" },
+  { name: "imageHash", type: "bytes32" },
+  { name: "runId", type: "bytes32" },
+  { name: "expires", type: "uint64" },
+];
+export const nodeBindingSigner = (escrow, envelope) =>
+  verifyTypedData(
+    domain(escrow),
+    { NodeBinding },
+    envelope.binding,
+    envelope.signature,
+  );
+export const nodeBindingHash = (escrow, value) =>
+  TypedDataEncoder.hash(domain(escrow), { NodeBinding }, value);
 export function binding(p, peer, compose, image) {
   return keccak256(
     coder.encode([
       "bytes32",
       "uint256",
       "address",
+      "bytes32",
       "bytes32",
       "address",
       "address",
@@ -79,10 +104,11 @@ export function binding(p, peer, compose, image) {
       "bytes32",
       "uint64",
     ], [
-      keccak256(toUtf8Bytes("DsmackPaymentsNodeV1")),
+      keccak256(toUtf8Bytes("DsmackPaymentsNodeV2")),
       CHAIN,
       p.escrow,
       p.node,
+      p.runId,
       p.operator,
       p.receiptSigner,
       sha256(toUtf8Bytes(peer)),

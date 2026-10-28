@@ -4,6 +4,7 @@ import {
   Contract,
   json,
   JsonRpcProvider,
+  nodeBindingSigner,
   receiptSigner,
   require,
   Wallet,
@@ -42,8 +43,8 @@ export async function sender(cfg, keyPath, funding = true) {
     const s = await new Quorum(cfg).snapshot();
     require(
       BigInt(await s.read("eth_getBalance", [wallet.address, s.tag])) >=
-        5000000000000000n,
-      "funding wallet below 0.005 ETH reserve",
+        20000000000000000n,
+      "funding wallet below 0.02 ETH reserve",
     );
   }
   return { provider, wallet, contract: new Contract(cfg.escrow, abi, wallet) };
@@ -51,16 +52,33 @@ export async function sender(cfg, keyPath, funding = true) {
 export async function settle(cfg, contract, envelopes) {
   const seen = new Set();
   for (const e of envelopes) {
-    receiptSigner(cfg.escrow, e);
+    require(
+      nodeBindingSigner(cfg.escrow, e.nodeBinding).toLowerCase() ===
+        cfg.grantSigner.toLowerCase(),
+      "broker binding signer",
+    );
+    require(
+      receiptSigner(cfg.escrow, e).toLowerCase() ===
+        e.nodeBinding.binding.receiptSigner.toLowerCase(),
+      "guest receipt key",
+    );
     require(
       !seen.has(e.receipt.purchaseId),
       "one cumulative receipt per purchase per batch",
     );
     seen.add(e.receipt.purchaseId);
   }
+  require(
+    envelopes.every((e) =>
+      json(e.nodeBinding) === json(envelopes[0].nodeBinding)
+    ),
+    "settlement batch must share one run binding",
+  );
   const tx = await contract.settle(
     envelopes.map((e) => e.receipt),
     envelopes.map((e) => e.signature),
+    envelopes[0].nodeBinding.binding,
+    envelopes[0].nodeBinding.signature,
   );
   const receipt = await tx.wait();
   require(receipt.status === 1, "settlement reverted");

@@ -221,7 +221,18 @@ function normalize(method, value) {
 export async function confirmedTransactions(cfg, hashes) {
   const q = new Quorum(cfg), deadline = Date.now() + 3600000;
   while (Date.now() < deadline) {
-    const s = await q.snapshot();
+    let s;
+    try {
+      s = await q.snapshot();
+    } catch (e) {
+      if (
+        !/RPC quorum|finalized RPC quorum|stale\/future finalized head/.test(
+          e.message,
+        )
+      ) throw e;
+      await new Promise((resolve) => setTimeout(resolve, 10000));
+      continue;
+    }
     let complete = true;
     for (const hash of hashes) {
       const tx = await s.read("eth_getTransactionReceipt", [hash]);

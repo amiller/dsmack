@@ -46,14 +46,14 @@ func join(parts ...[]byte) []byte {
 }
 
 const ReceiptType = "Receipt(uint256 purchaseId,uint64 sequence,uint128 used,uint64 endedAt,bool finalReceipt)"
-const GrantType = "Grant(uint256 purchaseId,bytes32 node,bytes32 buyerKey,uint8 unit,uint128 amount,uint64 issuedAt,uint64 serviceUntil,bytes32 destinationPolicyHash)"
+const GrantType = "Grant(uint256 purchaseId,bytes32 node,bytes32 runId,bytes32 buyerKey,uint8 unit,uint128 amount,uint64 issuedAt,uint64 serviceUntil,bytes32 destinationPolicyHash)"
 
 func Domain(escrow string) ([]byte, error) {
 	a, e := raw(escrow, 20)
 	if e != nil {
 		return nil, e
 	}
-	return hash(join(hash([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")), hash([]byte("DsmackUsageEscrow")), hash([]byte("1")), uintWord(84532), padded(a))), nil
+	return hash(join(hash([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")), hash([]byte("DsmackUsageEscrow")), hash([]byte("2")), uintWord(84532), padded(a))), nil
 }
 func typed(escrow string, body []byte) ([]byte, error) {
 	d, e := Domain(escrow)
@@ -87,6 +87,7 @@ func recover(digest []byte, s string) (string, error) {
 }
 
 type Config struct {
+	Node                  string `json:"node"`
 	Escrow                string `json:"escrow"`
 	Operator              string `json:"operator"`
 	GrantSigner           string `json:"grantSigner"`
@@ -97,7 +98,7 @@ type Config struct {
 }
 type Registration struct {
 	Config
-	Node          string `json:"node"`
+	RunID         string `json:"runId"`
 	RunNonce      string `json:"runNonce"`
 	ReceiptSigner string `json:"receiptSigner"`
 	Challenge     string `json:"challenge"`
@@ -116,7 +117,7 @@ func New(cfg Config) (*Meter, error) {
 			return nil, e
 		}
 	}
-	for _, v := range []string{cfg.EnrollmentKeyID, cfg.BuildID, cfg.DestinationPolicyHash} {
+	for _, v := range []string{cfg.Node, cfg.EnrollmentKeyID, cfg.BuildID, cfg.DestinationPolicyHash} {
 		if _, e := raw(v, 32); e != nil {
 			return nil, e
 		}
@@ -133,11 +134,12 @@ func New(cfg Config) (*Meter, error) {
 		return nil, e
 	}
 	kid, _ := raw(cfg.EnrollmentKeyID, 32)
-	return &Meter{Registration: Registration{Config: cfg, Node: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
+	return &Meter{Registration: Registration{Config: cfg, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
 }
 func (m *Meter) Binding(peer, compose, image string) ([]byte, error) {
 	escrow, _ := raw(m.Escrow, 20)
 	node, _ := raw(m.Node, 32)
+	run, _ := raw(m.RunID, 32)
 	operator, _ := raw(m.Operator, 20)
 	signer, _ := raw(m.ReceiptSigner, 20)
 	build, _ := raw(m.BuildID, 32)
@@ -150,7 +152,7 @@ func (m *Meter) Binding(peer, compose, image string) ([]byte, error) {
 		return nil, e
 	}
 	p := sha256.Sum256([]byte(peer))
-	return hash(join(hash([]byte("DsmackPaymentsNodeV1")), uintWord(84532), padded(escrow), node, padded(operator), padded(signer), p[:], c, i, build, uintWord(m.RunExpires))), nil
+	return hash(join(hash([]byte("DsmackPaymentsNodeV2")), uintWord(84532), padded(escrow), node, run, padded(operator), padded(signer), p[:], c, i, build, uintWord(m.RunExpires))), nil
 }
 func (m *Meter) Report(peer, compose, image string, legacy []byte, challenge string) ([]byte, error) {
 	b, e := m.Binding(peer, compose, image)
@@ -168,6 +170,7 @@ func (m *Meter) Report(peer, compose, image string, legacy []byte, challenge str
 type Grant struct {
 	PurchaseID            string `json:"purchaseId"`
 	Node                  string `json:"node"`
+	RunID                 string `json:"runId"`
 	BuyerKey              string `json:"buyerKey"`
 	Unit                  uint8  `json:"unit"`
 	Amount                string `json:"amount"`
@@ -192,6 +195,10 @@ func (g Grant) Digest(escrow string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
+	run, e := raw(g.RunID, 32)
+	if e != nil {
+		return nil, e
+	}
 	b, e := raw(g.BuyerKey, 32)
 	if e != nil {
 		return nil, e
@@ -200,7 +207,7 @@ func (g Grant) Digest(escrow string) ([]byte, error) {
 	if e != nil {
 		return nil, e
 	}
-	return typed(escrow, join(hash([]byte(GrantType)), word(g.PurchaseID), n, b, uintWord(int64(g.Unit)), word(g.Amount), uintWord(g.IssuedAt), uintWord(g.ServiceUntil), p))
+	return typed(escrow, join(hash([]byte(GrantType)), word(g.PurchaseID), n, run, b, uintWord(int64(g.Unit)), word(g.Amount), uintWord(g.IssuedAt), uintWord(g.ServiceUntil), p))
 }
 func (m *Meter) Verify(rawGrant []byte, client string, unit uint8, now int64) (Grant, error) {
 	var e Envelope
@@ -208,7 +215,7 @@ func (m *Meter) Verify(rawGrant []byte, client string, unit uint8, now int64) (G
 		return e.Grant, err
 	}
 	g := e.Grant
-	if g.Node != m.Node || g.Unit != unit || g.IssuedAt > now || g.IssuedAt < 0 || g.ServiceUntil <= now || g.ServiceUntil > g.IssuedAt+600 || g.ServiceUntil > m.RunExpires || g.DestinationPolicyHash != m.DestinationPolicyHash {
+	if g.Node != m.Node || g.RunID != m.RunID || g.Unit != unit || g.IssuedAt > now || g.IssuedAt < 0 || g.ServiceUntil <= now || g.ServiceUntil > g.IssuedAt+600 || g.ServiceUntil > m.RunExpires || g.DestinationPolicyHash != m.DestinationPolicyHash {
 		return g, fmt.Errorf("paid grant terms")
 	}
 	digest, err := g.Digest(m.Escrow)
@@ -292,7 +299,7 @@ func (m *Meter) VerifyStop(signature string, expires int64) error {
 	if expires < now || expires > now+300 {
 		return fmt.Errorf("operator stop expired")
 	}
-	node, _ := raw(m.Node, 32)
+	node, _ := raw(m.RunID, 32)
 	d, e := typed(m.Escrow, join(hash([]byte("Stop(bytes32 node,uint64 expires)")), node, uintWord(expires)))
 	if e != nil {
 		return e

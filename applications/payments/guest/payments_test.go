@@ -18,16 +18,23 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 	buyer, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	id, _ := peer.IDFromPrivateKey(buyer)
 	pub, _ := buyer.GetPublic().Raw()
-	m, e := New(Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunExpires: time.Now().Unix() + 3600})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunExpires: time.Now().Unix() + 3600})
 	if e != nil {
 		t.Fatal(e)
 	}
-	g := Grant{"1", m.Node, hexed(pub), 1, "4", time.Now().Unix(), time.Now().Unix() + 60, hexed(make([]byte, 32))}
+	g := Grant{"1", m.Node, m.RunID, hexed(pub), 1, "4", time.Now().Unix(), time.Now().Unix() + 60, hexed(make([]byte, 32))}
 	d, _ := g.Digest(m.Escrow)
 	env := Envelope{g, sign(coordinator, d)}
 	raw, _ := json.Marshal(env)
 	if _, e = m.Verify(raw, id.String(), 1, time.Now().Unix()); e != nil {
 		t.Fatal(e)
+	}
+	otherRun := g
+	otherRun.RunID = hexed(make([]byte, 32))
+	differentDigest, _ := otherRun.Digest(m.Escrow)
+	wrongRun, _ := json.Marshal(Envelope{otherRun, sign(coordinator, differentDigest)})
+	if _, e = m.Verify(wrongRun, id.String(), 1, time.Now().Unix()); e == nil {
+		t.Fatal("a class purchase grant for another run was accepted")
 	}
 	wrong, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	wrongID, _ := peer.IDFromPrivateKey(wrong)
@@ -63,12 +70,12 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 func TestOnlyOperatorCanStopAdmittedRun(t *testing.T) {
 	operator, _ := secp.GeneratePrivateKey()
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, e := New(Config{Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
 	if e != nil {
 		t.Fatal(e)
 	}
 	expiry := time.Now().Unix() + 60
-	node, _ := raw(m.Node, 32)
+	node, _ := raw(m.RunID, 32)
 	d, _ := typed(m.Escrow, join(hash([]byte("Stop(bytes32 node,uint64 expires)")), node, uintWord(expiry)))
 	if e = m.VerifyStop(sign(operator, d), expiry); e != nil {
 		t.Fatal(e)

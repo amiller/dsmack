@@ -1,3 +1,4 @@
+import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { rpcChain } from "../../dstack-compat/secret-release/policy.mjs";
 import { withEnrollment } from "./attestation.mjs";
@@ -20,7 +21,7 @@ async function load(ctx: Context) {
   };
   let payments;
   if (cfg.payments) {
-    const path=ctx.dataDir+"/payments.json";
+    const path=ctx.dataDir+"/payments-"+cfg.payments.escrow.toLowerCase()+".json";
     let state;
     try {state=JSON.parse(await Deno.readTextFile(path));}
     catch(e) {if (!(e instanceof Deno.errors.NotFound)) throw e;}
@@ -73,7 +74,7 @@ export default async function handler(req: Request, ctx: Context) {
     else if (b.payments && path.startsWith("/payments/")) {
       const p=b.payments;
       if(req.method==="GET" && path==="/payments/challenge") response=Response.json(p.challenge());
-      else if(req.method==="GET" && path==="/payments/pending") response=Response.json(b.live().filter(r=>r.payments && r.attestation.pending));
+      else if(req.method==="GET" && path==="/payments/classes") response=Response.json(JSON.parse(json(await p.classes())));
       else if(req.method==="GET" && path==="/payments/nodes") response=Response.json(await p.list(b.live()));
       else if(req.method==="POST" && path==="/payments/grant") response=Response.json(await p.grant(await body(req),b.live()));
       else if(req.method==="POST" && path==="/payments/receipts") response=Response.json(await p.collect(await body(req)));

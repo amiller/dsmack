@@ -2,6 +2,8 @@ import {
   binding,
   domain,
   Grant,
+  json,
+  NodeBinding,
   receiptSigner,
   require,
   runNode,
@@ -75,7 +77,7 @@ export class Payments {
     );
     require(
       p.enrollmentKeyId.toLowerCase() === "0x" + checked.key_id &&
-        runNode(p.enrollmentKeyId, p.runNonce) === p.node,
+        runNode(p.enrollmentKeyId, p.runNonce) === p.runId,
       "payment node/enrollment/run binding",
     );
     // buildId is compared with CDRegistry at the same finalized block by verifyRelay.
@@ -84,49 +86,73 @@ export class Payments {
       "registered payment build mismatch",
     );
     const n = await s.call("getNode", [p.node]);
-    // Verified pending runs are discoverable by the owner before its registration
-    // transaction finalizes. They cannot have purchases or receive grants yet.
-    if (
-      n.operator.toLowerCase() === "0x0000000000000000000000000000000000000000"
-    ) {
-      require(p.runExpires > this.now(), "pending run expired");
-      this.challenges.delete(p.challenge);
-      return { ...checked, pending: true, block: s.block.hash };
-    }
     require(
-      n.runExpires > this.now() &&
+      n.operator.toLowerCase() === p.operator.toLowerCase() &&
         Number(n.unit) === (r.kind === "compute" ? 1 : 0),
-      "registered run expired or wrong unit",
+      "class operator/unit mismatch",
     );
-    for (const k of ["operator", "receiptSigner", "runExpires"]) {
-      require(
-        String(n[k]).toLowerCase() === String(p[k]).toLowerCase(),
-        "registered payment " + k,
-      );
-    }
     require(
-      n.attestationHash ===
-        binding(p, r.relay_peer, r.manifest_sha256, r.os_image_hash),
-      "payment attestation hash mismatch",
+      n.composeHash === "0x" + r.manifest_sha256 &&
+        n.imageHash === "0x" + r.os_image_hash,
+      "class measurements mismatch",
     );
-    this.challenges.delete(p.challenge);
-    return { ...checked, block: s.block.hash };
+    require(p.runExpires > this.now(), "run expired");
+    require(
+      (await s.call("brokerSigner")).toLowerCase() ===
+        this.key.address.toLowerCase(),
+      "on-chain broker signer mismatch",
+    );
+    return await this.serial(async () => {
+      let envelope = this.state.bindings?.[p.runId];
+      if (!envelope) {
+        const value = {
+          node: p.node,
+          operator: p.operator,
+          receiptSigner: p.receiptSigner,
+          composeHash: "0x" + r.manifest_sha256,
+          imageHash: "0x" + r.os_image_hash,
+          runId: p.runId,
+          expires: Math.min(p.runExpires, this.now() + 600),
+        };
+        envelope = {
+          binding: value,
+          signature: await this.key.signTypedData(domain(this.cfg.escrow), {
+            NodeBinding,
+          }, value),
+        };
+        const next = {
+          ...this.state,
+          bindings: { ...this.state.bindings, [p.runId]: envelope },
+        };
+        await this.save(next);
+        this.state = next;
+      }
+      require(
+        envelope.binding.receiptSigner.toLowerCase() ===
+            p.receiptSigner.toLowerCase() &&
+          envelope.binding.node === p.node &&
+          envelope.binding.expires > this.now(),
+        "run binding changed or expired",
+      );
+      this.challenges.delete(p.challenge);
+      return { ...checked, block: s.block.hash, nodeBinding: envelope };
+    });
+  }
+  async classes() {
+    const s = await this.chain.snapshot();
+    return await Promise.all(
+      this.cfg.classes.map(async (node) => ({
+        node,
+        ...(await s.call("getNode", [node])).toObject(),
+        price: (await s.call("quote", [node])).toString(),
+        finalizedBlock: s.block.hash,
+      })),
+    );
   }
   async list(relays) {
-    const s = await this.chain.snapshot(), out = [];
-    for (const r of relays.filter((r) => r.payments)) {
-      const n = await s.call("getNode", [r.payments.node]);
-      if (n.runExpires <= this.now()) continue;
-      out.push({
-        ...r,
-        price: (await s.call("quote", [r.payments.node])).toString(),
-        floorPrice: n.floorPrice.toString(),
-        target: n.target.toString(),
-        unit: Number(n.unit),
-        finalizedBlock: s.block.hash,
-      });
-    }
-    return out;
+    return relays.filter((r) =>
+      r.payments && r.attestation.nodeBinding?.binding.expires > this.now()
+    );
   }
   async checkNode(node, s) {
     await verifyRelay(
@@ -154,6 +180,7 @@ export class Payments {
         client_peer: r.client_peer,
         purchaseId: r.purchaseId,
         txHash: r.txHash,
+        runId: r.runId,
       };
       require(
         typeof r.sig === "string" && /^[0-9a-f]{128}$/.test(r.sig) &&
@@ -171,20 +198,13 @@ export class Payments {
         p.buyerKey === "0x" + hex(pub.slice(6)),
         "purchase buyerKey does not control this PeerId",
       );
-      const node = relays.find((n) => n.payments?.node === p.node);
+      const node = relays.find((n) =>
+        n.payments?.node === p.node && n.payments.runId === r.runId
+      );
       require(node, "payment node is not live");
       await this.checkNode(node, s);
-      const n = await s.call("getNode", [p.node]);
-      require(
-        n.attestationHash ===
-          binding(
-            node.payments,
-            node.relay_peer,
-            node.manifest_sha256,
-            node.os_image_hash,
-          ),
-        "node binding changed",
-      );
+      const nodeBinding = node.attestation.nodeBinding;
+      require(nodeBinding?.binding.expires > this.now(), "run binding expired");
       const existing = this.state.grants[r.purchaseId];
       if (existing) {
         require(
@@ -202,12 +222,13 @@ export class Payments {
       const serviceUntil = Math.min(
         issuedAt + 600,
         Number(p.expires),
-        Number(n.runExpires),
+        nodeBinding.binding.expires,
       );
       require(issuedAt < serviceUntil, "purchase expired before activation");
       const grant = {
         purchaseId: r.purchaseId,
         node: p.node,
+        runId: node.payments.runId,
         buyerKey: p.buyerKey,
         unit: Number(p.unit),
         amount: p.amount.toString(),
@@ -217,15 +238,18 @@ export class Payments {
       };
       const envelope = {
         grant,
+        nodeBinding,
         signature: await this.key.signTypedData(domain(this.cfg.escrow), {
           Grant,
         }, grant),
       };
       const purchase = Object.fromEntries(
-        ["receiptSigner", "amount", "boughtAt", "expires"].map(
+        ["amount", "boughtAt", "expires"].map(
           (k) => [k, String(p[k])],
         ),
       );
+      purchase.receiptSigner = nodeBinding.binding.receiptSigner;
+      purchase.nodeBinding = nodeBinding;
       const next = {
         ...this.state,
         grants: {
@@ -245,8 +269,8 @@ export class Payments {
       // These terms were obtained with the finalized purchase and never mutate.
       // Reusing them keeps one-second receipt checkpoints off the RPC hot path.
       const cached = this.state.grants[r.purchaseId]?.purchase;
-      const p = cached ??
-        await (await this.chain.snapshot()).call("getPurchase", [r.purchaseId]);
+      require(cached, "confirmed grant required before receipt");
+      const p = cached;
       require(
         signer.toLowerCase() === p.receiptSigner.toLowerCase(),
         "registered guest receipt signer required",
@@ -269,7 +293,10 @@ export class Payments {
       );
       const next = {
         ...this.state,
-        receipts: { ...this.state.receipts, [r.purchaseId]: envelope },
+        receipts: {
+          ...this.state.receipts,
+          [r.purchaseId]: { ...envelope, nodeBinding: p.nodeBinding },
+        },
       };
       await this.save(next);
       this.state = next;

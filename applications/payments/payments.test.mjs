@@ -172,6 +172,7 @@ test("paid grants require buyer control and persist fixed deadlines before retur
   const payment = {
     escrow,
     node: zero,
+    runId: zero,
     operator: key.address,
     receiptSigner: Wallet.createRandom().address,
     buildId: zero,
@@ -183,15 +184,21 @@ test("paid grants require buyer control and persist fixed deadlines before retur
     os_image_hash: zero.slice(2),
     payments: payment,
   };
-  const n = {
-    runExpires: now + 3600,
-    attestationHash: binding(
-      payment,
-      client_peer,
-      node.manifest_sha256,
-      node.os_image_hash,
-    ),
+  node.attestation = {
+    nodeBinding: {
+      binding: {
+        node: zero,
+        operator: key.address,
+        receiptSigner: payment.receiptSigner,
+        composeHash: zero,
+        imageHash: zero,
+        runId: zero,
+        expires: now + 600,
+      },
+      signature: "0x",
+    },
   };
+  const n = {};
   const snapshot = { block: { hash: zero }, call: () => n };
   const chain = { snapshot: () => snapshot, purchase: () => p };
   let saved;
@@ -209,6 +216,7 @@ test("paid grants require buyer control and persist fixed deadlines before retur
     client_peer,
     purchaseId: "1",
     txHash: "0x" + "bb".repeat(32),
+    runId: zero,
   };
   const request = {
     ...fields,

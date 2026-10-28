@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 
-/// @notice Base Sepolia usage escrow. Owner admits attested, immutable node runs;
+/// @notice Base Sepolia usage escrow. Owner admits immutable node classes; a pinned broker binds attested runs;
 /// guests sign cumulative EIP-712 usage. Congestion premiums have no withdrawal path.
 contract UsageEscrow {
     uint256 public constant CHAIN_ID = 84532;
@@ -18,15 +18,14 @@ contract UsageEscrow {
 
     struct Node {
         address operator;
-        address receiptSigner;
-        bytes32 attestationHash;
         uint8 unit;
         uint128 floorPrice;
         uint128 target;
         uint128 price;
         uint128 booked;
         uint64 epoch;
-        uint64 runExpires;
+        bytes32 composeHash;
+        bytes32 imageHash;
     }
 
     struct PurchaseData {
@@ -34,7 +33,6 @@ contract UsageEscrow {
         address payer;
         bytes32 buyerKey;
         address operator;
-        address receiptSigner;
         uint8 unit;
         uint128 amount;
         uint128 price;
@@ -45,6 +43,7 @@ contract UsageEscrow {
         uint128 used;
         uint64 endedAt;
         bool closed;
+        bytes32 bindingHash;
     }
 
     struct Receipt {
@@ -55,6 +54,18 @@ contract UsageEscrow {
         bool finalReceipt;
     }
 
+    struct NodeBinding {
+        bytes32 node;
+        address operator;
+        address receiptSigner;
+        bytes32 composeHash;
+        bytes32 imageHash;
+        bytes32 runId;
+        uint64 expires;
+    }
+    bytes32 public constant BINDING_TYPEHASH = keccak256("NodeBinding(bytes32 node,address operator,address receiptSigner,bytes32 composeHash,bytes32 imageHash,bytes32 runId,uint64 expires)");
+    address public brokerSigner;
+    event BrokerRegistered(address broker);
     address public immutable owner;
     mapping(bytes32 => Node) private nodes;
     mapping(uint256 => PurchaseData) private purchases;
@@ -62,16 +73,8 @@ contract UsageEscrow {
     uint256 public lockedPremium;
     uint256 public nextPurchaseId = 1;
 
-    event NodeRegistered(
-        bytes32 indexed node,
-        address indexed operator,
-        address receiptSigner,
-        bytes32 attestationHash,
-        uint8 unit,
-        uint128 floorPrice,
-        uint128 target,
-        uint64 runExpires
-    );
+    event NodeRegistered(bytes32 indexed node, address indexed operator, uint8 unit,
+        uint128 floorPrice, uint128 target, bytes32 composeHash, bytes32 imageHash);
     event PriceUpdated(bytes32 indexed node, uint64 epoch, uint128 price);
     event Purchase(
         uint256 indexed purchaseId,
@@ -100,39 +103,27 @@ contract UsageEscrow {
         owner = owner_;
     }
 
-    /// @dev The owner verifies Apple/guest evidence off chain, including the
-    /// receiptSigner binding. New runs need new node IDs; there is no mutation.
-    function registerNode(
-        bytes32 node,
-        address operator,
-        address receiptSigner,
-        bytes32 attestationHash,
-        uint8 unit,
-        uint128 floorPrice,
-        uint128 target,
-        uint64 runExpires
-    ) external {
+    /// @notice Pin the admission authority once, before selling any class.
+    function registerBroker(address broker) external {
+        require(msg.sender == owner && brokerSigner == address(0) && broker != address(0), "broker admission");
+        brokerSigner = broker;
+        emit BrokerRegistered(broker);
+    }
+
+    /// @notice Classes outlive runs; registration and purchases finish before VM launch.
+    function registerNode(bytes32 node, address operator, uint8 unit, uint128 floorPrice,
+        uint128 target, bytes32 composeHash, bytes32 imageHash) external {
         require(msg.sender == owner, "owner only");
+        require(brokerSigner != address(0), "broker missing");
         require(node != bytes32(0) && nodes[node].operator == address(0), "node exists or zero");
-        require(operator != address(0) && receiptSigner != address(0), "zero address");
-        require(attestationHash != bytes32(0), "missing attestation");
+        require(operator != address(0), "zero address");
+        require(composeHash != bytes32(0) && imageHash != bytes32(0), "missing measurements");
         require(unit <= 1, "unit");
         require(floorPrice > 0 && floorPrice <= type(uint128).max / 16, "floor");
         require(target > 0 && target <= type(uint128).max / 2, "target");
-        require(runExpires > block.timestamp, "run expired");
-        nodes[node] = Node(
-            operator,
-            receiptSigner,
-            attestationHash,
-            unit,
-            floorPrice,
-            target,
-            floorPrice,
-            0,
-            uint64(block.timestamp / EPOCH_SECONDS),
-            runExpires
-        );
-        emit NodeRegistered(node, operator, receiptSigner, attestationHash, unit, floorPrice, target, runExpires);
+        nodes[node] = Node(operator, unit, floorPrice, target, floorPrice, 0,
+            uint64(block.timestamp / EPOCH_SECONDS), composeHash, imageHash);
+        emit NodeRegistered(node, operator, unit, floorPrice, target, composeHash, imageHash);
     }
 
     function getNode(bytes32 node) external view returns (Node memory) {
@@ -192,18 +183,15 @@ contract UsageEscrow {
         require(unit == n.unit, "unit");
         require(amount > 0 && amount <= (unit == 0 ? MAX_BYTES : MAX_SECONDS), "amount");
         require(buyerKey != bytes32(0), "buyer key");
-        require(block.timestamp < n.runExpires, "run expired");
         require(msg.value == uint256(amount) * n.price, "exact price");
         uint64 boughtAt = uint64(block.timestamp);
         uint64 expires = boughtAt + PURCHASE_SECONDS;
-        if (expires > n.runExpires) expires = n.runExpires;
         id = nextPurchaseId++;
         purchases[id] = PurchaseData(
             node,
             msg.sender,
             buyerKey,
             n.operator,
-            n.receiptSigner,
             unit,
             amount,
             n.price,
@@ -213,7 +201,8 @@ contract UsageEscrow {
             0,
             0,
             boughtAt,
-            false
+            false,
+            bytes32(0)
         );
         uint256 booked = uint256(n.booked) + amount;
         uint256 capacity = uint256(n.target) * 2;
@@ -223,7 +212,7 @@ contract UsageEscrow {
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
         return keccak256(
-            abi.encode(DOMAIN_TYPEHASH, keccak256("DsmackUsageEscrow"), keccak256("1"), block.chainid, address(this))
+            abi.encode(DOMAIN_TYPEHASH, keccak256("DsmackUsageEscrow"), keccak256("2"), block.chainid, address(this))
         );
     }
 
@@ -237,30 +226,48 @@ contract UsageEscrow {
         );
     }
 
-    function settle(Receipt[] calldata receipts, bytes[] calldata signatures) external {
-        require(receipts.length == signatures.length && receipts.length > 0, "receipt lengths");
-        for (uint256 i; i < receipts.length; ++i) {
-            _settle(receipts[i], signatures[i]);
-        }
+    function bindingDigest(NodeBinding memory b) public view returns (bytes32) {
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(),
+            keccak256(abi.encode(BINDING_TYPEHASH, b.node, b.operator, b.receiptSigner,
+                b.composeHash, b.imageHash, b.runId, b.expires))));
     }
 
-    function _settle(Receipt calldata r, bytes calldata signature) private {
+    function recover(bytes32 digest, bytes calldata signature) private pure returns (address) {
+        require(signature.length == 65, "signature length");
+        bytes32 r; bytes32 s; uint8 v;
+        assembly ("memory-safe") {
+            r := calldataload(signature.offset)
+            s := calldataload(add(signature.offset, 32))
+            v := byte(0, calldataload(add(signature.offset, 64)))
+        }
+        require(uint256(s) <= HALF_ORDER && (v == 27 || v == 28), "signature canonical");
+        address signer = ecrecover(digest, v, r, s);
+        require(signer != address(0), "zero signer");
+        return signer;
+    }
+
+    function settle(Receipt[] calldata receipts, bytes[] calldata signatures,
+        NodeBinding calldata b, bytes calldata brokerSignature) external {
+        require(receipts.length == signatures.length && receipts.length > 0, "receipt lengths");
+        bytes32 digest = bindingDigest(b);
+        require(recover(digest, brokerSignature) == brokerSigner, "broker signer");
+        Node storage n = nodes[b.node];
+        require(n.operator != address(0) && b.operator == n.operator, "binding operator");
+        require(b.composeHash == n.composeHash && b.imageHash == n.imageHash, "binding measurements");
+        require(b.receiptSigner != address(0) && b.runId != bytes32(0), "binding run");
+        for (uint256 i; i < receipts.length; ++i) _settle(receipts[i], signatures[i], b, digest);
+    }
+
+    function _settle(Receipt calldata r, bytes calldata signature, NodeBinding calldata b, bytes32 digest) private {
         PurchaseData storage p = purchases[r.purchaseId];
         require(p.payer != address(0) && !p.closed, "purchase closed or unknown");
+        require(p.node == b.node && p.operator == b.operator, "binding class");
+        require(p.bindingHash == bytes32(0) || p.bindingHash == digest, "binding changed");
         require(block.timestamp < uint256(p.expires) + SETTLEMENT_GRACE, "settlement expired");
         require(r.sequence > p.sequence && r.used >= p.used && r.used <= p.amount, "usage or sequence");
-        require(r.endedAt >= p.endedAt && r.endedAt <= p.expires && r.endedAt <= block.timestamp, "receipt time");
-        require(signature.length == 65, "signature length");
-        bytes32 sigR;
-        bytes32 sigS;
-        uint8 sigV;
-        assembly ("memory-safe") {
-            sigR := calldataload(signature.offset)
-            sigS := calldataload(add(signature.offset, 32))
-            sigV := byte(0, calldataload(add(signature.offset, 64)))
-        }
-        require(uint256(sigS) <= HALF_ORDER && (sigV == 27 || sigV == 28), "signature canonical");
-        require(ecrecover(receiptDigest(r), sigV, sigR, sigS) == p.receiptSigner, "receipt signer");
+        require(r.endedAt >= p.endedAt && r.endedAt <= p.expires && r.endedAt <= block.timestamp && r.endedAt <= b.expires, "receipt time");
+        require(recover(receiptDigest(r), signature) == b.receiptSigner, "receipt signer");
+        p.bindingHash = digest;
         uint256 delta = uint256(r.used) - p.used;
         uint256 operatorCredit = delta * p.floorPrice;
         uint256 premium = delta * (p.price - p.floorPrice);

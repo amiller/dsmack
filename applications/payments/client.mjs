@@ -2,9 +2,11 @@ import {
   abi,
   binding,
   Contract,
+  domain,
   formatEther,
   grantSigner,
   json,
+  nodeBindingSigner,
   parseEther,
   receiptSigner,
   require,
@@ -21,24 +23,20 @@ export async function inspect(cfg, node) {
   const p = node.payments, n = await s.call("getNode", [p.node]);
   require(
     p.escrow.toLowerCase() === cfg.escrow.toLowerCase() &&
-      runNode(p.enrollmentKeyId, p.runNonce) === p.node,
+      runNode(p.enrollmentKeyId, p.runNonce) === p.runId,
     "node payment domain",
   );
   require(
-    n.attestationHash ===
-      binding(p, node.relay_peer, node.manifest_sha256, node.os_image_hash),
-    "on-chain node attestation binding",
+    n.operator.toLowerCase() === p.operator.toLowerCase() &&
+      Number(n.unit) === 1,
+    "class operator/unit",
   );
-  for (const k of ["operator", "receiptSigner", "runExpires"]) {
-    require(
-      String(n[k]).toLowerCase() === String(p[k]).toLowerCase(),
-      "node " + k + " mismatch",
-    );
-  }
   require(
-    n.runExpires > Math.floor(Date.now() / 1000) && Number(n.unit) === 1,
-    "compute node expired or wrong unit",
+    n.composeHash === "0x" + node.manifest_sha256 &&
+      n.imageHash === "0x" + node.os_image_hash,
+    "class measurements",
   );
+  require(p.runExpires > Math.floor(Date.now() / 1000), "run expired");
   const admission = withEnrollment(
     await admissionChain(s, cfg),
     cfg.enrollments,
@@ -98,6 +96,11 @@ async function main() {
   if (command === "check-grant") {
     const envelope = JSON.parse(await Deno.readTextFile(statePath));
     require(
+      nodeBindingSigner(cfg.escrow, envelope.nodeBinding).toLowerCase() ===
+        cfg.grantSigner.toLowerCase(),
+      "binding signer",
+    );
+    require(
       grantSigner(cfg.escrow, envelope).toLowerCase() ===
         cfg.grantSigner.toLowerCase(),
       "grant signer",
@@ -105,11 +108,40 @@ async function main() {
     console.log(json(envelope.grant));
     return;
   }
+  if (command === "confirm") {
+    const state = JSON.parse(await Deno.readTextFile(statePath));
+    const snapshot = await confirmedTransactions(cfg, [state.txHash]);
+    console.log(json({
+      purchaseId: state.purchaseId,
+      txHash: state.txHash,
+      fundingHash: state.fundingHash,
+      paidWei: state.paidWei,
+      finalizedBlock: snapshot.block.hash,
+      confirmedAt: Math.floor(Date.now() / 1000),
+    }));
+    return;
+  }
   require(args.includes("--send"), "transaction commands require --send");
   if (command === "buy") {
     const [fundingPath, nodePath, buyerKey, amount] = args;
-    const node = JSON.parse(await Deno.readTextFile(nodePath)),
-      checked = await inspect(cfg, node);
+    const target = JSON.parse(await Deno.readTextFile(nodePath));
+    const node = target.node;
+    const s = await new Quorum(cfg).snapshot(),
+      terms = await s.call("getNode", [node]);
+    require(
+      terms.operator !== "0x0000000000000000000000000000000000000000" &&
+        Number(terms.unit) === 1,
+      "compute class required",
+    );
+    require(
+      (await s.call("brokerSigner")).toLowerCase() ===
+        cfg.grantSigner.toLowerCase(),
+      "broker signer",
+    );
+    const checked = {
+      price: (await s.call("quote", [node])).toString(),
+      node: terms,
+    };
     require(
       /^[1-9][0-9]*$/.test(amount) && BigInt(amount) <= 600n,
       "seconds 1..600",
@@ -119,7 +151,7 @@ async function main() {
     await privateJSON(statePath, {
       payerKey: payer.privateKey,
       payer: payer.address,
-      node: node.payments.node,
+      node: node,
       buyerKey,
       amount,
       unit: 1,
@@ -133,12 +165,17 @@ async function main() {
       to: payer.address,
       value: paid + gas,
     });
+    const partial = JSON.parse(await Deno.readTextFile(statePath));
+    partial.fundingHash = fundingTx.hash;
+    await Deno.writeTextFile(statePath, json(partial), { mode: 0o600 });
     await fundingTx.wait();
     const buyer = payer.connect(provider),
       c = new Contract(cfg.escrow, abi, buyer);
-    const tx = await c.buy(node.payments.node, 1, amount, buyerKey, {
+    const tx = await c.buy(node, 1, amount, buyerKey, {
       value: paid,
     });
+    partial.txHash = tx.hash;
+    await Deno.writeTextFile(statePath, json(partial), { mode: 0o600 });
     const mined = await tx.wait();
     const event = mined.logs.map((l) => {
       try {
@@ -151,12 +188,13 @@ async function main() {
     const state = {
       payerKey: payer.privateKey,
       payer: payer.address,
-      node: node.payments.node,
+      node: node,
       buyerKey,
       amount,
       unit: 1,
       purchaseId: event.args.purchaseId.toString(),
       txHash: tx.hash,
+      fundingHash: fundingTx.hash,
       paidWei: paid.toString(),
       operator: checked.node.operator,
       floorPrice: checked.node.floorPrice.toString(),
@@ -167,8 +205,24 @@ async function main() {
         purchaseId: state.purchaseId,
         txHash: state.txHash,
         paidWei: state.paidWei,
+        fundingHash: state.fundingHash,
       }),
     );
+    return;
+  }
+  if (command === "stop") {
+    const node = JSON.parse(await Deno.readTextFile(statePath));
+    const { wallet } = await sender(cfg, args[0]);
+    const expires = Math.floor(Date.now() / 1000) + 120;
+    console.log(json({
+      expires,
+      signature: await wallet.signTypedData(domain(cfg.escrow), {
+        Stop: [{ name: "node", type: "bytes32" }, {
+          name: "expires",
+          type: "uint64",
+        }],
+      }, { node: node.payments.runId, expires }),
+    }));
     return;
   }
   const state = JSON.parse(await Deno.readTextFile(statePath));
@@ -183,7 +237,7 @@ async function main() {
       p = await s.call("getPurchase", [state.purchaseId]);
     require(
       receiptSigner(cfg.escrow, envelope).toLowerCase() ===
-        p.receiptSigner.toLowerCase(),
+        envelope.nodeBinding.binding.receiptSigner.toLowerCase(),
       "receipt signer mismatch",
     );
     const settlement = await settle(cfg, contract, [envelope]);

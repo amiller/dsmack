@@ -22,8 +22,9 @@ contract PaymentsLoop {
  receive() external payable {}
  function testFullLoopPriceCutoffSettlementAndRefund() external {
   vm.chainId(84532);vm.warp(120000);vm.deal(address(this),1 ether);vm.deal(BUYER,1 ether);
-  UsageEscrow e=new UsageEscrow(address(this));
-  e.registerNode(NODE,OPERATOR,vm.addr(123),keccak256("attested memory key"),1,1000,30,uint64(block.timestamp+86400));
+  UsageEscrow e=new UsageEscrow(address(this));e.registerBroker(vm.addr(321));
+  e.registerNode(NODE,OPERATOR,1,1000,30,keccak256("compose"),keccak256("image"));
+  UsageEscrow.NodeBinding memory b=UsageEscrow.NodeBinding(NODE,OPERATOR,vm.addr(123),keccak256("compose"),keccak256("image"),keccak256("run"),uint64(block.timestamp+600));
   uint256 initial=e.quote(NODE);
   e.buy{value:30*initial}(NODE,1,30,keccak256("buyer 1"));
   vm.prank(BUYER);e.buy{value:30*initial}(NODE,1,30,keccak256("buyer 2"));
@@ -32,7 +33,7 @@ contract PaymentsLoop {
   vm.warp(block.timestamp+4);
   UsageEscrow.Receipt[] memory receipts=new UsageEscrow.Receipt[](1);receipts[0]=UsageEscrow.Receipt(id,1,4,uint64(block.timestamp),true);
   bytes[] memory sigs=new bytes[](1);(uint8 v,bytes32 r,bytes32 s)=vm.sign(123,e.receiptDigest(receipts[0]));sigs[0]=abi.encodePacked(r,s,v);
-  e.settle(receipts,sigs);
+  e.settle(receipts,sigs,b,brokerSig(e,b));
   require(e.getPurchase(id).closed && e.getPurchase(id).used==4,"final usage cutoff");
   require(e.credits(OPERATOR)==4000,"operator floor payout");require(e.lockedPremium()==4*(peak-initial),"premium locked");
   uint256 beforeOperator=OPERATOR.balance;vm.prank(OPERATOR);e.withdraw();require(OPERATOR.balance-beforeOperator==4000,"operator receives ETH");
@@ -45,16 +46,19 @@ contract PaymentsLoop {
  function testGuestReceiptSettlesInContract() external {settleFixture("guest-interop.json");}
  function testComputeCutoffSettlesInContract() external {settleFixture("compute-cutoff.json");}
  function testComputeUnusedRefundSettlesInContract() external {settleFixture("compute-unused.json");}
+ function brokerSig(UsageEscrow e,UsageEscrow.NodeBinding memory b) internal returns(bytes memory) {(uint8 v,bytes32 r,bytes32 s)=vm.sign(321,e.bindingDigest(b));return abi.encodePacked(r,s,v);}
  function settleFixture(string memory name) internal {
   string memory f=vm.readFile(name);
   vm.chainId(84532);vm.warp(vm.parseJsonUint(f,".receipt.receipt.endedAt")-1);vm.deal(address(this),1 ether);
   UsageEscrow template=new UsageEscrow(address(this));address addressPin=vm.parseJsonAddress(f,".escrow");
   vm.etch(addressPin,address(template).code);UsageEscrow e=UsageEscrow(addressPin);
   require(e.owner()==address(this),"owner immutable");
+  e.registerBroker(vm.addr(321));
   bytes32 node=vm.parseJsonBytes32(f,".registration.node");
   address signer=vm.parseJsonAddress(f,".registration.receiptSigner");
   bytes32 buyer=vm.parseJsonBytes32(f,".grant.grant.buyerKey");
-  e.registerNode(node,OPERATOR,signer,keccak256("attested receipt binding"),1,1000,30,uint64(block.timestamp+3600));
+  e.registerNode(node,OPERATOR,1,1000,30,keccak256("compose"),keccak256("image"));
+  UsageEscrow.NodeBinding memory b=UsageEscrow.NodeBinding(node,OPERATOR,signer,keccak256("compose"),keccak256("image"),vm.parseJsonBytes32(f,".registration.runId"),uint64(block.timestamp+600));
   // etch skips constructor storage initialization; consume ID zero before the signed ID one.
   uint128 amount=uint128(vm.parseUint(vm.parseJsonString(f,".grant.grant.amount")));
   e.buy{value:uint256(amount)*1000}(node,1,amount,buyer);
@@ -64,7 +68,7 @@ contract PaymentsLoop {
   receipts[0]=UsageEscrow.Receipt(id,uint64(vm.parseJsonUint(f,".receipt.receipt.sequence")),
     uint128(vm.parseUint(vm.parseJsonString(f,".receipt.receipt.used"))),uint64(block.timestamp),true);
   require(e.receiptDigest(receipts[0])==vm.parseJsonBytes32(f,".receiptDigest"),"Go and Solidity receipt digests differ");
-  bytes[] memory sigs=new bytes[](1);sigs[0]=vm.parseJsonBytes(f,".receipt.signature");e.settle(receipts,sigs);
+  bytes[] memory sigs=new bytes[](1);sigs[0]=vm.parseJsonBytes(f,".receipt.signature");e.settle(receipts,sigs,b,brokerSig(e,b));
   require(e.credits(OPERATOR)==uint256(receipts[0].used)*1000 && e.credits(address(this))==uint256(amount-receipts[0].used)*1000,"compute receipt operator and refund credits");
   emit Evidence("Go signed receipt settled wei",uint256(receipts[0].used)*1000);
 

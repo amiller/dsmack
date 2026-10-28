@@ -4,6 +4,7 @@
 service.py CONFIG FUNDING_KEY STATE_DIR PORT
 """
 import http.server
+from contextlib import nullcontext
 import json
 from pathlib import Path
 import re
@@ -30,9 +31,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 raise ValueError('state ID')
             state=storage/state_id;state.mkdir(mode=0o700,exist_ok=True)
             argv=['deno','run','--allow-read','--allow-write','--allow-net','--allow-env',str(cli),command,str(config)]
-            if command in ('inspect','check-grant'):
+            if command in ('inspect','check-grant','stop'):
                 path=state/(command+'.json');path.write_text(json.dumps(request['value']))
                 argv.append(str(path))
+                if command=='stop':argv += [str(funding),'--send']
+            elif command=='confirm':
+                argv.append(str(state/'buyer.json'))
             elif command=='buy':
                 if not re.fullmatch('0x[0-9a-fA-F]{64}',request['buyerKey']) or not 1<=int(request['amount'])<=600:
                     raise ValueError('buyer allowance')
@@ -44,7 +48,7 @@ class Handler(http.server.BaseHTTPRequestHandler):
             else:
                 raise ValueError('unknown payment command')
             # Funding wallet nonces are serialized; buyer transactions use fresh keys.
-            with mutation:
+            with (mutation if command in ('buy','finish') else nullcontext()):
                 result=subprocess.run(argv,capture_output=True,timeout=3700)
             if result.returncode:
                 (state/(command+'.log')).write_bytes(result.stderr)

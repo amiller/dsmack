@@ -21,11 +21,12 @@ def validator():
 
 def project(raw,v,now):
  need(isinstance(raw,bytes)and 0<len(raw)<=1048576)
+ if raw.strip().startswith(b'sk-ant-oat01-'):return v.canonical_env_value(v.parse_credential_source(raw)).encode()
  document=json.loads(raw,object_pairs_hook=unique,parse_constant=lambda _:(_ for _ in()).throw(ValueError('nonfinite')))
  need(isinstance(document,dict)and isinstance(document.get('claudeAiOauth'),dict));oauth=document['claudeAiOauth']
  selected={'claudeAiOauth':{k:oauth[k]for k in v.ACCEPTED_OAUTH_FIELDS if k in oauth}}
  encoded=json.dumps(selected,sort_keys=True,separators=(',',':'),allow_nan=False).encode()
- parsed=v.parse_subscription_document(encoded);need(parsed['expiresAt']/1000-now>=1200)
+ parsed=v.parse_subscription_document(encoded);need('expiresAt' not in parsed or parsed['expiresAt']/1000-now>=1200)
  return encoded
 
 class Arguments(argparse.ArgumentParser):

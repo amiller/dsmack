@@ -21,6 +21,12 @@ from urllib.parse import quote
 import uuid
 
 TURNS = Path(__file__).resolve().parents[1]
+if len(sys.argv) > 1 and sys.argv[1] == 'run-remote':
+    sys.path.insert(0, str(TURNS.parent/'compute-node'))
+    import client
+    client.main(sys.argv[2:])
+    raise SystemExit(0)
+
 sys.path.insert(0, str(TURNS))
 import find
 import turn
@@ -46,7 +52,8 @@ D=$HOME/$1; T=$D/t/$2; S=$D/source
 ! pgrep -f 'dsmack-runner hvf' >/dev/null || { echo 'another VM is running on the Mac' >&2; exit 3; }; W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
 cd "$T"; mkdir -m700 private tmp; mkdir -m700 -p $D/r
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
-python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \
+C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
+python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
   --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp
@@ -84,7 +91,8 @@ D=$HOME/$1; T=$D/t/$2; S=$D/source
 W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
 cd "$T"; mkdir -m700 private tmp
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
-python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \
+C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
+python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
   --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp > stage.json

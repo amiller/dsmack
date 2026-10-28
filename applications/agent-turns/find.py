@@ -174,13 +174,15 @@ def agent_run(cli, agent, text, cwd, run, endpoint, check_version):
         env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'TMPDIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
                'LANG': 'C.UTF-8', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                'DISABLE_AUTOUPDATER': '1', 'ANTHROPIC_BASE_URL': endpoint,
-               'ANTHROPIC_AUTH_TOKEN': endpoint.rsplit('/', 1)[1]}
+               'CLAUDE_CODE_OAUTH_TOKEN': endpoint.rsplit('/', 1)[1]}
+        if endpoint == 'https://api.anthropic.com':
+            env['CLAUDE_CODE_OAUTH_TOKEN'] = os.environ['CLAUDE_CODE_OAUTH_TOKEN']
+            env['HTTPS_PROXY'] = os.environ['HTTPS_PROXY']
         if check_version:
             version = subprocess.run([str(cli), '--version'], env=env, capture_output=True, check=True)
             require(version.stdout.split()[0].decode() == agent['cli_version'], 'CLI version')
         stdout, stderr, code, failure = bounded_process(cli_command(cli, agent, text), cwd, env, agent['wall_seconds'])
     Path(f'{run}-transcript').write_bytes(stdout)
-    Path(f'{run}-stderr').write_bytes(stderr)
     require(not failure and code == 0, f'{run.name}: CLI {failure or "exit " + str(code)}')
     return observe(stdout, agent)
 
@@ -264,10 +266,9 @@ def main():
     args = parser.parse_args()
     inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
     request = args.spec.read_bytes()
-    verdict = run(json.loads(request), inputs, args.output, args.cli)
+    run(json.loads(request), inputs, args.output, args.cli)
     if args.attest:
         attest(report(request, args.output), args.output)
-    print(json.dumps(verdict, indent=2))
 
 
 if __name__ == '__main__':

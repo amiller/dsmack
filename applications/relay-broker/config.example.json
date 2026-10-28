@@ -1,0 +1,7 @@
+{
+  "rpc": "https://sepolia.base.org",
+  "attest": "0xdd86D0da349104534AbE7155DBc04D33B74C0A53",
+  "canary": "0xdC66c90291973167126a3c4455D5A6064634f3B1",
+  "workloads": [],
+  "client_command": "python3 applications/egress-relay/demo.py --binary ./dsmack-egress --peer {relay_maddr} --broker-url https://BROKER_HOST/relay-broker --client-key client.key --out relay-demo --url https://ip.me -- python3 applications/libp2p-attest/verify.py --enrollment ./enrollment --manifest ./compose-manifest.json --cdhash {cdhash} --os-image {os_image_hash}"
+}

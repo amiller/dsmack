@@ -39,11 +39,14 @@ hostnet NEVER Docker host networking, fixed nonroot user, array-only
 argv, '$'-free generated configuration (caller values escaped '$$').
 """
 
+import ipaddress
+
 from .canonical import canonical_bytes, load_json_bytes
 from .errors import LoweringError
 from .manifest import (
     ARTIFACTS_ROOT,
     DSTACK_SOCK_VOLUME,
+    DSMACK_RUNTIME_VOLUMES,
     DEFAULT_USER_CONFIG_TARGET,
     INPUTS_ROOT,
     RUN_ID_RE,
@@ -202,6 +205,7 @@ def lower(
         },
         "mounts_by_service": services_lowered,
         "network_mode": network_mode,
+        "egress_nftables": render_egress_rules(manifest),
         "platform": _platform_string(manifest["image_platform"]),
         "ports": ports,
         "project_name": project_name,
@@ -431,6 +435,12 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": "/var/run/dstack.sock", "type": "bind"}
         )
+    for volume in _compose_doc(manifest)["services"][service_name].get("volumes", []):
+        if volume in DSMACK_RUNTIME_VOLUMES:
+            mounts.append(
+                {"create_host_path": False, "mode": volume.rsplit(":", 1)[1], "slot": "runtime",
+                 "source": "/run/dsmack", "target": "/run/dsmack", "type": "bind"}
+            )
     if manifest["network"]["mode"] != "none":
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "resolv", "source": GUEST_RESOLV_CONF, "target": "/etc/resolv.conf", "type": "bind"}
@@ -463,6 +473,34 @@ def local_image_ref(image):
     if rest and ("." in host or ":" in host or host == "localhost"):
         image = rest
     return LOCAL_REGISTRY + "/" + image
+
+
+def render_egress_rules(manifest):
+    """Guest-wide policy, installed atomically before any workload starts.
+
+    Both forwarded container packets and guest processes (including brokers)
+    must match the measured destination tuples. Only loopback and replies to
+    inbound connections bypass those tuples. An inet table also denies IPv6.
+    """
+    rules = [
+        "add table inet dsmack_egress",
+        "delete table inet dsmack_egress",
+        "table inet dsmack_egress {",
+    ]
+    for hook in ("output", "forward"):
+        rules += [
+            " chain %s {" % hook,
+            "  type filter hook %s priority -10; policy drop;" % hook,
+        ]
+        if hook == "output":
+            rules.append('  oifname "lo" accept')
+        rules.append("  ct direction reply ct state established,related accept")
+        for entry in manifest["network"].get("egress", []):
+            net = ipaddress.ip_network(entry["destination"], strict=True)
+            rules.append("  %s daddr %s %s dport %d counter accept" % (
+                "ip" if net.version == 4 else "ip6", net, entry["protocol"], entry["port"]))
+        rules += ["  counter drop", " }"]
+    return "\n".join(rules + ["}", ""])
 
 
 def _lower_network(manifest):

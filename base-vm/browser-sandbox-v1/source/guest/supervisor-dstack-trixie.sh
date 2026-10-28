@@ -35,7 +35,8 @@ CLOSURE_FAILED=0
 # All shell-interpolated status values are escaped before reaching console.
 # Raw closure framing is reserved to the final measured helper alone.
 echo() { printf '%s\n' "$*" | python3 -c 'import sys; b=sys.stdin.buffer.read(); sys.stdout.buffer.write(b[:-1].replace(b"\\",b"\\\\").replace(b"\r",b"\\r").replace(b"\n",b"\\n").replace(b"\x00",b"\\0")+b"\n")'; }
-diag() { if [ "$#" -gt 0 ]; then python3 -m dsmack_guest_io.closure diagnostic <"$1"; else python3 -m dsmack_guest_io.closure diagnostic; fi; }
+# Diagnostics can contain workload-controlled text. Keep them on guest tmpfs.
+diag() { if [ "$#" -gt 0 ]; then cat "$1"; else cat; fi >>/run/dsmack-diagnostics; }
 # Fixed measured install locations, shared with the installed CLI wrappers.
 # Do not inherit caller or workload Python module search paths.
 export PYTHONPATH=/usr/local/lib/dsmack/guest-io:/usr/local/lib/dsmack/compose-runner:/usr/local/lib/dsmack/compose-runner/lib
@@ -97,11 +98,22 @@ for need in cpu memory pids; do
 done
 mem mounts_ok
 
-# Ephemeral docker data: fresh scratch disk (vdb), mkfs'd by the launcher for THIS run.
-# The verity squashfs root stays read-only; all docker/container state lives on vdb.
-$B mkdir -p /var/lib/docker
-$B mount -t ext4 -o noatime /dev/vdb /var/lib/docker || fail 7
-echo "DSMACK_SUPERVISOR_SCRATCH_OK $(grep vdb /proc/mounts)"
+# Docker state is encrypted before any container is created. cryptsetup reads a
+# fresh 512-bit key directly from guest randomness; no key file or argv value.
+$B mkdir -p /var/lib/docker /run/dsmack
+chmod 0700 /run/dsmack
+chown 1000:1000 /run/dsmack
+cryptsetup --batch-mode open --type plain --cipher aes-xts-plain64 --key-size 512 \
+  --key-file /dev/random /dev/vdb dsmack-scratch || fail 7
+mkfs.ext4 -q -F /dev/mapper/dsmack-scratch >/run/scratch-mkfs.out 2>&1 || fail 7
+$B mount -t ext4 -o noatime /dev/mapper/dsmack-scratch /var/lib/docker || fail 7
+{
+  lsblk -o NAME,TYPE,FSTYPE,MOUNTPOINTS
+  cryptsetup status dsmack-scratch
+  dmsetup status dsmack-scratch
+} >/run/dsmack/scratch-info 2>&1 || fail 7
+chmod 0444 /run/dsmack/scratch-info
+echo "DSMACK_SUPERVISOR_SCRATCH_OK encrypted"
 
 # R1: owned export disk (vdd): runner receipts/summaries/artifacts (fresh ext4
 # per run). The mountpoint must be on the WRITABLE tmpfs /run — the squashfs
@@ -232,7 +244,8 @@ sha256sum -c SHA256SUMS >/dev/null 2>&1 || fail 23
 # public workload must carry NO envelopes/ or broker/ channel; a vdc that
 # does (an alternate/forged image whose own SHA256SUMS self-verifies) is
 # refused as a WHOLE-channel violation, not merely one credential pathname.
-# The ONLY source of private runtime inputs/credentials is the unmeasured vde.
+# Legacy private runtime envelopes arrive on vde; compute jobs arrive over the
+# in-guest network channel. The sentinel credential lives on tmpfs.
 if [ -d /run/appcompose/envelopes ] || [ -d /run/appcompose/broker ]; then
   echo "DSMACK_WORKLOAD_PRIVATE_ON_VDC a private channel (envelopes/ or broker/) is present on the measured vdc; refusing"
   fail 25
@@ -308,7 +321,7 @@ fi
 # bounds, serves it read-only on loopback, and the guest dockerd pulls BY DIGEST
 # so the RepoDigest D is preserved -- no host Docker, no public upload, and no
 # caller-provided helper from vdc is ever executed. The same measured code runs
-# on Zed and Mini (reconciled endpoint = 127.0.0.1:<port>, not 10.0.2.2:5005).
+# on Linux and macOS (reconciled endpoint = 127.0.0.1:<port>, not 10.0.2.2:5005).
 GUESTIO=/usr/local/bin/dsmack-guest-io
 SCRATCH_PROBE_PID=""
 stop_scratch_probe() {
@@ -482,34 +495,18 @@ sys.exit(0 if (m.get("credentials") or {}).get("required") else 1)
 PY
 }
 
-# R02/S03: launch the per-run sentinel AUTHORIZED BY THE VALIDATED MANIFEST,
-# derive the workload-reachable endpoint, and set BROKER_ENDPOINT. Broker
-# inputs are delivered on the PRIVATE vde disk under $PRIV/broker/<name>/ (a
-# 0600 credential file + broker-config.json binding listen_port/workload_host/
-# provider_route/ca_bundle/auth_mode — NO token: the per-run capability token
-# is freshly generated HERE). The broker-config AND the credential are OFF the
-# measured vdc; the credential NEVER reaches the runner or the workload, and is
-# NEVER listed in any public checksum inventory. Honest explicit dependency: if
-# a credential is REQUIRED but not delivered (no vde, or missing entry), emit
-# DSMACK_BROKER_MISSING and return nonzero (does NOT block credential-free
-# manifests).
+# The compute node writes this tmpfs file as 0400, owned by the sentinel uid.
+# Legacy private-input disks still carry runtime envelopes, never the sentinel
+# credential. The validated manifest supplies the provider policy.
 start_broker() {  # $1=name $2=validated-manifest-path
   BROKER_ENDPOINT=""; BROKER_PID=""
-  if [ -z "$PRIV" ]; then
-    echo "DSMACK_BROKER_MISSING $1 (no vde private-input disk; credential is a live dependency)"
-    return 1
-  fi
-  bdir="$PRIV/broker/$1"; cfg="$bdir/broker-config.json"
-  if [ ! -f "$cfg" ] || [ ! -f "$bdir/credential" ]; then
-    echo "DSMACK_BROKER_MISSING $1 (no delivered broker inputs on vde; credential is a live dependency)"
+  if [ ! -f /run/dsmack/credential ]; then
+    echo "DSMACK_BROKER_MISSING credential-not-ready"
     return 1
   fi
   # S03: AUTHORIZATION TARGET is the VALIDATED manifest (the runner has already
-  # validated these bytes rc=0): the sentinel may only receive the credential
-  # for exactly the provider route + credential profile the admitted manifest
-  # declares, over the MEASURED image CA bundle. Comparing broker-config to
-  # itself establishes nothing; comparing it to the manifest establishes that
-  # a substituted HTTPS route can never be handed this run's credential.
+  # validated these bytes rc=0): bind the provider route and credential
+  # profile to those bytes and use the measured image CA bundle.
   mroute=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["credentials"]["adapter"]["provider_route"])' "$2" 2>/dev/null) \
     || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 manifest-route-unreadable"; return 1; }
   mprofile=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["credentials"]["adapter"]["profile"])' "$2" 2>/dev/null) \
@@ -519,33 +516,17 @@ start_broker() {  # $1=name $2=validated-manifest-path
     claude-api-key/1)      mmode=api-key ;;
     *) echo "DSMACK_BROKER_POLICY_MISMATCH $1 unsupported-profile"; return 1 ;;
   esac
-  port=$(python3 -c 'import json,sys;print(int(json.load(open(sys.argv[1]))["listen_port"]))' "$cfg" 2>/dev/null) || return 1
-  route=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["provider_route"])' "$cfg" 2>/dev/null) || return 1
-  ca=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["ca_bundle"])' "$cfg" 2>/dev/null) || return 1
-  whost=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["workload_host"])' "$cfg" 2>/dev/null) || return 1
-  mode=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("auth_mode","api-key"))' "$cfg" 2>/dev/null) || mode=api-key
-  [ "$route" = "$mroute" ] || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 route-not-manifest-route"; return 1; }
-  [ "$mode" = "$mmode" ] || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 auth-mode-not-manifest-profile"; return 1; }
-  [ "$ca" = "/etc/ssl/certs/ca-certificates.crt" ] || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 ca-not-measured-image-bundle"; return 1; }
-  # S03: the staged config must NOT carry a capability token, and the
-  # credential bytes must NOT appear in the public checksum inventory.
-  python3 -c 'import json,sys;sys.exit(1 if "token" in json.load(open(sys.argv[1])) else 0)' "$cfg" \
-    || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 staged-config-carries-token"; return 1; }
-  if grep -q "broker/$1/credential" "$APP/SHA256SUMS" 2>/dev/null; then
-    echo "DSMACK_BROKER_POLICY_MISMATCH $1 credential-listed-in-checksum-inventory"; return 1
-  fi
+  port=5100; whost=172.17.0.1
+  route="$mroute"; mode="$mmode"; ca=/etc/ssl/certs/ca-certificates.crt
   # S03: FRESH per-run capability token, generated here at run scope — never
   # staged, never reused across runs, dies with the sentinel instance.
   token=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))') || return 1
-  ready="/run/broker-$1.ready"; rm -f "$ready"
-  # --broker-config re-binds route+CA to the staged config (sentinel refuses a
-  # mismatch); the supervisor has ALREADY bound that config to the validated
-  # manifest above, so the chain is manifest -> config -> sentinel arguments.
-  # Credential read once from a 0600 file; teardown on SIGTERM.
-  python3 "$SENTINEL" --run-id "guest-$1-$$" --token "$token" \
+  ready="/run/dsmack/broker-$1.ready"; rm -f "$ready"
+  # Credential read once from tmpfs; teardown on SIGTERM.
+  python3 -c 'import os,runpy,sys; os.setgroups([]); os.setgid(1000); os.setuid(1000); sys.argv=sys.argv[1:]; runpy.run_path(sys.argv[0],run_name="__main__")' "$SENTINEL" --run-id "guest-$1-$$" --token "$token" \
     --listen-host 0.0.0.0 --listen-port "$port" \
     --provider-route "$route" --ca-bundle "$ca" --auth-mode "$mode" \
-    --credential-file "$bdir/credential" --broker-config "$cfg" \
+    --credential-file /run/dsmack/credential \
     --ready-file "$ready" >"$DIAG/$1.sentinel.err" 2>&1 &
   BROKER_PID=$!
   i=0
@@ -607,6 +588,10 @@ for mf in $APP/manifests/*.app-compose.json; do
   vrc=$?
   echo "DSMACK_RUNNER_VALIDATE $name rc=$vrc"
   [ $vrc -eq 0 ] || { runner_rc_total=1; echo "DSMACK_RUNNER_EXIT $name rc=$vrc phase=validate"; continue; }
+  # Filter guest output AND Docker forwarding before brokers or compose start.
+  # A failed atomic nft transaction aborts the VM; never run with open NAT.
+  python3 -m dsmack_compose_contract.egress "$mf" >>/run/dsmack-diagnostics 2>&1 || fail 34
+  echo "DSMACK_EGRESS_APPLIED $name"
   ENVELOPE_ARG=""
   # Versioned measured public data for credential-free browser preset only.
   # The helper rejects competing private input, arbitrary public env/broker data,
@@ -663,6 +648,7 @@ for mf in $APP/manifests/*.app-compose.json; do
   stop_broker
   [ $rrc -eq 0 ] || runner_rc_total=1
   echo "DSMACK_RUNNER_EXIT $name rc=$rrc phase=run"
+  nft list table inet dsmack_egress >>/run/dsmack-diagnostics || fail 34
   # R06: record the receipt the EXPORTER actually wrote on the result disk
   # (acceptance checks exactly these canonical bytes).
   if [ $rrc -eq 0 ] && [ -f "$EXPORT/$name/receipt.json" ]; then

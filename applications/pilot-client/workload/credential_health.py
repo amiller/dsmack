@@ -28,7 +28,8 @@ def load_validator(path):
 HOST='api.anthropic.com';PATH='/api/oauth/profile';MAX=65536
 
 def health(source,validator_source,ca='/etc/ssl/cert.pem',connection=None):
- protected(Path(source).parent);v=load_validator(validator_source);oauth=v.parse_subscription_document(regular(source,65536,True));ttl=int(oauth['expiresAt']/1000-time.time())
+ protected(Path(source).parent);v=load_validator(validator_source);oauth=v.parse_credential_source(regular(source,65536,True));ttl=int(oauth['expiresAt']/1000-time.time()) if 'expiresAt' in oauth else None
+ if ttl is None:return {'schema':'dsmack-private-credential-health/1','http_status':None,'category':'inference_only','remaining_lifetime_seconds':None,'credential_hashed':False,'response_exported':False,'refresh_performed':False,'model_calls':False}
  conn=(connection or http.client.HTTPSConnection)(HOST,timeout=10,context=ssl.create_default_context(cafile=ca))
  status=None;category='transport_unknown';old=signal.getsignal(signal.SIGALRM);need(signal.getitimer(signal.ITIMER_REAL)==(0.0,0.0),'no ambient timer')
  def expired(*_):raise TimeoutError()

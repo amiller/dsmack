@@ -25,7 +25,7 @@ env:
 jobs:
   derive:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - id: cache
@@ -43,6 +43,8 @@ jobs:
           gh release download v0.2.0-canary.1 -R "$GITHUB_REPOSITORY" -D inputs/b44 -p config-6.18.40-dstack
           gh release download v0.2.0-canary.1 -R "$GITHUB_REPOSITORY" -D inputs/templates \
             -p disk-templates.json -p scratch-template.ext4.gz -p result-template.ext4.gz
+      - name: Download kernel source
+        run: curl -fL --retry 3 -o inputs/linux-6.18.40.tar.xz https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.40.tar.xz
       - name: Verify B44 base
         run: |
           echo "$B44  inputs/b44/sha256sum.txt" | sha256sum -c
@@ -57,7 +59,7 @@ jobs:
         shell: bash
         run: |
           python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
-            --base-bundle inputs/b44 --templates templates --out derive | tee derive.json
+            --base-bundle inputs/b44 --templates templates --kernel-source inputs/linux-6.18.40.tar.xz --out derive | tee derive.json
           sha256sum derive/build/legs/diagnostic/files/*
           got=$(jq -r .image_sha256 derive.json)
           want=$(cat base-vm/browser-sandbox-v1/image.sha256)

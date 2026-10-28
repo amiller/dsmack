@@ -2,7 +2,7 @@ import json,pathlib,tempfile,unittest
 from unittest.mock import patch
 import credential_health as h
 class V:
- def parse_subscription_document(self,b):return {'accessToken':'DUMMY-PRIVATE','expiresAt':4102444800000}
+ def parse_credential_source(self,b):return {'accessToken':'DUMMY-PRIVATE','expiresAt':4102444800000}
 class Connection:
  status=200;calls=[];closed=False
  def __init__(self,host,**kwargs):assert host=='api.anthropic.com'
@@ -17,6 +17,12 @@ class Tests(unittest.TestCase):
    with patch.multiple(h,protected=lambda _:None,regular=lambda *_:b'dummy',load_validator=lambda _:V()),patch.object(h.ssl,'create_default_context',return_value=None):v=h.health('/private/doc','unused',connection=Connection)
    self.assertEqual(v['category'],category);self.assertNotIn('PRIVATE',json.dumps(v));self.assertFalse(v['refresh_performed']);self.assertTrue(Connection.closed)
   self.assertTrue(all(x==('GET','/api/oauth/profile')for x in Connection.calls))
+ def test_inference_only_skips_profile_scope(self):
+  class Inference:
+   def parse_credential_source(self,b):return {'accessToken':'DUMMY-PRIVATE'}
+  with patch.multiple(h,protected=lambda _:None,regular=lambda *_:b'dummy',load_validator=lambda _:Inference()),patch.object(h.http.client,'HTTPSConnection')as connection:
+   v=h.health('/private/doc','unused');connection.assert_not_called()
+  self.assertEqual(v['category'],'inference_only');self.assertIsNone(v['remaining_lifetime_seconds'])
  def test_transport_error_redacted(self):
   class Fail(Connection):
    def request(self,*a,**kw):raise OSError('DUMMY-PRIVATE')

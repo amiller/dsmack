@@ -61,8 +61,8 @@ export class Quorum {
               controller.abort();
               resolve(group.value);
             }
-          } catch {
-            /* A failed provider has no vote. */
+          } catch (e) {
+            errors.push(new URL(url).hostname + ": " + e.message);
           } finally {
             remaining--;
             if (!remaining && !done) {

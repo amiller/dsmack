@@ -94,10 +94,11 @@ type Config struct {
 	EnrollmentKeyID       string `json:"enrollmentKeyId"`
 	BuildID               string `json:"buildId"`
 	DestinationPolicyHash string `json:"destinationPolicyHash"`
-	RunExpires            int64  `json:"runExpires"`
+	RunSeconds            int64  `json:"runSeconds"`
 }
 type Registration struct {
 	Config
+	RunExpires    int64  `json:"runExpires"`
 	RunID         string `json:"runId"`
 	RunNonce      string `json:"runNonce"`
 	ReceiptSigner string `json:"receiptSigner"`
@@ -122,8 +123,8 @@ func New(cfg Config) (*Meter, error) {
 			return nil, e
 		}
 	}
-	if cfg.RunExpires <= time.Now().Unix() {
-		return nil, fmt.Errorf("paid run expired")
+	if cfg.RunSeconds < 1 || cfg.RunSeconds > 660 {
+		return nil, fmt.Errorf("paid run seconds must be 1..660")
 	}
 	key, e := secp.GeneratePrivateKey()
 	if e != nil {
@@ -134,7 +135,7 @@ func New(cfg Config) (*Meter, error) {
 		return nil, e
 	}
 	kid, _ := raw(cfg.EnrollmentKeyID, 32)
-	return &Meter{Registration: Registration{Config: cfg, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
+	return &Meter{Registration: Registration{Config: cfg, RunExpires: time.Now().Unix() + cfg.RunSeconds, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
 }
 func (m *Meter) Binding(peer, compose, image string) ([]byte, error) {
 	escrow, _ := raw(m.Escrow, 20)

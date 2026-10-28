@@ -9,6 +9,7 @@ export class Quorum {
       codeHash,
       now = () => Math.floor(Date.now() / 1000),
       fetcher = fetch,
+      rpcIpv4 = false,
     },
   ) {
     require(
@@ -22,10 +23,14 @@ export class Quorum {
       "escrow and deployed code hash pins required",
     );
     Object.assign(this, { rpcs, escrow, codeHash, now, fetcher });
+    this.client = rpcIpv4
+      ? Deno.createHttpClient({ localAddress: "0.0.0.0" })
+      : undefined;
   }
   async rpc(url, method, params, signal) {
     const r = await this.fetcher(url, {
       method: "POST",
+      client: this.client,
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method, params }),
       signal: signal

@@ -12,6 +12,7 @@ const cfg = {
   escrow: deployment.address,
   codeHash: deployment.runtimeKeccak,
   rpcs: RPCS,
+  rpcIpv4: true,
   fundingAddress: deployment.fundingWallet,
   grantSigner,
   destinationPolicyHash,

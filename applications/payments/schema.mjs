@@ -10,6 +10,7 @@ import {
 } from "npm:ethers@6.17.0";
 export {
   Contract,
+  FetchRequest,
   formatEther,
   getAddress,
   JsonRpcProvider,

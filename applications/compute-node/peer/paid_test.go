@@ -41,7 +41,7 @@ func testPaidJob(t *testing.T, cutoff, storageFailure bool) {
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
 	// Keccak public-key address: reuse libp2p's secp implementation is unnecessary.
 	pubHash := keccakForTest(coordinator.PubKey().SerializeUncompressed()[1:])
-	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x" + hex.EncodeToString(pubHash[12:]), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x" + hex.EncodeToString(pubHash[12:]), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660})
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -138,7 +138,7 @@ func keccakForTest(b []byte) []byte { h := sha3.NewLegacyKeccak256(); h.Write(b)
 
 func TestFinalReceiptIncludesTimeWaitingForCheckpointAck(t *testing.T) {
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x2000000000000000000000000000000000000002", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunExpires: time.Now().Unix() + 3600})
+	m, e := payments.New(payments.Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x2000000000000000000000000000000000000002", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660})
 	if e != nil {
 		t.Fatal(e)
 	}

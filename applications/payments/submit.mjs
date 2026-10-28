@@ -2,6 +2,7 @@ import {
   abi,
   CHAIN,
   Contract,
+  FetchRequest,
   json,
   JsonRpcProvider,
   nodeBindingSigner,
@@ -9,6 +10,34 @@ import {
   require,
   Wallet,
 } from "./schema.mjs";
+
+// Use Deno's TLS transport consistently for quorum reads and signed submissions.
+export function providerFor(cfg) {
+  const connection = new FetchRequest(cfg.rpcs[0]);
+  connection.allowGzip = false;
+  const client = cfg.rpcIpv4
+    ? Deno.createHttpClient({ localAddress: "0.0.0.0" })
+    : undefined;
+  connection.getUrlFunc = async (request) => {
+    const response = await fetch(request.url, {
+      client,
+      method: request.method,
+      headers: request.headers,
+      body: request.body,
+      signal: AbortSignal.timeout(Math.min(request.timeout, 30000)),
+    });
+    return {
+      statusCode: response.status,
+      statusMessage: response.statusText,
+      headers: Object.fromEntries(response.headers),
+      body: new Uint8Array(await response.arrayBuffer()),
+    };
+  };
+  return new JsonRpcProvider(connection, CHAIN, {
+    batchMaxCount: 1,
+    cacheTimeout: -1,
+  });
+}
 
 // This CLI sends transactions only when explicitly run with --send by its operator.
 export async function sender(cfg, keyPath, funding = true) {
@@ -18,10 +47,7 @@ export async function sender(cfg, keyPath, funding = true) {
   );
   const st = await Deno.stat(keyPath);
   require((st.mode & 0o077) === 0, "wallet key must be mode 600");
-  const provider = new JsonRpcProvider(cfg.rpcs[0], CHAIN, {
-    batchMaxCount: 1,
-    cacheTimeout: -1,
-  });
+  const provider = providerFor(cfg);
   require(
     Number((await provider.getNetwork()).chainId) === CHAIN,
     "Base Sepolia only",

@@ -1,11 +1,18 @@
 {
   "escrow": "0x0000000000000000000000000000000000000000",
   "codeHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
-  "rpcs": ["https://sepolia.base.org", "https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.drpc.org"],
+  "rpcs": [
+    "https://sepolia.base.org",
+    "https://base-sepolia-rpc.publicnode.com",
+    "https://base-sepolia.drpc.org"
+  ],
   "fundingAddress": "0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b",
   "grantSigner": "0x0000000000000000000000000000000000000000",
   "destinationPolicyHash": "0x0000000000000000000000000000000000000000000000000000000000000000",
   "attest": "0xdd86D0da349104534AbE7155DBc04D33B74C0A53",
   "canary": "0xdC66c90291973167126a3c4455D5A6064634f3B1",
-  "admissionCode": []
+  "admissionCode": [],
+  "classes": [
+    "0x0101010101010101010101010101010101010101010101010101010101010101"
+  ]
 }

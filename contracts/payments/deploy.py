@@ -17,6 +17,9 @@ CONTRACTS = Path(__file__).resolve().parents[1]
 
 
 def load_owner(key_path):
+    # Refuse the unrelated deployer file without opening it.
+    if Path(key_path).name == "deployer-new.key":
+        raise ValueError("use only the sprint funding wallet")
     # This is the FIRST operation: no RPC, build or transaction before identity check.
     try:
         raw = Path(key_path).read_text().strip()

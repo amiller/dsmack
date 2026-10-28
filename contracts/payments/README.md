@@ -1,8 +1,10 @@
 # Usage escrow
 
 `../src/UsageEscrow.sol` sells bounded byte or second allowances on Base Sepolia.
-An owner registers each attested node run with its payout address, receipt signer,
-floor price and epoch capacity target. Purchases pin those terms. Cumulative
+The owner registers a broker once and immutable node classes with payout,
+measurements, floor price and epoch capacity target. Purchases finalize before
+a VM starts. The broker verifies fresh guest attestation and signs each run
+binding; settlement verifies it after the VM exits. Cumulative
 EIP-712 guest receipts credit operators at the floor; congestion premiums stay
 locked. A final receipt refunds unused funds immediately; timeout refunds open
 one hour after purchase expiry. Payees pull credits with `withdraw()`.
@@ -26,7 +28,7 @@ bash contracts/payments/verify.sh 0xDEPLOYED_CONTRACT
 The signing process checks the owner address before network access, requires a
 finalized Base Sepolia RPC quorum, deploys, compares the deployed runtime against
 the compiled artifact. The funding wallet is the owner. Deployment requires
-0.02 testnet ETH and preserves a 0.005 ETH reserve.
+0.02 testnet ETH and preserves a 0.02 ETH reserve.
 Transaction hashes and receipts go under `payments-dir/contract/`. Source
 verification reads the existing API key at `~/.config/basescan/api-key`.
 `PAYMENTS_RPC_URLS` can name three comma-separated independently operated HTTPS

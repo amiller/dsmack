@@ -34,11 +34,14 @@ export class Quorum {
     });
     require(r.ok, "RPC HTTP " + r.status);
     const b = await r.json();
-    require(!b.error && b.result !== undefined, "RPC " + method + " failed");
+    require(
+      !b.error && b.result !== undefined,
+      "RPC " + method + " failed: " + (b.error?.message ?? "missing result"),
+    );
     return b.result;
   }
   async majority(method, params, urls = this.rpcs) {
-    const controller = new AbortController(), groups = new Map();
+    const controller = new AbortController(), groups = new Map(), errors = [];
     return await new Promise((resolve, reject) => {
       let remaining = urls.length, done = false;
       for (const url of urls) {
@@ -66,7 +69,8 @@ export class Quorum {
               done = true;
               reject(
                 new Error(
-                  "refused: RPC quorum disagreement/unavailable: " + method,
+                  "refused: RPC quorum disagreement/unavailable: " + method +
+                    "; " + errors.join("; "),
                 ),
               );
             }

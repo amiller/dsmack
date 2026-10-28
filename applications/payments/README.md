@@ -60,8 +60,8 @@ from pathlib import Path
 Path('local-data/payment-challenge.json').write_text(json.dumps({
   'challenge': secrets.token_hex(32), 'createdAt': int(time.time())}))
 PY
-./dsmack-compute paid-discover /NODE_CIRCUIT owner-libp2p.key \
-  < local-data/payment-challenge.json > local-data/payment-node.json
+python3 -c 'import json; p=json.load(open("local-data/payment-challenge.json")); print(json.dumps({"challenge":p["challenge"]}))' | \
+  ./dsmack-compute paid-discover /NODE_CIRCUIT owner-libp2p.key > local-data/payment-node.json
 bash applications/payments/admit-node.sh /path/to/payments/funding-wallet.key
 ```
 

@@ -82,7 +82,7 @@ class PaymentsScriptsTest(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, "disagrees"):
                 q.at("eth_getCode", ["0x" + "12" * 20], header)
 
-    def test_common_height_is_used_instead_of_mixed_finalized_heads(self):
+    def test_highest_quorum_finalized_height_ignores_a_lagging_provider(self):
         requested = []
         def query(url, method, params):
             result = self.responses(url, method, params)
@@ -91,10 +91,11 @@ class PaymentsScriptsTest(unittest.TestCase):
                     result["number"] = hex(256 + URLS.index(url))
                 else:
                     requested.append(params[0])
+                    result["number"] = params[0]
             return result
         with patch("rpc.call", query):
-            self.assertEqual(Quorum(URLS).finalized()["number"], "0x100")
-        self.assertEqual(requested, ["0x100"] * 3)
+            self.assertEqual(Quorum(URLS).finalized()["number"], "0x101")
+        self.assertEqual(requested, ["0x101"] * 2)
 
 
 if __name__ == "__main__":

@@ -69,12 +69,13 @@ class Quorum:
         if len(heights) < 2:
             raise RuntimeError("fewer than two finalized heads")
         # Read one common finalized height, never moving 'latest' state.
-        height = min(heights)
+        height = sorted(heights,reverse=True)[1]
+        self.urls=tuple(url for url,value,error in heads if not error and value and int(value['number'],16)>=height)
         headers = self.collect("eth_getBlockByNumber", [hex(height), False])
         normalized = [(url, {k: value[k] for k in ("number", "hash", "timestamp")} if value else None, error)
                       for url, value, error in headers]
         header, voters = self.majority(normalized)
-        if not header:
+        if not header or int(header["number"],16)!=height:
             raise RuntimeError("missing common finalized block")
         age = time.time() - int(header["timestamp"], 16)
         if age < -30 or age > 1800:

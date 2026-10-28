@@ -69,12 +69,15 @@ export class Quorum {
       r.value
     );
     require(good.length >= 2, "Base Sepolia finalized RPC quorum unavailable");
-    // Common height is never above any participating provider's finalized head.
-    const height = good.reduce(
-      (n, g) => BigInt(g.head.number) < n ? BigInt(g.head.number) : n,
-      BigInt(good[0].head.number),
+    // Choose the highest height finalized by at least two providers. A lagging
+    // third endpoint must not roll payment visibility back to an older balance.
+    const heights = good.map((g) => BigInt(g.head.number)).sort((a, b) =>
+      a > b ? -1 : a < b ? 1 : 0
     );
-    const urls = good.map((g) => g.url);
+    const height = heights[1];
+    const urls = good.filter((g) => BigInt(g.head.number) >= height).map((g) =>
+      g.url
+    );
     const block = await this.majority("eth_getBlockByNumber", [
       "0x" + height.toString(16),
       false,

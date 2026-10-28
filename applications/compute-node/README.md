@@ -8,10 +8,11 @@ boot, binds them with App Attest, and renews its broker registration every
 The image pins Claude Code 2.1.187. The measured compose sets `MODEL`
 to `claude-opus-4-8`. `worker.py` calls
 `agent-turns/find.py` for one edit turn. `/run/dsmack` points to the container's
-`/dev/shm` tmpfs; the worker checks the mount before opening a credential. Its
-sentinel reads `/run/dsmack/credential`, and both the credential and temporary
-work tree are removed after the job. The worker writes the credential with mode
-`0400`, owned by the user running the sentinel. Outputs travel over pipes and
+`/dev/shm` tmpfs; the worker checks the mount before opening a credential. The
+worker reads `/run/dsmack/credential` with mode `0400`. Inference-only tokens
+go to the CLI through `CLAUDE_CODE_OAUTH_TOKEN`; refreshable documents use the
+credential sentinel. The credential and temporary work tree are removed after
+the job. Outputs travel over pipes and
 are sealed before leaving the daemon. Result artifacts contain public registration, the
 last sealed result, and network probe outcomes.
 
@@ -40,8 +41,8 @@ The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
 The node dials that IP while preserving the HTTPS hostname for certificate
 verification. The guest allowlist contains exactly that endpoint, the circuit relay, and `192.168.100.3:18443`. Run the CONNECT proxy
 on zed with `python3 applications/compute-node/connect-proxy.py`. It permits
-only `CONNECT api.anthropic.com:443`; the sentinel verifies provider TLS in
-its guest process. Its measured `HTTPS_PROXY` config selects the tunnel.
+only `CONNECT api.anthropic.com:443`; the CLI or sentinel verifies provider TLS
+in its guest process. Its measured `HTTPS_PROXY` config selects the tunnel.
 
 Admit the resulting compose/image/CDHash tuple at the broker, then launch the
 workload using the installed v0.2 runner and the public `workload.img`, with no
@@ -82,10 +83,12 @@ assertion and the current CDRegistry and canary state through read-only RPC,
 checks the exact compose and image, and fetches the registration directly over
 the authenticated relay stream. The measured compose binds the broker key.
 A signed seconds grant and the node's admission precede the credential read.
-The local credential defaults to
-`~/.dsmack/private-inputs/claude-subscription.json`; select another local store
-with `--credential`. It is projected and sealed in memory alongside the repo
-snapshot and prompt. The guest sentinel refreshes an expired access token.
+The client prefers `~/.dsmack/private-inputs/claude-oauth-token` from
+`claude setup-token` when present, otherwise `claude-subscription.json`.
+Use `--credential PATH` to select a source explicitly. It is projected and
+sealed in memory alongside the repo snapshot and prompt. Inference-only
+tokens use the CLI's native OAuth requests through the CONNECT proxy, with
+no refresh or local expiry. The sentinel refreshes refreshable documents.
 
 The client verifies the per-job assertion, receipt, sealed output digests and
 observed model/tool use, then applies the patch with `git apply`. `--out` receives
@@ -145,9 +148,3 @@ On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-out
 client config. `egress` joins the guest's network probe artifact with a verified
 model turn. `assemble` writes `check.json` from an object with success-condition
 keys `"1"` through `"7"` and each condition's evidence.
-
-`run-remote` prefers `~/.dsmack/private-inputs/claude-oauth-token` from
-`claude setup-token` when present, otherwise `claude-subscription.json`.
-Use `--credential PATH` to select a source explicitly. A setup-token is
-inference-only: it has no refresh token or local expiry and is sent as an
-OAuth Bearer token by the guest sentinel.

@@ -6,6 +6,7 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from unittest import mock
 
 sys.path.insert(0, str(Path(__file__).parent))
 import find
@@ -15,6 +16,14 @@ import json, os, sys
 if sys.argv[1] == '--version':
     print('2.1.187 (Claude Code)'); sys.exit()
 mode = 'MODE'
+if mode == 'oauth':
+    assert os.environ.get('CLAUDE_CODE_OAUTH_TOKEN') == 'tok'
+    assert 'ANTHROPIC_AUTH_TOKEN' not in os.environ
+if mode == 'direct-oauth':
+    assert os.environ['CLAUDE_CODE_OAUTH_TOKEN'] == 'DUMMY-INFERENCE'
+    assert os.environ['ANTHROPIC_BASE_URL'] == 'https://api.anthropic.com'
+    assert os.environ['HTTPS_PROXY'] == 'http://192.168.100.3:18443'
+    assert 'ANTHROPIC_AUTH_TOKEN' not in os.environ
 model = 'claude-other' if mode == 'swap' else sys.argv[sys.argv.index('--model') + 1]
 tool = {'bash': 'Bash', 'edit': 'Edit'}.get(mode, 'Grep')
 if mode == 'edit':
@@ -59,6 +68,15 @@ class FindTest(unittest.TestCase):
         self.assertEqual(verdict['observed_models'], ['claude-opus-4-8'])
         self.assertEqual(sorted(p.name for p in (self.tmp/'out-ok').iterdir()),
                          sorted(['verdict'] + [f'run-{n}-{k}' for n in (1, 2, 3) for k in ('transcript', 'verdict')]))
+
+    def test_cli_uses_oauth_mode_through_local_sentinel(self):
+        self.assertEqual(self.run_mode('oauth')['answer'], 'yes')
+
+    def test_inference_cli_preserves_native_oauth_and_proxy(self):
+        with mock.patch.dict(os.environ, {'DSMACK_SENTINEL_ENDPOINT': 'https://api.anthropic.com',
+                                         'CLAUDE_CODE_OAUTH_TOKEN': 'DUMMY-INFERENCE',
+                                         'HTTPS_PROXY': 'http://192.168.100.3:18443'}):
+            self.assertEqual(self.run_mode('direct-oauth')['answer'], 'yes')
 
     def test_edit_turn_patch_applies(self):
         for key in ('answers', 'runs', 'aggregate'):

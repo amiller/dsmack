@@ -174,7 +174,10 @@ def agent_run(cli, agent, text, cwd, run, endpoint, check_version):
         env = {'HOME': home, 'CLAUDE_CONFIG_DIR': home, 'TMPDIR': home, 'PATH': '/usr/local/bin:/usr/bin:/bin',
                'LANG': 'C.UTF-8', 'CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC': '1',
                'DISABLE_AUTOUPDATER': '1', 'ANTHROPIC_BASE_URL': endpoint,
-               'ANTHROPIC_AUTH_TOKEN': endpoint.rsplit('/', 1)[1]}
+               'CLAUDE_CODE_OAUTH_TOKEN': endpoint.rsplit('/', 1)[1]}
+        if endpoint == 'https://api.anthropic.com':
+            env['CLAUDE_CODE_OAUTH_TOKEN'] = os.environ['CLAUDE_CODE_OAUTH_TOKEN']
+            env['HTTPS_PROXY'] = os.environ['HTTPS_PROXY']
         if check_version:
             version = subprocess.run([str(cli), '--version'], env=env, capture_output=True, check=True)
             require(version.stdout.split()[0].decode() == agent['cli_version'], 'CLI version')

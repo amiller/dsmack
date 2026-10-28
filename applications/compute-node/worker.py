@@ -54,12 +54,16 @@ def main():
         args = SimpleNamespace(credential_fd=None, credential_file=str(credential), allow_group_readable_credential_file=False,
                                provider_route='https://api.anthropic.com', ca_bundle='/etc/ssl/certs/ca-certificates.crt')
         subscription = load_subscription_credential(args, lambda _: None)
-        token = secrets.token_hex(32)
-        sentinel = SubscriptionSentinel(job['job_id'], token, args.provider_route, args.ca_bundle, subscription)
-        sentinel.log = lambda _: None
-        server = SentinelServer(('127.0.0.1', 0), sentinel)
-        threading.Thread(target=server.serve_forever, daemon=True).start()
-        os.environ['DSMACK_SENTINEL_ENDPOINT'] = f'http://127.0.0.1:{server.server_port}/{token}'
+        if subscription.refreshable:
+            token = secrets.token_hex(32)
+            sentinel = SubscriptionSentinel(job['job_id'], token, args.provider_route, args.ca_bundle, subscription)
+            sentinel.log = lambda _: None
+            server = SentinelServer(('127.0.0.1', 0), sentinel)
+            threading.Thread(target=server.serve_forever, daemon=True).start()
+            os.environ['DSMACK_SENTINEL_ENDPOINT'] = f'http://127.0.0.1:{server.server_port}/{token}'
+        else:
+            os.environ['DSMACK_SENTINEL_ENDPOINT'] = args.provider_route
+            os.environ['CLAUDE_CODE_OAUTH_TOKEN'] = subscription.access_token
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp); inputs = tmp/'inputs'; inputs.mkdir()
             raw = base64.b64decode(job['repo_tar'], validate=True)

@@ -1,0 +1,14 @@
+{
+  "rules": [{
+    "name": "api.anthropic.com",
+    "port": 443,
+    "methods": ["GET"],
+    "paths": ["/"],
+    "max_request_bytes": 4096,
+    "max_response_bytes": 65536,
+    "upload_bytes": 16384,
+    "download_bytes": 262144,
+    "requests": 4,
+    "requests_per_minute": 120
+  }]
+}

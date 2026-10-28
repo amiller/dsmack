@@ -72,9 +72,14 @@ class PaidPolicy(free.Policy):
 
 class PaidClient(free.Client):
     def discover(self, peer=None):
-        nodes = request(self.broker + '/payments/nodes')
-        candidates = [n for n in nodes if n['kind'] == 'compute' and n['manifest_sha256'] == self.policy.measurement and (peer is None or n['relay_peer'] == peer)]
-        require(candidates, 'no paid compute node with approved compose')
+        deadline=time.monotonic()+90
+        while True:
+            nodes = request(self.broker + '/payments/nodes')
+            candidates = [n for n in nodes if n['kind'] == 'compute' and n['manifest_sha256'] == self.policy.measurement and (peer is None or n['relay_peer'] == peer)]
+            if candidates:
+                break
+            require(time.monotonic()<deadline, 'launched compute node did not become ready')
+            time.sleep(1)
         node = candidates[0]
         self.policy.verify_registration(node)
         challenge = secrets.token_hex(32)

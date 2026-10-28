@@ -15,7 +15,9 @@ import {
 export function providerFor(cfg) {
   const connection = new FetchRequest(cfg.rpcs[0]);
   connection.allowGzip = false;
-  const client = cfg.rpcIpv4
+  const client = cfg.rpcProxy
+    ? Deno.createHttpClient({ proxy: { url: cfg.rpcProxy } })
+    : cfg.rpcIpv4
     ? Deno.createHttpClient({ localAddress: "0.0.0.0" })
     : undefined;
   connection.getUrlFunc = async (request) => {

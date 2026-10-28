@@ -10,6 +10,7 @@ export class Quorum {
       now = () => Math.floor(Date.now() / 1000),
       fetcher = fetch,
       rpcIpv4 = false,
+      rpcProxy,
     },
   ) {
     require(
@@ -23,7 +24,9 @@ export class Quorum {
       "escrow and deployed code hash pins required",
     );
     Object.assign(this, { rpcs, escrow, codeHash, now, fetcher });
-    this.client = rpcIpv4
+    this.client = rpcProxy
+      ? Deno.createHttpClient({ proxy: { url: rpcProxy } })
+      : rpcIpv4
       ? Deno.createHttpClient({ localAddress: "0.0.0.0" })
       : undefined;
   }

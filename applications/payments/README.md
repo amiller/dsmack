@@ -84,7 +84,9 @@ For a Mac-local inference token, replace `--funding-key` with
 `--payment-service http://127.0.0.1:18455`. Run
 `service.py CONFIG FUNDING_KEY STATE_DIR 18455` on the wallet machine and forward
 that loopback port over the existing SSH master. Keys and token stay on their
-respective machines. The helper refuses funding-wallet transactions below
+respective machines. For an IPv4-only RPC transport, run `rpc-proxy.py 18457`
+and set `rpcProxy` to `http://127.0.0.1:18457` in the local wallet configuration.
+It tunnels TLS to the same three providers. The helper refuses funding-wallet transactions below
 0.02 testnet ETH.
 
 `GET /payments/classes` exposes prices before a VM exists. `/payments/nodes`

@@ -7,9 +7,9 @@ export function tunnel(entry) {
  return {url:u.href,relayPeer:entry.relayPeer,guestPeer:entry.guestPeer,expiresAt:entry.expiresAt}
 }
 export function address(e) {const u=new URL(e.url);return `/dns4/${u.hostname}/tcp/443/wss/p2p/${e.relayPeer}/p2p-circuit/p2p/${e.guestPeer}`}
-export async function discover(config,report) {
+export async function discover(config,report,onEntry=()=>{}) {
  const found=new Map()
- const consume=(values,source)=>{if(!Array.isArray(values)||values.length>32)throw Error("expected at most 32 tunnel entries");for(const value of values){try{const e=tunnel(value);report({source,url:e.url,status:e.expiresAt>Date.now()/1000?"discovered":"expired"});if(e.expiresAt<=Date.now()/1000)continue;const key=address(e);const prior=found.get(key);if(prior)prior.sources.push(source);else found.set(key,{...e,sources:[source]})}catch(err){report({source,url:String(value?.url??""),status:"invalid",error:err.message})}}}
+ const consume=(values,source)=>{if(!Array.isArray(values)||values.length>32)throw Error("expected at most 32 tunnel entries");for(const value of values){try{const e=tunnel(value);report({source,url:e.url,status:e.expiresAt>Date.now()/1000?"discovered":"expired"});if(e.expiresAt<=Date.now()/1000)continue;const key=address(e);const prior=found.get(key);if(prior)prior.sources.push(source);else {const candidate={...e,sources:[source]};found.set(key,candidate);onEntry(candidate)}}catch(err){report({source,url:String(value?.url??""),status:"invalid",error:err.message})}}}
  const get=async(source,load)=>{report({source,status:"reading"});try{consume(await load(),source);report({source,status:"read"})}catch(e){report({source,status:"failed",error:e.message})}}
  await Promise.all([
   get(config.broker,async()=>{const r=await fetch(config.broker,{signal:AbortSignal.timeout(8000),redirect:"error"});if(!r.ok)throw Error("HTTP "+r.status);return await r.json()}),

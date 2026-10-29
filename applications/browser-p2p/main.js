@@ -27,14 +27,20 @@ async function connect(config, entry) {
     const msg=enc.encode('browser to attested Mac guest');echo.send(msg);await echo.close()
     if(hex(await read(echo))!==hex(msg))throw Error('echo mismatch')
     const result={...checked,attempts,target,transport:conn.remoteAddr.toString(),encryption:conn.encryption,attestationBytes:blob.length,attestationHex:hex(blob),timingsMs:{connect:connected-start,fetch:fetched-connected,verify:verified-fetched,total:performance.now()-start},echo:true}
-    report({sources:entry.sources,url:entry.url,status:'verified'});window.result=result; output.textContent=JSON.stringify({...result,attestationHex:'saved by probe'},null,2);return result
+    report({sources:entry.sources,url:entry.url,status:'verified'});window.pendingResult=result; output.textContent=JSON.stringify({...result,attestationHex:'saved by probe'},null,2);return result
   } finally {await node.stop()}
 }
 async function run(){
  const response=await fetch('./config.json');if(!response.ok)throw Error('config HTTP '+response.status)
- const config=await response.json(),entries=await discover(config.discovery,report)
- if(entries.length===0)throw Error('No live tunnel hints from any discovery source')
- for(const entry of entries){try{return await connect(config,entry)}catch(e){report({sources:entry.sources,url:entry.url,status:'failed',error:e.message})}}
+ const config=await response.json(),queue=[];let done=false,notify=()=>{}
+ const sources=discover(config.discovery,report,entry=>{queue.push(entry);notify()}).finally(()=>{done=true;notify()})
+ while(!done || queue.length){
+  if(!queue.length){await new Promise(resolve=>{notify=resolve});continue}
+  const entry=queue.shift()
+  try{const result=await connect(config,entry);await sources;window.result=result;output.textContent=JSON.stringify({...result,attestationHex:'saved by probe'},null,2);return result}
+  catch(e){report({sources:entry.sources,url:entry.url,status:'failed',error:e.message})}
+ }
+ await sources
  throw Error('All discovered tunnels failed; see source and URL attempts')
 }
 run().catch(e=>{window.failure=e.stack;output.textContent=JSON.stringify({attempts,error:e.stack},null,2);console.error(e)})

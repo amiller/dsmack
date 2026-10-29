@@ -25,7 +25,7 @@ def canon(v):
     return json.dumps(v, sort_keys=True, separators=(",", ":"), ensure_ascii=False).encode()
 
 
-def oci_layout(binary, out, path=PATH, image_name="dsmack-peer", ca_cert=None):
+def oci_layout(binary, out, path=PATH, image_name="dsmack-peer", ca_cert=None, files=None):
     """A one-layer arm64 image with the binary at path; returns its manifest digest."""
     blobs = out / "oci-layout/blobs/sha256"
     blobs.mkdir(parents=True)
@@ -49,6 +49,11 @@ def oci_layout(binary, out, path=PATH, image_name="dsmack-peer", ca_cert=None):
             info = tarfile.TarInfo("etc/ssl/certs/ca-certificates.crt")
             info.size, info.mode = len(raw_ca), 0o644
             tar.addfile(info, io.BytesIO(raw_ca))
+        for name, (source, mode) in (files or {}).items():
+            raw_extra = source.read_bytes()
+            info = tarfile.TarInfo(name.lstrip("/"))
+            info.size, info.mode = len(raw_extra), mode
+            tar.addfile(info, io.BytesIO(raw_extra))
         raw = binary.read_bytes()
         info = tarfile.TarInfo(path.lstrip("/"))
         info.size, info.mode = len(raw), 0o755

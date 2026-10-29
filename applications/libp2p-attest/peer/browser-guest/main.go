@@ -21,7 +21,17 @@ func main() {
 		log.Fatal(err)
 	}
 	defer logs.Close()
-	gateway := exec.Command("/usr/local/bin/egress-policy", "-policy", "/policy.json", "-http", "127.0.0.1:8080", "-dns", "127.0.0.1:5353", "-answer-ip", "127.0.0.1", "-websocket-host", os.Args[1])
+	// The guest-wide measured firewall admits only the host CONNECT relay.
+	probe, probeErr := net.DialTimeout("tcp", "1.1.1.1:443", 2*time.Second)
+	if probeErr == nil {
+		probe.Close()
+		log.Fatal("direct Internet egress unexpectedly allowed")
+	}
+	if err = os.WriteFile("/workspace/artifacts/egress-checks", []byte("direct 1.1.1.1:443 blocked\n"), 0644); err != nil {
+		log.Fatal(err)
+	}
+	gateway := exec.Command("/usr/local/bin/egress-policy", "-policy", "/policy.json", "-http", "127.0.0.1:8080", "-dns", "", "-answer-ip", "127.0.0.1", "-websocket-host", os.Args[1])
+	gateway.Args = append(gateway.Args, "-upstream-proxy", os.Getenv("BROWSER_GATEWAY_PROXY"))
 	gateway.Stdout = logs
 	stderr, err := gateway.StderrPipe()
 	if err != nil {

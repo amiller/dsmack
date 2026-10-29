@@ -46,11 +46,12 @@ type usage struct {
 	last             time.Time
 }
 type gateway struct {
-	policy Policy
-	client *http.Transport
-	mu     sync.Mutex
-	usage  []usage
-	audit  *log.Logger
+	policy  Policy
+	client  *http.Transport
+	mu      sync.Mutex
+	usage   []usage
+	audit   *log.Logger
+	timeout time.Duration
 }
 
 func validName(s string) bool {
@@ -114,7 +115,7 @@ func loadPolicy(b []byte) (Policy, error) {
 	return p, nil
 }
 func newGateway(p Policy, logger *log.Logger) *gateway {
-	return &gateway{policy: p, usage: make([]usage, len(p.Rules)), audit: logger, client: &http.Transport{
+	return &gateway{policy: p, usage: make([]usage, len(p.Rules)), audit: logger, timeout: 15 * time.Second, client: &http.Transport{
 		Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
@@ -249,7 +250,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(413, "request_bytes")
 		return
 	}
-	duration := 15 * time.Second
+	duration := g.timeout
 	if isWS {
 		duration = time.Duration(rule.WebSocketSeconds) * time.Second
 	}
@@ -513,7 +514,12 @@ func main() {
 	dns := flag.String("dns", ":53", "guest-local DNS listener")
 	answer := flag.String("answer-ip", "", "private gateway IPv4 address")
 	fixedHost := flag.String("websocket-host", "", "fixed TLS hostname for loopback-only WebSocket clients")
+	upstreamProxy := flag.String("upstream-proxy", "", "explicit HTTP CONNECT proxy with an IP address")
+	timeout := flag.Duration("upstream-timeout", 15*time.Second, "upstream request timeout, at most 180s")
 	flag.Parse()
+	if *timeout <= 0 || *timeout > 180*time.Second {
+		log.Fatal("upstream timeout must be 0..180s")
+	}
 	b, err := os.ReadFile(*policyFile)
 	if err != nil {
 		log.Fatal("policy unavailable")
@@ -523,12 +529,23 @@ func main() {
 		log.Fatal("invalid policy: ", err)
 	}
 	ip := net.ParseIP(*answer)
-	if ip.To4() == nil {
+	if *dns != "" && ip.To4() == nil {
 		log.Fatal("answer-ip requires IPv4")
 	}
 	g := newGateway(p, log.New(os.Stdout, "", 0))
-	if err = g.serveDNS(*dns, ip); err != nil {
-		log.Fatal("DNS listen failed")
+	g.timeout = *timeout
+	g.client.ResponseHeaderTimeout = *timeout
+	if *upstreamProxy != "" {
+		proxy, parseErr := url.Parse(*upstreamProxy)
+		if parseErr != nil || proxy.Scheme != "http" || net.ParseIP(proxy.Hostname()) == nil || proxy.Port() == "" || proxy.User != nil || proxy.Path != "" || proxy.RawQuery != "" || proxy.Fragment != "" {
+			log.Fatal("upstream proxy requires an explicit HTTP IP:port origin")
+		}
+		g.client.Proxy = http.ProxyURL(proxy)
+	}
+	if *dns != "" {
+		if err = g.serveDNS(*dns, ip); err != nil {
+			log.Fatal("DNS listen failed")
+		}
 	}
 	var handler http.Handler = g
 	if *fixedHost != "" {
@@ -544,7 +561,7 @@ func main() {
 			g.ServeHTTP(w, r)
 		})
 	}
-	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
+	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: *timeout + 5*time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
 	fmt.Fprintln(os.Stderr, "egress gateway ready")
 	if err = server.ListenAndServe(); err != nil {
 		log.Fatal("HTTP server stopped")

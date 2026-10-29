@@ -7,10 +7,11 @@ import { Agent } from "@mariozechner/pi-agent-core";
 import {
   Credit,
   formatEther,
-  inferenceBody,
+  formatNanoUsd,
   require,
   signed,
   store,
+  walletBody,
 } from "./credit.mjs";
 import { brokerStream, PRIVACY } from "./inference.mjs";
 import * as sandbox from "@sandbox";
@@ -100,13 +101,13 @@ function render() {
     p.textContent = "No purchases yet.";
     list.append(p);
   }
-  for (const p of credit.purchases) {
+  for (const p of credit.purchases.filter((p) => p.unit === 1)) {
     const div = document.createElement("div");
     div.className = "purchase";
     const title = document.createElement("strong");
     title.textContent = `${
       p.status === "confirmed" ? "Confirmed" : "Pending"
-    } · ${p.amount} ${p.unit === 2 ? "tokens" : "seconds"}`;
+    } · ${p.amount} seconds`;
     const label = document.createElement("p");
     label.className = "small";
     label.textContent = `${
@@ -138,42 +139,71 @@ function render() {
     }
     list.append(div);
   }
+  renderChatCredit();
   renderPrice();
 }
+function renderChatCredit() {
+  const c = credit.chatCredit;
+  $("chat-credit").dataset.remainingNanoUsd = c?.remainingNanoUsd || "";
+  $("chat-credit").dataset.spentNanoUsd = c?.spentNanoUsd || "";
+  $("chat-credit").textContent = c
+    ? "Chat credit " + formatNanoUsd(c.remainingNanoUsd)
+    : "Chat credit · Create or connect a wallet";
+  $("chat-credit-status").textContent = c
+    ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
+      c.pendingInferenceId ? " · Usage pending" : ""
+    }`
+    : "Receive $0.010000 starter credit. No ETH purchase needed for chat.";
+}
 function renderPrice() {
-  const unit = Number($("unit").value),
-    q = unit === 2
-      ? (quote ? { price: quote.priceWei } : null)
-      : classes.find((c) => Number(c.unit) === 1);
+  const q = classes.find((c) => Number(c.unit) === 1);
   $("price").textContent = q
-    ? `${q.price} wei per ${unit === 2 ? "token" : "second"}`
-    : `${
-      unit === 2 ? "Private inference" : "Sandbox"
-    } credit is unavailable on this broker.`;
+    ? `${q.price} wei per sandbox second`
+    : "Sandbox credit is unavailable on this broker.";
+}
+async function claimChatCredit() {
+  require(
+    quote?.configured,
+    "Private inference is not configured on this broker.",
+  );
+  await credit.checkBroker(api);
+  const result = await api(
+    "/inference/credit",
+    await walletBody(credit, "credit"),
+  );
+  require(
+    result.wallet?.toLowerCase() === credit.address.toLowerCase(),
+    "Chat credit belongs to another wallet.",
+  );
+  credit.chatCredit = result;
+  renderChatCredit();
 }
 async function refreshServices() {
   await credit.checkBroker(api);
-  classes = await api("/payments/classes");
-  try {
-    quote = await api("/inference/quote");
+  const [prices, inference] = await Promise.allSettled([
+    api("/payments/classes"),
+    api("/inference/quote"),
+  ]);
+  classes = prices.status === "fulfilled" ? prices.value : [];
+  if (inference.status === "fulfilled") {
+    quote = inference.value;
     require(
-      quote.chainId === 84532 &&
-        quote.escrow.toLowerCase() === cfg.escrow.toLowerCase() &&
-        quote.codeHash === cfg.codeHash,
-      "Inference quote has a different escrow.",
+      quote.mode === "broker-e2ee" && quote.provider === "near" &&
+        typeof quote.model === "string",
+      "Broker does not offer browser-encrypted NEAR chat.",
     );
-    require(
-      quote.model && !quote.model.startsWith("anthropic/"),
-      "Routed Anthropic models are not private TEE inference.",
-    );
-    $("model").textContent = quote.model;
     setModel();
     $("service").textContent = quote.configured
-      ? "Broker connected · " + PRIVACY
-      : "Broker connected · Private inference is not configured.";
-  } catch (e) {
+      ? "Chat ready · " + PRIVACY
+      : "Private inference is not configured.";
+    if (credit.signer && quote.configured) await claimChatCredit();
+  } else {
     quote = undefined;
-    $("service").textContent = "Broker connected · " + e.message;
+    $("service").textContent = inference.reason.message;
+  }
+  if (prices.status === "rejected") {
+    $("price").textContent = "Sandbox classes unavailable: " +
+      prices.reason.message;
   }
   $("pins").textContent = JSON.stringify(
     {
@@ -188,26 +218,38 @@ async function refreshServices() {
   );
   render();
 }
-async function usage(p = credit.selected(2)) {
-  require(p, "No confirmed inference purchase selected.");
-  const result = await api(
-    "/inference/usage",
-    await inferenceBody(credit.client, p, "usage"),
-  );
-  require(
-    String(result.purchaseId) === p.purchaseId &&
-      BigInt(result.usedTokens) <= BigInt(p.amount),
-    "Provider usage does not match purchased credit.",
-  );
-  p.used = String(result.usedTokens);
-  p.allocation = result;
-  p.needsReconcile = false;
-  await credit.save();
-  $("usage").textContent =
-    `Provider: ${result.usedTokens} tokens · ${result.costNanoUsd} nano-USD · ${
-      BigInt(p.used) * BigInt(p.priceWei)
-    } wei charged`;
-  details($("usage"), "Provider usage records", result.usage);
+async function usage() {
+  require(credit.signer, "Create or connect a wallet first.");
+  for (let attempt = 0; attempt < 30; attempt++) {
+    try {
+      const result = await api(
+        "/inference/usage",
+        await walletBody(credit, "usage"),
+      );
+      require(
+        result.wallet?.toLowerCase() === credit.address.toLowerCase(),
+        "Provider usage belongs to another wallet.",
+      );
+      credit.chatCredit = result;
+      renderChatCredit();
+      $("usage").textContent =
+        `Provider: ${result.usedTokens} tokens · ${result.spentNanoUsd} nano-USD charged · ${
+          formatNanoUsd(result.remainingNanoUsd)
+        } available`;
+      details($("usage"), "Metered wallet credit", result);
+      return result;
+    } catch (e) {
+      if (!e.message.startsWith("USAGE_PENDING:")) throw e;
+      $("chat-credit-status").textContent =
+        "Provider usage pending · Checking the reported charge…";
+      if (attempt === 29) {
+        throw new Error(
+          "USAGE_PENDING: Provider cost is still pending. Use Reconcile provider usage before another message.",
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+    }
+  }
 }
 function addEvidence(e) {
   const item = document.createElement("div");
@@ -216,7 +258,7 @@ function addEvidence(e) {
   p.className = "badge";
   p.textContent = `Answer ${
     $("attestations").querySelectorAll(".evidence-item").length + 1
-  } · Broker verified attestation · Browser matched model and freshness`;
+  } · Broker verified quote · Browser checked nonce and encryption key`;
   item.append(p);
   details(item, "Model, nonce, signing addresses & TLS evidence", e);
   $("attestations").append(item);
@@ -232,8 +274,8 @@ function setModel() {
     reasoning: false,
     input: ["text"],
     cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: quote?.requestTokenCeiling || 32768,
-    maxTokens: 1024,
+    contextWindow: quote?.contextWindow || 1048576,
+    maxTokens: quote?.maxOutputTokens || 512,
   };
   $("model").textContent = quote?.model || "NEAR TEE model · unavailable";
   const editor = document.querySelector("message-editor");
@@ -273,8 +315,16 @@ function initChat() {
         "Private inference is not configured on this broker.",
       );
       require(
-        credit.selected(2),
-        "CREDIT_NOT_CONFIRMED: Buy inference credit and wait for finalized confirmation before sending.",
+        credit.signer && credit.chatCredit,
+        "Create or connect a wallet to receive starter chat credit.",
+      );
+      require(
+        !credit.chatCredit.pendingInferenceId,
+        "Usage is unresolved. Reconcile provider usage before sending another message.",
+      );
+      require(
+        BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
+        "CREDIT_EXHAUSTED: Starter chat credit is exhausted.",
       );
       await agent.prompt(text);
       if (agent.state.errorMessage) error(new Error(agent.state.errorMessage));
@@ -510,12 +560,6 @@ async function refund() {
     await tx.wait();
     p.closed = true;
     await credit.save();
-  } else if (p.unit === 2 && p.allocation) {
-    const e = await api(
-      "/inference/close",
-      await inferenceBody(credit.client, p, "close"),
-    );
-    await credit.settle(e, p);
   } else if (p.receipt) await credit.settle(p.receipt, p);
   else {throw new Error(
       "Unused credit can be refunded after the escrow settlement grace period, or immediately after verified final usage.",
@@ -539,8 +583,14 @@ async function main() {
   credit = await new Credit(cfg, client, render).init();
   initChat();
   render();
-  action("burner", () => credit.burner());
-  action("connect", () => credit.connect());
+  action("burner", async () => {
+    await credit.burner();
+    await claimChatCredit();
+  });
+  action("connect", async () => {
+    await credit.connect();
+    await claimChatCredit();
+  });
   action("balance", async () => {
     require(credit.address, "Create or connect a wallet first.");
     $("eth").textContent =
@@ -549,11 +599,8 @@ async function main() {
   });
   action("buy", async () => {
     await credit.checkBroker(api);
-    const unit = Number($("unit").value),
-      q = unit === 2
-        ? (quote ? { ...quote, unit: 2, price: quote.priceWei } : null)
-        : classes.find((c) => Number(c.unit) === 1);
-    await credit.buy(q ? { ...q, unit } : null, $("amount").value);
+    const q = classes.find((c) => Number(c.unit) === 1);
+    await credit.buy(q ? { ...q, unit: 1 } : null, $("amount").value);
   });
   action("refresh", async () => {
     for (const p of credit.purchases.filter((p) => p.status === "pending")) {

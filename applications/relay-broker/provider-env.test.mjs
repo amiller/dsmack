@@ -19,8 +19,6 @@ Deno.test("provider env round-trip stores ciphertext and accepts only supported 
   const publicInfo = await info(recipient, payment);
   const secrets = {
     NEAR_API_KEY: "synthetic-inference-fixture",
-    NEAR_MANAGEMENT_TOKEN: "synthetic-management-fixture",
-    NEAR_REPORTING_TOKEN: "synthetic-reporting-fixture",
   };
   const envelope = await encryptEnvelope(publicInfo, secrets, payment.address);
   assert(

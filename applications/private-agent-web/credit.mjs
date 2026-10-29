@@ -62,16 +62,28 @@ export async function signed(client, body) {
     ),
   };
 }
-export function inferenceBody(client, purchase, action, fields = {}) {
-  return signed(client, {
+export async function walletBody(credit, action, fields = {}) {
+  require(
+    credit.signer && credit.address,
+    "Create or connect a wallet to receive starter chat credit.",
+  );
+  const body = {
     action,
-    purchaseId: purchase.purchaseId,
-    txHash: purchase.txHash,
-    client_peer: client.peer,
+    wallet: credit.address,
     nonce: hex(crypto.getRandomValues(new Uint8Array(16))),
     issuedAt: Math.floor(Date.now() / 1000),
     ...fields,
-  });
+  };
+  const message = JSON.stringify(
+    Object.fromEntries(Object.keys(body).sort().map((key) => [key, body[key]])),
+  );
+  return { ...body, sig: await credit.signer.signMessage(message) };
+}
+export function formatNanoUsd(value) {
+  const amount = BigInt(value);
+  require(amount >= 0n, "Chat credit cannot be negative.");
+  return "$" + (amount / 1000000000n) + "." +
+    ((amount % 1000000000n) / 1000n).toString().padStart(6, "0");
 }
 export class Credit {
   constructor(cfg, client, changed) {
@@ -80,6 +92,7 @@ export class Credit {
     this.changed = changed;
     this.rpc = new JsonRpcProvider(cfg.rpc, 84532, { staticNetwork: true });
     this.purchases = [];
+    this.chatCredit = undefined;
   }
   async init() {
     this.purchases = (await store("purchases")) || [];
@@ -184,9 +197,7 @@ export class Credit {
     require(quote, "This credit service is unavailable.");
     require(/^[1-9][0-9]*$/.test(amount), "Enter a positive whole amount.");
     require(
-      quote.unit === 1
-        ? BigInt(amount) <= 600n
-        : BigInt(amount) <= BigInt(quote.maxTokens),
+      quote.unit === 1 && BigInt(amount) <= 600n,
       "Amount exceeds the purchase limit.",
     );
     const c = await this.contract(), price = await c.quote(quote.node);

@@ -1,227 +1,160 @@
+import { strict as assert } from "node:assert";
 import { NearError, NearProvider } from "./near.mjs";
 import { verifyNearAttestation } from "./near-attestation.mjs";
 import { createPinnedTlsFetch } from "npm:@nearai/inference-sdk@0.2.0/node";
-import { strict as assert } from "node:assert";
 
-const config = {
-  workspaceId: "workspace-1",
-  organizationId: "org-1",
-  managementToken: "schema-session-fixture",
-  reportingToken: "schema-reporting-fixture",
-};
-const row = (key = "key-1", n = 1) => ({
-  source: "inference",
-  id: "row-" + n,
-  created_at: "2026-10-29T12:00:00Z",
-  workspace_id: "workspace-1",
-  api_key_id: key,
-  total_cost_nano_usd: 1280,
-  inference: {
-    model: "near/model",
-    input_tokens: 12,
-    output_tokens: 3,
-    total_tokens: 15,
-    inference_id: "inference-" + n,
-  },
-});
-const query = {
-  keyId: "key-1",
-  from: "2026-10-29T00:00:00Z",
-  to: "2026-10-30T00:00:00Z",
-  model: "near/model",
-};
-const rejects = (fn, code) =>
-  assert.rejects(
-    fn,
-    (e) =>
-      e instanceof NearError && e.code === code &&
-      !e.message.includes("fixture"),
-  );
-
-Deno.test("mint uses session API and checks actual cumulative cap before delivery", async () => {
-  let calls = 0;
+const refusal = (code) => (e) => e instanceof NearError && e.code === code;
+Deno.test("billing uses the known request ID and integer provider costs", async () => {
   const p = new NearProvider({
-    ...config,
     fetcher: (url, init) => {
-      calls++;
-      assert.equal(
-        url,
-        "https://cloud-api.near.ai/v1/workspaces/workspace-1/api-keys",
-      );
-      assert.equal(init.method, "POST");
-      assert.equal(init.headers.authorization, "Bearer schema-session-fixture");
-      assert.deepEqual(JSON.parse(init.body), {
-        name: "purchase-1",
-        spendLimit: { amount: 50000, currency: "USD" },
-        expires_at: "2026-10-30T00:00:00Z",
-      });
+      assert.equal(url, "https://cloud-api.near.ai/v1/billing/costs");
+      assert.equal(init.headers.authorization, "Bearer schema-fixture");
+      assert.deepEqual(JSON.parse(init.body), { requestIds: ["inference-1"] });
       return Response.json({
-        id: "key-1",
-        key: "sk-schema-fixture",
-        spend_limit: { amount: 50000, scale: 9, currency: "USD" },
-      }, { status: 201 });
+        requests: [{ requestId: "inference-1", costNanoUsd: 14100 }],
+      });
     },
   });
-  const out = await p.mint({
-    name: "purchase-1",
-    capNanoUsd: "50000",
-    expiresAt: "2026-10-30T00:00:00Z",
-  });
-  assert.equal(out.id, "key-1");
-  assert.equal(calls, 1);
+  assert.deepEqual(
+    await p.costs({ key: "schema-fixture", requestIds: ["inference-1"] }),
+    { requests: [{ requestId: "inference-1", costNanoUsd: 14100 }] },
+  );
+  for (
+    const result of [{ requests: [{ requestId: "foreign", costNanoUsd: 1 }] }, {
+      requests: [{ requestId: "inference-1", costNanoUsd: 0.1 }],
+    }]
+  ) {
+    p.fetcher = () => Response.json(result);
+    await assert.rejects(
+      () => p.costs({ key: "schema-fixture", requestIds: ["inference-1"] }),
+      refusal("USAGE_MISMATCH"),
+    );
+  }
 });
-Deno.test("provider errors never expose raw error responses or secrets", async () => {
+Deno.test("provider errors never reflect credentials or raw responses", async () => {
   const p = new NearProvider({
-    ...config,
     fetcher: () => new Response("sk-secret-fixture", { status: 401 }),
   });
-  await rejects(
-    () =>
-      p.mint({
-        name: "purchase-1",
-        capNanoUsd: "50000",
-        expiresAt: "2026-10-30T00:00:00Z",
-      }),
-    "PROVIDER_AUTH",
+  await assert.rejects(
+    () => p.costs({ key: "fixture", requestIds: ["inference-1"] }),
+    refusal("PROVIDER_AUTH"),
+  );
+  p.fetcher = () => new Response('"sk-secret-fixture');
+  await assert.rejects(
+    () => p.costs({ key: "fixture", requestIds: ["inference-1"] }),
+    refusal("USAGE_MISMATCH"),
   );
 });
-Deno.test("malformed provider JSON cannot leak response content in an error", async () => {
-  const p = new NearProvider({
-    ...config,
-    fetcher: () => new Response('"sk-secret-fixture'),
-  });
-  await rejects(
-    () =>
-      p.mint({
-        name: "purchase-1",
-        capNanoUsd: "50000",
-        expiresAt: "2026-10-30T00:00:00Z",
-      }),
-    "USAGE_MISMATCH",
-  );
-});
-Deno.test("filtered usage keeps stable windows and paginates exact per-key totals", async () => {
-  const urls = [];
-  const p = new NearProvider({
-    ...config,
-    fetcher: (url) => {
-      urls.push(new URL(url));
-      return Response.json({
-        data: [row("key-1", urls.length)],
-        next_cursor: urls.length === 1 ? "second" : null,
-      });
+Deno.test("encrypted chat passes browser ciphertext unchanged over the pinned transport", async () => {
+  const p = new NearProvider();
+  const body = {
+    model: "near/model",
+    messages: [{ role: "user", content: "04" + "ab".repeat(100) }],
+    stream: true,
+    max_tokens: 8,
+  };
+  let calls = 0;
+  const checked = {
+    evidence: {
+      model: body.model,
+      verified: true,
+      expires_at: Date.now() / 1000 + 60,
     },
-  });
-  const out = await p.usage(query);
-  assert.equal(out.totalTokens, "30");
-  assert.equal(out.costNanoUsd, "2560");
-  const withUnknownText = new NearProvider({
-    ...config,
-    fetcher: () =>
-      Response.json({
-        data: [{ ...row(), prompt: "untrusted-prompt-marker" }],
-        next_cursor: null,
-      }),
-  });
-  assert(
-    !JSON.stringify(await withUnknownText.usage(query)).includes(
-      "untrusted-prompt-marker",
-    ),
-  );
-  assert.equal(urls[0].searchParams.get("api_key_id"), "key-1");
-  assert.equal(urls[1].searchParams.get("cursor"), "second");
-  assert.equal(
-    urls[0].searchParams.get("end_time"),
-    urls[1].searchParams.get("end_time"),
-  );
-});
-Deno.test("foreign-key rows cannot debit this user's credit", async () => {
-  const p = new NearProvider({
-    ...config,
-    fetcher: () =>
-      Response.json({ data: [row("foreign-key")], next_cursor: null }),
-  });
-  await rejects(() => p.usage(query), "USAGE_MISMATCH");
-});
-Deno.test("duplicate export pages cannot double bill usage", async () => {
-  const p = new NearProvider({
-    ...config,
-    fetcher: () => Response.json({ data: [row()], next_cursor: "again" }),
-  });
-  await rejects(() => p.usage(query), "USAGE_MISMATCH");
-});
-Deno.test("attestation rejection stops chat before any prompt crosses transport", async () => {
-  const p = new NearProvider({
-    ...config,
-    fetcher: () => {
-      throw new Error("no network");
+    transport: {
+      fetch: () => {
+        throw Error("browser ciphertext must not be encrypted twice");
+      },
+      fetchEncrypted: (url, init) => {
+        calls++;
+        assert.equal(url, "https://cloud-api.near.ai/v1/chat/completions");
+        assert.equal(init.headers.authorization, "Bearer fixture");
+        assert.deepEqual(JSON.parse(init.body), body);
+        assert.equal(init.headers["x-encrypt-all-fields"], "true");
+        return new Response(
+          'data: {"choices":[{"delta":{"content":"ciphertext"}}]}\n\ndata: [DONE]\n\n',
+          {
+            headers: {
+              "content-type": "text/event-stream",
+              "inference-id": "inference-1",
+            },
+          },
+        );
+      },
     },
+  };
+  const r = await p.chatEncrypted({
+    key: "fixture",
+    model: body.model,
+    body,
+    headers: { "x-encrypt-all-fields": "true" },
+    attestation: checked,
   });
-  await rejects(
+  assert((await r.text()).includes("ciphertext"));
+  assert.equal(calls, 1);
+  checked.evidence.expires_at = 1;
+  await assert.rejects(
     () =>
-      p.chat({
+      p.chatEncrypted({
+        key: "fixture",
+        model: body.model,
+        body,
+        headers: {},
+        attestation: checked,
+      }),
+    refusal("ATTESTATION_INVALID"),
+  );
+  assert.equal(calls, 1);
+});
+Deno.test("attestation fetch uses the caller nonce without forwarding a provider credential", async () => {
+  const nonce = "a".repeat(64), urls = [];
+  const p = new NearProvider({
+    apiKey: "must-stay-private",
+    fetcher: (url, init) => {
+      const u = new URL(url);
+      urls.push(u);
+      assert.equal(u.searchParams.get("nonce"), nonce);
+      assert.equal(init.headers.authorization, undefined);
+      return Response.json(
+        u.searchParams.has("model")
+          ? { model_attestations: [{}] }
+          : { gateway_attestation: {} },
+      );
+    },
+    verifyAttestation: ({ nonce: got, model }) => ({
+      evidence: { nonce: got, model },
+      modelPublicKey: "verified-key",
+      transport: { fetch() {} },
+    }),
+  });
+  const result = await p.attest({ model: "near/model", nonce });
+  assert.equal(result.modelPublicKey, "verified-key");
+  assert.equal(urls.length, 2);
+  assert.equal(urls[0].searchParams.get("include_tls_fingerprint"), "true");
+  assert.equal(urls[1].searchParams.get("provider"), "near");
+});
+Deno.test("unverified evidence and non-HTTPS channels cannot send a prompt", async () => {
+  const p = new NearProvider();
+  await assert.rejects(
+    () =>
+      p.chatEncrypted({
         key: "fixture",
         model: "near/model",
-        messages: [{ role: "user", content: "marker" }],
-        max_tokens: 4,
+        body: {},
+        headers: {},
       }),
-    "ATTESTATION_INVALID",
+    refusal("ATTESTATION_INVALID"),
   );
-});
-Deno.test("default verifier requires real evidence and an approved measured deployment", async () => {
   await assert.rejects(() =>
     verifyNearAttestation({
-      report: {
-        gateway_attestation: {
-          tls_cert_fingerprint: "0".repeat(64),
-          signing_algo: "ecdsa",
-        },
-      },
+      report: { gateway_attestation: {} },
       nonce: "1".repeat(64),
       model: "near/model",
       baseUrl: "https://cloud-api.near.ai",
     })
   );
-});
-Deno.test("SDK pinned TLS refuses non-HTTPS prompt destinations before network", async () => {
   const pinned = createPinnedTlsFetch("1".repeat(64));
   await assert.rejects(
-    () =>
-      pinned("http://127.0.0.1:1/v1/chat/completions", {
-        method: "POST",
-        body: "marker",
-      }),
+    () => pinned("http://127.0.0.1:1/chat", { method: "POST", body: "marker" }),
     /HTTPS/,
   );
-});
-Deno.test("fresh caller nonce goes to both report requests without credentials", async () => {
-  const urls = [], nonce = "a".repeat(64);
-  const p = new NearProvider({
-    ...config,
-    fetcher: (url, init) => {
-      const u = new URL(url);
-      urls.push(u);
-      assert.equal(u.searchParams.get("nonce"), nonce);
-      assert.equal(u.searchParams.get("signing_algo"), "ecdsa");
-      assert.equal(init.headers.authorization, undefined);
-      return Response.json(
-        u.searchParams.has("model")
-          ? { model_attestations: [{ fixture: "model" }] }
-          : { gateway_attestation: { fixture: "gateway" } },
-      );
-    },
-    verifyAttestation: ({ report, nonce: n }) => {
-      assert.equal(n, nonce);
-      assert.equal(report.gateway_attestation.fixture, "gateway");
-      return { evidence: { nonce }, transport: { fetch() {} } };
-    },
-  });
-  const v = await p.attest({
-    key: "sk-never-sent-fixture",
-    model: "near/model",
-    nonce,
-  });
-  assert.equal(v.evidence.nonce, nonce);
-  assert.equal(urls[0].searchParams.get("include_tls_fingerprint"), "true");
-  assert.equal(urls[1].searchParams.get("include_tls_fingerprint"), "false");
 });

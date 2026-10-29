@@ -5,8 +5,8 @@ issues Ed25519 byte- or second-budget grants. Jobs and traffic travel directly
 over libp2p.
 With `payments` configured, finalized Base Sepolia purchases authorize service;
 otherwise each client PeerId gets four grants and 64 MiB of testnet credit per
-hour. The optional inference module mints delegated NEAR keys, streams model
-responses through an attested TLS channel, and signs token settlement receipts.
+hour. The optional inference module grants wallet starter credit, forwards browser-encrypted
+NEAR model requests over an attested TLS channel, and debits provider-reported cost.
 See [inference deployment and local operation](INFERENCE-DEPLOY.md).
 
 ## Configure

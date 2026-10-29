@@ -7,6 +7,7 @@ import { circuitRelayTransport } from "npm:@libp2p/circuit-relay-v2@4.2.13";
 import { noise } from "npm:@chainsafe/libp2p-noise@17.0.0";
 import { yamux } from "npm:@chainsafe/libp2p-yamux@8.0.1";
 import { identify } from "npm:@libp2p/identify@4.1.14";
+import { defaultLogger } from "npm:@libp2p/logger@6.2.16";
 import { multiaddr } from "npm:@multiformats/multiaddr@13.0.3";
 
 const enc = new TextEncoder();
@@ -94,19 +95,34 @@ async function sendFrame(stream, value, limit, signal) {
 }
 
 export async function createDenoForwarder({ privateKey, logger, backhaulPeers = [] } = {}) {
+  const diagnostics = { last_failure: null, last_backhaul_close: null, last_heartbeat_failure: null };
+  const baseLogger = logger ?? defaultLogger();
+  const transportLogger = { forComponent(name) {
+    const log = baseLogger.forComponent(name);
+    if (name !== "libp2p:connection-monitor") return log;
+    return new Proxy(log, { get(target, key) {
+      if (key === "error") return (_format, ...args) => {
+        const causes = args.flatMap(errorNames);
+        if (causes.length) diagnostics.last_heartbeat_failure = { causes, time: Date.now() };
+      };
+      return Reflect.get(target, key);
+    } });
+  } };
   const node = await createLibp2p({
-    ...(privateKey ? { privateKey } : {}), ...(logger ? { logger } : {}),
+    ...(privateKey ? { privateKey } : {}), logger: transportLogger,
     addresses: { listen: backhaulPeers.length ? ["/ip4/127.0.0.1/tcp/0/ws"] : [] },
     transports: [tcp({ outboundSocketInactivityTimeout: 905000 }), webSockets(), circuitRelayTransport()],
     connectionGater: { denyInboundEncryptedConnection: (peer) => !backhaulPeers.includes(peer.toString()) },
     connectionEncrypters: [noise()], streamMuxers: [yamux()],
     services: { identify: identify() },
     connectionManager: { minConnections: 0, dialTimeout: 25000, addressDialTimeout: 25000 },
+    // One backhaul receive can long-poll for 20s; its HTTP deadline is 25s.
+    // A 5s LAN heartbeat must not preempt that bounded HTTPS transport.
+    connectionMonitor: { pingInterval: 30000, pingTimeout: { minTimeout: 30000, maxTimeout: 60000 } },
   });
   const websocketAddress = node.getMultiaddrs().find((addr) => addr.toString().includes("/ws"));
   const websocketPort = websocketAddress?.getComponents().find((part) => part.name === "tcp")?.value;
   const channels = new Map();
-  const diagnostics = { last_failure: null, last_backhaul_close: null };
   const closeChannel = (id, reason = "closed") => {
     const channel = channels.get(id);
     if (!channel) return;

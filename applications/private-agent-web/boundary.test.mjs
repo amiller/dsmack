@@ -14,6 +14,12 @@ await mkdir(evidence,{recursive:true});
 const browser=await chromium.launch({headless:true,...(process.env.CHROMIUM_PATH?{executablePath:process.env.CHROMIUM_PATH}:{}),args:['--no-sandbox']});
 const report={baseURL:base,startedAt:new Date().toISOString(),browser:browser.version(),
   scope:'Browser UI checks with historical public node/enrollment, mocked discovery/RPC, and synthetic provider protocol responses; no real hardware/model-attestation success claim. Provider refusal tests intercept a synthetic chat POST and refuse before answer acceptance, not before the prompt POST.',cases:[]};
+if(new URL(base).hostname==='pod.dstack.soc1024.com'){
+  const response=await fetch(new URL('/_api/projects/private-agent',base),{signal:AbortSignal.timeout(10000)});
+  assert(response.ok,'Cannot read the live page deployment metadata');
+  const project=await response.json();
+  report.deployment={name:project.name,runtime:project.runtime,isolation:project.isolation,mode:project.mode,ref:project.ref};
+}
 const jsonHeaders={'content-type':'application/json'};
 const model='deepseek-ai/DeepSeek-V3.1';
 const clone=value=>JSON.parse(JSON.stringify(value));

@@ -2,6 +2,7 @@
 // Only public admission data and secret-box ciphertext cross this transport.
 import { createLibp2p } from "npm:libp2p@3.3.11";
 import { tcp } from "npm:@libp2p/tcp@11.0.28";
+import { webSockets } from "npm:@libp2p/websockets@10.1.21";
 import { circuitRelayTransport } from "npm:@libp2p/circuit-relay-v2@4.2.13";
 import { noise } from "npm:@chainsafe/libp2p-noise@17.0.0";
 import { yamux } from "npm:@chainsafe/libp2p-yamux@8.0.1";
@@ -72,17 +73,59 @@ async function sendFrame(stream, value, limit, signal) {
   }
 }
 
-export async function createDenoForwarder({ privateKey, logger } = {}) {
+export async function createDenoForwarder({ privateKey, logger, backhaulPeers = [] } = {}) {
   const node = await createLibp2p({
     ...(privateKey ? { privateKey } : {}), ...(logger ? { logger } : {}),
-    addresses: { listen: [] }, transports: [tcp({ outboundSocketInactivityTimeout: 905000 }), circuitRelayTransport()],
+    addresses: { listen: backhaulPeers.length ? ["/ip4/127.0.0.1/tcp/0/ws"] : [] },
+    transports: [tcp({ outboundSocketInactivityTimeout: 905000 }), webSockets(), circuitRelayTransport()],
+    connectionGater: { denyInboundEncryptedConnection: (peer) => !backhaulPeers.includes(peer.toString()) },
     connectionEncrypters: [noise()], streamMuxers: [yamux()],
     services: { identify: identify() },
     connectionManager: { minConnections: 0, dialTimeout: 25000, addressDialTimeout: 25000 },
   });
+  const websocketAddress = node.getMultiaddrs().find((addr) => addr.toString().includes("/ws"));
+  const websocketPort = websocketAddress?.getComponents().find((part) => part.name === "tcp")?.value;
+  let bridges = 0;
   return {
+    acceptWebSocket(req) {
+      if (!websocketPort) throw new Error("backhaul not configured");
+      if (bridges >= 8) return Response.json({ error: "backhaul_busy" }, { status: 429 });
+      const { response, socket } = Deno.upgradeWebSocket(req, { idleTimeout: 0 });
+      const backend = new WebSocket("ws://127.0.0.1:" + websocketPort);
+      socket.binaryType = backend.binaryType = "arraybuffer";
+      bridges++;
+      let closed = false;
+      const close = () => {
+        if (closed) return; closed = true; bridges--;
+        for (const ws of [socket, backend]) if (ws.readyState < WebSocket.CLOSING) ws.close(1000);
+      };
+      const connect = (source, destination) => {
+        const queue = []; let queued = 0;
+        source.addEventListener("message", (event) => {
+          if (!(event.data instanceof ArrayBuffer) || event.data.byteLength > 1048576 ||
+            queued + destination.bufferedAmount + event.data.byteLength > 4194304) { close(); return; }
+          if (destination.readyState === WebSocket.OPEN) destination.send(event.data);
+          else if (destination.readyState === WebSocket.CONNECTING) { queue.push(event.data); queued += event.data.byteLength; }
+          else close();
+        });
+        destination.addEventListener("open", () => { for (const data of queue) destination.send(data); queue.length = 0; queued = 0; });
+        source.addEventListener("close", close, { once: true }); source.addEventListener("error", close, { once: true });
+      };
+      connect(socket, backend); connect(backend, socket);
+      return response;
+    },
     peerId: node.peerId.toString(),
     stop: () => node.stop(),
+    async probe(target, { signal: requestedSignal } = {}) {
+      const started = Date.now();
+      const signal = AbortSignal.any([...(requestedSignal ? [requestedSignal] : []), AbortSignal.timeout(5000)]);
+      try {
+        const connection = await node.dial(multiaddr(target), { signal });
+        return { reachable: true, peer_id: connection.remotePeer.toString(), elapsed_ms: Date.now() - started };
+      } catch (error) {
+        return { reachable: false, error: "node_unreachable", reason: error.name, elapsed_ms: Date.now() - started };
+      }
+    },
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
       if (endpoint !== "attestation" && endpoint !== "jobs") throw new Error("forward endpoint");
       const signal = AbortSignal.any([...(requestedSignal ? [requestedSignal] : []),

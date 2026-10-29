@@ -1,6 +1,8 @@
 import assert from "node:assert/strict";
 import { createLibp2p } from "npm:libp2p@3.3.11";
 import { tcp } from "npm:@libp2p/tcp@11.0.28";
+import { webSockets } from "npm:@libp2p/websockets@10.1.21";
+import { multiaddr } from "npm:@multiformats/multiaddr@13.0.3";
 import { circuitRelayTransport, circuitRelayServer } from "npm:@libp2p/circuit-relay-v2@4.2.13";
 import { noise } from "npm:@chainsafe/libp2p-noise@17.0.0";
 import { yamux } from "npm:@chainsafe/libp2p-yamux@8.0.1";
@@ -11,7 +13,7 @@ const { createDenoForwarder } = await import(Deno.args[0] || "./deno-forwarder.m
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 async function makeNode(listen, services = {}) {
-  return await createLibp2p({ addresses: { listen }, transports: [tcp(), circuitRelayTransport()],
+  return await createLibp2p({ addresses: { listen }, transports: [tcp(), webSockets(), circuitRelayTransport()],
     connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify(), ...services },
     connectionManager: { minConnections: 0 } });
 }
@@ -56,6 +58,10 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
       stream.send(enc.encode(JSON.stringify({ attestation: "fresh-public-proof", challenge: q.challenge }))); await stream.close();
     }, { runOnLimitedConnection: true });
     forwarder = await createDenoForwarder();
+    const reachable = await forwarder.probe(relayAddress);
+    assert.equal(reachable.reachable, true); assert.equal(reachable.peer_id, relay.peerId.toString());
+    const unreachable = await forwarder.probe(relayAddress.replace(/\/tcp\/[0-9]+/, "/tcp/1").replace(/\/p2p\/[^/]+$/, "/p2p/" + guest.peerId.toString()));
+    assert.equal(unreachable.reachable, false); assert.equal(unreachable.error, "node_unreachable");
     assert.deepEqual(await forwarder.forward("attestation", { target }), { attestation: "public-proof" });
     assert.deepEqual(await forwarder.forward("attestation", { target, challenge: "ab".repeat(32) }), { attestation: "fresh-public-proof", challenge: "ab".repeat(32) });
     assert.deepEqual(await forwarder.forward("jobs", { target, admission, sealed }), complete);
@@ -68,4 +74,26 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
     await waiting; abort.abort(new Error("browser left after admission"));
     await assert.rejects(abandoned, /node_result_lost/);
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
+});
+
+Deno.test("outbound relay WebSocket backhaul reaches the broker through its existing HTTP route", async () => {
+  const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { applyDefaultLimit: false } }) });
+  const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()] });
+  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
+    const response = forwarder.acceptWebSocket(req);
+    response.headers.set("cache-control", "no-store");
+    return response;
+  });
+  try {
+    const target = "/ip4/127.0.0.1/tcp/" + server.addr.port + "/ws/p2p/" + forwarder.peerId;
+    const identified = new Promise((resolve) => relay.addEventListener("peer:identify", (event) => {
+      if (event.detail.peerId.toString() === forwarder.peerId) resolve();
+    }, { once: true }));
+    await relay.dial(multiaddr(target));
+    await identified;
+    const unreachableAddress = relay.getMultiaddrs()[0].toString().replace(/\/tcp\/[0-9]+/, "/tcp/1");
+    const connection = await forwarder.probe(unreachableAddress);
+    assert.equal(connection.reachable, true);
+    assert.equal(connection.peer_id, relay.peerId.toString());
+  } finally { await relay.stop(); await forwarder.stop(); await server.shutdown(); }
 });

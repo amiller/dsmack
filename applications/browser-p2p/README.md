@@ -94,3 +94,35 @@ verify them, then use the existing guarded cleanup helper to retire owned disks.
 Publish an empty entries array, stop the owned tunnel/relay/proxy/gateway and
 export `ipfs dag export CID > page.car`. Keep evidence and the static archive;
 remove installs, compiled files and workload staging.
+
+## Mac guest lifecycle
+
+`mac-pool.py` runs the capped relay, quick tunnel and host CONNECT proxy alongside
+one launch through the existing `libp2p-attest/run-mac.py` driver. It waits for
+another Mac lane to finish, packs public inputs locally, publishes the guest
+locator to both discovery sources, and refreshes the HTTP lease every minute.
+The tunnel stops after the guest closes and both sources are cleared. It installs
+no service, launchd agent or daemon. Each invocation uses a fresh state directory.
+
+Generate the publisher key on the Mac (`eth_account.Account.create()`), save it
+with mode 0600, and keep it there. Fund its address with 0.001 Base Sepolia ETH.
+Deploy `TunnelIndex` with that address as `--registry-owner`; the funding wallet
+stays on its original machine. The Mac needs Python `eth-account==0.13.7` and
+`eth-abi==5.2.0`, the Darwin arm64 relay/cloudflared binaries, Linux arm64 guest
+and gateway binaries, the reference compose, CA bundle, and installed runner/base.
+Signed HTTP publication uses this same Mac-local key and needs no operator token.
+Each publisher replaces only its own expiring HTTP hints; the page verifies the
+guest independently of the publisher.
+
+```sh
+python3 applications/browser-p2p/mac-pool.py --state RUN --runner RUNNER \
+  --reference REFERENCE --peer BIN/browser-guest-arm64 \
+  --gateway BIN/egress-policy-arm64 --ca ca-certificates.crt \
+  --relay BIN/browser-relay --cloudflared BIN/cloudflared \
+  --publisher-key publisher.key --publisher-address ADDRESS --registry REGISTRY
+```
+
+Ctrl-C or SIGTERM drains the current guest before clearing
+hints and stopping the tunnel, relay and proxy. Preserve and verify the original
+VM result and logs, then retire its exact owned disks using the guarded cleanup
+helper. Keep `publisher.key` and `relay.key` on the Mac for later launches.

@@ -55,6 +55,10 @@ def main():
         import shutil
         shutil.copyfile(a.state/'workload/compose-manifest.json',run/'compose-manifest.json')
         start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18290','--model-host',hostname,'--connection-seconds','540'],'proxy.log')
+        while True:
+            try:preflight(a.state,[]);break
+            except MacOccupied:print('waiting for the other Mac lane',flush=True);time.sleep(10)
+        if stopping:raise RuntimeError('stopped before guest launch')
         guest=start([sys.executable,ROOT/'applications/libp2p-attest/run-mac.py',a.runner,run],'guest-launch.log')
         peer=wait_for(run/'out/console-v3.log',r'peer [^\n]*/p2p-circuit/p2p/(12D3KooW[1-9A-HJ-NP-Za-km-z]{44})',180)
         locator['guestPeer']=peer
@@ -62,9 +66,10 @@ def main():
         entries=[dict(url=locator['url'],relayPeer=relay,guestPeer=peer,expiresAt=int(time.time())+3300)]
         # Record intent before either publication: cleanup clears a partial success.
         published=True;publish(entries,'publish')
-        refreshed=time.monotonic()
+        refreshed=time.monotonic();draining=False
         while guest.poll() is None:
-            if stopping:print('draining the owned guest before stopping its tunnel',flush=True)
+            if stopping and not draining:
+                print('draining the owned guest before stopping its tunnel',flush=True);draining=True
             for proc in children:
                 if proc is not guest and proc.poll() is not None:raise RuntimeError('relay/tunnel/proxy exited; inspect logs')
             if time.monotonic()-refreshed>60:

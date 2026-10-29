@@ -196,6 +196,69 @@ try{
     return {calls,displayedUsage:await page.locator('#usage').textContent(),
       claim:'Two synthetic completion SSE frames render one answer and one broker-labelled evidence item. Mocked per-key usage reports 7 tokens at 17 wei/token, displaying exactly 119 wei and 9876 nano-USD. This tests the Agent adapter protocol, not real provider or attestation verification.'};
   });
+  await run('expired-unminted-token-refund','synthetic pending purchase and injected wallet; real pinned escrow code read',async page=>{
+    const {Interface}=await import('ethers');
+    const abi=new Interface([
+      'function getPurchase(uint256) view returns (tuple(bytes32 node,address payer,bytes32 buyerKey,address operator,uint8 unit,uint128 amount,uint128 price,uint128 floorPrice,uint64 boughtAt,uint64 expires,uint64 sequence,uint128 used,uint64 endedAt,bool closed,bytes32 bindingHash))',
+      'function refund(uint256)',
+    ]);
+    const cfg=await(await page.request.get(new URL('config.json',base).href)).json();
+    const payer='0x'+'44'.repeat(20),zero='0x'+'00'.repeat(32),purchaseId='900003',now=Math.floor(Date.now()/1000);
+    const encodedPurchase=abi.encodeFunctionResult('getPurchase',[[zero,payer,zero,'0x'+'55'.repeat(20),2,1000,17,1,now-7200,now-3700,0,0,0,false,zero]]);
+    await page.addInitScript(({payer,encodedPurchase,getPurchaseSelector})=>{
+      window.syntheticRefundRequests=[];
+      window.ethereum={
+        request:async({method,params})=>{
+          if(method==='eth_chainId')return '0x14a34';
+          if(method==='eth_accounts'||method==='eth_requestAccounts')return [payer];
+          if(method==='eth_call'&&params[0].data.startsWith(getPurchaseSelector))return encodedPurchase;
+          if(method==='eth_estimateGas')return '0x186a0';
+          if(method==='eth_getTransactionCount')return '0x0';
+          if(method==='eth_blockNumber')return '0x1';
+          if(method==='eth_sendTransaction'){
+            window.syntheticRefundRequests.push(params[0]);
+            const error=new Error('SYNTHETIC_REFUND_TRANSACTION_CAPTURED');error.code=4001;throw error;
+          }
+          throw new Error('Unexpected injected-wallet method: '+method);
+        },on(){},removeListener(){},
+      };
+    },{payer,encodedPurchase,getPurchaseSelector:abi.getFunction('getPurchase').selector});
+    await page.route('**/relay-broker/**',route=>route.fulfill({status:503,headers:jsonHeaders,
+      body:JSON.stringify({error:'Synthetic unavailable broker; refund must use escrow directly.'})}));
+    const calls=monitor(page);
+    let realCodeRead=false;
+    page.on('request',request=>{
+      if(request.url()!==new URL(cfg.rpc).href||request.method()!=='POST')return;
+      const body=request.postDataJSON(),rows=Array.isArray(body)?body:[body];
+      if(rows.some(row=>row.method==='eth_getCode'&&row.params[0].toLowerCase()===cfg.escrow.toLowerCase()))realCodeRead=true;
+    });
+    await ready(page);
+    await page.evaluate(async({payer,purchaseId})=>{
+      await new Promise((resolve,reject)=>{
+        const open=indexedDB.open('dsmack-private-agent',1);
+        open.onerror=()=>reject(open.error);
+        open.onsuccess=()=>{
+          const db=open.result,tx=db.transaction('wallet','readwrite');
+          tx.objectStore('wallet').put([{status:'pending',unit:2,amount:'1000',used:'0',paidWei:'17000',priceWei:'17',
+            payer,txHash:'0x'+'66'.repeat(32),purchaseId}],'purchases');
+          tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>reject(tx.error);
+        };
+      });
+    },{payer,purchaseId});
+    await ready(page);await page.locator('#connect').click();
+    await page.waitForFunction(payer=>document.querySelector('#wallet').textContent.toLowerCase()===payer.toLowerCase(),payer);
+    await page.locator('#unit').selectOption('2');await page.locator('#refund').click();
+    await page.waitForFunction(()=>window.syntheticRefundRequests.length===1,null,{timeout:30000});
+    const [request]=await page.evaluate(()=>window.syntheticRefundRequests);
+    assert.equal(request.to.toLowerCase(),cfg.escrow.toLowerCase());
+    assert.equal(request.data,abi.encodeFunctionData('refund',[purchaseId]));
+    assert(realCodeRead,'Pinned escrow code was not checked through the real RPC');
+    assert(!calls.some(call=>call.method==='POST'&&/\/inference\/close$/.test(call.path)),'Unminted credit called provider close');
+    noJobData(calls);
+    const alert=await refusal(page,/SYNTHETIC_REFUND_TRANSACTION_CAPTURED|user rejected/);
+    return {alert,calls,requestedTransaction:{to:request.to,data:request.data},realPinnedEscrowCodeRead:realCodeRead,
+      claim:'Expired pending tokens without an allocation reach the pinned escrow refund(uint256) path despite broker503. Injected wallet captures and refuses eth_sendTransaction, so no transaction or successful refund occurred.'};
+  });
 }finally{
   report.finishedAt=new Date().toISOString();report.passed=report.cases.every(result=>result.status==='passed');
   await writeFile(resolve(evidence,'boundary-results.json'),JSON.stringify(report,null,2)+'\n');await browser.close();

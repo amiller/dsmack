@@ -140,9 +140,6 @@ function render() {
   }
   renderPrice();
 }
-function selected() {
-  return credit.selected(Number($("unit").value));
-}
 function renderPrice() {
   const unit = Number($("unit").value),
     q = unit === 2
@@ -489,39 +486,40 @@ function sampleTar() {
   return tar;
 }
 async function refund() {
-  const p = selected();
   require(credit.address, "Connect the original purchase wallet.");
+  const p = credit.purchases.find((p) =>
+    p.unit === Number($("unit").value) && !p.closed && p.purchaseId &&
+    p.payer?.toLowerCase() === credit.address.toLowerCase()
+  );
   if (!p) {
     const hash = await credit.withdraw();
     $("service").textContent = "Refund withdrawn: " + hash;
     return;
   }
-  if (p.unit === 2 && !p.closed) {
+  const c = await credit.contract();
+  const chainPurchase = await c.getPurchase(p.purchaseId);
+  if (chainPurchase.closed) {
+    p.closed = true;
+    await credit.save();
+  } else if (
+    Math.floor(Date.now() / 1000) >= Number(chainPurchase.expires) + 3600
+  ) {
+    const tx = await c.refund(p.purchaseId);
+    p.refundHash = tx.hash;
+    await credit.save();
+    await tx.wait();
+    p.closed = true;
+    await credit.save();
+  } else if (p.unit === 2 && p.allocation) {
     const e = await api(
       "/inference/close",
       await inferenceBody(credit.client, p, "close"),
     );
     await credit.settle(e, p);
-  } else if (p.receipt && !p.closed) await credit.settle(p.receipt, p);
-  else if (!p.closed) {
-    const c = await credit.contract();
-    const chainPurchase = await c.getPurchase(p.purchaseId);
-    if (chainPurchase.closed) {
-      p.closed = true;
-      await credit.save();
-    } else {
-      require(
-        Math.floor(Date.now() / 1000) >= Number(chainPurchase.expires) + 3600,
-        "Unused sandbox credit can be refunded after the escrow settlement grace period, or immediately after a verified final job receipt.",
-      );
-      const tx = await c.refund(p.purchaseId);
-      p.refundHash = tx.hash;
-      await credit.save();
-      await tx.wait();
-      p.closed = true;
-      await credit.save();
-    }
-  }
+  } else if (p.receipt) await credit.settle(p.receipt, p);
+  else {throw new Error(
+      "Unused credit can be refunded after the escrow settlement grace period, or immediately after verified final usage.",
+    );}
   const hash = await credit.withdraw();
   p.refundHash = hash;
   await credit.save();

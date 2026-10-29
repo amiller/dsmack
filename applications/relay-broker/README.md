@@ -119,10 +119,27 @@ algorithm `ed25519`. The webhost proxy fixes its key path to
 `/tee-daemon/projects/relay-broker/egress-grants-v1`. Keep the same project name,
 key name and dstack application key basis to preserve the signing identity.
 
-Prepare and apply updates with [deploy-inference.py](INFERENCE-DEPLOY.md).
-It retains the encrypted provider environment and existing operator-token hash,
-packages the shared Deno handler and its bundled verifiers/transports, and
-compares broker/payment keys and secret-release identity after promotion.
+Deploy from the laptop, with `config.json` prepared. From this directory:
+
+```sh
+bash deploy.sh config.json \
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/operator.token \
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/live \
+  https://pod.dstack.soc1024.com
+```
+
+The script sources `~/.oauth3-prod-secrets.env` without shell tracing, uploads a
+source tarball to `POST /_api/projects`, and promotes only `relay-broker`. It
+creates the operator token with mode 600 at the supplied laptop path and deploys
+only its SHA-256 digest in `ctx.env.OPERATOR_TOKEN_SHA256`. The original token
+stays on the laptop. The admin credential is used only for the webhost API.
+Deploy evidence contains public responses and project summaries.
+
+The script uses the tarball manifest
+`{"name":"relay-broker","source":"tarball://relay-broker","ref":"<commit>","env":{"OPERATOR_TOKEN_SHA256":"<digest>"}}`
+and includes `project.json`, the handler modules, configuration, and the shared
+assertion verifier. Promotion makes the scoped GetKey socket available; then the
+script waits for `/relay-broker/key` and checks `runtime=deno,isolation=shared`.
 
 The webhost volume at `ctx.dataDir` holds quota state. The Ed25519 signing key is
 rederived directly from dstack, independently of the quota file.
@@ -141,57 +158,3 @@ locked relay's recorded assertion, rejected PeerId/caller/build/enrollment
 bindings, expiry, concurrent quotas, persisted quotas and storage failures.
 `verify-grant.py` uses Python `cryptography` for independent verification of an
 HTTP grant; `--at UNIX_SECONDS` replays verification at an evidence capture time.
-
-## Browser sandbox forwarding
-
-`GET /sandbox/nodes/PEER/attestation?challenge=HEX` fetches the node's current
-proof through libp2p. Paid nodes require a fresh 32-byte challenge. The browser
-verifies the proof, measurements and keys before sealing any inputs.
-
-`POST /sandbox/jobs` accepts `{node_peer,job_id,grant,sealed,client_peer,signature}`
-and returns the sealed node result synchronously. `sealed` is the existing
-`{epk,iv,ct}` secret box. The browser signs canonical
-`{bundle_sha256,client_peer,grant_sha256,job_id,node_peer}` with its Ed25519 buyer
-key. Both hashes are SHA-256 of canonical JSON. The node authorizes this exact
-job independently of the forwarder's transport PeerId. A lost HTTP result is
-reported as `node_result_lost`; the caller retains its job ID and does not
-resubmit it. Node refusals use `grant`, `replay`, `busy`, `bundle`, `execution`
-and `attestation`; replay/busy are HTTP 409 and other refusals are 403.
-
-Set `sandbox_forwarder` in `config.json` to the helper's internal HTTP URL and
-`browser_origins` to the exact page origins. Set `SANDBOX_FORWARDER_TOKEN` in the
-broker context and helper environment when the helper listens beyond loopback.
-The helper only receives public admission data and ciphertext.
-
-For local testing, generate keys on the machine that runs the services:
-
-```sh
-mkdir -p local-data/sandbox
-python3 applications/relay-broker/local-key.py \
-  "$PWD/local-data/sandbox/getkey.sock" "$PWD/local-data/sandbox/getkey.seed"
-# In another terminal, after writing applications/relay-broker/config.json:
-python3 applications/relay-broker/dev.py \
-  "$PWD/local-data/sandbox/getkey.sock" "$PWD/local-data/sandbox/broker" 127.0.0.1 18270
-# Build and run on zed under /data:
-(cd applications/compute-node/peer && go build -o ../../../local-data/sandbox/forwarder ./forwarder)
-local-data/sandbox/forwarder -key local-data/sandbox/forwarder.key
-```
-
-## Shared Deno web app deployment
-
-The broker forwards sealed jobs directly with its bundled libp2p transport.
-`GET /sandbox/transport` reports transport readiness. It creates no helper
-container. Package and update the existing broker with `deploy-inference.py`;
-see [encrypted provider deployment](INFERENCE-DEPLOY.md). Retain its encrypted
-NEAR environment, operator-token hash, payment configuration and signing keys.
-Build `applications/private-agent-web` on the Linux builder and use that app's
-`deploy.py` to update the existing `private-agent` shared Deno project.
-
-For a new measured sandbox, add its public compose/image/build tuple to
-`sandboxDiagnosticWorkloads` for an operator diagnostic, or register a new paid
-class through the separate payment workflow. Operator grants use
-`POST /sandbox/operator-grant` with the existing operator authentication. They
-have no escrow debit. The signed buyer request at `POST /sandbox/capability`
-returns a job-scoped capability for sealing to the guest. The broker verifies
-NEAR gateway and per-model quotes, pins upstream TLS and encrypts each model
-request. The browser and guest never receive the NEAR API key.

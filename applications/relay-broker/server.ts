@@ -253,7 +253,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&
-        ["credit", "prepare", "usage", "chat"].includes(action)
+        ["credit", "prepare", "chat", "usage"].includes(action)
       ) {
         const request = await body(req);
         const result = await b.inference[action](request);

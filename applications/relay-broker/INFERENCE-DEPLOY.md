@@ -5,12 +5,6 @@ with its Ethereum wallet and receives one $0.01 starter grant. Chat credit is
 separate from the existing ETH sandbox escrow. The broker accounts in integer
 nano-USD: 1,000,000,000 equals $1.00.
 
-The broker runs as shared Deno in the existing `relay-broker` project.
-`applications/private-agent-web/deploy.py` deploys the separate `private-agent`
-page. This tool updates only `relay-broker`.
-The existing CVM, persistent data directory, escrow and signing key identities
-remain in place. It performs no chain transaction or substrate update.
-
 Before a prompt is sent, the broker verifies fresh NEAR CPU/GPU evidence and
 approved compose measurements, then pins its upstream TLS connection. The browser
 checks the model, nonce and model-key address and encrypts messages with NEAR's
@@ -111,58 +105,3 @@ deno test --allow-read --allow-net \
 Run browser builds and Playwright on zed under `/data`, using `ssh zed-mesh`.
 After the live journey, preserve screenshots, request-cost evidence and test logs,
 then remove owned installs and compiled rehearsal output.
-
-Use `dev.py DSTACK_SOCKET DATA_DIRECTORY` with a local dstack simulator. Recorded
-NEAR fixtures cover allocation/accounting before management credentials exist.
-Docker and heavy work run on zed under `/data`, reached as `ssh zed-mesh`.
-
-The old immutable escrow accepts bytes and seconds only. Full inference credit
-needs a separate Base Sepolia deployment of the updated `UsageEscrow`, a unit-2
-class and confirmed purchases. Its local Solidity tests run in an in-memory EVM:
-
-```sh
-forge test --root contracts --match-contract UsageEscrowTest -vv
-```
-
-The live update command deliberately preserves the current escrow. A later
-escrow switch is separate: finish all old purchase/settlement/refund consumers
-and register needed classes before switching, or implement multi-escrow support.
-Preserving an old state file alone does not serve its outstanding purchases.
-
-
-## Connect an operator relay to shared Deno
-
-A relay on a private operator network opens an outbound authenticated libp2p
-connection through finite HTTPS frames. Set `sandbox_backhaul_peers` to its
-existing PeerId in the broker configuration before preparing the package. The
-broker accepts Noise connections only from those relay identities. Its internal
-WebSocket listener stays on loopback; the public path uses ordinary HTTPS.
-
-After each broker promotion, obtain its new transport PeerId:
-
-```sh
-curl --fail --silent --show-error \
-  https://pod.dstack.soc1024.com/relay-broker/sandbox/transport
-```
-
-Build the relay on zed under `/data`, then run it there with its existing local
-key and the returned `peer_id`:
-
-```sh
-(cd applications/libp2p-attest/peer && go build -o /data/OPERATOR/dsmack-relay .)
-/data/OPERATOR/dsmack-relay relay /ip4/0.0.0.0/tcp/4033 \
-  /data/OPERATOR/relay.key \
-  https://pod.dstack.soc1024.com/relay-broker/sandbox/p2p BROKER_TRANSPORT_PEER_ID
-```
-
-The relay prints a connection confirmation. A configured `sandbox_probe`
-containing that relay's public multiaddress makes `/sandbox/transport` also
-check reachability before launching nodes. Keep the relay key on zed. A broker
-promotion changes its ephemeral transport identity; restart the owned relay
-with that new identity before starting the next job.
-
-The backhaul opens `POST /sandbox/p2p/open`, then uses bounded binary
-`POST /sandbox/p2p/:channel/send` and `GET /sandbox/p2p/:channel/recv` frames,
-closing with `DELETE /sandbox/p2p/:channel`. The random channel capability is
-transport state. Noise authenticates and encrypts the libp2p connection; job
-payloads retain their separate browser-to-node encryption.

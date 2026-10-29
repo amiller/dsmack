@@ -28,14 +28,11 @@ to the existing pod. Set `SANDBOX_SOURCE` to the absolute path of
 `applications/compute-node/browser/sandbox.mjs` when building against a separate
 sandbox checkout. `config.json` supplies public deployment pins and the RPC.
 
-The Trust settings file input accepts an operator-approved JSON policy with
-`manifest` (exact manifest bytes as hex), `cdhash`, `brokerKey`, `grantSigner`,
-`destinationPolicyHash`, `rpc`, `attest`, `canary`, `registry`, `model`, and
-`enrollment: {attestation: <CBOR hex>, keyId, clientData: <hex>}`. It can also be
-included as `sandboxPolicy` in the public config. Select a repository tar snapshot
-or the sample repo, enter a task, verify a fresh node, then run. The browser
-obtains a job-scoped broker capability from the confirmed grant and seals it
-to the guest; provider API keys remain in the broker CVM. Download the verified diff and apply it with `git apply`.
+Load an approved sandbox policy in Trust settings, select a repository snapshot
+or the sample, enter a task and verify a fresh node. The browser obtains a
+job-scoped broker capability from its confirmed grant and seals it to the guest;
+provider keys remain in the broker CVM. It verifies the job attestation and receipt
+before decrypting the patch and transcript. Download the diff for `git apply`.
 
 Deploy the built page to the `private-agent` shared Deno project:
 

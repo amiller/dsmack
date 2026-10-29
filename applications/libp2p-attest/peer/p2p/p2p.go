@@ -25,6 +25,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
+	"github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
@@ -43,6 +44,9 @@ func must(err error) {
 func NewHost(opts ...libp2p.Option) host.Host {
 	key, _, err := crypto.GenerateEd25519Key(rand.Reader)
 	must(err)
+	if os.Getenv("DSMACK_LOCAL_WS") == "1" {
+		opts = append(opts, libp2p.NoTransports, libp2p.Transport(websocket.New))
+	}
 	h, err := libp2p.New(append([]libp2p.Option{libp2p.Identity(key)}, opts...)...)
 	must(err)
 	return h

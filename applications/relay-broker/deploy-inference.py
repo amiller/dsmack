@@ -87,6 +87,7 @@ def prepare(args):
             forwarder = Path(temporary) / "deno-forwarder.mjs"
             subprocess.run(["deno", "bundle", "--platform=deno", "--minify", str(APP / "deno-forwarder.mjs"), "-o", str(forwarder)], check=True)
             archive.add(forwarder, arcname="applications/relay-broker/deno-forwarder.mjs")
+            archive.add(REPO / "applications/browser-p2p/tunnels.mjs", arcname="applications/browser-p2p/tunnels.mjs")
             archive.add(APP / "project.json", arcname="project.json")
             archive.add(REPO / "dstack-compat/secret-release/policy.mjs", arcname="dstack-compat/secret-release/policy.mjs")
             body = json.dumps(config).encode()

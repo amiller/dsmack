@@ -1,0 +1,26 @@
+{
+  "name": "dsmack-browser-p2p",
+  "version": "1.0.0",
+  "description": "Static browser to attested guest over a public WSS circuit relay",
+  "scripts": {
+    "build": "mkdir -p dist && cp index.html dist/ && esbuild main.js --bundle --format=esm --platform=browser --outfile=dist/bundle.js",
+    "contract": "mkdir -p contract-build && solcjs --bin --abi --optimize TunnelIndex.sol -o contract-build"
+  },
+  "dependencies": {
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/circuit-relay-v2": "4.2.17",
+    "@libp2p/identify": "4.1.18",
+    "@libp2p/ping": "3.1.17",
+    "@libp2p/websockets": "10.1.25",
+    "@multiformats/multiaddr": "13.0.3",
+    "cborg": "6.2.0",
+    "libp2p": "3.5.1"
+  },
+  "private": true,
+  "devDependencies": {
+    "esbuild": "0.28.2",
+    "playwright": "1.49.1",
+    "kubo": "0.43.1"
+  }
+}

@@ -10,6 +10,7 @@ import { verify, cat, enc, hex } from './verify.js'
 import { discover, address } from './tunnels.mjs'
 const output=document.querySelector('pre')
 async function read(stream) {let parts=[],n=0;for await(const part of stream){const b=part.subarray();n+=b.length;if(n>65536)throw Error('stream size');parts.push(b)};return cat(...parts)}
+const errorText=e=>e?.message || e?.type || String(e)
 const attempts=[]
 function report(event){attempts.push({...event,time:new Date().toISOString()});window.attempts=attempts;output.textContent=JSON.stringify({attempts},null,2)}
 async function connect(config, entry) {
@@ -21,7 +22,7 @@ async function connect(config, entry) {
     const connected=performance.now()
     const stream=await conn.newStream('/dsmack/attest/1',{runOnLimitedConnection:true,signal:AbortSignal.timeout(30000)})
     const blob=await read(stream);await stream.close()
-    const fetched=performance.now(), checked=await verify(blob,conn.remotePeer,config)
+    const fetched=performance.now(), checked=await verify(blob,conn.remotePeer,config,entry)
     const verified=performance.now()
     const echo=await conn.newStream('/dsmack/echo/1',{runOnLimitedConnection:true,signal:AbortSignal.timeout(10000)})
     const msg=enc.encode('browser to attested Mac guest');echo.send(msg);await echo.close()
@@ -38,7 +39,7 @@ async function run(){
   if(!queue.length){await new Promise(resolve=>{notify=resolve});continue}
   const entry=queue.shift()
   try{const result=await connect(config,entry);await sources;window.result=result;output.textContent=JSON.stringify({...result,attestationHex:'saved by probe'},null,2);return result}
-  catch(e){report({sources:entry.sources,url:entry.url,status:'failed',error:e.message})}
+  catch(e){report({sources:entry.sources,url:entry.url,status:'failed',error:errorText(e)})}
  }
  await sources
  throw Error('All discovered tunnels failed; see source and URL attempts')

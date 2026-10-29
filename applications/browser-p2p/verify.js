@@ -3,6 +3,11 @@ import { decodeAttestation, authData, cat, hex, sha256 as sha } from '../../dsta
 export { cat, hex }
 export const enc = new TextEncoder()
 const need = (ok, why) => { if (!ok) throw Error(why) }
+function canonical(o) {
+ if(o===null || typeof o!=='object')return JSON.stringify(o)
+ if(Array.isArray(o))return '['+o.map(canonical).join(',')+']'
+ return '{'+Object.keys(o).sort().map(k=>JSON.stringify(k)+':'+canonical(o[k])).join(',')+'}'
+}
 function rawSignature(der) {
   need(der[0] === 0x30 && der[1] === der.length-2, 'ECDSA DER sequence')
   let p=2; const out = new Uint8Array(64)
@@ -14,12 +19,17 @@ function rawSignature(der) {
   need(p===der.length,'ECDSA trailing data'); return out
 }
 // The immutable page pins an enrollment key checked against Apple's root by bootstrap.py.
-export async function verify(blob, remotePeer, trust) {
+export async function verify(blob, remotePeer, trust, entry) {
   need(blob.length<=65536,'attestation size')
   const a=await decodeAttestation(blob)
   need(hex(a.key_id)===trust.keyId,'enrollment key')
   need(Date.now()/1000<trust.expires,'enrollment expired')
-  need(hex(a.os_image_hash)===trust.osImage && hex(a.manifest_sha256)===trust.manifest,'measurement')
+  const template=structuredClone(trust.manifestTemplate), compose=JSON.parse(template.docker_compose_file)
+  compose.services.peer.command[0]=new URL(entry.url).hostname
+  compose.services.peer.command[1]=entry.relayPeer
+  template.docker_compose_file=canonical(compose)
+  const expectedManifest=hex(await sha(enc.encode(canonical(template))))
+  need(hex(a.os_image_hash)===trust.osImage && hex(a.manifest_sha256)===expectedManifest,'measurement')
   need(hex(a.caller)===hex(await sha(enc.encode('peer'))),'caller')
   const report=cat(await sha(cat(enc.encode('dsmack-libp2p-peer/1'),remotePeer.toMultihash().bytes)),new Uint8Array(32))
   need(hex(a.report_data)===hex(report),'PeerId binding')

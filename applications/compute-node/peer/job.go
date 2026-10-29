@@ -6,6 +6,7 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/sha256"
+	payments "dsmack-payments"
 	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
@@ -15,6 +16,8 @@ import (
 	"math"
 	"os"
 	"os/exec"
+	"path/filepath"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -72,6 +75,7 @@ type job struct {
 type terms struct {
 	id               string
 	seconds, expires int64
+	paid             *payments.Grant
 }
 
 func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, now int64) (terms, error) {
@@ -99,10 +103,12 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 	if body["v"] != float64(1) || body["unit"] != "seconds" || body["relay_peer"] != node || body["client_peer"] != client || !validID(id) || !sok || !eok || seconds < 1 || seconds > 1800 || math.Trunc(seconds) != seconds || math.Trunc(expiry) != expiry || expiry <= float64(now) {
 		return fail()
 	}
-	return terms{id, int64(seconds), int64(expiry)}, nil
+	return terms{id: id, seconds: int64(seconds), expires: int64(expiry)}, nil
 }
 
 type engine struct {
+	paid       *payments.Meter
+	publish    func(payments.SignedReceipt) error
 	secret     *ecdh.PrivateKey
 	signer     ed25519.PrivateKey
 	broker     ed25519.PublicKey
@@ -118,7 +124,18 @@ type engine struct {
 }
 
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
-	t, e := checkGrant(a.Grant, n.broker, n.node, client, time.Now().Unix())
+	var t terms
+	var e error
+	if n.paid != nil {
+		var g payments.Grant
+		g, e = n.paid.Verify(canon(a.Grant), client, 1, time.Now().Unix())
+		if e == nil {
+			seconds, _ := strconv.ParseInt(g.Amount, 10, 64)
+			t = terms{id: g.PurchaseID, seconds: seconds, expires: g.ServiceUntil, paid: &g}
+		}
+	} else {
+		t, e = checkGrant(a.Grant, n.broker, n.node, client, time.Now().Unix())
+	}
 	if e != nil || !validID(a.JobID) {
 		return t, 0, "grant"
 	}
@@ -142,7 +159,19 @@ func (n *engine) handle(s interface {
 	io.ReadWriter
 	SetDeadline(time.Time) error
 }, client string) {
-	refuse := func(code string) { writeFrame(s, map[string]string{"status": "refused", "error": code}) }
+	var paid *paidJob
+	refuse := func(code string) {
+		frame := map[string]any{"status": "refused", "error": code}
+		if paid != nil {
+			r, e := paid.finish()
+			frame["payment_receipt"] = r
+			if e != nil {
+				frame["receipt_error"] = e.Error()
+			}
+			s.SetDeadline(time.Now().Add(10 * time.Second))
+		}
+		writeFrame(s, frame)
+	}
 	s.SetDeadline(time.Now().Add(20 * time.Second))
 	var a admission
 	if e := readFrame(s, 4096, &a); e != nil {
@@ -155,8 +184,24 @@ func (n *engine) handle(s interface {
 		return
 	}
 	start := time.Now()
+	deadline := start.Add(time.Duration(left) * time.Second)
+	ctx, cancel := context.WithDeadline(context.Background(), deadline)
+	defer cancel()
+	if t.paid != nil {
+		paid = &paidJob{meter: n.paid, grant: *t.paid, start: start, left: left, publish: n.publish, stop: func() { cancel(); s.SetDeadline(time.Now()) }}
+		if n.resultPath != "" {
+			paid.path = filepath.Join(filepath.Dir(n.resultPath), "payment-receipts")
+		}
+		paid.begin()
+	}
 	var used int64
 	defer func() {
+		if paid != nil && paid.final == nil {
+			_, e := paid.finish()
+			if e != nil {
+				fmt.Fprintln(os.Stderr, "paid final receipt:", e)
+			}
+		}
 		os.Remove("/run/dsmack/credential")
 		os.RemoveAll("/run/dsmack/job-" + a.JobID)
 		n.mu.Lock()
@@ -167,8 +212,7 @@ func (n *engine) handle(s interface {
 		n.busy = false
 		n.mu.Unlock()
 	}()
-	deadline := start.Add(time.Duration(left) * time.Second)
-	s.SetDeadline(deadline.Add(10 * time.Second))
+	s.SetDeadline(deadline)
 	if e := writeFrame(s, map[string]string{"status": "ready"}); e != nil {
 		return
 	}
@@ -196,12 +240,16 @@ func (n *engine) handle(s interface {
 		refuse("bundle")
 		return
 	}
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
+	s.SetDeadline(deadline.Add(10 * time.Second))
 	cmd := exec.CommandContext(ctx, "python3", "-B", n.worker)
 	cmd.Stdin = bytes.NewReader(raw)
 	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM) }
+	cmd.Cancel = func() error {
+		if n.paid != nil {
+			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
+		}
+		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
+	}
 	cmd.WaitDelay = 3 * time.Second
 	// Never attach child stdout/stderr to the console or result disk.
 	var result limitedBuffer
@@ -234,6 +282,17 @@ func (n *engine) handle(s interface {
 		hashes[name] = digest(plain)
 	}
 	used = max(1, min(left, int64(math.Ceil(time.Since(start).Seconds()))))
+	if paid != nil {
+		final, e := paid.finish()
+		if final == nil {
+			refuse("receipt")
+			return
+		}
+		used, _ = strconv.ParseInt(final.Receipt.Used, 10, 64)
+		if e != nil {
+			fmt.Fprintln(os.Stderr, "paid final delivery:", e)
+		}
+	}
 	statement := map[string]any{"job_id": j.JobID, "bundle_sha256": digest(canon(b)), "outputs": hashes, "grant_id": t.id, "seconds_used": used}
 	report := sha256.Sum256(canon(statement))
 	att, e := n.attest(append(report[:], make([]byte, 32)...))
@@ -244,6 +303,13 @@ func (n *engine) handle(s interface {
 	receipt := map[string]any{"client_peer": client, "node_peer": n.node, "run": n.run, "report_sha256": hex.EncodeToString(report[:]), "grant_id": t.id, "job_id": j.JobID, "seconds_used": used}
 	receipt["sig"] = hex.EncodeToString(ed25519.Sign(n.signer, canon(receipt)))
 	resultFrame := map[string]any{"status": "complete", "outputs": outputs, "statement": statement, "attestation": hex.EncodeToString(att), "receipt": receipt}
+	if paid != nil {
+		r, e := paid.finish()
+		resultFrame["payment_receipt"] = r
+		if e != nil {
+			resultFrame["receipt_error"] = e.Error()
+		}
+	}
 	if n.resultPath != "" {
 		if e := os.WriteFile(n.resultPath, canon(resultFrame), 0644); e != nil {
 			refuse("execution")

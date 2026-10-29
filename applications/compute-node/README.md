@@ -97,6 +97,15 @@ the encrypted input and result, the verified plaintext patch, transcript and
 verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
 it runs no remote shell command.
 
+For paid runs, append `--payments-config CONFIG --funding-key FUNDING_KEY
+--send-payments` to `run-remote`. `--prepare-only` buys and confirms credit before
+launch; `--resume-payment` executes that purchase; `--defer-settlement` retains
+the receipt for `--finish-only` after the node exits. A loopback
+`--payment-service` can keep the funding key on its existing machine. See
+[`applications/payments`](../payments/README.md) for escrow configuration.
+Pack paid workloads by appending `PAYMENTS_JSON` after `SECONDS` in the workload
+command above; this measures `PAYMENTS_CONFIG` and exports `payment-receipts`.
+
 ## Success-condition harness
 
 Run the client probes on the credential owner's Mac. Keep its user-side

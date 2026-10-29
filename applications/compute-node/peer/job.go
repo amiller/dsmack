@@ -17,6 +17,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"syscall"
@@ -225,8 +226,11 @@ func (n *engine) handle(s interface {
 	SetDeadline(time.Time) error
 }, client string) {
 	var paid *paidJob
-	refuse := func(code string) {
+	refuse := func(code string, failure ...map[string]string) {
 		frame := map[string]any{"status": "refused", "error": code}
+		if len(failure) == 1 {
+			frame["failure"] = failure[0]
+		}
 		if paid != nil {
 			r, e := paid.finish()
 			frame["payment_receipt"] = r
@@ -340,12 +344,25 @@ func (n *engine) handle(s interface {
 	result.max = 24 << 20
 	cmd.Stdout = &result
 	if e = cmd.Run(); e != nil {
-		refuse("execution")
+		failure := map[string]string{"stage": "worker", "code": "process_failed"}
+		if ctx.Err() != nil {
+			failure["code"] = "deadline_exceeded"
+		} else {
+			var reported struct {
+				Error map[string]string `json:"error"`
+			}
+			if json.Unmarshal(result.Bytes(), &reported) == nil && len(reported.Error) == 2 &&
+				regexp.MustCompile(`^[a-z_]{1,40}$`).MatchString(reported.Error["stage"]) &&
+				regexp.MustCompile(`^[A-Za-z0-9_]{1,100}$`).MatchString(reported.Error["code"]) {
+				failure = reported.Error
+			}
+		}
+		refuse("execution", failure)
 		return
 	}
 	var encoded map[string]string
 	if e = json.Unmarshal(result.Bytes(), &encoded); e != nil || len(encoded) != 3 {
-		refuse("execution")
+		refuse("execution", map[string]string{"stage": "worker_output", "code": "invalid_output_object"})
 		return
 	}
 	outputs := map[string]box{}

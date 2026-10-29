@@ -128,3 +128,14 @@ class ProviderTests(unittest.TestCase):
         self.assertEqual(rule['methods'], ['POST'])
         with self.assertRaises(ValueError):
             model.validate_config(CONFIG | {'base_url': 'http://broker.example/relay-broker'})
+
+class HttpFailureTests(unittest.TestCase):
+    def test_broker_http_failure_identifies_status_without_private_body(self):
+        response = Mock(status=403)
+        response.read.return_value = b'{"error":"capability_auth","private":"do-not-copy"}'
+        conn = Mock(); conn.getresponse.return_value = response
+        with patch.object(model.http.client, 'HTTPConnection', return_value=conn):
+            with self.assertRaises(model.ProviderError) as caught:
+                model.completion(CONFIG, CREDENTIAL, [{'role':'user','content':'private prompt'}])
+        self.assertEqual(caught.exception.code, 'broker_http_403_capability_auth')
+        self.assertNotIn('do-not-copy', str(caught.exception))

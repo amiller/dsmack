@@ -197,6 +197,14 @@ export class SandboxInference {
   constructor(b) {
     this.b = b;
   }
+  async operatorJob(req, jobId, tokenHash) {
+    await operator(req, tokenHash);
+    need(/^[0-9a-f]{32}$/.test(jobId), "job_id", 400);
+    const job = this.b.payments.state.sandboxJobs?.[jobId];
+    need(job, "sandbox_job_not_found", 404);
+    return Object.fromEntries(["calls", "active", "failed", "usage", "expires"]
+      .filter((key) => job[key] !== undefined).map((key) => [key, job[key]]));
+  }
   async operatorGrant(req, r, tokenHash) {
     const b = this.b;
     await operator(req, tokenHash);

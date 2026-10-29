@@ -19,15 +19,22 @@ def canonical(value):
 PRIVACY = 'NEAR TEE model via broker CVM; broker handles plaintext'
 
 
+class ProviderError(ValueError):
+    """A fixed diagnostic code; private provider messages never leave the guest."""
+    def __init__(self, code, message):
+        super().__init__(message)
+        self.code = code
+
+
 def validate_config(config):
     if set(config) != {'schema', 'base_url', 'model', 'broker_key'} or config['schema'] != 'dsmack-broker-model/1':
-        raise ValueError('broker inference configuration')
+        raise ProviderError('broker_inference_configuration', 'broker inference configuration')
     url = urlsplit(config['base_url'])
     if (url.scheme != 'https' or not url.hostname or url.port not in (None, 443) or url.username or url.password
             or url.path.endswith('/') or not re.fullmatch(r'(?:/[a-zA-Z0-9_-]+)*', url.path)
             or url.query or url.fragment or not isinstance(config['model'], str) or not config['model']
             or not re.fullmatch(r'[0-9a-f]{64}', config['broker_key'])):
-        raise ValueError('HTTPS broker origin, fixed base path, model and broker key required')
+        raise ProviderError('https_broker_origin_fixed_base_path_model_and_broker_key_required', 'HTTPS broker origin, fixed base path, model and broker key required')
     return dict(config)
 
 
@@ -37,7 +44,7 @@ def validate_credential(credential, job_id=None):
             or any(c in credential['token'] for c in '\r\n')
             or not isinstance(credential['job_id'], str) or not re.fullmatch(r'[0-9a-f]{32}', credential['job_id'])
             or (job_id is not None and credential['job_id'] != job_id)):
-        raise ValueError('job-scoped broker inference capability')
+        raise ProviderError('job_scoped_broker_inference_capability', 'job-scoped broker inference capability')
     return credential['token']
 
 
@@ -55,7 +62,7 @@ def gateway_policy(config):
 
 def verify_broker_signature(public_key, payload, signature):
     if not isinstance(signature, str) or not re.fullmatch(r'[0-9a-f]{128}', signature):
-        raise ValueError('broker inference signature encoding')
+        raise ProviderError('broker_inference_signature_encoding', 'broker inference signature encoding')
     # OpenSSL is in the pinned guest container. Verification files live in the
     # worker's per-job tmpfs; no capability or provider credential is written.
     with tempfile.TemporaryDirectory() as tmp:
@@ -67,18 +74,18 @@ def verify_broker_signature(public_key, payload, signature):
             str(root/'key.der'), '-rawin', '-in', str(root/'payload'), '-sigfile', str(root/'signature')],
             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=10)
     if result.returncode:
-        raise ValueError('broker inference signature rejected')
+        raise ProviderError('broker_inference_signature_rejected', 'broker inference signature rejected')
 
 
 def verify_response(config, credential, request, envelope, started_at):
     if not isinstance(envelope, dict) or set(envelope) != {'payload', 'signature'}:
-        raise ValueError('broker inference response envelope')
+        raise ProviderError('broker_inference_response_envelope', 'broker inference response envelope')
     payload = envelope['payload']
     verify_broker_signature(config['broker_key'], payload, envelope['signature'])
     if (payload.get('schema') != 'dsmack-broker-inference-response/1' or payload.get('job_id') != credential['job_id']
             or payload.get('nonce') != request['nonce'] or payload.get('model') != config['model']
             or payload.get('request_sha256') != hashlib.sha256(canonical(request)).hexdigest()):
-        raise ValueError('broker inference response binding')
+        raise ProviderError('broker_inference_response_binding', 'broker inference response binding')
     evidence = payload.get('attestation')
     now = time.time()
     if (not isinstance(evidence, dict) or evidence.get('verified') is not True or evidence.get('verification') != 'verified'
@@ -88,18 +95,18 @@ def verify_response(config, credential, request, envelope, started_at):
             or evidence['tls'].get('binding') != 'spki' or evidence['tls'].get('status') != 'verified-by-broker'
             or not isinstance(evidence.get('verifiedAt'), (int, float)) or not started_at-5 <= evidence['verifiedAt'] <= now+5
             or not isinstance(evidence.get('expires_at'), (int, float)) or evidence['expires_at'] <= max(started_at, evidence['verifiedAt'])):
-        raise ValueError('broker provider attestation evidence')
+        raise ProviderError('broker_provider_attestation_evidence', 'broker provider attestation evidence')
     gateway = evidence.get('gateway', {})
     if (gateway.get('tcbStatus') != 'UpToDate' or not re.fullmatch(r'[0-9a-f]{64}', gateway.get('tlsFingerprint', ''))
             or gateway['tlsFingerprint'] != evidence['tls'].get('spki_sha256')):
-        raise ValueError('broker provider gateway evidence')
+        raise ProviderError('broker_provider_gateway_evidence', 'broker provider gateway evidence')
     models = evidence.get('models')
     if not isinstance(models, list) or not models or any(m.get('model') != config['model']
             or m.get('tcbStatus') != 'UpToDate' or m.get('gpu_evidence') != 'verified' for m in models):
-        raise ValueError('broker per-model attestation evidence')
+        raise ProviderError('broker_per_model_attestation_evidence', 'broker per-model attestation evidence')
     result = payload.get('result')
     if not isinstance(result, dict) or result.get('model') != config['model']:
-        raise ValueError('broker inference result model')
+        raise ProviderError('broker_inference_result_model', 'broker inference result model')
     return dict(result, _broker=envelope)
 
 
@@ -117,19 +124,19 @@ def apply_tool(root, name, args):
         return '\n'.join(str(p.relative_to(root)) for p in sorted(root.rglob('*')) if p.is_file() and '.git' not in p.parts)
     path = (root / args['path']).resolve()
     if not path.is_relative_to(root) or '.git' in path.relative_to(root).parts:
-        raise ValueError('tool path outside input repository')
+        raise ProviderError('tool_path_outside_input_repository', 'tool path outside input repository')
     if name == 'read_file':
         if path.stat().st_size > 1 << 20:
-            raise ValueError('tool read bound')
+            raise ProviderError('tool_read_bound', 'tool read bound')
         return path.read_text()
     if name == 'write_file':
         raw = args['content'].encode()
         if len(raw) > 1 << 20:
-            raise ValueError('tool write bound')
+            raise ProviderError('tool_write_bound', 'tool write bound')
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_bytes(raw)
         return 'written'
-    raise ValueError('tool is not permitted')
+    raise ProviderError('tool_is_not_permitted', 'tool is not permitted')
 
 
 def completion(config, credential, messages):
@@ -146,9 +153,26 @@ def completion(config, credential, messages):
             'Authorization': 'Bearer ' + token, 'Host': urlsplit(config['base_url']).hostname + ':8080'})
         response = conn.getresponse()
         body = response.read((4 << 20) + 1)
-        if response.status != 200 or len(body) > 4 << 20:
-            raise ValueError('broker inference request failed')
+        if response.status != 200:
+            # Only known broker codes can enter public failure metadata. Never
+            # forward a response body or a provider's free-form error message.
+            known = {'capability_auth', 'capability_exhausted', 'capability_request_replay',
+                     'sandbox_model_request', 'sandbox_provider_not_configured', 'sandbox_model_attestation',
+                     'sandbox_cost_pending', 'provider_billing_id', 'provider_response',
+                     'PROVIDER_UNAVAILABLE', 'PROVIDER_RATE_LIMIT', 'ATTESTATION_INVALID'}
+            try:
+                detail = json.loads(body).get('error')
+                if isinstance(detail, dict): detail = detail.get('code')
+            except (ValueError, AttributeError):
+                detail = None
+            code = 'broker_http_' + str(response.status)
+            if isinstance(detail, str) and detail in known: code += '_' + detail
+            raise ProviderError(code, 'broker inference request failed')
+        if len(body) > 4 << 20:
+            raise ProviderError('broker_response_too_large', 'broker inference response bound')
         return verify_response(config, credential, request, json.loads(body), started_at)
+    except (OSError, http.client.HTTPException) as error:
+        raise ProviderError('broker_transport_' + type(error).__name__, 'broker inference transport failed') from error
     finally:
         conn.close()
 
@@ -179,13 +203,13 @@ def run(config, credential, prompt, inputs, output, request=completion):
         if not calls:
             break
         if len(calls) > 32:
-            raise ValueError('inference tool call bound')
+            raise ProviderError('inference_tool_call_bound', 'inference tool call bound')
         for call in calls:
             function = call['function']
             text = apply_tool(work.resolve(), function['name'], json.loads(function['arguments']))
             messages.append({'role': 'tool', 'tool_call_id': call['id'], 'content': text})
     else:
-        raise ValueError('inference turn limit')
+        raise ProviderError('inference_turn_limit', 'inference turn limit')
     git('add', '-A')
     (output / 'patch').write_bytes(git('diff', '--cached', '--binary'))
     (output / 'run-1-transcript').write_bytes(b''.join(canonical(e) + b'\n' for e in transcript))

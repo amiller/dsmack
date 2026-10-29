@@ -144,9 +144,12 @@ export async function jsonRequest(url, body, signal, max = 48 << 20) {
   }
   const value = JSON.parse(dec.decode(cat(...chunks)));
   if (!response.ok) {
-    const message = typeof value.error === "string"
+    let message = typeof value.error === "string"
       ? value.error
       : value.error?.message ?? "HTTP " + response.status;
+    if (value.error === "execution" && value.failure?.stage && value.failure?.code) {
+      message += ": " + value.failure.stage + ": " + value.failure.code;
+    }
     throw Object.assign(new Error(message), {
       status: response.status,
       response: value,

@@ -15,11 +15,16 @@ import subprocess
 import sys
 import time
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 
 HERE = Path(__file__).resolve().parent
 
 
 class MacOccupied(RuntimeError):
+    pass
+
+
+class BrokerUnavailable(RuntimeError):
     pass
 
 
@@ -139,12 +144,19 @@ class Pool:
             log.write(json.dumps(record)+'\n')
 
     def nodes(self):
-        with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
-            return json.load(response)
+        try:
+            with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
+                return json.load(response)
+        except (HTTPError, URLError, TimeoutError) as error:
+            self.event('broker_unavailable', error=type(error).__name__, status=getattr(error, 'code', None))
+            return None
 
     def launch(self):
         check = preflight(self.args.state, self.active)
-        baseline = {n['relay_peer'] for n in self.nodes()}
+        nodes = self.nodes()
+        if nodes is None:
+            raise BrokerUnavailable()
+        baseline = {n['relay_peer'] for n in nodes}
         run = self.args.state/('run-'+str(time.time_ns())); run.mkdir(mode=0o700)
         # macOS clone preserves one explicit transfer basis without rewriting it.
         subprocess.run(['cp', '-c', str(self.args.workload/'workload.img'), str(run/'workload.img')], check=True)
@@ -180,7 +192,11 @@ class Pool:
                 self.active.remove(node)
                 continue
             if node['node'] is None:
-                found = ready_node(self.nodes(), node['previous'], self.measurement, self.image)
+                nodes = self.nodes()
+                if nodes is None:
+                    node['readiness_deadline'] = now + self.args.readiness_timeout
+                    continue
+                found = ready_node(nodes, node['previous'], self.measurement, self.image)
                 if found:
                     node['node'] = found
                     self.event('ready', run=str(node['path']), relay_peer=found['relay_peer'],
@@ -194,6 +210,8 @@ class Pool:
                     self.launch()
                 except MacOccupied:
                     self.event('waiting_for_other_lane')
+                except BrokerUnavailable:
+                    self.event('waiting_for_broker')
 
     def run(self):
         self.args.state.mkdir(parents=True, mode=0o700, exist_ok=True)

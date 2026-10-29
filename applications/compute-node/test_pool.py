@@ -60,3 +60,20 @@ class PoolTests(unittest.TestCase):
         self.assertTrue(instance.stopping)
         self.assertIsNotNone(instance.failure)
         self.assertEqual(instance.active, [])
+
+    def test_broker_promotion_outage_keeps_booting_vm_and_reports_failure(self):
+        import time
+        from urllib.error import HTTPError
+        instance = object.__new__(pool.Pool)
+        instance.args = SimpleNamespace(broker='https://broker', readiness_timeout=90, cycles=0, replace_after=450)
+        node = {'process': Mock(poll=Mock(return_value=None)), 'node': None,
+                'path': Path('/owned'), 'previous': set(), 'readiness_deadline': 0, 'started': time.monotonic()}
+        instance.active = [node]; instance.stopping = False; instance.failure = None
+        instance.measurement = 'compose'; instance.image = 'image'
+        instance.event = Mock(); instance.launch = Mock()
+        with patch.object(pool, 'urlopen', side_effect=HTTPError('https://broker',500,'unavailable',None,None)):
+            instance.tick()
+        self.assertEqual(instance.active, [node])
+        self.assertGreater(node['readiness_deadline'], time.monotonic())
+        instance.event.assert_called_once_with('broker_unavailable', error='HTTPError', status=500)
+        instance.launch.assert_not_called()

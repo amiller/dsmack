@@ -67,7 +67,7 @@ export function brokerStream(
           "Private inference is not configured on this broker.",
         );
         await credit.checkBroker(api);
-        purchase = credit.selected(2);
+        purchase = credit.forSpend(2, q.requestTokenCeiling);
         require(
           purchase,
           "CREDIT_NOT_CONFIRMED: Buy inference credit and wait for finalized confirmation before sending.",
@@ -110,14 +110,25 @@ export function brokerStream(
         const started = Date.now();
         purchase.needsReconcile = true;
         await credit.save();
-        const response = await api(
-          "/inference/chat",
-          await inferenceBody(credit.client, purchase, "chat", {
-            messages,
-            max_tokens: 1024,
-          }),
-          { stream: true, signal: options.signal },
+        const request = await inferenceBody(credit.client, purchase, "chat", {
+          messages,
+          max_tokens: 1024,
+        });
+        const nonceBytes = await crypto.subtle.digest(
+          "SHA-256",
+          new TextEncoder().encode(
+            "dsmack-near-attestation/1:" + purchase.purchaseId + ":" +
+              purchase.txHash + ":" + request.nonce,
+          ),
         );
+        const expectedNonce = Array.from(
+          new Uint8Array(nonceBytes),
+          (b) => b.toString(16).padStart(2, "0"),
+        ).join("");
+        const response = await api("/inference/chat", request, {
+          stream: true,
+          signal: options.signal,
+        });
         let attested = false, done = false;
         stream.push({ type: "start", partial: answer });
         for await (const item of sse(response.body)) {
@@ -130,7 +141,14 @@ export function brokerStream(
           }
           if (item.event === "attestation") {
             require(!attested, "Repeated provider attestation in one stream.");
-            evidence(checkEvidence(JSON.parse(item.data), model.id, started));
+            evidence(
+              checkEvidence(
+                JSON.parse(item.data),
+                model.id,
+                started,
+                expectedNonce,
+              ),
+            );
             attested = true;
             continue;
           }

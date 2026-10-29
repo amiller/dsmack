@@ -11,7 +11,8 @@
     "@mariozechner/pi-ai": "0.73.1",
     "@mariozechner/pi-agent-core": "0.73.1",
     "ethers": "6.17.0",
-    "@opentelemetry/api": "1.9.0"
+    "@opentelemetry/api": "1.9.0",
+    "@mariozechner/mini-lit": "0.2.1"
   },
   "devDependencies": {
     "esbuild": "0.25.12"

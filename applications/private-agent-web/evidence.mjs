@@ -4,7 +4,7 @@ const require = (ok, message) => {
 };
 export const PRIVACY =
   "NEAR TEE model via broker CVM; broker handles plaintext";
-export function checkEvidence(e, model, started) {
+export function checkEvidence(e, model, started, expectedNonce) {
   require(
     !model.startsWith("anthropic/"),
     "This routed model is not a private TEE model.",
@@ -15,7 +15,8 @@ export function checkEvidence(e, model, started) {
     "Provider attestation is invalid or names another model.",
   );
   require(
-    /^[0-9a-f]{64}$/.test(e.nonce) && !usedNonces.has(e.nonce),
+    /^[0-9a-f]{64}$/.test(expectedNonce) && e.nonce === expectedNonce &&
+      !usedNonces.has(e.nonce),
     "Provider attestation has a stale or reused nonce.",
   );
   require(

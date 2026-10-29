@@ -1,3 +1,4 @@
+import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import "@pi-components/components/MessageList.js";
 import "@pi-components/components/Messages.js";
 import "@pi-components/components/MessageEditor.js";
@@ -286,13 +287,14 @@ function initChat() {
   };
   editor.onAbort = () => agent.abort();
   agent.subscribe((event) => {
-    editor.isStreaming = agent.state.isStreaming;
+    const running = event.type !== "agent_end" && agent.state.isStreaming;
+    editor.isStreaming = running;
     list.messages = agent.state.messages;
     list.tools = [];
     list.pendingToolCalls = new Set();
-    list.isStreaming = agent.state.isStreaming;
-    stream.isStreaming = agent.state.isStreaming;
-    stream.hidden = !agent.state.isStreaming;
+    list.isStreaming = running;
+    stream.isStreaming = running;
+    stream.hidden = !running;
     $("chat-empty").hidden = agent.state.messages.length > 0;
     if (event.type === "message_update") stream.setMessage(event.message);
     if (event.type === "message_end" || event.type === "agent_end") {
@@ -360,12 +362,13 @@ async function discover() {
   );
   node = checked;
   verifiedAt = Date.now();
-  $("node-status").textContent =
-    "Node verified · Apple enrollment, approved build, compose, image, broker and bound keys";
+  $("node-status").textContent = "Node verified · Apple enrollment (" +
+    (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
+    "), approved build, compose, image, broker and bound keys";
   $("node-evidence").textContent = JSON.stringify(registration, null, 2);
 }
 async function run() {
-  const p = credit.selected(1);
+  const p = credit.forSpend(1);
   require(
     p,
     "CREDIT_NOT_CONFIRMED: Confirm sandbox credit before sending a job.",

@@ -172,6 +172,14 @@ export class Credit {
       p.payer?.toLowerCase() === this.address?.toLowerCase()
     );
   }
+  forSpend(unit, minimum = 1n) {
+    return this.purchases.find((p) =>
+      p.unit === unit && p.status === "confirmed" && !p.closed && !p.receipt &&
+      !p.uncertain && !p.needsReconcile &&
+      p.payer?.toLowerCase() === this.address?.toLowerCase() &&
+      BigInt(p.amount) - BigInt(p.used || 0) >= BigInt(minimum)
+    ) || this.selected(unit);
+  }
   async buy(quote, amount) {
     require(quote, "This credit service is unavailable.");
     require(/^[1-9][0-9]*$/.test(amount), "Enter a positive whole amount.");

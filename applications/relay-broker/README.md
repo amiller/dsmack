@@ -120,12 +120,12 @@ Deploy from the laptop, with `config.json` prepared. From this directory:
 
 ```sh
 bash deploy.sh config.json \
-  "$OPERATOR_TOKEN_FILE" \
-  "$EVIDENCE_DIR" \
-  "$WEBHOST_URL"
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/operator.token \
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/live \
+  https://pod.dstack.soc1024.com
 ```
 
-Export the webhost admin token as `TEE_DAEMON_TOKEN`. The script uploads a
+The script sources `~/.oauth3-prod-secrets.env` without shell tracing, uploads a
 source tarball to `POST /_api/projects`, and promotes only `relay-broker`. It
 creates the operator token with mode 600 at the supplied laptop path and deploys
 only its SHA-256 digest in `ctx.env.OPERATOR_TOKEN_SHA256`. The original token

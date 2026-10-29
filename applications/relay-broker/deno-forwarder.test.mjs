@@ -62,7 +62,10 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
     assert.equal(reachable.reachable, true); assert.equal(reachable.peer_id, relay.peerId.toString());
     const unreachable = await forwarder.probe(relayAddress.replace(/\/tcp\/[0-9]+/, "/tcp/1").replace(/\/p2p\/[^/]+$/, "/p2p/" + guest.peerId.toString()));
     assert.equal(unreachable.reachable, false); assert.equal(unreachable.error, "node_unreachable");
-    assert.deepEqual(await forwarder.forward("attestation", { target }), { attestation: "public-proof" });
+    const discoveryRequest = new AbortController();
+    assert.deepEqual(await forwarder.forward("attestation", { target }, { signal: discoveryRequest.signal }), { attestation: "public-proof" });
+    // Deno's successful HTTP response can abort its Request signal afterwards.
+    discoveryRequest.abort(new Error("successful discovery HTTP response ended"));
     assert.deepEqual(await forwarder.forward("attestation", { target, challenge: "ab".repeat(32) }), { attestation: "fresh-public-proof", challenge: "ab".repeat(32) });
     assert.deepEqual(await forwarder.forward("jobs", { target, admission, sealed }), complete);
     assert.deepEqual(received, { admission, sealed });

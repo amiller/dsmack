@@ -618,14 +618,6 @@ async function main() {
     await store("client", client);
   }
   credit = await new Credit(cfg, client, render).init();
-  const access = document.createElement("p");
-  access.id = "model-access";
-  access.className = "small muted";
-  access.textContent =
-    "NEAR TEE model via broker CVM; broker handles plaintext. Provider keys stay in the broker CVM.";
-  $("credential").nextElementSibling.remove();
-  document.querySelector('label[for="credential"]').remove();
-  $("credential").replaceWith(access);
   initChat();
   render();
   action("burner", async () => {

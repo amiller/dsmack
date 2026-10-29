@@ -1,30 +1,51 @@
 package p2p
 
 import (
+	"bytes"
 	"context"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net"
+	"net/http"
 	"net/url"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
+func backhaulLog(format string, args ...any) {
+	fmt.Printf("%s broker backhaul %s\n", time.Now().UTC().Format(time.RFC3339Nano), fmt.Sprintf(format, args...))
+}
+
+func backhaulFailure(stage string, err error) {
+	cause := "io"
+	var netError net.Error
+	if errors.Is(err, context.Canceled) {
+		cause = "cancelled"
+	} else if errors.Is(err, context.DeadlineExceeded) || (errors.As(err, &netError) && netError.Timeout()) {
+		cause = "timeout"
+	} else if errors.Is(err, io.EOF) {
+		cause = "eof"
+	}
+	backhaulLog("failed stage=%s cause=%s type=%T", stage, cause, err)
+}
+
 // backhaulListener supplies a loopback TCP stream to Go's existing Noise/yamux
-// stack. go-libp2p's WS dialer has no URL-path support; this adapter carries the
-// same bytes over an ordinary WebSocket at the broker's shared HTTP route.
+// stack. Finite HTTP sends and long polls carry those bytes through the broker's
+// shared HTTP worker, whose outer proxy does not support WebSocket upgrades.
 func backhaulListener(raw string) (net.Listener, error) {
 	u, err := url.Parse(raw)
-	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" {
-		return nil, fmt.Errorf("broker WebSocket origin")
+	if err != nil || u.Hostname() == "" || u.User != nil || u.RawQuery != "" || u.Fragment != "" || u.Path == "" || u.Path[len(u.Path)-1] == '/' {
+		return nil, fmt.Errorf("broker HTTP backhaul origin")
 	}
-	if u.Scheme != "wss" && !(u.Scheme == "ws" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost")) {
-		return nil, fmt.Errorf("broker backhaul requires WSS")
+	if u.Scheme != "https" && !(u.Scheme == "http" && (u.Hostname() == "127.0.0.1" || u.Hostname() == "localhost")) {
+		return nil, fmt.Errorf("broker backhaul requires HTTPS")
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -36,60 +57,104 @@ func backhaulListener(raw string) (net.Listener, error) {
 			if err != nil {
 				return
 			}
-			go bridgeWebSocket(conn, raw)
+			go bridgeHTTP(conn, raw)
 		}
 	}()
 	return listener, nil
 }
 
-func bridgeWebSocket(conn net.Conn, raw string) {
+func bridgeHTTP(conn net.Conn, raw string) {
 	defer conn.Close()
-	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-	ws, _, err := websocket.DefaultDialer.DialContext(ctx, raw, nil)
-	cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	transport := &http.Transport{DialContext: (&net.Dialer{Timeout: 10 * time.Second}).DialContext,
+		TLSHandshakeTimeout: 10 * time.Second, ResponseHeaderTimeout: 25 * time.Second, MaxIdleConnsPerHost: 2}
+	client := &http.Client{Transport: transport, Timeout: 25 * time.Second,
+		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
+	defer transport.CloseIdleConnections()
+	request := func(method, path string, body []byte) (*http.Response, error) {
+		req, err := http.NewRequestWithContext(ctx, method, raw+path, bytes.NewReader(body))
+		if err != nil {
+			return nil, err
+		}
+		req.Header.Set("Content-Type", "application/octet-stream")
+		return client.Do(req)
+	}
+	response, err := request("POST", "/open", nil)
 	if err != nil {
-		fmt.Println("broker backhaul WebSocket refused")
+		backhaulFailure("http_open", err)
 		return
 	}
-	defer ws.Close()
-	ws.SetReadLimit(64 << 20)
-	finished := make(chan struct{})
-	defer close(finished)
-	go func() {
-		ticker := time.NewTicker(15 * time.Second)
-		defer ticker.Stop()
-		for {
-			select {
-			case <-finished:
-				return
-			case <-ticker.C:
-				if ws.WriteControl(websocket.PingMessage, nil, time.Now().Add(5*time.Second)) != nil {
-					conn.Close()
-					return
-				}
-			}
+	var opened struct {
+		ID string `json:"id"`
+	}
+	err = json.NewDecoder(io.LimitReader(response.Body, 1024)).Decode(&opened)
+	response.Body.Close()
+	id, hexErr := hex.DecodeString(opened.ID)
+	if response.StatusCode != 200 || err != nil || hexErr != nil || len(id) != 32 {
+		backhaulLog("HTTP open refused status=%d", response.StatusCode)
+		return
+	}
+	path := "/" + opened.ID
+	defer func() {
+		cleanupCtx, stop := context.WithTimeout(context.Background(), 5*time.Second)
+		defer stop()
+		req, _ := http.NewRequestWithContext(cleanupCtx, "DELETE", raw+path, nil)
+		if response, err := client.Do(req); err == nil {
+			response.Body.Close()
 		}
 	}()
 	go func() {
 		defer conn.Close()
-		defer ws.Close()
+		defer cancel()
 		buffer := make([]byte, 32<<10)
 		for {
 			n, err := conn.Read(buffer)
-			if n > 0 && ws.WriteMessage(websocket.BinaryMessage, buffer[:n]) != nil {
-				return
+			if n > 0 {
+				response, sendErr := request("POST", path+"/send", buffer[:n])
+				if sendErr != nil {
+					backhaulFailure("http_send", sendErr)
+					return
+				}
+				response.Body.Close()
+				if response.StatusCode != 204 {
+					backhaulLog("HTTP send refused status=%d", response.StatusCode)
+					return
+				}
 			}
 			if err != nil {
+				backhaulFailure("tcp_read", err)
 				return
 			}
 		}
 	}()
 	for {
-		kind, reader, err := ws.NextReader()
-		if err != nil || kind != websocket.BinaryMessage {
+		response, err := request("GET", path+"/recv", nil)
+		if err != nil {
+			backhaulFailure("http_receive", err)
 			return
 		}
-		if _, err := io.Copy(conn, reader); err != nil {
+		if response.StatusCode == 204 {
+			response.Body.Close()
+			continue
+		}
+		if response.StatusCode != 200 {
+			response.Body.Close()
+			backhaulLog("HTTP receive refused status=%d", response.StatusCode)
+			return
+		}
+		raw, err := io.ReadAll(io.LimitReader(response.Body, (64<<10)+1))
+		response.Body.Close()
+		if err != nil {
+			backhaulFailure("http_receive_body", err)
+			return
+		}
+		if len(raw) > 64<<10 {
+			backhaulLog("HTTP receive body exceeded frame limit")
+			return
+		}
+		if _, err := conn.Write(raw); err != nil {
+			backhaulFailure("tcp_write", err)
 			return
 		}
 	}
@@ -125,10 +190,10 @@ func maintainBackhaul(ctx context.Context, h host.Host, raw, brokerID string) er
 				err := h.Connect(dialCtx, peer.AddrInfo{ID: id, Addrs: []ma.Multiaddr{addr}})
 				cancel()
 				if err != nil {
-					fmt.Println("broker backhaul Noise connection refused")
+					backhaulFailure("noise_connect", err)
 				} else {
 					h.ConnManager().Protect(id, "broker-backhaul")
-					fmt.Printf("broker backhaul connected %s\n", id)
+					backhaulLog("connected %s", id)
 				}
 			}
 			select {

@@ -17,6 +17,26 @@ const ATTESTATION_LIMIT = 150000;
 const canonical = (value) => JSON.stringify(value, (_key, v) => v && typeof v === "object" && !Array.isArray(v)
   ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v);
 
+// A completed request must not later abort a cached libp2p connection created
+// during its dial. Detach the HTTP signal and cancel the operation timer on exit.
+function operationScope(milliseconds, external) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new DOMException("operation timed out", "TimeoutError")), milliseconds);
+  const abort = () => controller.abort(external.reason);
+  if (external?.aborted) abort(); else external?.addEventListener("abort", abort, { once: true });
+  return { signal: controller.signal, clear() { clearTimeout(timeout); external?.removeEventListener("abort", abort); } };
+}
+function errorNames(error) {
+  const names = new Set();
+  const visit = (e, depth) => {
+    if (!e || depth > 3) return;
+    if (typeof e.name === "string" && /^[A-Za-z][A-Za-z0-9]{0,63}$/.test(e.name)) names.add(e.name);
+    visit(e.cause, depth + 1);
+    if (Array.isArray(e.errors)) for (const child of e.errors.slice(0, 4)) visit(child, depth + 1);
+  };
+  visit(error, 0); return [...names];
+}
+
 export class ForwardError extends Error {
   constructor(code, cause) { super(code, { cause }); this.code = code; this.status = 502; }
 }
@@ -86,15 +106,18 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
   const websocketAddress = node.getMultiaddrs().find((addr) => addr.toString().includes("/ws"));
   const websocketPort = websocketAddress?.getComponents().find((part) => part.name === "tcp")?.value;
   const channels = new Map();
-  const closeChannel = (id) => {
+  const diagnostics = { last_failure: null, last_backhaul_close: null };
+  const closeChannel = (id, reason = "closed") => {
     const channel = channels.get(id);
     if (!channel) return;
     channels.delete(id); clearTimeout(channel.timer); channel.wake?.();
+    diagnostics.last_backhaul_close = { reason, age_ms: Date.now() - channel.opened_at,
+      sent_bytes: channel.sent_bytes, received_bytes: channel.received_bytes };
     if (channel.socket.readyState < WebSocket.CLOSING) channel.socket.close();
   };
   const touch = (id, milliseconds = 900000) => {
     const channel = channels.get(id);
-    if (channel) { clearTimeout(channel.timer); channel.timer = setTimeout(() => closeChannel(id), milliseconds); }
+    if (channel) { clearTimeout(channel.timer); channel.timer = setTimeout(() => closeChannel(id, "idle_timeout"), milliseconds); }
   };
   return {
     async acceptBackhaul(req) {
@@ -106,14 +129,14 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
         const id = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
         const socket = new WebSocket("ws://127.0.0.1:" + websocketPort);
         socket.binaryType = "arraybuffer";
-        const channel = { socket, queue: [], bytes: 0, wake: undefined, receiving: false, timer: undefined };
+        const channel = { socket, queue: [], bytes: 0, wake: undefined, receiving: false, timer: undefined, opened_at: Date.now(), sent_bytes: 0, received_bytes: 0 };
         channels.set(id, channel); touch(id, 30000);
         socket.addEventListener("message", (event) => {
-          if (!(event.data instanceof ArrayBuffer) || channel.bytes + event.data.byteLength > 4194304) { closeChannel(id); return; }
-          channel.queue.push(new Uint8Array(event.data)); channel.bytes += event.data.byteLength; channel.wake?.();
+          if (!(event.data instanceof ArrayBuffer) || channel.bytes + event.data.byteLength > 4194304) { closeChannel(id, "receive_overflow"); return; }
+          channel.queue.push(new Uint8Array(event.data)); channel.bytes += event.data.byteLength; channel.received_bytes += event.data.byteLength; channel.wake?.();
         });
-        socket.addEventListener("close", () => closeChannel(id), { once: true });
-        socket.addEventListener("error", () => closeChannel(id), { once: true });
+        socket.addEventListener("close", (event) => closeChannel(id, "websocket_close_" + event.code), { once: true });
+        socket.addEventListener("error", () => closeChannel(id, "websocket_error"), { once: true });
         try {
           await new Promise((resolve, reject) => {
             const timeout = setTimeout(() => reject(new Error("loopback websocket timeout")), 5000);
@@ -127,7 +150,7 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
       if (!match) return error("not_found", 404);
       const [, id, action] = match, channel = channels.get(id);
       if (!channel) return error("backhaul_closed", 404);
-      if (req.method === "DELETE" && !action) { closeChannel(id); return new Response(null, { status: 204 }); }
+      if (req.method === "DELETE" && !action) { closeChannel(id, "deleted"); return new Response(null, { status: 204 }); }
       if (req.method === "POST" && action === "send") {
         const parts = []; let size = 0;
         if (req.body) for await (const part of req.body) {
@@ -137,10 +160,10 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
         }
         if (!size) return error("backhaul_empty_chunk", 400);
         if (channel.socket.readyState !== WebSocket.OPEN) return error("backhaul_closed", 404);
-        if (channel.socket.bufferedAmount + size > 4194304) { closeChannel(id); return error("backhaul_overflow", 429); }
+        if (channel.socket.bufferedAmount + size > 4194304) { closeChannel(id, "send_overflow"); return error("backhaul_overflow", 429); }
         const raw = new Uint8Array(size); let offset = 0;
         for (const part of parts) { raw.set(part, offset); offset += part.length; }
-        channel.socket.send(raw); touch(id);
+        channel.socket.send(raw); channel.sent_bytes += size; touch(id);
         return new Response(null, { status: 204 });
       }
       if (req.method === "GET" && action === "recv") {
@@ -163,28 +186,31 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
       return error("not_found", 404);
     },
     peerId: node.peerId.toString(),
+    snapshot: () => ({ ...diagnostics, backhaul_channels: channels.size,
+      connections: node.getConnections().map((connection) => ({ peer_id: connection.remotePeer.toString(), status: connection.status,
+        direction: connection.direction, streams: connection.streams.map((stream) => ({ protocol: stream.protocol, status: stream.status })) })) }),
     stop: () => { for (const id of channels.keys()) closeChannel(id); return node.stop(); },
     async probe(target, { signal: requestedSignal } = {}) {
       const started = Date.now();
-      const signal = AbortSignal.any([...(requestedSignal ? [requestedSignal] : []), AbortSignal.timeout(5000)]);
+      const scope = operationScope(5000, requestedSignal), { signal } = scope;
       try {
         const connection = await node.dial(multiaddr(target), { signal });
         return { reachable: true, peer_id: connection.remotePeer.toString(), elapsed_ms: Date.now() - started };
       } catch (error) {
         return { reachable: false, error: "node_unreachable", reason: error.name, elapsed_ms: Date.now() - started };
-      }
+      } finally { scope.clear(); }
     },
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
       if (endpoint !== "attestation" && endpoint !== "jobs") throw new Error("forward endpoint");
-      const signal = AbortSignal.any([...(requestedSignal ? [requestedSignal] : []),
-        AbortSignal.timeout(endpoint === "jobs" ? 900000 : 30000)]);
+      const scope = operationScope(endpoint === "jobs" ? 900000 : 30000, requestedSignal), { signal } = scope;
+      const started = Date.now(); let progress = "dial";
       let stream;
       let phase = "node_unreachable";
       try {
         const protocol = endpoint === "jobs" ? "/dsmack/job/1" : payload.challenge
           ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
         stream = await node.dialProtocol(multiaddr(payload.target), protocol,
-          { signal, runOnLimitedConnection: true });
+          { signal, runOnLimitedConnection: true, onProgress: (event) => { if (/^[a-z0-9:-]{1,120}$/i.test(event.type)) progress = event.type; } });
         // Agent turns may be quiet for longer than libp2p's default 120 seconds.
         stream.inactivityTimeout = endpoint === "jobs" ? 900000 : 30000;
         const abort = () => stream.abort(signal.reason instanceof Error ? signal.reason : new Error("request aborted"));
@@ -206,8 +232,11 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
           await sendFrame(stream, payload.sealed, BUNDLE_LIMIT, signal);
           return await reader.frame(BUNDLE_LIMIT);
         } finally { signal.removeEventListener("abort", abort); }
-      } catch (cause) { throw new ForwardError(phase, cause); }
-      finally { if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
+      } catch (cause) {
+        diagnostics.last_failure = { phase, progress, causes: errorNames(cause), elapsed_ms: Date.now() - started };
+        throw new ForwardError(phase, cause);
+      }
+      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
     },
   };
 }

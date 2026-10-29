@@ -14,15 +14,20 @@ parser.add_argument('--policy', type=Path)
 parser.add_argument('--repo', type=Path)
 parser.add_argument('--prompt', default='Change greet.txt to say Hello from the private agent. Make the smallest edit.')
 parser.add_argument('--seconds', type=int, default=60)
+parser.add_argument('--prompt-file', type=Path)
+parser.add_argument('--markers', type=Path)
 parser.add_argument('--out', type=Path, default=Path('/evidence'))
 parser.add_argument('--inspect-credit-profile', type=Path)
 parser.add_argument('--grant-wait', type=int, default=180)
+parser.add_argument('--preflight', action='store_true')
 args = parser.parse_args()
+if args.prompt_file:
+    args.prompt = args.prompt_file.read_text()
 args.out.mkdir(parents=True, exist_ok=True)
-if not args.inspect_credit_profile and (not args.policy or not args.repo):
+if not args.preflight and not args.inspect_credit_profile and (not args.policy or not args.repo):
     parser.error('diagnostic execution requires --policy and --repo')
-report = {'url': args.url, 'mode': 'paid-credit-inspection' if args.inspect_credit_profile else 'operator-diagnostic',
-          'paid_credit_consumed': False, 'requests': [], 'errors': []}
+report = {'url': args.url, 'mode': 'live-ui-preflight' if args.preflight else 'paid-credit-inspection' if args.inspect_credit_profile else 'operator-diagnostic',
+          'paid_credit_consumed': False, 'requests': [], 'errors': [], 'failed_requests': []}
 
 with sync_playwright() as runtime:
     browser = None
@@ -31,7 +36,7 @@ with sync_playwright() as runtime:
                     args=['--no-sandbox'], viewport={'width': 1440, 'height': 1100})
     else:
         browser = runtime.chromium.launch(headless=True, args=['--no-sandbox'])
-        context = browser.new_context(viewport={'width': 1440, 'height': 1100}, record_video_dir=str(args.out/'video'))
+        context = browser.new_context(viewport={'width': 1440, 'height': 1100}, **({} if args.preflight else {'record_video_dir':str(args.out/'video')}))
     page = context.pages[0] if context.pages else context.new_page()
 
     def boundary(route):
@@ -53,6 +58,7 @@ with sync_playwright() as runtime:
         route.continue_()
     context.route('**/*', boundary)
     page.on('pageerror', lambda error: report['errors'].append(str(error)))
+    page.on('requestfailed', lambda request: report['failed_requests'].append({'url':request.url,'failure':request.failure}))
 
     def record(request):
         path = urlsplit(request.url).path
@@ -66,13 +72,29 @@ with sync_playwright() as runtime:
         page.goto(args.url, wait_until='domcontentloaded')
         page.wait_for_function('document.documentElement.dataset.ready === "true"')
         page.wait_for_function('document.querySelector("#service").textContent.includes("Broker connected")')
-        if args.inspect_credit_profile:
+        if args.preflight:
+            report['checks'] = page.evaluate("""async()=>{
+              const m=await import(new URL('sandbox-client.js',location.href).href),cfg=await(await fetch('./config.json',{cache:'no-store'})).json();
+              const get=async path=>{const r=await fetch(cfg.broker+path);if(!r.ok)throw Error(path+' HTTP '+r.status);return r.json();};
+              const [key,payments,status]=await Promise.all([get('/key'),get('/payments/key'),get('/inference/status')]);
+              if(document.querySelector('#credential'))throw Error('manual provider key field remains');
+              if(typeof m.requestCapability!=='function')throw Error('capability helper not exported');
+              if(key.public_key!==cfg.brokerKey||payments.address.toLowerCase()!==cfg.grantSigner.toLowerCase()||payments.escrow.toLowerCase()!==cfg.escrow.toLowerCase()||payments.codeHash!==cfg.codeHash||payments.chainId!==84532)throw Error('broker identity pin mismatch');
+              const r=await fetch(cfg.rpc,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({jsonrpc:'2.0',id:1,method:'eth_chainId',params:[]})});
+              const chain=await r.json();if(!r.ok||chain.result!=='0x14a34')throw Error('Base Sepolia RPC unavailable');
+              return {brokerConnected:document.querySelector('#service').textContent,manualProviderKeyField:'absent',requestCapability:'exported',brokerKeys:'pinned',chainId:84532,inferenceStatus:status,privacy:document.querySelector('#model-access').textContent};
+            }""")
+            report.update(status='passed')
+            page.screenshot(path=str(args.out/'preflight.png'),full_page=True)
+        elif args.inspect_credit_profile:
             report.update(status='passed', credit=page.locator('#purchases').inner_text())
             page.screenshot(path=str(args.out/'credit-preserved.png'), full_page=True)
         else:
             policy = json.loads(args.policy.read_text())
             page.locator('#policy').set_input_files(str(args.policy))
-            page.wait_for_function('document.querySelector("#node-status").textContent.includes("Trusted policy loaded")')
+            page.wait_for_function('document.querySelector("#node-status").textContent.includes("Trusted policy loaded") || !document.querySelector("#alert").hidden')
+            if not page.locator('#node-status').inner_text().startswith('Trusted policy loaded'):
+                raise RuntimeError(page.locator('#alert').inner_text())
             page.locator('#discover').click()
             page.wait_for_function('!document.querySelector("#discover").disabled')
             if not page.locator('#node-status').inner_text().startswith('Node verified'):
@@ -107,8 +129,11 @@ with sync_playwright() as runtime:
               const credential=await m.requestCapability(d.config.broker,{node,client,grant,jobId});
               const repoTar=Uint8Array.from(atob(d.repo),c=>c.charCodeAt(0));
               const job=await m.sealJob(node,{grant,jobId,credential,repoTar,prompt:d.prompt,client});
+              d.job=job;
               document.querySelector('#job-status').textContent='Operator diagnostic: sealed job submitted; verifying the TEE result…';
-              const result=await m.receive(await m.submitJob(d.config.broker,job)),outputs=await m.openOutputs(job,result),text=new TextDecoder();
+              let result;
+              try { result=await m.receive(await m.submitJob(d.config.broker,job)); } catch(error) { d.failure={message:error.message,status:error.status??null,response:error.response??null};throw error; }
+              const outputs=await m.openOutputs(job,result),text=new TextDecoder();
               document.querySelector('#diff').textContent=text.decode(outputs.patch);
               document.querySelector('#transcript').textContent=text.decode(outputs.transcript);
               document.querySelector('#job-evidence').textContent=JSON.stringify({statement:result.statement,attestation:result.attestation,receipt:result.receipt},null,2);
@@ -119,13 +144,26 @@ with sync_playwright() as runtime:
                 (args.out/name).write_text(result['outputs'][name])
             for name, value in [('sealed-input', result['sealed']), ('result', result['result'])]:
                 (args.out/(name+'.json')).write_text(json.dumps(value)+'\n')
+            if args.markers:
+                markers=json.loads(args.markers.read_text())
+                markers=markers if isinstance(markers,list) else list(markers.values())
+                transport='\n'.join(item.get('body','') or '' for item in report['requests'] if item['path'].endswith('/sandbox/jobs'))
+                hits=[marker for marker in markers if marker in transport]
+                report['network_markers']={'tested':len(markers),'hits':len(hits)}
+                if hits:
+                    raise AssertionError('private marker appeared in forwarded browser request')
+            report['provider_responses']=sum(json.loads(line).get('type')=='provider_attestation' for line in result['outputs']['transcript'].splitlines())
             report.update(status='passed', seconds_used=result['result']['statement']['seconds_used'],
                           model=result['model'], enrollmentMode=result['enrollmentMode'], privacy=result['privacy'])
             page.screenshot(path=str(args.out/'sandbox-complete.png'), full_page=True)
         if report['errors']:
             raise RuntimeError('browser or network boundary errors occurred')
     except Exception as error:
-        report.update(status='failed', error=str(error))
+        report.update(status='failed', error=str(error), alert=page.locator('#alert').inner_text())
+        report['brokerFailure']=page.evaluate('window.sandboxDiagnostic?.failure ?? null')
+        sealed=page.evaluate('window.sandboxDiagnostic?.job?.sealed ?? null')
+        if sealed:
+            (args.out/'sealed-input.json').write_text(json.dumps(sealed)+'\n')
         page.screenshot(path=str(args.out/'failure.png'), full_page=True)
         raise
     finally:

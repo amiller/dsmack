@@ -30,7 +30,8 @@ let cfg,
   repoFiles,
   patch,
   agent,
-  starterSandboxUsed = false;
+  starterSandboxUsed = false,
+  starterSandboxStatus = "available";
 function error(e) {
   $("alert").textContent = e.message || String(e);
   $("alert").hidden = false;
@@ -87,7 +88,7 @@ async function api(path, body, opts = {}) {
     } catch {}
     const code = typeof e === "object" ? e?.code : e;
     const friendly = code === "starter_sandbox_used"
-      ? "Your starter sandbox job has already been reserved by this wallet. Additional starter time is not available for this trial."
+      ? "Your starter sandbox allowance has already been used by this wallet. Additional starter time is not available for this trial."
       : code === "diagnostic_node_not_live"
       ? "The selected sandbox retired before your job was reserved. No repository or task was sent."
       : undefined;
@@ -105,9 +106,16 @@ function render() {
   $("connect").disabled = !!credit.address;
   $("wallet-tools").hidden = !credit.address;
   $("sandbox-credit").dataset.remainingJobs = starterSandboxUsed ? "0" : "1";
-  $("sandbox-credit").textContent = starterSandboxUsed
-    ? "Starter sandbox job reserved · Its submitted job will not be retried automatically."
-    : "Your first sandbox job includes up to 180 seconds. No testnet ETH needed.";
+  $("sandbox-credit").dataset.status = starterSandboxStatus;
+  $("sandbox-credit").textContent = {
+    available:
+      "Your first sandbox job includes up to 180 seconds. No testnet ETH needed.",
+    running: "Your starter sandbox job is running…",
+    completed: "Starter sandbox completed. Your verified result is ready.",
+    stopped:
+      "Your starter sandbox job stopped. The error explains what failed.",
+    used: "Your starter sandbox allowance has been used.",
+  }[starterSandboxStatus];
   const list = $("purchases");
   list.replaceChildren();
   if (!credit.purchases.length) {
@@ -184,9 +192,17 @@ async function claimChatCredit() {
     "Chat credit belongs to another wallet.",
   );
   credit.chatCredit = result;
-  starterSandboxUsed = !!await store(
+  const starter = await store(
     "sandbox-starter:" + credit.address.toLowerCase(),
   );
+  starterSandboxUsed = !!starter;
+  starterSandboxStatus = starter?.status || (starter ? "used" : "available");
+  render();
+}
+async function setStarterSandboxStatus(status) {
+  starterSandboxStatus = status;
+  starterSandboxUsed = status !== "available";
+  await store("sandbox-starter:" + credit.address.toLowerCase(), { status });
   render();
 }
 async function ensureWallet() {
@@ -341,6 +357,13 @@ function initChat() {
     stream.isStreaming = running;
     stream.hidden = !running;
     $("chat-empty").hidden = agent.state.messages.length > 0;
+    if (event.type === "message_start" && event.message.role === "user") {
+      const sent = event.message.content.filter((part) => part.type === "text")
+        .map((part) => part.text).join("");
+      // MessageEditor.value is its public reactive composer API. Preserve a
+      // newer draft if it changed while wallet/credit checks were pending.
+      if (editor.value === sent) editor.value = "";
+    }
     if (event.type === "message_update") stream.setMessage(event.message);
     if (event.type === "message_end" || event.type === "agent_end") {
       stream.setMessage(null, true);
@@ -484,9 +507,7 @@ async function run() {
       starter = await reserveStarter();
     } catch (failure) {
       if (failure.code === "starter_sandbox_used") {
-        starterSandboxUsed = true;
-        await store("sandbox-starter:" + credit.address.toLowerCase(), true);
-        render();
+        if (!starterSandboxUsed) await setStarterSandboxStatus("used");
         throw failure;
       }
       if (failure.code !== "diagnostic_node_not_live") throw failure;
@@ -497,12 +518,7 @@ async function run() {
       starter = await reserveStarter();
     }
     grant = starter.grant;
-    starterSandboxUsed = starter.allowance.remainingJobs === 0;
-    await store(
-      "sandbox-starter:" + credit.address.toLowerCase(),
-      starterSandboxUsed,
-    );
-    render();
+    await setStarterSandboxStatus("running");
   }
   const credential = await sandbox.requestCapability(cfg.broker, {
     node,
@@ -608,6 +624,7 @@ async function run() {
   }
   $("transcript").textContent = decode.decode(outputs.transcript);
   $("download").disabled = false;
+  if (!p) await setStarterSandboxStatus("completed");
   node = undefined;
 }
 function renderDiff(text) {
@@ -748,7 +765,16 @@ async function main() {
   action("reconcile", () => usage());
   action("refund", refund);
   action("discover", discover);
-  action("run", run);
+  action("run", async () => {
+    try {
+      await run();
+    } catch (failure) {
+      if (starterSandboxStatus === "running") {
+        await setStarterSandboxStatus("stopped");
+      }
+      throw failure;
+    }
+  });
   action("sample", resetSample);
   action("download", () => {
     require(patch, "No verified patch.");

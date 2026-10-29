@@ -95,6 +95,8 @@ with sync_playwright() as runtime:
         assert 0 < int(report['chat_credit_after_nano_usd']) < int(report['chat_credit_before_nano_usd'])
         report['chat_reply'] = page.locator('#messages assistant-message').last.inner_text()
         assert reply in report['chat_reply']
+        page.wait_for_function('document.querySelector("#chat-editor textarea").value === ""')
+        report['chat_composer_cleared'] = True
         report['chat_model_evidence'] = page.locator('#attestations').inner_text()
         page.screenshot(path=str(args.out/'03-verified-chat.png'), full_page=True)
 
@@ -105,6 +107,8 @@ with sync_playwright() as runtime:
             raise RuntimeError(page.locator('#alert').inner_text())
         actual = page.locator('#updated-files pre[data-file="greet.txt"]').inner_text()
         assert actual == 'Hello from the private agent.\n', 'verified patch did not produce the requested file'
+        assert page.locator('#sandbox-credit').get_attribute('data-status') == 'completed'
+        report['starter_sandbox_status'] = 'completed'
         report['patch_applied'] = True
         report['updated_greet'] = actual
         report['job_status'] = page.locator('#job-status').inner_text()

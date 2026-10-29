@@ -192,6 +192,7 @@ try {
     assert.match(await page.locator("#job-prompt").inputValue(), /greet.txt/);
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
+    assert.equal(await page.locator("#chat-editor textarea").inputValue(), "");
     assert.match(
       await page.locator("#wallet").textContent(),
       /^0x[0-9a-f]{40}$/i,
@@ -241,6 +242,53 @@ try {
       assert(methods.includes("wallet_switchEthereumChain"));
       assert(!methods.some((method) => method.startsWith("eth_send")));
       assert(calls.some((request) => request.path === "/inference/credit"));
+    },
+  );
+  await run(
+    "completed-sandbox-state-survives-reload",
+    "valid",
+    async (page) => {
+      await page.locator("#burner").click();
+      await page.waitForFunction(() =>
+        document.querySelector("#chat-credit").textContent ===
+          "Chat credit $0.010000"
+      );
+      const wallet = (await page.locator("#wallet").textContent())
+        .toLowerCase();
+      await page.evaluate((wallet) =>
+        new Promise((resolve, reject) => {
+          const open = indexedDB.open("dsmack-private-agent", 1);
+          open.onerror = () => reject(open.error);
+          open.onsuccess = () => {
+            const db = open.result, tx = db.transaction("wallet", "readwrite");
+            tx.objectStore("wallet").put(
+              { status: "completed" },
+              "sandbox-starter:" + wallet,
+            );
+            tx.oncomplete = () => {
+              db.close();
+              resolve();
+            };
+            tx.onerror = () => {
+              db.close();
+              reject(tx.error);
+            };
+          };
+        }), wallet);
+      await ready(page);
+      await page.waitForFunction(() =>
+        document.querySelector("#sandbox-credit").dataset.status === "completed"
+      );
+      assert.equal(
+        await page.locator("#sandbox-credit").textContent(),
+        "Starter sandbox completed. Your verified result is ready.",
+      );
+      assert.equal(
+        await page.locator("#sandbox-credit").getAttribute(
+          "data-remaining-jobs",
+        ),
+        "0",
+      );
     },
   );
   for (const kind of ["nonce", "key"]) {

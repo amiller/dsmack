@@ -1,3 +1,4 @@
+import { tunnelIndex } from "../relay-broker/tunnel-index.mjs";
 const root = new URL("./dist/", import.meta.url);
 const types: Record<string, string> = {
   html: "text/html; charset=utf-8",
@@ -20,7 +21,8 @@ const security = {
 };
 
 // The shared webhost router strips /private-agent before invoking this handler.
-export default async function handler(req: Request) {
+export default async function handler(req: Request,ctx?: {env:Record<string,string>}) {
+  if(new URL(req.url).pathname==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256);
   if (req.method !== "GET" && req.method !== "HEAD") {
     return new Response("Method not allowed", {
       status: 405,
@@ -67,6 +69,6 @@ export default async function handler(req: Request) {
 if (import.meta.main) {
   Deno.serve(
     { hostname: "127.0.0.1", port: Number(Deno.args[0] ?? "8788") },
-    handler,
+    (req) => handler(req),
   );
 }

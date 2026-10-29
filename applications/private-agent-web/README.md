@@ -1,12 +1,21 @@
 # Private agent web
 
-A static browser app for Base Sepolia credit, Pi chat over the attested inference
-broker, and encrypted jobs to attested Mac compute nodes. The page displays model
-reports, Apple node and job attestations, receipts, decrypted patches and transcripts.
-Browser wallets and buyer signing keys stay in IndexedDB; conversations, repository
-inputs and sandbox credentials stay in tab memory. An injected wallet can also pay.
+A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
+nodes. Create or connect an Ethereum wallet to receive $0.010000 starter chat
+credit. The wallet signs credit and chat actions; chatting needs no ETH purchase.
+Sandbox seconds use the separate Base Sepolia escrow controls.
 
-Build on the development host with Node 22+:
+The broker verifies fresh NEAR attestation. Before sending a message, the browser
+checks its nonce, model and encryption-key address, then encrypts the conversation
+to the model with the NEAR SDK. It decrypts streamed answers in the tab and shows
+provider-reported tokens, nanoUSD charges and remaining chat credit. The broker
+forwards ciphertext and meters requests with its provider key.
+
+Browser wallets and sandbox buyer keys stay in IndexedDB. Conversation text,
+repository input and sandbox credentials stay in tab memory. An injected wallet
+can sign chat actions and pay for sandbox seconds.
+
+Build on a development host with Node 24.22.1 or newer:
 
 ```sh
 npm ci --ignore-scripts
@@ -17,7 +26,7 @@ python3 dev.py --port 18731
 Open `http://127.0.0.1:18731/private-agent/`. Development forwards broker requests
 to the existing pod. Set `SANDBOX_SOURCE` to the absolute path of
 `applications/compute-node/browser/sandbox.mjs` when building against a separate
-sandbox worktree. `config.json` supplies public deployment pins and the RPC.
+sandbox checkout. `config.json` supplies public deployment pins and the RPC.
 
 The Trust settings file input accepts an operator-approved JSON policy with
 `manifest` (exact manifest bytes as hex), `cdhash`, `brokerKey`, `grantSigner`,
@@ -28,20 +37,17 @@ or the sample repo, enter a task, verify a fresh node, then run. The browser
 obtains a job-scoped broker capability from the confirmed grant and seals it
 to the guest; provider API keys remain in the broker CVM. Download the verified diff and apply it with `git apply`.
 
-Deploy the build to the `private-agent` project in shared Deno mode:
+Deploy the built page to the `private-agent` shared Deno project:
 
 ```sh
 python3 deploy.py --evidence /absolute/path/to/local-data/ui/deploy
 ```
 
-The deployer reads `TEE_DAEMON_TOKEN` from the environment or its existing local
-static assignment, packages only the handler and built assets, promotes the
-project, and compares public broker and secret-release identities across the update.
-
-Run browser checks using an existing Playwright installation:
+Run browser boundary checks with an existing Playwright installation and browser:
 
 ```sh
 BASE_URL=http://127.0.0.1:18731/private-agent/ \
 PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```

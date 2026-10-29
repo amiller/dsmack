@@ -1,25 +1,40 @@
-# Update the inference broker
+# Private chat and the inference broker
 
-The broker runs as shared Deno in the existing `relay-broker` project. W3 owns
-`private-agent` and its deployment. This tool updates only `relay-broker`.
-The existing CVM, persistent data directory, escrow and signing key identities
-remain in place. It performs no chain transaction or substrate update.
+`relay-broker` runs in shared Deno on dstack-webhost. The browser signs requests
+with its Ethereum wallet and receives one $0.01 starter grant. Chat credit is
+separate from the existing ETH sandbox escrow. The broker accounts in integer
+nano-USD: 1,000,000,000 equals $1.00.
 
-## Encrypt provider credentials on the laptop
+Before a prompt is sent, the broker verifies fresh NEAR CPU/GPU evidence and
+approved compose measurements, then pins its upstream TLS connection. The browser
+checks the model, nonce and model-key address and encrypts messages with NEAR's
+SDK. The broker forwards ciphertext using its encrypted-environment API key.
+Replies are decrypted only by the browser. Usage and cost come from NEAR's
+request ID and billing API; the broker never persists prompts or replies.
 
-Fetch the existing broker's public environment key before preparing an update.
-Retain its encrypted provider envelope across updates:
+## Configure
+
+Copy `config.inference.example.json` into the existing broker config's `inference`
+block. Fill the approved gateway/model compose hashes. `maxNanoUsdPerToken` must
+cover the configured model's highest input/output token rate. Each request
+reserves `(encryptedBodyBytes + 256 + 64*messageCount + max_tokens)` times this
+rate before dispatch, then debits the actual provider cost. Only one request per
+wallet can remain unreconciled. Replays, plaintext bodies and insufficient credit
+are refused before dispatch.
+
+Keep the existing payment configuration and escrow unchanged. Wallet starter
+credit needs no transaction or separate escrow deployment.
+
+## Encrypted provider environment
+
+The existing key stays on its laptop and inside the broker CVM. For a new setup,
+first deploy the broker without an envelope and fetch its public environment key:
 
 ```sh
 curl --fail --silent --show-error \
   https://pod.dstack.soc1024.com/relay-broker/inference/environment-key \
   --output environment-key.json
-```
 
-Pin `EXPECTED_PAYMENT_SIGNER` to the previously verified broker payment address
-from `/relay-broker/payments/key`. Encrypt the existing key on its owning laptop:
-
-```sh
 deno run --allow-read --allow-write \
   --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
   applications/relay-broker/encrypt-provider-env.mjs \
@@ -27,35 +42,21 @@ deno run --allow-read --allow-write \
   "$HOME/.config/near-key" near-encrypted-env.json
 ```
 
-The helper verifies the broker's EIP-191 signature over the project/purpose and
-public encryption key, creates an ephemeral secp256k1 key, and encrypts with
-ECDH, HKDF-SHA256 and AES-GCM. It writes only the ciphertext envelope, mode 0600,
-without replacing an existing file. The provider key stays on its laptop and
-inside the broker CVM. The helper reads no shell secrets file.
+Pin `EXPECTED_PAYMENT_SIGNER` to the existing verified broker payment address.
+The helper verifies that signer's EIP-191 signature over the project, purpose and
+public encryption key. It uses ephemeral secp256k1 ECDH, HKDF-SHA256 and AES-GCM
+and writes only a ciphertext envelope, mode 0600. The broker decrypts in CVM
+memory with project-scoped dstack key `inference-env-v1`. Existing signing key
+names `egress-grants-v1` and `payments-grants-v1` retain their identities.
 
-A raw key becomes `NEAR_API_KEY` for the operator check and job-scoped sandbox proxy. For
-credit-backed delegated keys, use an explicitly prepared local JSON object with
-`NEAR_MANAGEMENT_TOKEN` and `NEAR_REPORTING_TOKEN` instead. A NEAR inference
-`sk-` key does not authorize delegated-key creation. Management requires the
-funded Cloud user's access JWT; reporting requires its organization usage token.
-No provider value belongs in configuration, source, evidence, shell arguments,
-or the page bundle.
+For later updates, reuse the active encrypted envelope. No provider value belongs
+in source, logs, shell arguments, page files or ordinary configuration. No
+webhost substrate or secret-release update is needed.
 
-The deployment manifest contains only
-`env.NEAR_ENCRYPTED_ENV = JSON.stringify(ciphertextEnvelope)`. The shared handler
-decrypts it in CVM memory with the project-scoped dstack key
-`/tee-daemon/projects/relay-broker/inference-env-v1`. No native environment
-passthrough bridge, credential copy to zed/Mac, or secret-release change is used.
+## Deploy
 
-## Prepare the broker package
-
-Copy `config.inference.example.json` into the existing broker configuration's
-`inference` block. Set the funded workspace/organization IDs, approved model and
-compose hashes. Preserve the existing `payments.escrow`, `payments.codeHash`,
-classes, admission settings and operator token hash. The model's full maximum
-context is `requestTokenCeiling`; its nanoUSD/token tariff must cover the maximum
-input/output/cache rate. Normal delegated-key allocation also needs a confirmed
-token-unit purchase.
+Wait for the coordinating lane to finish its broker work, merge its branch, then
+prepare the combined source and the existing public configuration:
 
 ```sh
 python3 applications/relay-broker/deploy-inference.py prepare \
@@ -63,63 +64,44 @@ python3 applications/relay-broker/deploy-inference.py prepare \
   --operator-token-sha256 "$EXISTING_OPERATOR_TOKEN_SHA256" \
   --encrypted-env /absolute/path/near-encrypted-env.json \
   --out /absolute/path/prepared-upload
-```
 
-For a new broker bootstrap, `--encrypted-env` may be omitted while exposing its environment key. Existing configured brokers retain the envelope.
-The argument accepts only the exact ciphertext fields
-`v`, `ephemeralPublicKey`, `iv` and `ciphertext`; plaintext credential objects are
-rejected. Source, schema and the NEAR verifier are packaged locally with Deno's
-bundler. The helper that reads the laptop key is excluded from the server archive.
-The prepared manifest has no `env_passthrough` setting.
-
-## Apply the prepared update
-
-Inspect the package, then explicitly apply it:
-
-```sh
 python3 applications/relay-broker/deploy-inference.py deploy \
   --prepared /absolute/path/prepared-upload \
   --url https://pod.dstack.soc1024.com \
-  --evidence /absolute/path/deployment-evidence \
-  --apply
+  --evidence /absolute/path/deployment-evidence --apply
 ```
 
-Without `--apply`, the command validates the package and returns without network
-requests or credential reads. With it, the tool reads `TEE_DAEMON_TOKEN` from its
-process environment or parses its one static assignment in the existing laptop
-`~/.oauth3-prod-secrets.env`, without sourcing that file. It sends the tarball and
-manifest to `POST /_api/projects`, then promotes only
-`POST /_api/projects/relay-broker/promote`.
+Preparation bundles dependencies locally. The upload manifest stores only the
+encrypted envelope and existing operator hash. Apply updates and promotes only
+`relay-broker`, checks shared Deno, and compares the broker identities, escrow
+and secret-release metadata/key. The persistent payments filename remains
+`payments-<lowercase-escrow>.json`. Source preparation never submits a transaction.
+Serialize shared-runtime project deployments; promote a verified stored revision
+before retrying an upload whose response was interrupted.
 
-Evidence contains whitelisted project metadata and public keys, never environment
-values or raw API responses. The tool checks shared Deno, preserves the current
-escrow/code hash, polls readiness for at most 30 seconds, and compares the broker
-Ed25519 key, payment identity, and secret-release public key/project metadata.
-The persistent file remains `payments-<lowercase-escrow>.json`. Existing key names
-`egress-grants-v1` and `payments-grants-v1` and their project paths stay unchanged.
-Secret-release receives no deployment or mutation request.
+Build the page on zed, then use `applications/private-agent-web/deploy.py` with
+its compiled `dist` directory. It updates only the existing `private-agent`
+shared Deno project and preserves broker and secret-release identities.
 
-## Local checks and token escrow
+## HTTP and checks
+
+`GET /inference/quote` returns the model and starter limits. Signed wallet POSTs
+`/inference/credit`, `/inference/prepare`, `/inference/chat`, and `/inference/usage`
+claim credit, verify a fresh model session, forward SDK ciphertext and reconcile
+provider costs. The wallet signs top-level sorted JSON without `sig` using
+EIP-191; every request has a fresh 16-byte hex nonce and an `issuedAt` timestamp
+within 120 seconds. Prepare also includes the browser's 32-byte attestation nonce.
+
+`GET /inference/status` returns the same public model/credit configuration.
+`POST /inference/provider-check` is a fixed, small operator diagnostic using the
+existing Bearer operator token. It never creates user credit.
 
 ```sh
-deno test --allow-read --allow-write --allow-net \
+deno test --allow-read --allow-net \
   --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
-  applications/relay-broker
+  applications/relay-broker applications/payments/payments.test.mjs
 ```
 
-Use `dev.py DSTACK_SOCKET DATA_DIRECTORY` with a local dstack simulator. Recorded
-NEAR fixtures cover allocation/accounting before management credentials exist.
-Docker and heavy work run on zed under `/data`, reached as `ssh zed-mesh`.
-
-The old immutable escrow accepts bytes and seconds only. Full inference credit
-needs a separate Base Sepolia deployment of the updated `UsageEscrow`, a unit-2
-class and confirmed purchases. Its local Solidity tests run in an in-memory EVM:
-
-```sh
-forge test --root contracts --match-contract UsageEscrowTest -vv
-```
-
-The live update command deliberately preserves the current escrow. A later
-escrow switch is separate: finish all old purchase/settlement/refund consumers
-and register needed classes before switching, or implement multi-escrow support.
-Preserving an old state file alone does not serve its outstanding purchases.
+Run browser builds and Playwright on zed under `/data`, using `ssh zed-mesh`.
+After the live journey, preserve screenshots, request-cost evidence and test logs,
+then remove owned installs and compiled rehearsal output.

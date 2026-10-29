@@ -61,13 +61,10 @@ async function load(ctx: Context) {
         encryptionKey,
       )
       : {};
-    const provider = secrets.NEAR_API_KEY ||
-        (secrets.NEAR_MANAGEMENT_TOKEN && secrets.NEAR_REPORTING_TOKEN)
+    const provider = secrets.NEAR_API_KEY
       ? new NearProvider({
         ...cfg.inference,
         apiKey: secrets.NEAR_API_KEY,
-        managementToken: secrets.NEAR_MANAGEMENT_TOKEN,
-        reportingToken: secrets.NEAR_REPORTING_TOKEN,
         attestationPolicy: cfg.inference,
       })
       : undefined;
@@ -254,7 +251,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&
-        ["mint", "usage", "charges", "close", "chat"].includes(action)
+        ["credit", "prepare", "usage", "chat"].includes(action)
       ) {
         const request = await body(req);
         const result = await b.inference[action](request);

@@ -3,8 +3,11 @@
 A dstack-webhost Deno handler that verifies Mac relays and compute nodes and
 issues Ed25519 byte- or second-budget grants. Jobs and traffic travel directly
 over libp2p.
-The broker gives each client PeerId four grants and 64 MiB of free testnet credit
-per hour. `authorizePayment()` in `broker.mjs` is the payment authorization seam.
+With `payments` configured, finalized Base Sepolia purchases authorize service;
+otherwise each client PeerId gets four grants and 64 MiB of testnet credit per
+hour. The optional inference module grants wallet starter credit, forwards browser-encrypted
+NEAR model requests over an attested TLS channel, and debits provider-reported cost.
+See [inference deployment and local operation](INFERENCE-DEPLOY.md).
 
 ## Configure
 

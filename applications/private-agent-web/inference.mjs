@@ -1,5 +1,6 @@
 import { AssistantMessageEventStream } from "@mariozechner/pi-ai";
-import { inferenceBody, require } from "./credit.mjs";
+import { require, walletBody } from "./credit.mjs";
+import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
 export { checkEvidence, PRIVACY };
 export async function* sse(body) {
@@ -59,7 +60,7 @@ export function brokerStream(
       timestamp: Date.now(),
     };
     (async () => {
-      let purchase;
+      let dispatched = false;
       try {
         const q = quote();
         require(
@@ -67,71 +68,88 @@ export function brokerStream(
           "Private inference is not configured on this broker.",
         );
         await credit.checkBroker(api);
-        purchase = credit.forSpend(2, q.requestTokenCeiling);
         require(
-          purchase,
-          "CREDIT_NOT_CONFIRMED: Buy inference credit and wait for finalized confirmation before sending.",
+          credit.signer && credit.chatCredit,
+          "Create or connect a wallet to receive starter chat credit.",
         );
         require(
-          !purchase.needsReconcile,
+          !credit.chatCredit.pendingInferenceId,
           "Usage is unresolved. Reconcile provider usage before sending another message.",
         );
-        const remaining = BigInt(purchase.amount) - BigInt(purchase.used || 0);
         require(
-          remaining >= BigInt(q.requestTokenCeiling),
-          "CREDIT_EXHAUSTED: Confirmed credit cannot cover the request reservation. Refund or top up.",
-        );
-        if (!purchase.allocation) {
-          purchase.allocation = "minting";
-          await credit.save();
-          const minted = await api(
-            "/inference/mint",
-            await inferenceBody(credit.client, purchase, "mint"),
-          );
-          purchase.allocation = minted;
-          await credit.save();
-        }
-        require(
-          purchase.allocation !== "minting",
-          "MINT_AMBIGUOUS: Key allocation is unresolved; reconcile before retrying.",
+          BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
+          "CREDIT_EXHAUSTED: Starter chat credit is exhausted.",
         );
         const messages = context.messages.filter((m) =>
           m.role === "user" || m.role === "assistant"
-        ).map((m) => ({
-          role: m.role,
-          content: typeof m.content === "string"
-            ? m.content
-            : m.content.filter((c) => c.type === "text").map((c) => c.text)
-              .join("\n"),
-        }));
+        )
+          .map((m) => ({
+            role: m.role,
+            content: typeof m.content === "string"
+              ? m.content
+              : m.content.filter((c) => c.type === "text").map((c) => c.text)
+                .join("\n"),
+          }));
         if (context.systemPrompt) {
           messages.unshift({ role: "system", content: context.systemPrompt });
         }
         const started = Date.now();
-        purchase.needsReconcile = true;
-        await credit.save();
-        const request = await inferenceBody(credit.client, purchase, "chat", {
-          messages,
-          max_tokens: 1024,
-        });
-        const nonceBytes = await crypto.subtle.digest(
-          "SHA-256",
-          new TextEncoder().encode(
-            "dsmack-near-attestation/1:" + purchase.purchaseId + ":" +
-              purchase.txHash + ":" + request.nonce,
-          ),
-        );
-        const expectedNonce = Array.from(
-          new Uint8Array(nonceBytes),
+        const attestationNonce = Array.from(
+          crypto.getRandomValues(new Uint8Array(32)),
           (b) => b.toString(16).padStart(2, "0"),
         ).join("");
-        const response = await api("/inference/chat", request, {
+        const session = await api(
+          "/inference/prepare",
+          await walletBody(credit, "prepare", { attestationNonce }),
+          { signal: options.signal },
+        );
+        const checked = checkEvidence(
+          session.attestation,
+          model.id,
+          started,
+          attestationNonce,
+          session.modelPublicKey,
+        );
+        require(
+          /^[0-9a-f]{32}$/.test(session.sessionId),
+          "Provider preparation has no session ID.",
+        );
+        evidence(checked);
+        const request = new Request(
+          new URL("/v1/chat/completions", window.location.origin),
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({
+              model: model.id,
+              messages,
+              max_tokens: q.maxOutputTokens,
+              stream: true,
+              stream_options: { include_usage: true },
+            }),
+          },
+        );
+        const prepared = await prepareE2eeChatRequest({
+          request,
+          modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
+        });
+        const body = await prepared.request.json();
+        const headers = Object.fromEntries(prepared.request.headers);
+        const signed = await walletBody(credit, "chat", {
+          sessionId: session.sessionId,
+          body,
+          headers,
+        });
+        dispatched = true;
+        credit.chatCredit.pendingInferenceId = "awaiting-provider-response";
+        const response = await api("/inference/chat", signed, {
           stream: true,
           signal: options.signal,
         });
-        let attested = false, done = false;
+        const decrypted = await prepared.decryptResponse(response);
+        let done = false;
         stream.push({ type: "start", partial: answer });
-        for await (const item of sse(response.body)) {
+        for await (const item of sse(decrypted.body)) {
           if (item.event === "error") {
             const e = JSON.parse(item.data).error;
             throw new Error(
@@ -139,26 +157,9 @@ export function brokerStream(
                 (e?.message || "Stream failed. Reconcile usage."),
             );
           }
-          if (item.event === "attestation") {
-            require(!attested, "Repeated provider attestation in one stream.");
-            evidence(
-              checkEvidence(
-                JSON.parse(item.data),
-                model.id,
-                started,
-                expectedNonce,
-              ),
-            );
-            attested = true;
-            continue;
-          }
-          require(
-            attested,
-            "Provider sent answer data before verified model attestation.",
-          );
           if (item.data === "[DONE]") {
             done = true;
-            break;
+            continue;
           }
           const chunk = JSON.parse(item.data);
           require(
@@ -166,7 +167,7 @@ export function brokerStream(
             "Provider completion model differs from its attestation.",
           );
           const delta = chunk.choices?.[0]?.delta?.content;
-          if (typeof delta === "string") {
+          if (typeof delta === "string" && delta) {
             if (!answer.content[0].text) {
               stream.push({
                 type: "text_start",
@@ -184,7 +185,7 @@ export function brokerStream(
           }
         }
         require(
-          attested && done,
+          done,
           "Inference transport ended before completion. Reconcile provider usage.",
         );
         stream.push({
@@ -193,14 +194,21 @@ export function brokerStream(
           content: answer.content[0].text,
           partial: answer,
         });
-        stream.push({ type: "done", reason: "stop", message: answer });
-        stream.end(answer);
         try {
-          await usage(purchase);
+          await usage();
         } catch (e) {
           error(e);
         }
+        stream.push({ type: "done", reason: "stop", message: answer });
+        stream.end(answer);
       } catch (e) {
+        if (dispatched) {
+          try {
+            await usage();
+          } catch (usageError) {
+            error(usageError);
+          }
+        }
         answer.stopReason = options.signal?.aborted ? "aborted" : "error";
         answer.errorMessage = e.message;
         error(e);

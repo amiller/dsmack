@@ -18,10 +18,9 @@ function nodeResponse(result) {
 export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
   const url = new URL(req.url), path = url.pathname;
   let node, payload, endpoint;
-  if (req.method === "GET" && path === "/sandbox/p2p") {
+  if (path.startsWith("/sandbox/p2p/")) {
     require(broker.cfg.sandbox_backhaul_peers?.length, "backhaul_not_configured", 503);
-    require(req.headers.get("upgrade")?.toLowerCase() === "websocket", "websocket_upgrade_required", 426);
-    return (await nativeTransport(broker.cfg)).acceptWebSocket(req);
+    return (await nativeTransport(broker.cfg)).acceptBackhaul(req);
   }
   if (req.method === "GET" && path === "/sandbox/transport") {
     require(!broker.cfg.sandbox_forwarder, "transport_uses_external_helper", 503);

@@ -76,24 +76,63 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
 });
 
-Deno.test("outbound relay WebSocket backhaul reaches the broker through its existing HTTP route", async () => {
+Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary shared-project requests", async () => {
   const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { applyDefaultLimit: false } }) });
   const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()] });
-  const server = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => {
-    const response = forwarder.acceptWebSocket(req);
-    response.headers.set("cache-control", "no-store");
-    return response;
-  });
+  const http = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => forwarder.acceptBackhaul(req));
+  const base = "http://127.0.0.1:" + http.addr.port + "/sandbox/p2p";
+  const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
+  const adapters = new Set();
+  const adapt = async (conn) => {
+    const controller = new AbortController();
+    let id;
+    try {
+      const response = await fetch(base + "/open", { method: "POST", signal: controller.signal });
+      assert.equal(response.status, 200); id = (await response.json()).id;
+      const upload = async () => {
+        const buffer = new Uint8Array(65536);
+        while (true) {
+          const size = await conn.read(buffer);
+          if (size === null) return;
+          const sent = await fetch(base + "/" + id + "/send", { method: "POST", body: buffer.slice(0, size), signal: controller.signal });
+          if (sent.status !== 204) throw new Error("backhaul send refused");
+        }
+      };
+      const download = async () => {
+        while (true) {
+          const response = await fetch(base + "/" + id + "/recv", { signal: controller.signal });
+          if (response.status === 204) continue;
+          if (response.status !== 200) throw new Error("backhaul closed");
+          const bytes = new Uint8Array(await response.arrayBuffer());
+          for (let offset = 0; offset < bytes.length;) offset += await conn.write(bytes.subarray(offset));
+        }
+      };
+      await Promise.race([upload(), download()]);
+    } catch (error) { if (!controller.signal.aborted && error.name !== "BadResource") { /* connection failure closes this transport */ } }
+    finally {
+      controller.abort();
+      try { conn.close(); } catch { /* peer already closed */ }
+      if (id) await fetch(base + "/" + id, { method: "DELETE" });
+    }
+  };
+  const accepting = (async () => {
+    try { for await (const conn of listener) { const task = adapt(conn); adapters.add(task); task.finally(() => adapters.delete(task)); } }
+    catch (error) { if (error.name !== "BadResource" && error.name !== "Interrupted") throw error; }
+  })();
   try {
-    const target = "/ip4/127.0.0.1/tcp/" + server.addr.port + "/ws/p2p/" + forwarder.peerId;
+    const target = "/ip4/127.0.0.1/tcp/" + listener.addr.port + "/p2p/" + forwarder.peerId;
     const identified = new Promise((resolve) => relay.addEventListener("peer:identify", (event) => {
       if (event.detail.peerId.toString() === forwarder.peerId) resolve();
     }, { once: true }));
-    await relay.dial(multiaddr(target));
-    await identified;
+    await relay.dial(multiaddr(target)); await identified;
     const unreachableAddress = relay.getMultiaddrs()[0].toString().replace(/\/tcp\/[0-9]+/, "/tcp/1");
     const connection = await forwarder.probe(unreachableAddress);
-    assert.equal(connection.reachable, true);
-    assert.equal(connection.peer_id, relay.peerId.toString());
-  } finally { await relay.stop(); await forwarder.stop(); await server.shutdown(); }
+    assert.equal(connection.reachable, true); assert.equal(connection.peer_id, relay.peerId.toString());
+    const stranger = await makeNode([]);
+    try { await assert.rejects(stranger.dialProtocol(multiaddr(target), "/ipfs/id/1.0.0", { signal: AbortSignal.timeout(2000) })); }
+    finally { await stranger.stop(); }
+  } finally {
+    listener.close(); await relay.stop(); await forwarder.stop(); await accepting;
+    await Promise.all([...adapters]); await http.shutdown();
+  }
 });

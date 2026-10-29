@@ -85,37 +85,85 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
   });
   const websocketAddress = node.getMultiaddrs().find((addr) => addr.toString().includes("/ws"));
   const websocketPort = websocketAddress?.getComponents().find((part) => part.name === "tcp")?.value;
-  let bridges = 0;
+  const channels = new Map();
+  const closeChannel = (id) => {
+    const channel = channels.get(id);
+    if (!channel) return;
+    channels.delete(id); clearTimeout(channel.timer); channel.wake?.();
+    if (channel.socket.readyState < WebSocket.CLOSING) channel.socket.close();
+  };
+  const touch = (id, milliseconds = 900000) => {
+    const channel = channels.get(id);
+    if (channel) { clearTimeout(channel.timer); channel.timer = setTimeout(() => closeChannel(id), milliseconds); }
+  };
   return {
-    acceptWebSocket(req) {
-      if (!websocketPort) throw new Error("backhaul not configured");
-      if (bridges >= 8) return Response.json({ error: "backhaul_busy" }, { status: 429 });
-      const { response, socket } = Deno.upgradeWebSocket(req, { idleTimeout: 0 });
-      const backend = new WebSocket("ws://127.0.0.1:" + websocketPort);
-      socket.binaryType = backend.binaryType = "arraybuffer";
-      bridges++;
-      let closed = false;
-      const close = () => {
-        if (closed) return; closed = true; bridges--;
-        for (const ws of [socket, backend]) if (ws.readyState < WebSocket.CLOSING) ws.close(1000);
-      };
-      const connect = (source, destination) => {
-        const queue = []; let queued = 0;
-        source.addEventListener("message", (event) => {
-          if (!(event.data instanceof ArrayBuffer) || event.data.byteLength > 1048576 ||
-            queued + destination.bufferedAmount + event.data.byteLength > 4194304) { close(); return; }
-          if (destination.readyState === WebSocket.OPEN) destination.send(event.data);
-          else if (destination.readyState === WebSocket.CONNECTING) { queue.push(event.data); queued += event.data.byteLength; }
-          else close();
+    async acceptBackhaul(req) {
+      const path = new URL(req.url).pathname;
+      const error = (code, status) => Response.json({ error: code }, { status });
+      if (!websocketPort) return error("backhaul_not_configured", 503);
+      if (req.method === "POST" && path === "/sandbox/p2p/open") {
+        if (channels.size >= 8) return error("backhaul_busy", 429);
+        const id = Array.from(crypto.getRandomValues(new Uint8Array(32)), (x) => x.toString(16).padStart(2, "0")).join("");
+        const socket = new WebSocket("ws://127.0.0.1:" + websocketPort);
+        socket.binaryType = "arraybuffer";
+        const channel = { socket, queue: [], bytes: 0, wake: undefined, receiving: false, timer: undefined };
+        channels.set(id, channel); touch(id, 30000);
+        socket.addEventListener("message", (event) => {
+          if (!(event.data instanceof ArrayBuffer) || channel.bytes + event.data.byteLength > 4194304) { closeChannel(id); return; }
+          channel.queue.push(new Uint8Array(event.data)); channel.bytes += event.data.byteLength; channel.wake?.();
         });
-        destination.addEventListener("open", () => { for (const data of queue) destination.send(data); queue.length = 0; queued = 0; });
-        source.addEventListener("close", close, { once: true }); source.addEventListener("error", close, { once: true });
-      };
-      connect(socket, backend); connect(backend, socket);
-      return response;
+        socket.addEventListener("close", () => closeChannel(id), { once: true });
+        socket.addEventListener("error", () => closeChannel(id), { once: true });
+        try {
+          await new Promise((resolve, reject) => {
+            const timeout = setTimeout(() => reject(new Error("loopback websocket timeout")), 5000);
+            socket.addEventListener("open", () => { clearTimeout(timeout); resolve(); }, { once: true });
+            socket.addEventListener("error", () => { clearTimeout(timeout); reject(new Error("loopback websocket failed")); }, { once: true });
+          });
+        } catch { closeChannel(id); return error("backhaul_unavailable", 503); }
+        return Response.json({ id });
+      }
+      const match = /^\/sandbox\/p2p\/([0-9a-f]{64})(?:\/(send|recv))?$/.exec(path);
+      if (!match) return error("not_found", 404);
+      const [, id, action] = match, channel = channels.get(id);
+      if (!channel) return error("backhaul_closed", 404);
+      if (req.method === "DELETE" && !action) { closeChannel(id); return new Response(null, { status: 204 }); }
+      if (req.method === "POST" && action === "send") {
+        const parts = []; let size = 0;
+        if (req.body) for await (const part of req.body) {
+          size += part.length;
+          if (size > 65536) return error("backhaul_chunk_too_large", 413);
+          parts.push(part);
+        }
+        if (!size) return error("backhaul_empty_chunk", 400);
+        if (channel.socket.readyState !== WebSocket.OPEN) return error("backhaul_closed", 404);
+        if (channel.socket.bufferedAmount + size > 4194304) { closeChannel(id); return error("backhaul_overflow", 429); }
+        const raw = new Uint8Array(size); let offset = 0;
+        for (const part of parts) { raw.set(part, offset); offset += part.length; }
+        channel.socket.send(raw); touch(id);
+        return new Response(null, { status: 204 });
+      }
+      if (req.method === "GET" && action === "recv") {
+        if (channel.receiving) return error("backhaul_recv_in_flight", 409);
+        channel.receiving = true;
+        try {
+          if (!channel.queue.length) await new Promise((resolve) => {
+            const finish = () => { clearTimeout(timer); req.signal.removeEventListener("abort", finish); channel.wake = undefined; resolve(); };
+            const timer = setTimeout(finish, 20000); channel.wake = finish;
+            if (req.signal.aborted) finish(); else req.signal.addEventListener("abort", finish, { once: true });
+          });
+          if (!channels.has(id)) return error("backhaul_closed", 404);
+          if (!channel.queue.length) return new Response(null, { status: 204 });
+          const first = channel.queue[0], raw = first.subarray(0, 65536);
+          if (first.length <= 65536) channel.queue.shift(); else channel.queue[0] = first.subarray(65536);
+          channel.bytes -= raw.length; touch(id);
+          return new Response(raw, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store" } });
+        } finally { channel.receiving = false; }
+      }
+      return error("not_found", 404);
     },
     peerId: node.peerId.toString(),
-    stop: () => node.stop(),
+    stop: () => { for (const id of channels.keys()) closeChannel(id); return node.stop(); },
     async probe(target, { signal: requestedSignal } = {}) {
       const started = Date.now();
       const signal = AbortSignal.any([...(requestedSignal ? [requestedSignal] : []), AbortSignal.timeout(5000)]);

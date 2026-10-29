@@ -8,8 +8,9 @@ const require = (ok, message, status) => { if (!ok) throw new Refused(message, s
 export const limits = { relay_lease_seconds: 60, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
 
 export class Broker {
-  constructor({ cfg, chain, key, credits = {}, saveCredits, payments, now = () => Math.floor(Date.now() / 1000) }) {
+  constructor({ cfg, chain, key, credits = {}, saveCredits, payments, inference, now = () => Math.floor(Date.now() / 1000) }) {
     this.payments = payments;
+    this.inference = inference;
     this.cfg = cfg; this.chain = chain; this.key = key;
     this.credits = credits; this.saveCredits = saveCredits; this.now = now;
     this.relays = new Map();

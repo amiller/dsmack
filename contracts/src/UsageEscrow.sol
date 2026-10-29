@@ -10,6 +10,7 @@ contract UsageEscrow {
     uint64 public constant SETTLEMENT_GRACE = 3600;
     uint128 public constant MAX_BYTES = 64 * 1024 * 1024;
     uint128 public constant MAX_SECONDS = 600;
+    uint128 public constant MAX_TOKENS = 10_000_000;
     bytes32 public constant RECEIPT_TYPEHASH =
         keccak256("Receipt(uint256 purchaseId,uint64 sequence,uint128 used,uint64 endedAt,bool finalReceipt)");
     bytes32 private constant DOMAIN_TYPEHASH =
@@ -118,7 +119,7 @@ contract UsageEscrow {
         require(node != bytes32(0) && nodes[node].operator == address(0), "node exists or zero");
         require(operator != address(0), "zero address");
         require(composeHash != bytes32(0) && imageHash != bytes32(0), "missing measurements");
-        require(unit <= 1, "unit");
+        require(unit <= 2, "unit");
         require(floorPrice > 0 && floorPrice <= type(uint128).max / 16, "floor");
         require(target > 0 && target <= type(uint128).max / 2, "target");
         nodes[node] = Node(operator, unit, floorPrice, target, floorPrice, 0,
@@ -181,7 +182,7 @@ contract UsageEscrow {
         checkpoint(node);
         Node storage n = nodes[node];
         require(unit == n.unit, "unit");
-        require(amount > 0 && amount <= (unit == 0 ? MAX_BYTES : MAX_SECONDS), "amount");
+        require(amount > 0 && amount <= (unit == 0 ? MAX_BYTES : unit == 1 ? MAX_SECONDS : MAX_TOKENS), "amount");
         require(buyerKey != bytes32(0), "buyer key");
         require(msg.value == uint256(amount) * n.price, "exact price");
         uint64 boughtAt = uint64(block.timestamp);

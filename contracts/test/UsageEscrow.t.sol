@@ -29,4 +29,22 @@ contract UsageEscrowTest {
  function testPurchaseCannotSwitchRuns() public {uint256 id=buy(20);UsageEscrow.NodeBinding memory b=bind();submit(id,1,2,false,b);b.runId=keccak256("another run");expected="binding changed";submit(id,2,3,true,b);}
  function testBindingMayExpireBeforeSubmissionButReceiptMustPrecedeExpiry() public {uint256 id=buy(20);UsageEscrow.NodeBinding memory b=bind();b.expires=uint64(block.timestamp+5);UsageEscrow.Receipt[] memory rs=new UsageEscrow.Receipt[](1);rs[0]=UsageEscrow.Receipt(id,1,3,b.expires,true);bytes[] memory ss=new bytes[](1);ss[0]=sig(456,e.receiptDigest(rs[0]));vm.warp(block.timestamp+1200);bytes memory bs=sig(123,e.bindingDigest(b));if(bytes(expected).length>0)vm.expectRevert(bytes(expected));e.settle(rs,ss,b,bs);require(e.credits(OP)==3000);}
  function testForgedBrokerRefused() public {uint256 id=buy(20);UsageEscrow.NodeBinding memory b=bind();UsageEscrow.Receipt[] memory rs=new UsageEscrow.Receipt[](1);rs[0]=UsageEscrow.Receipt(id,1,2,uint64(block.timestamp),true);bytes[] memory ss=new bytes[](1);ss[0]=sig(456,e.receiptDigest(rs[0]));bytes memory bs=sig(789,e.bindingDigest(b));vm.expectRevert(bytes("broker signer"));e.settle(rs,ss,b,bs);}
+ function tokenClass() internal returns(bytes32 node) {node=keccak256("inference tokens");e.registerNode(node,OP,2,1000,1000,COMPOSE,IMAGE);}
+ function tokenReceipt(uint256 id,uint64 seq,uint128 used,bool finalReceipt,UsageEscrow.NodeBinding memory b) internal {
+  UsageEscrow.Receipt[] memory rs=new UsageEscrow.Receipt[](1);rs[0]=UsageEscrow.Receipt(id,seq,used,uint64(block.timestamp),finalReceipt);
+  bytes[] memory ss=new bytes[](1);ss[0]=sig(123,e.receiptDigest(rs[0]));e.settle(rs,ss,b,sig(123,e.bindingDigest(b)));
+ }
+ function testTokensCumulativeSettlementAndWeiRefund() public {
+  bytes32 node=tokenClass();e.buy{value:2000000}(node,2,2000,keccak256("load"));vm.warp(block.timestamp+60);
+  uint128 price=e.quote(node);require(price==1125);uint256 id=e.buy{value:2250000}(node,2,2000,keccak256("buyer"));
+  UsageEscrow.NodeBinding memory b=UsageEscrow.NodeBinding(node,OP,vm.addr(123),COMPOSE,IMAGE,keccak256("provider key"),uint64(block.timestamp+600));
+  tokenReceipt(id,1,700,false,b);require(e.credits(OP)==700000 && e.lockedPremium()==87500);
+  tokenReceipt(id,2,1250,true,b);require(e.credits(OP)==1250000 && e.lockedPremium()==156250 && e.credits(address(this))==843750);
+  require(e.credits(OP)+e.lockedPremium()+e.credits(address(this))==2250000);
+ }
+ function testTokensCannotBuyAboveCapOrSettleMoreThanBought() public {
+  bytes32 node=tokenClass();uint128 tooMany=e.MAX_TOKENS()+1;vm.expectRevert(bytes("amount"));e.buy{value:uint256(tooMany)*1000}(node,2,tooMany,keccak256("buyer"));
+  uint256 id=e.buy{value:1000000}(node,2,1000,keccak256("buyer"));UsageEscrow.NodeBinding memory b=UsageEscrow.NodeBinding(node,OP,vm.addr(123),COMPOSE,IMAGE,keccak256("provider key"),uint64(block.timestamp+600));
+  UsageEscrow.Receipt[] memory rs=new UsageEscrow.Receipt[](1);rs[0]=UsageEscrow.Receipt(id,1,1001,uint64(block.timestamp),true);bytes[] memory ss=new bytes[](1);ss[0]=sig(123,e.receiptDigest(rs[0]));bytes memory bs=sig(123,e.bindingDigest(b));vm.expectRevert(bytes("usage or sequence"));e.settle(rs,ss,b,bs);
+ }
 }

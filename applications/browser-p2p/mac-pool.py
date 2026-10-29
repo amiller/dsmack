@@ -49,7 +49,7 @@ def main():
         locator=dict(url='wss://'+hostname+'/',relayPeer=relay,startedAt=int(time.time()))
         (a.state/'locator.json').write_text(json.dumps(locator,indent=2))
         print(json.dumps(locator),flush=True)
-        subprocess.run([sys.executable,str(ROOT/'applications/browser-p2p/workload.py'),'--base',str(a.runner/'base'),'--reference',str(a.reference),'--peer',str(a.peer),'--gateway',str(a.gateway),'--ca',str(a.ca),'--hostname',hostname,'--relay-peer',relay,'--out',str(a.state/'workload')],check=True)
+        subprocess.run([sys.executable,str(ROOT/'applications/browser-p2p/workload.py'),'--mac-public-pack','--base',str(a.runner/'base'),'--reference',str(a.reference),'--peer',str(a.peer),'--gateway',str(a.gateway),'--ca',str(a.ca),'--hostname',hostname,'--relay-peer',relay,'--out',str(a.state/'workload')],check=True)
         run=a.state/'run';run.mkdir()
         (a.state/'workload/disk/workload.img').rename(run/'workload.img')
         import shutil

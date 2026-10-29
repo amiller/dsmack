@@ -1,0 +1,6 @@
+{
+  "runtime": "deno",
+  "entry": "server.ts",
+  "isolation": "shared",
+  "description": "Private agent chat and attested Mac sandbox on Base Sepolia"
+}

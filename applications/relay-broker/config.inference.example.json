@@ -1,0 +1,13 @@
+{
+  "node": "0x0202020202020202020202020202020202020202020202020202020202020202",
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "requestTokenCeiling": 1048576,
+  "maxNanoUsdPerToken": "5000",
+  "workspaceId": "REPLACE_WITH_FUNDED_WORKSPACE_ID",
+  "organizationId": "REPLACE_WITH_FUNDED_ORGANIZATION_ID",
+  "gatewayComposeHashes": [],
+  "modelComposeHashes": [],
+  "origins": [
+    "http://127.0.0.1:18271"
+  ]
+}

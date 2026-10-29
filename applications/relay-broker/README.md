@@ -3,8 +3,11 @@
 A dstack-webhost Deno handler that verifies Mac relays and compute nodes and
 issues Ed25519 byte- or second-budget grants. Jobs and traffic travel directly
 over libp2p.
-The broker gives each client PeerId four grants and 64 MiB of free testnet credit
-per hour. `authorizePayment()` in `broker.mjs` is the payment authorization seam.
+With `payments` configured, finalized Base Sepolia purchases authorize service;
+otherwise each client PeerId gets four grants and 64 MiB of testnet credit per
+hour. The optional inference module mints delegated NEAR keys, streams model
+responses through an attested TLS channel, and signs token settlement receipts.
+See [inference deployment and local operation](INFERENCE-DEPLOY.md).
 
 ## Configure
 
@@ -120,12 +123,12 @@ Deploy from the laptop, with `config.json` prepared. From this directory:
 
 ```sh
 bash deploy.sh config.json \
-  "$OPERATOR_TOKEN_FILE" \
-  "$EVIDENCE_DIR" \
-  "$WEBHOST_URL"
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/operator.token \
+  /absolute/path/to/private-workspace/local-data/relay-broker-20261027/live \
+  https://pod.dstack.soc1024.com
 ```
 
-Export the webhost admin token as `TEE_DAEMON_TOKEN`. The script uploads a
+The script sources `~/.oauth3-prod-secrets.env` without shell tracing, uploads a
 source tarball to `POST /_api/projects`, and promotes only `relay-broker`. It
 creates the operator token with mode 600 at the supplied laptop path and deploys
 only its SHA-256 digest in `ctx.env.OPERATOR_TOKEN_SHA256`. The original token

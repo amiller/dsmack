@@ -11,9 +11,11 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for key in ('state','runner','reference','peer','gateway','ca','relay','cloudflared','publisher-key'):
         p.add_argument('--'+key,type=Path,required=True)
-    p.add_argument('--publisher-address',required=True);p.add_argument('--registry',required=True)
+    p.add_argument('--seconds',type=int,default=420);p.add_argument('--publisher-address',required=True);p.add_argument('--registry',required=True)
     p.add_argument('--index',default='https://pod.dstack.soc1024.com/private-agent/tunnels')
-    a=p.parse_args();a.state.mkdir(mode=0o700,parents=True)
+    a=p.parse_args()
+    if not 1<=a.seconds<=420:p.error('guest lifetime must be 1..420 seconds')
+    a.state.mkdir(mode=0o700,parents=True)
     while True:
         try:check=preflight(a.state,[]);break
         except MacOccupied:print('waiting for the other Mac lane',flush=True);time.sleep(10)
@@ -49,7 +51,7 @@ def main():
         locator=dict(url='wss://'+hostname+'/',relayPeer=relay,startedAt=int(time.time()))
         (a.state/'locator.json').write_text(json.dumps(locator,indent=2))
         print(json.dumps(locator),flush=True)
-        subprocess.run([sys.executable,str(ROOT/'applications/browser-p2p/workload.py'),'--mac-public-pack','--base',str(a.runner/'base'),'--reference',str(a.reference),'--peer',str(a.peer),'--gateway',str(a.gateway),'--ca',str(a.ca),'--hostname',hostname,'--relay-peer',relay,'--out',str(a.state/'workload')],check=True)
+        subprocess.run([sys.executable,str(ROOT/'applications/browser-p2p/workload.py'),'--seconds',str(a.seconds),'--mac-public-pack','--base',str(a.runner/'base'),'--reference',str(a.reference),'--peer',str(a.peer),'--gateway',str(a.gateway),'--ca',str(a.ca),'--hostname',hostname,'--relay-peer',relay,'--out',str(a.state/'workload')],check=True)
         run=a.state/'run';run.mkdir()
         (a.state/'workload/disk/workload.img').rename(run/'workload.img')
         import shutil

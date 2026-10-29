@@ -102,7 +102,8 @@ one launch through the existing `libp2p-attest/run-mac.py` driver. It waits for
 another Mac lane to finish, packs public inputs locally, publishes the guest
 locator to both discovery sources, and refreshes the HTTP lease every minute.
 The tunnel stops after the guest closes and both sources are cleared. It installs
-no service, launchd agent or daemon. Each invocation uses a fresh state directory.
+no service, launchd agent or daemon. Each invocation uses a fresh state directory. Pass `--seconds 120` for a short
+proof run; the default guest lifetime is 420 seconds.
 
 Generate the publisher key on the Mac (`eth_account.Account.create()`), save it
 with mode 0600, and keep it there. Fund its address with 0.001 Base Sepolia ETH.

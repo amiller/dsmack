@@ -2,7 +2,8 @@
 pragma solidity ^0.8.24;
 
 contract TunnelIndex {
-    address public immutable owner = msg.sender;
+    address public immutable owner;
+    constructor(address publisher) { owner = publisher; }
     string public entries;
     event Published(string entries);
     function publish(string calldata value) external {

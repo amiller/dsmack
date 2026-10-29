@@ -303,6 +303,7 @@ export class SandboxInference {
           tokenHash: await hash(enc.encode(token)),
           expires,
           calls: 0,
+          nonces: [],
           active: false,
           failed: false,
           usage: [],
@@ -352,10 +353,20 @@ export class SandboxInference {
         "capability_exhausted",
         409,
       );
+      need(
+        !(job.nonces ?? []).includes(r.nonce),
+        "capability_request_replay",
+        409,
+      );
       await this.save({
         sandboxJobs: {
           ...p.state.sandboxJobs,
-          [r.job_id]: { ...job, calls: job.calls + 1, active: true },
+          [r.job_id]: {
+            ...job,
+            calls: job.calls + 1,
+            nonces: [...(job.nonces ?? []), r.nonce],
+            active: true,
+          },
         },
       });
     });

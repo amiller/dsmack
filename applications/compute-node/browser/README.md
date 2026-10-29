@@ -10,12 +10,15 @@ Serve the repository root over HTTP on localhost or HTTPS and import:
 
 ```js
 import {
-  createClient, verifyNode, sealJob, submitJob, receive, openOutputs,
+  createClient, verifyNode, requestCapability, sealJob, submitJob, receive, openOutputs,
+  hex,
 } from './applications/compute-node/browser/sandbox.mjs';
 
 const client = await createClient();
 const node = await verifyNode(registration, policy);
-const job = await sealJob(node, {client, grant, credential, repoTar, prompt});
+const jobId = hex(crypto.getRandomValues(new Uint8Array(16)));
+const credential = await requestCapability(brokerUrl, {node, client, grant, jobId});
+const job = await sealJob(node, {client, grant, jobId, credential, repoTar, prompt});
 const result = await receive(await submitJob(brokerUrl, job));
 const {patch, transcript, verdict} = await openOutputs(job, result);
 ```
@@ -32,11 +35,16 @@ checked independently of the broker's verification label.
 
 `createClient()` creates a browser Ed25519 identity. `signBrokerRequest(client,
 body)` signs canonical discovery/grant/payment requests containing that
-`client_peer`. `sealJob` generates a fresh, nonextractable P-256 output key;
+`client_peer`. `requestCapability` verifies the allowance and requests a job-bound
+inference capability with that identity. The capability is sealed into the job;
+provider keys stay in the broker CVM. `sealJob` generates a fresh, nonextractable P-256 output key;
 retain its context in memory until outputs have opened. `submitJob` signs both
 the encrypted bundle and grant hashes so a forwarder cannot substitute either.
 `verifyJobAttestation` and `verifyReceipt` expose the verification details for a
-UI. `openOutputs` performs both checks before releasing output bytes.
+UI. `openOutputs` performs both checks and verifies each signed broker inference
+response against its adjacent assistant event before releasing output bytes.
+The measured `dsmack-broker-model/1` configuration pins the broker origin, key
+and model. The UI displays: NEAR TEE model via broker CVM; broker handles plaintext.
 
 Run the browser/Python wire compatibility check:
 
@@ -54,7 +62,14 @@ The JSON file names `discovery`, `result`, `grant`, `sealed`, `manifest`,
 `enrollment` (directory), and `outputs` (directory). An optional `paymentsFixture` names the Go payment interoperability JSON
 for checking paid-node binding and receipt signatures/digests. The replay supplies the
 historical chain state and checks the original signatures and plaintext hashes.
-Live browser calls use the configured RPC.
+Optional `paidDiscovery` and `paidPolicy` paths replay a real paid registration
+with its captured lifetime and chain state. Live browser calls use the configured RPC.
+
+Run the capability and signed response boundary tests:
+
+```sh
+node --test applications/compute-node/browser/capability.test.mjs
+```
 
 Run the two-stage browser journey in a Playwright Python container:
 
@@ -75,3 +90,19 @@ only the encrypted credential envelope.
 
 HTTP refusals throw an `Error` with numeric `status` and the original JSON
 `response`. Keep any usage receipt in that response for payment reconciliation.
+
+Run the deployed page's operator diagnostic in a Playwright Python container:
+
+```sh
+python3 applications/compute-node/browser/live-check.py \
+  --policy /policy.json --repo /repo.tar --seconds 60 --out /evidence
+```
+
+The page bundle exports `sandbox-client.js`. The driver loads the trusted policy,
+verifies a live node and writes `operator-grant-request.json`. The operator
+obtains the signed diagnostic allowance from the broker using laptop-held
+authentication and atomically publishes it as `/evidence/grant.json`. The browser
+then requests its inference capability, seals the job and records verified
+outputs. It uses a fresh browser context and labels the allowance as an operator
+diagnostic. `--inspect-credit-profile /profile` instead records existing credit
+cards while refusing broker POSTs and wallet signing or transaction requests.

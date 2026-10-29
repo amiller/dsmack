@@ -286,7 +286,7 @@ export class NearProvider {
       throw new NearError("ATTESTATION_INVALID", 502);
     }
   }
-  async chat({ key, model, messages, max_tokens, attestation, signal }) {
+  async chat({ key, model, messages, tools, max_tokens, attestation, signal }) {
     need(
       attestation?.transport?.fetch && attestation.evidence?.model === model &&
         attestation.evidence?.verified === true &&
@@ -313,6 +313,7 @@ export class NearProvider {
           body: JSON.stringify({
             model,
             messages,
+            ...(tools ? { tools } : {}),
             max_tokens,
             stream: true,
             stream_options: { include_usage: true },

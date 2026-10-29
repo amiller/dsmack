@@ -24,8 +24,9 @@ The Trust settings file input accepts an operator-approved JSON policy with
 `destinationPolicyHash`, `rpc`, `attest`, `canary`, `registry`, `model`, and
 `enrollment: {attestation: <CBOR hex>, keyId, clientData: <hex>}`. It can also be
 included as `sandboxPolicy` in the public config. Select a repository tar snapshot
-or the sample repo, enter a task and capped delegated TEE credential, verify a
-fresh node, then run. Download the verified diff and apply it with `git apply`.
+or the sample repo, enter a task, verify a fresh node, then run. The browser
+obtains a job-scoped broker capability from the confirmed grant and seals it
+to the guest; provider API keys remain in the broker CVM. Download the verified diff and apply it with `git apply`.
 
 Deploy the build to the `private-agent` project in shared Deno mode:
 

@@ -4,20 +4,21 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const app = dirname(fileURLToPath(import.meta.url));
 const pi = resolve(app, "node_modules/@mariozechner/pi-web-ui/dist");
+const sandboxSource = process.env.SANDBOX_SOURCE ||
+  resolve(app, "../compute-node/browser/sandbox.mjs");
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
-  entryPoints: ["app.mjs"],
+  entryPoints: { app: "app.mjs", "sandbox-client": sandboxSource },
   bundle: true,
   format: "esm",
   platform: "browser",
   target: "es2022",
   minify: true,
-  outfile: "dist/app.js",
+  outdir: "dist",
   alias: {
     "npm:ethers@6.17.0": "ethers",
-    "@sandbox": process.env.SANDBOX_SOURCE ||
-      resolve(app, "../compute-node/browser/sandbox.mjs"),
+    "@sandbox": sandboxSource,
     "@pi-components": pi,
   },
   define: { "process.env.NODE_ENV": '"production"' },

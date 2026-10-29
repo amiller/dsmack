@@ -7,8 +7,8 @@ remain in place. It performs no chain transaction or substrate update.
 
 ## Encrypt provider credentials on the laptop
 
-First deploy the committed broker without a provider envelope, using the
-preparation and explicit apply commands below. Fetch its public environment key:
+Fetch the existing broker's public environment key before preparing an update.
+Retain its encrypted provider envelope across updates:
 
 ```sh
 curl --fail --silent --show-error \
@@ -33,7 +33,7 @@ ECDH, HKDF-SHA256 and AES-GCM. It writes only the ciphertext envelope, mode 0600
 without replacing an existing file. The provider key stays on its laptop and
 inside the broker CVM. The helper reads no shell secrets file.
 
-A raw key becomes `NEAR_API_KEY` for the operator-only provider check. For
+A raw key becomes `NEAR_API_KEY` for the operator check and job-scoped sandbox proxy. For
 credit-backed delegated keys, use an explicitly prepared local JSON object with
 `NEAR_MANAGEMENT_TOKEN` and `NEAR_REPORTING_TOKEN` instead. A NEAR inference
 `sk-` key does not authorize delegated-key creation. Management requires the
@@ -65,7 +65,7 @@ python3 applications/relay-broker/deploy-inference.py prepare \
   --out /absolute/path/prepared-upload
 ```
 
-Omit `--encrypted-env` for the first deployment that exposes the environment key.
+For a new broker bootstrap, `--encrypted-env` may be omitted while exposing its environment key. Existing configured brokers retain the envelope.
 The argument accepts only the exact ciphertext fields
 `v`, `ephemeralPublicKey`, `iv` and `ciphertext`; plaintext credential objects are
 rejected. Source, schema and the NEAR verifier are packaged locally with Deno's

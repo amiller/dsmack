@@ -1,7 +1,7 @@
 {
   "registration": {
     "relay_peer": "12D3KooWFKYpFNmFN18qByaZR7nsdDzsgAZCmvFWrcacmHTTF4Dz",
-    "relay_maddr": "/ip4/192.168.100.3/tcp/4028/p2p/12D3KooWPdcePFHp8pmoxdwpNC2ADNivvsCFYH8KPSfqutt7GWzA/p2p-circuit/p2p/12D3KooWFKYpFNmFN18qByaZR7nsdDzsgAZCmvFWrcacmHTTF4Dz",
+    "relay_maddr": "/ip4/192.0.2.3/tcp/4028/p2p/12D3KooWPdcePFHp8pmoxdwpNC2ADNivvsCFYH8KPSfqutt7GWzA/p2p-circuit/p2p/12D3KooWFKYpFNmFN18qByaZR7nsdDzsgAZCmvFWrcacmHTTF4Dz",
     "manifest_sha256": "a89d08cfd019481f5638b9cd3005a28453b7172ff11794e41d9403e1648211fc",
     "os_image_hash": "853f958e4a2ab41f05682fdd88eb0f250d89bef30e6d1eda74a59330cc700e06",
     "cdhash": "7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970",

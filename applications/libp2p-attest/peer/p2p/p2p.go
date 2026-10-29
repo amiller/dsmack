@@ -77,7 +77,7 @@ func Attest(rd []byte) []byte {
 }
 
 // relayMain serves circuit relay v2 without data or duration limits and logs each reservation.
-func relayMain(listen, keyFile string) {
+func relayMain(listen, keyFile string, backhaul ...string) {
 	raw, err := os.ReadFile(keyFile)
 	must(err)
 	key, err := crypto.UnmarshalPrivateKey(raw)
@@ -87,6 +87,9 @@ func relayMain(listen, keyFile string) {
 	_, err = relay.New(h, relay.WithInfiniteLimits(), relay.WithACL(logACL{}))
 	must(err)
 	fmt.Printf("relay %s/p2p/%s\n", listen, h.ID())
+	if len(backhaul) == 2 {
+		must(maintainBackhaul(context.Background(), h, backhaul[0], backhaul[1]))
+	}
 	select {}
 }
 
@@ -194,8 +197,8 @@ func Main() {
 		raw, err := crypto.MarshalPrivateKey(key)
 		must(err)
 		must(os.WriteFile(args[1], raw, 0o600))
-	case len(args) == 3 && args[0] == "relay":
-		relayMain(args[1], args[2])
+	case (len(args) == 3 || len(args) == 5) && args[0] == "relay":
+		relayMain(args[1], args[2], args[3:]...)
 	case (len(args) == 3 || len(args) == 4) && args[0] == "serve":
 		seconds, err := strconv.Atoi(args[2])
 		must(err)
@@ -207,6 +210,6 @@ func Main() {
 	case len(args) >= 3 && args[0] == "dial":
 		dialMain(args[1], args[2:])
 	default:
-		log.Fatal("usage: keygen <file> | relay <listen maddr> <key file> | serve <relay maddr> <seconds> [attestation file] | dial <circuit maddr> <verifier cmd...>")
+		log.Fatal("usage: keygen <file> | relay <listen maddr> <key file> [broker WSS URL broker PeerId] | serve <relay maddr> <seconds> [attestation file] | dial <circuit maddr> <verifier cmd...>")
 	}
 }

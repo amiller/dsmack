@@ -75,7 +75,7 @@ def prepare(args):
                         str(REPO / "applications/payments/schema.mjs"), "-o", str(bundled)], check=True)
         with tarfile.open(args.out / "relay-broker.tgz", "x:gz") as archive:
             for source in sorted(APP.iterdir()):
-                if source.suffix in (".mjs", ".ts") and source.name not in ("near-attestation.mjs", "encrypt-provider-env.mjs") and not source.name.endswith((".test.mjs", ".test.ts", "_test.ts")):
+                if source.suffix in (".mjs", ".ts") and source.name not in ("near-attestation.mjs", "deno-forwarder.mjs", "encrypt-provider-env.mjs") and not source.name.endswith((".test.mjs", ".test.ts", "_test.ts")):
                     archive.add(source, arcname="applications/relay-broker/" + source.name)
             for name in ("quorum.mjs", "admission.mjs"):
                 archive.add(REPO / "applications/payments" / name, arcname="applications/payments/" + name)
@@ -84,6 +84,9 @@ def prepare(args):
             subprocess.run(["deno", "bundle", "--platform=deno", "--minify",
                             str(APP / "near-attestation.mjs"), "-o", str(attestation)], check=True)
             archive.add(attestation, arcname="applications/relay-broker/near-attestation.mjs")
+            forwarder = Path(temporary) / "deno-forwarder.mjs"
+            subprocess.run(["deno", "bundle", "--platform=deno", "--minify", str(APP / "deno-forwarder.mjs"), "-o", str(forwarder)], check=True)
+            archive.add(forwarder, arcname="applications/relay-broker/deno-forwarder.mjs")
             archive.add(APP / "project.json", arcname="project.json")
             archive.add(REPO / "dstack-compat/secret-release/policy.mjs", arcname="dstack-compat/secret-release/policy.mjs")
             body = json.dumps(config).encode()

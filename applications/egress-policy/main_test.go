@@ -17,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+ "net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -325,5 +326,71 @@ func TestOneLabelWildcard(t *testing.T) {
 		if g.index(host) != -1 {
 			t.Fatal(host)
 		}
+	}
+}
+
+// A transport proxy may route a CONNECT tunnel, but must never receive model
+// authorization or request bytes before the gateway authenticates provider TLS.
+func TestConnectProxyCarriesOnlyProviderTLS(t *testing.T) {
+	for _, name := range []string{"allowed.test", "wrong.test"} {
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			upstream, roots := fixture(t, name, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if r.TLS.ServerName != "allowed.test" || r.Header.Get("Authorization") != "key-secret" {
+					t.Error("provider identity or credential")
+				}
+				io.WriteString(w, "ok")
+			}))
+			wire := make(chan []byte, 1)
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "CONNECT" || r.Host != "allowed.test:443" {
+					t.Error("wrong tunnel target")
+					w.WriteHeader(403)
+					return
+				}
+				tunnel, err := net.Dial("tcp", upstream.Listener.Addr().String())
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				client, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					tunnel.Close()
+					t.Error(err)
+					return
+				}
+				io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+				var observed bytes.Buffer
+				done := make(chan struct{})
+				go func() { io.Copy(tunnel, io.TeeReader(client, &observed)); close(done) }()
+				io.Copy(client, tunnel)
+				client.Close()
+				tunnel.Close()
+				<-done
+				wire <- observed.Bytes()
+			}))
+			defer proxy.Close()
+			g := newGateway(policy(), log.New(io.Discard, "", 0))
+			g.client.TLSClientConfig.RootCAs = roots
+			proxyURL, _ := url.Parse(proxy.URL)
+			g.client.Proxy = http.ProxyURL(proxyURL)
+			r := call(g, "POST", "/", "allowed.test:8080", "body-secret", http.Header{"Authorization": {"key-secret"}})
+			expectedStatus, expectedHits := 200, int32(1)
+			if name != "allowed.test" {
+				expectedStatus, expectedHits = 502, 0
+			}
+			if r.Code != expectedStatus || hits.Load() != expectedHits {
+				t.Fatalf("status=%d hits=%d", r.Code, hits.Load())
+			}
+			select {
+			case raw := <-wire:
+				if len(raw) == 0 || bytes.Contains(raw, []byte("key-secret")) || bytes.Contains(raw, []byte("body-secret")) {
+					t.Fatal("plaintext crossed CONNECT transport")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("tunnel did not close")
+			}
+		})
 	}
 }

@@ -253,8 +253,7 @@ export class Credit {
     p.finalizedBlock = r.finalizedBlock;
     await this.save();
   }
-  async settle(envelope, p) {
-    const c = await this.contract();
+  checkReceipt(envelope, p) {
     require(
       String(envelope.receipt.purchaseId) === p.purchaseId,
       "Refund receipt is for a different purchase.",
@@ -284,6 +283,11 @@ export class Credit {
         envelope.receipt.finalReceipt,
       "Refund receipt exceeds purchased credit or is not final.",
     );
+    return envelope;
+  }
+  async settle(envelope, p) {
+    this.checkReceipt(envelope, p);
+    const c = await this.contract();
     const tx = await c.settle(
       [envelope.receipt],
       [envelope.signature],

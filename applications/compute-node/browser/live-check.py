@@ -4,6 +4,8 @@ import argparse
 import base64
 import json
 from pathlib import Path
+import subprocess
+import tarfile
 import time
 from urllib.parse import urlsplit
 from playwright.sync_api import sync_playwright
@@ -71,7 +73,7 @@ with sync_playwright() as runtime:
     try:
         page.goto(args.url, wait_until='domcontentloaded')
         page.wait_for_function('document.documentElement.dataset.ready === "true"')
-        page.wait_for_function('document.querySelector("#service").textContent.includes("Broker connected")')
+        page.wait_for_function('document.querySelector("#service").textContent.startsWith("Chat ready")')
         if args.preflight:
             report['checks'] = page.evaluate("""async()=>{
               const m=await import(new URL('sandbox-client.js',location.href).href),cfg=await(await fetch('./config.json',{cache:'no-store'})).json();
@@ -144,6 +146,21 @@ with sync_playwright() as runtime:
                 (args.out/name).write_text(result['outputs'][name])
             for name, value in [('sealed-input', result['sealed']), ('result', result['result'])]:
                 (args.out/(name+'.json')).write_text(json.dumps(value)+'\n')
+            client_repo = args.out/'client-repo'
+            client_repo.mkdir()
+            with tarfile.open(args.repo) as archive:
+                archive.extractall(client_repo, filter='data')
+            private_note = (client_repo/'private-note.txt').read_bytes()
+            patch_path = (args.out/'patch').resolve()
+            applied = subprocess.run(['git', 'apply', str(patch_path)], cwd=client_repo,
+                                     capture_output=True, text=True)
+            (args.out/'patch-apply.log').write_text(applied.stdout+applied.stderr)
+            applied.check_returncode()
+            if (client_repo/'greet.txt').read_bytes() != b'Hello from the private agent.\n':
+                raise AssertionError('applied patch did not produce the requested greeting')
+            if (client_repo/'private-note.txt').read_bytes() != private_note:
+                raise AssertionError('applied patch changed the private note')
+            report['patch_applied'] = {'greet':'Hello from the private agent.', 'private_note_unchanged':True}
             if args.markers:
                 markers=json.loads(args.markers.read_text())
                 markers=markers if isinstance(markers,list) else list(markers.values())

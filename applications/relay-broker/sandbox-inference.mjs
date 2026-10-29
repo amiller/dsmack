@@ -78,8 +78,8 @@ export async function registerDiagnostic(b, r) {
     operator_diagnostic: true,
   };
   need(
-    Number.isSafeInteger(out.admit_until) && out.admit_until > b.now(),
-    "diagnostic_expired",
+    Number.isSafeInteger(out.admit_until) && out.admit_until > 0,
+    "diagnostic_admission_deadline",
   );
   b.relays.set(r.relay_peer, out);
   return out;

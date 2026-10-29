@@ -184,3 +184,10 @@ test("draining compute nodes renew but are excluded from new job routing", async
   assert.equal(b.live().length,0);
   assert.equal(b.relays.size,1);
 });
+
+test('operator-pinned compute nodes keep renewal while draining without accepting new jobs',async()=>{
+ const c=JSON.parse(readFileSync(new URL('fixtures/compute.json',import.meta.url)));
+ let now=NOW;const b=broker({cfg:{sandboxDiagnosticWorkloads:[{...c,service:'node'}]},now:()=>now});
+ await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,1);
+ now+=2;await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,0);assert.equal(b.relays.size,1);
+});

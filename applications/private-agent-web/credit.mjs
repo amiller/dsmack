@@ -1,0 +1,303 @@
+import {
+  BrowserProvider,
+  Contract,
+  formatEther,
+  JsonRpcProvider,
+  keccak256,
+  verifyTypedData,
+  Wallet,
+} from "ethers";
+import { abi, domain, NodeBinding, Receipt } from "../payments/schema.mjs";
+import { canonical, hex, peerBytes } from "@sandbox";
+export { formatEther };
+export const require = (ok, message) => {
+  if (!ok) throw new Error(message);
+};
+export function store(key, value) {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open("dsmack-private-agent", 1);
+    open.onupgradeneeded = () => open.result.createObjectStore("wallet");
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const db = open.result,
+        tx = db.transaction(
+          "wallet",
+          value === undefined ? "readonly" : "readwrite",
+        );
+      const request = value === undefined
+        ? tx.objectStore("wallet").get(key)
+        : tx.objectStore("wallet").put(value, key);
+      let result;
+      request.onsuccess = () => {
+        result = request.result;
+      };
+      tx.oncomplete = () => {
+        db.close();
+        resolve(result);
+      };
+      tx.onerror = () => {
+        db.close();
+        reject(tx.error);
+      };
+    };
+  });
+}
+export async function signed(client, body) {
+  return {
+    ...body,
+    sig: hex(
+      new Uint8Array(
+        await crypto.subtle.sign(
+          "Ed25519",
+          client.privateKey,
+          new TextEncoder().encode(
+            JSON.stringify(
+              Object.fromEntries(
+                Object.keys(body).sort().map((k) => [k, body[k]]),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  };
+}
+export function inferenceBody(client, purchase, action, fields = {}) {
+  return signed(client, {
+    action,
+    purchaseId: purchase.purchaseId,
+    txHash: purchase.txHash,
+    client_peer: client.peer,
+    nonce: hex(crypto.getRandomValues(new Uint8Array(16))),
+    issuedAt: Math.floor(Date.now() / 1000),
+    ...fields,
+  });
+}
+export class Credit {
+  constructor(cfg, client, changed) {
+    this.cfg = cfg;
+    this.client = client;
+    this.changed = changed;
+    this.rpc = new JsonRpcProvider(cfg.rpc, 84532, { staticNetwork: true });
+    this.purchases = [];
+  }
+  async init() {
+    this.purchases = (await store("purchases")) || [];
+    const key = await store("burner");
+    if (key) {
+      this.signer = new Wallet(key, this.rpc);
+      this.address = this.signer.address;
+    }
+    return this;
+  }
+  async save() {
+    await store("purchases", this.purchases);
+    this.changed();
+  }
+  async burner() {
+    require(
+      !this.address,
+      "A wallet is already active. Use a separate browser profile for another wallet.",
+    );
+    const wallet = Wallet.createRandom().connect(this.rpc);
+    await store("burner", wallet.privateKey);
+    this.signer = wallet;
+    this.address = wallet.address;
+    this.changed();
+  }
+  async connect() {
+    require(
+      window.ethereum,
+      "No injected wallet found. Create a browser wallet and fund its address with Base Sepolia ETH.",
+    );
+    require(
+      !this.address || !await store("burner"),
+      "Browser wallet already active. Use another profile for an injected wallet.",
+    );
+    const p = new BrowserProvider(window.ethereum);
+    await p.send("eth_requestAccounts", []);
+    require(
+      (await p.getNetwork()).chainId === 84532n,
+      "Wrong network. Switch your wallet to Base Sepolia (84532).",
+    );
+    this.signer = await p.getSigner();
+    this.address = await this.signer.getAddress();
+    this.changed();
+  }
+  async contract() {
+    require(this.signer, "Create or connect a wallet first.");
+    require(
+      BigInt(await this.rpc.send("eth_chainId", [])) === 84532n,
+      "RPC is not Base Sepolia.",
+    );
+    if (window.ethereum && this.signer.provider instanceof BrowserProvider) {
+      require(
+        BigInt(await window.ethereum.request({ method: "eth_chainId" })) ===
+          84532n,
+        "Wrong network. Switch to Base Sepolia.",
+      );
+      require(
+        (await this.signer.getAddress()).toLowerCase() ===
+          (await window.ethereum.request({ method: "eth_accounts" }))[0]
+            ?.toLowerCase(),
+        "Wallet account changed. Reconnect before spending.",
+      );
+    }
+    require(
+      keccak256(await this.rpc.getCode(this.cfg.escrow)) === this.cfg.codeHash,
+      "Escrow code hash does not match the deployment pin.",
+    );
+    return new Contract(this.cfg.escrow, abi, this.signer);
+  }
+  async checkBroker(api) {
+    const [key, payments] = await Promise.all([
+      api("/key"),
+      api("/payments/key"),
+    ]);
+    require(
+      key.public_key === this.cfg.brokerKey,
+      "Wrong broker key. No data was sent.",
+    );
+    require(
+      payments.chainId === 84532 &&
+        payments.escrow?.toLowerCase() === this.cfg.escrow.toLowerCase() &&
+        payments.codeHash === this.cfg.codeHash &&
+        payments.address?.toLowerCase() === this.cfg.grantSigner.toLowerCase(),
+      "Broker payment identity or escrow does not match the deployment pins.",
+    );
+  }
+  selected(unit) {
+    return this.purchases.find((p) =>
+      p.unit === unit && p.status === "confirmed" && !p.closed &&
+      p.payer?.toLowerCase() === this.address?.toLowerCase()
+    );
+  }
+  async buy(quote, amount) {
+    require(quote, "This credit service is unavailable.");
+    require(/^[1-9][0-9]*$/.test(amount), "Enter a positive whole amount.");
+    require(
+      quote.unit === 1
+        ? BigInt(amount) <= 600n
+        : BigInt(amount) <= BigInt(quote.maxTokens),
+      "Amount exceeds the purchase limit.",
+    );
+    const c = await this.contract(), price = await c.quote(quote.node);
+    require(
+      price === BigInt(quote.price),
+      "Price changed. Refresh the quote before buying.",
+    );
+    const tx = await c.buy(
+      quote.node,
+      quote.unit,
+      amount,
+      "0x" + hex(peerBytes(this.client.peer).slice(6)),
+      { value: price * BigInt(amount) },
+    );
+    const p = {
+      unit: quote.unit,
+      node: quote.node,
+      amount,
+      used: "0",
+      paidWei: (price * BigInt(amount)).toString(),
+      priceWei: price.toString(),
+      payer: this.address,
+      txHash: tx.hash,
+      status: "pending",
+    };
+    this.purchases.push(p);
+    await this.save();
+    await this.mined(p);
+    return p;
+  }
+  async mined(p) {
+    const r = await this.rpc.getTransactionReceipt(p.txHash);
+    if (!r) return;
+    require(r.status === 1, "Credit purchase reverted on chain.");
+    const e = r.logs.map((l) => {
+      try {
+        return abi.parseLog(l);
+      } catch {
+        return null;
+      }
+    }).find((e) => e?.name === "Purchase");
+    require(e, "Credit transaction has no Purchase event.");
+    p.purchaseId = e.args.purchaseId.toString();
+    p.expires = Number(e.args.expires);
+    await this.save();
+  }
+  async confirm(api, p) {
+    if (!p.purchaseId) await this.mined(p);
+    require(p.purchaseId, "Purchase is awaiting an on-chain receipt.");
+    const r = await api(
+      "/payments/confirm",
+      await signed(this.client, {
+        client_peer: this.client.peer,
+        purchaseId: p.purchaseId,
+        txHash: p.txHash,
+      }),
+    );
+    require(
+      r.purchaseId === p.purchaseId &&
+        /^0x[0-9a-f]{64}$/.test(r.finalizedBlock),
+      "Broker did not return a finalized purchase confirmation.",
+    );
+    p.status = "confirmed";
+    p.finalizedBlock = r.finalizedBlock;
+    await this.save();
+  }
+  async settle(envelope, p) {
+    const c = await this.contract();
+    require(
+      String(envelope.receipt.purchaseId) === p.purchaseId,
+      "Refund receipt is for a different purchase.",
+    );
+    require(
+      verifyTypedData(
+        domain(this.cfg.escrow),
+        { NodeBinding },
+        envelope.nodeBinding.binding,
+        envelope.nodeBinding.signature,
+      ).toLowerCase() === this.cfg.grantSigner.toLowerCase(),
+      "Refund broker binding signature is invalid.",
+    );
+    require(
+      verifyTypedData(
+        domain(this.cfg.escrow),
+        { Receipt },
+        envelope.receipt,
+        envelope.signature,
+      ).toLowerCase() ===
+        envelope.nodeBinding.binding.receiptSigner.toLowerCase(),
+      "Refund receipt signature is invalid.",
+    );
+    const b = envelope.nodeBinding.binding;
+    require(
+      b.node === p.node && BigInt(envelope.receipt.used) <= BigInt(p.amount) &&
+        envelope.receipt.finalReceipt,
+      "Refund receipt exceeds purchased credit or is not final.",
+    );
+    const tx = await c.settle(
+      [envelope.receipt],
+      [envelope.signature],
+      b,
+      envelope.nodeBinding.signature,
+    );
+    p.settlementHash = tx.hash;
+    await this.save();
+    await tx.wait();
+    p.closed = true;
+    p.used = String(envelope.receipt.used);
+    await this.save();
+  }
+  async withdraw() {
+    const c = await this.contract();
+    const value = await c.credits(this.address);
+    require(
+      value > 0n,
+      "No withdrawable credit. Close usage and settle, or wait until the escrow refund period ends.",
+    );
+    const tx = await c.withdraw();
+    await tx.wait();
+    return tx.hash;
+  }
+}

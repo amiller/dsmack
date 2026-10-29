@@ -61,13 +61,10 @@ async function load(ctx: Context) {
         encryptionKey,
       )
       : {};
-    const provider = secrets.NEAR_API_KEY ||
-        (secrets.NEAR_MANAGEMENT_TOKEN && secrets.NEAR_REPORTING_TOKEN)
+    const provider = secrets.NEAR_API_KEY
       ? new NearProvider({
         ...cfg.inference,
         apiKey: secrets.NEAR_API_KEY,
-        managementToken: secrets.NEAR_MANAGEMENT_TOKEN,
-        reportingToken: secrets.NEAR_REPORTING_TOKEN,
         attestationPolicy: cfg.inference,
       })
       : undefined;
@@ -171,7 +168,17 @@ async function body(req: Request, maximum = 150000) {
 
 let state: ReturnType<typeof load> | undefined;
 export default async function handler(req: Request, ctx: Context) {
-  return await handleRequest(req, await (state ??= load(ctx)), ctx);
+  const loading = state ??= load(ctx);
+  let broker;
+  try {
+    broker = await loading;
+  } catch (error) {
+    // Shared-runtime promotion can briefly remove the project GetKey socket.
+    // A rejected startup must not poison every later request after it returns.
+    if (state === loading) state = undefined;
+    throw error;
+  }
+  return await handleRequest(req, broker, ctx);
 }
 
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
@@ -254,7 +261,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&
-        ["mint", "usage", "charges", "close", "chat"].includes(action)
+        ["credit", "prepare", "chat", "usage"].includes(action)
       ) {
         const request = await body(req);
         const result = await b.inference[action](request);

@@ -50,7 +50,9 @@ def package(dist):
         raise ValueError("Build the page first: dist/index.html is missing")
     data = io.BytesIO()
     with tarfile.open(fileobj=data, mode="w:gz") as archive:
-        archive.add(APP / "server.ts", arcname="server.ts")
+        bundled=subprocess.check_output(["deno","bundle","--platform=deno",str(APP/"server.ts")])
+        info=tarfile.TarInfo("server.ts");info.size=len(bundled)
+        archive.addfile(info,io.BytesIO(bundled))
         archive.add(APP / "project.json", arcname="project.json")
         for path in sorted(dist.rglob("*")):
             relative = path.relative_to(dist)
@@ -68,7 +70,10 @@ def main():
     parser.add_argument("--dist", type=Path, default=APP / "dist")
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--url", default="https://pod.dstack.soc1024.com")
+    parser.add_argument("--operator-token-sha256")
     args = parser.parse_args()
+    if args.operator_token_sha256 and not re.fullmatch(r"[0-9a-f]{64}",args.operator_token_sha256):
+        raise ValueError("operator token SHA256 must be lowercase hex")
     archive = package(args.dist.resolve())
     ref = subprocess.check_output(["git", "-C", str(APP), "rev-parse", "HEAD"], text=True).strip()
     args.evidence.mkdir(parents=True, exist_ok=True)
@@ -120,7 +125,7 @@ def main():
         "runtime": "deno",
         "entry": "server.ts",
         "isolation": "shared",
-        "env": {},
+        "env": {"OPERATOR_TOKEN_SHA256":args.operator_token_sha256} if args.operator_token_sha256 else {},
     }
     boundary = "private-agent-" + secrets.token_hex(16)
     body = (

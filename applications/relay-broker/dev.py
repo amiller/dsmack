@@ -15,6 +15,11 @@ def main():
     data = Path(sys.argv[2]).resolve()
     data.mkdir(parents=True, exist_ok=True)
     env = {'DSTACK_SOCKET': str(Path(sys.argv[1]).resolve())}
+    # Andrew may supply these in the local process environment. Never serialize
+    # them to a config file or print the handler's stdin context.
+    for name in ('NEAR_MANAGEMENT_TOKEN', 'NEAR_REPORTING_TOKEN'):
+        if name in os.environ:
+            env[name] = os.environ[name]
     host, port = sys.argv[3:] or ['127.0.0.1', '18270']
     deno = os.environ.get('DENO', str(Path.home() / '.deno/bin/deno'))
     source = Path(__file__).resolve().parent / 'server.ts'

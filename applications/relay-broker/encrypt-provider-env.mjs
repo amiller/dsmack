@@ -9,8 +9,7 @@ if (import.meta.main) {
     }
     const publicInfo = JSON.parse(await Deno.readTextFile(publicInfoPath));
     const raw = (await Deno.readTextFile(keyPath)).trim();
-    // A raw inference key is the existing operator-check path; an explicitly
-    // prepared JSON object can instead carry management/reporting credentials.
+    // Accept the existing raw inference key or its named encrypted-env payload.
     const payload = raw.startsWith("{")
       ? JSON.parse(raw)
       : { NEAR_API_KEY: raw };

@@ -1,618 +1,468 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { generateKeyPairSync, randomBytes, sign } from "node:crypto";
+import { computeAddress, SigningKey, Wallet } from "npm:ethers@6.17.0";
+import { prepareE2eeChatRequest } from "npm:@nearai/inference-sdk@0.2.0/node";
 import { Inference } from "./inference.mjs";
 import { Payments } from "./payments.mjs";
-import { NearError } from "./near.mjs";
-import { grantBytes } from "./grants.mjs";
-import {
-  nodeBindingSigner,
-  receiptSigner,
-  Wallet,
-} from "../payments/schema.mjs";
+import { canonical } from "./grants.mjs";
 
-const NOW = Math.floor(Date.now() / 1000);
-const NODE = "0x" + "11".repeat(32),
-  COMPOSE = "0x" + "22".repeat(32),
-  IMAGE = "0x" + "33".repeat(32);
-const TX = "0x" + "44".repeat(32),
-  ESCROW = "0x1000000000000000000000000000000000000001";
-const SECRET = "sk-synthetic-delegated-key-marker",
-  PROMPT = "private-prompt-marker-75381",
-  ANSWER = "private-answer-marker-75381";
-const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
-function peer(pub) {
-  const bytes = Buffer.concat([Buffer.from("002408011220", "hex"), pub]);
-  let n = BigInt("0x" + bytes.toString("hex")), result = "";
-  while (n) {
-    result = alphabet[Number(n % 58n)] + result;
-    n /= 58n;
-  }
-  for (const b of bytes) {
-    if (b) break;
-    result = "1" + result;
-  }
-  return result;
-}
-
-function fixture({ amount = "100", unit = 2, state, key, pair } = {}) {
-  key ??= Wallet.createRandom();
-  pair ??= generateKeyPairSync("ed25519");
-  const pub = pair.publicKey.export({ format: "der", type: "spki" }).subarray(
-    -32,
-  );
-  const client_peer = peer(pub);
-  let clock = NOW, saved, mintCalls = 0, calls = 0, revoked = 0;
-  const p = {
-    node: NODE,
-    buyerKey: "0x" + pub.toString("hex"),
-    payer: key.address,
-    operator: key.address,
-    unit,
-    amount,
-    price: "11",
-    floorPrice: "7",
-    boughtAt: NOW - 10,
-    expires: NOW + 3600,
-    sequence: 0,
-    used: "0",
-    closed: false,
-  };
-  const node = {
-    operator: key.address,
-    unit: 2,
-    floorPrice: 7n,
-    price: 11n,
-    composeHash: COMPOSE,
-    imageHash: IMAGE,
-  };
-  const snapshot = {
-    block: { hash: "0x" + "55".repeat(32) },
-    call(method) {
-      if (method === "getNode") return node;
-      if (method === "quote") return 11n;
-      if (method === "brokerSigner") return key.address;
-      if (method === "getPurchase") return p;
-      throw Error("unexpected chain call: " + method);
-    },
-  };
-  const quorum = { snapshot: async () => snapshot, purchase: async () => p };
+const MODEL = "fixture/tee-model",
+  ROOT = "sk-synthetic-root-provider-key",
+  PROMPT = "prompt-marker-only-in-browser",
+  ANSWER = "answer-marker-only-in-browser";
+const modelKey = new SigningKey("0x" + "11".repeat(32)).publicKey.slice(4);
+const cipherAnswer = "04" + "ab".repeat(100);
+const code = (value) => (error) => {
+  assert.equal(error.code, value);
+  return true;
+};
+function fixture({ state, cfg = {} } = {}) {
+  let now = 2000000000,
+    saved,
+    calls = 0,
+    attests = 0,
+    cost = "300",
+    costsCalls = 0,
+    closed = 0;
+  const wallet = Wallet.createRandom(), records = [];
   const payments = new Payments({
-    cfg: { escrow: ESCROW, codeHash: "0x" + "66".repeat(32), classes: [NODE] },
-    key,
-    quorum,
+    cfg: {},
+    key: {},
     state,
-    now: () => clock,
-    save: async (value) => {
-      saved = structuredClone(value);
+    quorum: {},
+    now: () => now,
+    save: async (next) => {
+      saved = structuredClone(next);
+      records.push(saved);
     },
   });
-  const rows = [];
   const provider = {
-    async mint({ capNanoUsd, expiresAt }) {
-      mintCalls++;
-      return {
-        id: "key-fixture",
-        key: SECRET,
-        expires_at: expiresAt,
-        spend_limit: { amount: Number(capNanoUsd), scale: 9, currency: "USD" },
-      };
-    },
+    apiKey: ROOT,
     async attest({ model, nonce }) {
+      attests++;
       return {
+        modelPublicKey: modelKey,
         evidence: {
+          verification: "verified",
+          mode: "broker-proxy",
           model,
           nonce,
-          verified: true,
-          expires_at: clock + 60,
-          signing_algorithm: "ecdsa",
-          gateway: {
-            signing_address: key.address,
-            tls_fingerprint: "ab".repeat(32),
-            tcb_status: "UpToDate",
-          },
+          verifiedAt: now,
+          expires_at: now + 60,
           models: [{
-            model_name: model,
-            signing_address: key.address,
-            tcb_status: "UpToDate",
+            model,
+            signingAddress: computeAddress("0x04" + modelKey),
           }],
-          report: { synthetic: true },
         },
-        transport: { fetch },
+        transport: {
+          fetchEncrypted: fetch,
+          close() {
+            closed++;
+          },
+        },
       };
     },
-    async chat({ key: delegated, model, messages }) {
-      assert.equal(delegated, SECRET);
-      assert.equal(messages[0].content, PROMPT);
+    async chatEncrypted(r) {
       calls++;
-      const inferenceId = "inference-" + calls;
-      rows.push({
-        id: "row-" + calls,
-        source: "inference",
-        api_key_id: "key-fixture",
-        workspace_id: "workspace-fixture",
-        created_at: new Date(clock * 1000).toISOString(),
-        total_cost_nano_usd: 300,
-        inference: {
-          model,
-          inference_id: inferenceId,
-          input_tokens: 20,
-          output_tokens: 10,
-          total_tokens: 30,
-        },
-      });
+      assert.equal(r.key, ROOT);
+      assert.equal(r.model, MODEL);
+      assert(!JSON.stringify(r.body).includes(PROMPT));
+      assert(
+        Object.values(payments.state.inferenceRequests).some((r) =>
+          r.status === "sent"
+        ),
+        "reservation must persist before inference",
+      );
       return new Response(
         "data: " +
           JSON.stringify({
-            id: "chat-" + calls,
-            choices: [{ delta: { content: ANSWER } }],
+            id: "chat-fixture",
+            model: MODEL,
+            choices: [{ delta: { content: cipherAnswer } }],
+          }) + "\n\ndata: " +
+          JSON.stringify({
+            choices: [],
+            usage: { prompt_tokens: 7, completion_tokens: 1, total_tokens: 8 },
           }) + "\n\ndata: [DONE]\n\n",
         {
           headers: {
             "content-type": "text/event-stream",
-            "inference-id": inferenceId,
+            "inference-id": "inference-" + calls,
           },
         },
       );
     },
-    async usage() {
-      return {
-        rows: structuredClone(rows),
-        inputTokens: rows.reduce(
-          (n, r) => n + BigInt(r.inference.input_tokens),
-          0n,
-        ).toString(),
-        outputTokens: rows.reduce(
-          (n, r) => n + BigInt(r.inference.output_tokens),
-          0n,
-        ).toString(),
-        totalTokens: rows.reduce(
-          (n, r) => n + BigInt(r.inference.total_tokens),
-          0n,
-        ).toString(),
-        costNanoUsd: rows.reduce(
-          (n, r) => n + BigInt(r.total_cost_nano_usd),
-          0n,
-        ).toString(),
-      };
-    },
-    async revoke() {
-      revoked++;
+    async costs({ key, requestIds }) {
+      costsCalls++;
+      assert.equal(key, ROOT);
+      return { requests: [{ requestId: requestIds[0], costNanoUsd: cost }] };
     },
   };
-  const cfg = {
-    node: NODE,
-    model: "fixture/tee-model",
-    requestTokenCeiling: 40,
-    maxNanoUsdPerToken: "10",
-    gatewayComposeHashes: [COMPOSE],
-    modelComposeHashes: [COMPOSE],
-    origins: ["http://localhost:8765"],
-    composeHash: COMPOSE,
-    imageHash: IMAGE,
-  };
-  const make = (pmt = payments) =>
-    new Inference({ payments: pmt, cfg, provider, now: () => clock });
-  const inference = make();
-  function request(action, extra = {}) {
+  const inference = new Inference({
+    payments,
+    cfg: { model: MODEL, ...cfg },
+    provider,
+    now: () => now,
+  });
+  async function signed(action, extra = {}, signer = wallet) {
     const fields = {
       action,
-      purchaseId: "1",
-      txHash: TX,
-      client_peer,
-      nonce: randomBytes(16).toString("hex"),
-      issuedAt: clock,
+      wallet: signer.address,
+      nonce: crypto.randomUUID().replaceAll("-", ""),
+      issuedAt: now,
       ...extra,
     };
+    return { ...fields, sig: await signer.signMessage(canonical(fields)) };
+  }
+  async function credit(signer = wallet) {
+    return await inference.credit(await signed("credit", {}, signer));
+  }
+  async function prepare(signer = wallet) {
+    return await inference.prepare(
+      await signed("prepare", { attestationNonce: "cd".repeat(32) }, signer),
+    );
+  }
+  async function encrypted(session) {
+    const prepared = await prepareE2eeChatRequest({
+      request: new Request("https://cloud-api.near.ai/v1/chat/completions", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: [{ role: "user", content: PROMPT }],
+          max_tokens: 128,
+          stream: true,
+          stream_options: { include_usage: true },
+        }),
+      }),
+      modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
+    });
     return {
-      ...fields,
-      sig: sign(null, grantBytes(fields), pair.privateKey).toString("hex"),
+      sessionId: session.sessionId,
+      body: await prepared.request.json(),
+      headers: Object.fromEntries(prepared.request.headers),
     };
   }
-  async function confirm() {
-    const fields = { purchaseId: "1", txHash: TX, client_peer };
-    return await payments.confirm({
-      ...fields,
-      sig: sign(null, grantBytes(fields), pair.privateKey).toString("hex"),
-    });
+  async function send() {
+    return await inference.chat(
+      await signed("chat", await encrypted(await prepare())),
+    );
   }
   return {
     inference,
     payments,
     provider,
-    rows,
-    cfg,
-    key,
-    pair,
-    p,
-    node,
-    quorum,
-    request,
-    confirm,
-    make,
-    now: () => clock,
-    advance: (n) => clock += n,
+    wallet,
+    signed,
+    credit,
+    prepare,
+    encrypted,
+    send,
+    records,
     saved: () => saved,
-    mintCalls: () => mintCalls,
     calls: () => calls,
-    revoked: () => revoked,
+    attests: () => attests,
+    costsCalls: () => costsCalls,
+    closed: () => closed,
+    advance: (seconds) => now += seconds,
+    cost: (value) => cost = value,
   };
 }
-const refusal = (code) => (e) => {
-  assert.equal(e.code, code);
-  return true;
-};
-const chatRequest = (f) =>
-  f.request("chat", {
-    messages: [{ role: "user", content: PROMPT }],
-    max_tokens: 10,
-  });
 
-// A funded but unfinalized purchase must not mint a provider credential.
-test("inference only allocates confirmed token purchases and verifies buyer messages", async () => {
-  const f = fixture();
-  await assert.rejects(
-    f.inference.mint(f.request("mint")),
-    refusal("CREDIT_NOT_CONFIRMED"),
+test("wallet ownership, expiry and replay protect one starter grant per wallet", async () => {
+  const f = fixture(), claim = await f.signed("credit");
+  const tampered = { ...claim, wallet: Wallet.createRandom().address };
+  await assert.rejects(f.inference.credit(tampered), code("BUYER_SIGNATURE"));
+  const granted = await f.inference.credit(claim);
+  assert.equal(granted.grantedNanoUsd, "10000000");
+  assert.equal(granted.remainingNanoUsd, "10000000");
+  await assert.rejects(f.inference.credit(claim), code("REQUEST_REPLAY"));
+  assert.equal((await f.credit()).grantedNanoUsd, "10000000");
+  const second = Wallet.createRandom();
+  assert.equal((await f.credit(second)).grantedNanoUsd, "10000000");
+  const old = await f.signed("usage");
+  f.advance(121);
+  await assert.rejects(f.inference.usage(old), code("REQUEST_EXPIRED"));
+  const restarted = new Inference({
+    payments: new Payments({
+      cfg: {},
+      key: {},
+      state: f.saved(),
+      quorum: {},
+      save: async () => {},
+    }),
+    cfg: { model: MODEL },
+    provider: f.provider,
+    now: () => 2000000000,
+  });
+  await assert.rejects(restarted.credit(claim), code("REQUEST_REPLAY"));
+  assert.equal(
+    (await restarted.credit(await f.signed("credit", { issuedAt: 2000000000 })))
+      .grantedNanoUsd,
+    "10000000",
   );
-  assert.equal(f.mintCalls(), 0);
-  await f.confirm();
-  const tampered = f.request("mint");
-  tampered.purchaseId = "2";
-  await assert.rejects(f.inference.mint(tampered), refusal("BUYER_SIGNATURE"));
-  const expired = f.request("mint", { issuedAt: NOW - 121 });
-  await assert.rejects(f.inference.mint(expired), refusal("REQUEST_EXPIRED"));
-  const signed = f.request("mint");
-  const allocation = await f.inference.mint(signed);
-  assert.equal(allocation.amountTokens, "100");
-  assert.equal(allocation.capNanoUsd, "1000");
-  await assert.rejects(f.inference.mint(signed), refusal("REQUEST_REPLAY"));
-  assert.equal(f.mintCalls(), 1);
-  assert(
-    !JSON.stringify(f.saved()).includes(SECRET),
-    "delegated key must be encrypted in durable state",
-  );
-  const wrong = fixture({ unit: 1 });
-  await wrong.confirm();
-  await assert.rejects(
-    wrong.inference.mint(wrong.request("mint")),
-    refusal("WRONG_UNIT"),
-  );
+  assert.equal(f.calls(), 0);
 });
 
-// A second simultaneous request must never use the same reservation.
-test("chat reserves confirmed credit until provider accounting reconciles it", async () => {
-  const f = fixture({ amount: "70" });
-  await f.confirm();
-  await f.inference.mint(f.request("mint"));
-  f.advance(10);
-  const results = await Promise.allSettled([
-    f.inference.chat(chatRequest(f)),
-    f.inference.chat(chatRequest(f)),
-  ]);
-  const accepted = results.filter((r) => r.status === "fulfilled"),
-    denied = results.filter((r) => r.status === "rejected");
-  assert.equal(accepted.length, 1);
-  assert.equal(denied.length, 1);
-  assert.equal(denied[0].reason.code, "REQUEST_IN_FLIGHT");
-  const text = await accepted[0].value.text();
-  assert(text.includes(ANSWER));
-  assert(text.includes("event: attestation"));
-  const usage = await f.inference.usage(f.request("usage"));
-  assert.equal(usage.usage.totalTokens, "30");
-  assert.equal(usage.usedTokens, "30");
-  const second = await f.inference.chat(chatRequest(f));
-  await second.text();
-  await f.inference.usage(f.request("usage"));
+test("fresh verified model sessions accept SDK ciphertext and reject plaintext or swapped keys", async () => {
+  const f = fixture();
+  await f.credit();
+  const session = await f.prepare();
+  assert.equal(session.attestation.mode, "broker-e2ee");
+  assert.equal(session.modelPublicKey, modelKey);
+  const encrypted = await f.encrypted(session);
+  const plain = structuredClone(encrypted);
+  plain.body.messages[0].content = PROMPT;
   await assert.rejects(
-    f.inference.chat(chatRequest(f)),
-    refusal("CREDIT_EXHAUSTED"),
+    f.inference.chat(await f.signed("chat", plain)),
+    code("BAD_REQUEST"),
   );
-  assert.equal(f.calls(), 2);
-  for (const marker of [SECRET, PROMPT, ANSWER]) {
+  const badHeader = structuredClone(encrypted);
+  badHeader.headers["x-model-pub-key"] = "11".repeat(64);
+  await assert.rejects(
+    f.inference.chat(await f.signed("chat", badHeader)),
+    code("BAD_REQUEST"),
+  );
+  const extra = structuredClone(encrypted);
+  extra.body.prompt = PROMPT;
+  await assert.rejects(
+    f.inference.chat(await f.signed("chat", extra)),
+    code("BAD_REQUEST"),
+  );
+  const response = await f.inference.chat(await f.signed("chat", encrypted)),
+    raw = await response.text();
+  assert(raw.includes(cipherAnswer));
+  assert(!raw.includes(ANSWER));
+  assert(!raw.includes("event: attestation"));
+  assert.equal(response.headers.get("inference-id"), "inference-1");
+  assert.equal(f.calls(), 1);
+  for (
+    const marker of [
+      ROOT,
+      PROMPT,
+      ANSWER,
+      encrypted.body.messages[0].content,
+      cipherAnswer,
+    ]
+  ) {
     assert(
-      !JSON.stringify(f.saved()).includes(marker),
-      "persisted state leaked " + marker,
+      !JSON.stringify(f.records).includes(marker),
+      "durable state must contain accounting only",
     );
   }
 });
 
-// Receipts must reconcile wei without trusting browser-reported token counts.
-test("provider usage signs cumulative settlement and final unused-credit refund", async () => {
+test("budget reservation excludes concurrent requests and provider cost charges exactly once", async () => {
   const f = fixture();
-  await f.confirm();
-  await f.inference.mint(f.request("mint"));
-  f.advance(10);
-  await (await f.inference.chat(chatRequest(f))).text();
-  const charge = await f.inference.charges(f.request("charges"));
-  assert.equal(charge.receipt.used, "30");
-  assert.equal(charge.receipt.finalReceipt, false);
+  await f.credit();
+  const session = await f.prepare(), encrypted = await f.encrypted(session);
+  const responses = await Promise.allSettled([
+    f.inference.chat(await f.signed("chat", encrypted)),
+    f.inference.chat(await f.signed("chat", encrypted)),
+  ]);
+  assert.equal(responses.filter((r) => r.status === "fulfilled").length, 1);
   assert.equal(
-    receiptSigner(ESCROW, charge).toLowerCase(),
-    f.key.address.toLowerCase(),
+    responses.find((r) => r.status === "rejected").reason.code,
+    "REQUEST_IN_FLIGHT",
   );
-  assert.equal(
-    nodeBindingSigner(ESCROW, charge.nodeBinding).toLowerCase(),
-    f.key.address.toLowerCase(),
-  );
-  assert.equal(charge.chargeWei, "330");
-  assert.equal(charge.operatorWei, "210");
-  assert.equal(charge.premiumWei, "120");
-  assert.equal(charge.refundableWei, "770");
-  const again = await f.inference.charges(f.request("charges"));
-  assert.deepEqual(again, charge);
-  const final = await f.inference.close(f.request("close"));
-  assert.equal(final.receipt.finalReceipt, true);
-  assert.equal(final.receipt.used, "30");
-  assert(final.receipt.sequence > charge.receipt.sequence);
-  assert.equal(f.revoked(), 1);
-  assert.equal(BigInt(final.chargeWei) + BigInt(final.refundableWei), 1100n);
+  await responses.find((r) => r.status === "fulfilled").value.text();
+  f.cost("0");
   await assert.rejects(
-    f.inference.chat(chatRequest(f)),
-    refusal("ALLOCATION_CLOSED"),
+    f.inference.usage(await f.signed("usage")),
+    code("USAGE_PENDING"),
   );
+  await assert.rejects(f.prepare(), code("REQUEST_IN_FLIGHT"));
+  const before = f.inference.summary(f.wallet.address.toLowerCase());
+  assert(BigInt(before.reservedNanoUsd) > 0n);
+  f.cost("300");
+  const usages = await Promise.all([
+    f.inference.usage(await f.signed("usage")),
+    f.inference.usage(await f.signed("usage")),
+  ]);
+  for (const u of usages) {
+    assert.equal(u.spentNanoUsd, "300");
+    assert.equal(u.usedTokens, "8");
+    assert.equal(u.remainingNanoUsd, "9999700");
+  }
+  assert.equal(
+    (await f.inference.usage(await f.signed("usage"))).spentNanoUsd,
+    "300",
+  );
+  assert.equal(f.inference.recover().pendingRequests, 0);
 });
 
-// Provider accounting lag must retain reservation and prevent a free refund.
-test("missing provider accounting blocks final settlement and overspend cannot debit credit", async () => {
-  const f = fixture();
-  await f.confirm();
-  await f.inference.mint(f.request("mint"));
-  f.advance(10);
-  await (await f.inference.chat(chatRequest(f))).text();
-  const row = f.rows.pop();
+test("insufficient credit and untrusted provider costs cannot start or overdraw requests", async () => {
+  const f = fixture({ cfg: { starterCreditNanoUsd: "100" } });
+  await f.credit();
+  const session = await f.prepare();
   await assert.rejects(
-    f.inference.charges(f.request("charges")),
-    refusal("USAGE_PENDING"),
+    f.inference.chat(await f.signed("chat", await f.encrypted(session))),
+    code("CREDIT_EXHAUSTED"),
   );
-  assert(
-    f.saved().inference["1"].pending,
-    "unreconciled reservation must remain durable",
+  assert.equal(f.calls(), 0);
+  const g = fixture();
+  await g.credit();
+  await (await g.send()).text();
+  g.cost("999999999");
+  await assert.rejects(
+    g.inference.usage(await g.signed("usage")),
+    code("USAGE_MISMATCH"),
   );
-  f.rows.push({
-    ...row,
-    total_cost_nano_usd: 1001,
-    inference: { ...row.inference, total_tokens: 101 },
+  assert.equal(
+    g.inference.summary(g.wallet.address.toLowerCase()).spentNanoUsd,
+    "0",
+  );
+  g.provider.costs = async () => ({
+    requests: [{ requestId: "foreign", costNanoUsd: "300" }],
   });
   await assert.rejects(
-    f.inference.charges(f.request("charges")),
-    refusal("USAGE_MISMATCH"),
+    g.inference.usage(await g.signed("usage")),
+    code("USAGE_MISMATCH"),
   );
 });
 
-// Restart must preserve both allocation custody and replay protection.
-test("restart resumes encrypted allocation and rejects previously used requests", async () => {
+test("unknown dispatched requests remain reserved across restart and are never resent", async () => {
   const f = fixture();
-  await f.confirm();
-  const old = f.request("mint");
-  await f.inference.mint(old);
-  const restarted = fixture({ state: f.saved(), key: f.key, pair: f.pair });
-  restarted.advance(10);
-  const summary = await restarted.inference.mint(restarted.request("mint"));
-  assert.equal(summary.keyId, "key-fixture");
-  assert.equal(restarted.mintCalls(), 0);
-  await assert.rejects(
-    restarted.inference.mint(old),
-    refusal("REQUEST_REPLAY"),
-  );
-  await (await restarted.inference.chat(chatRequest(restarted))).text();
-  assert.equal(restarted.calls(), 1);
-});
-
-// A crash before dispatch releases its reservation; unknown dispatch stays reserved.
-test("restart only clears reservations whose prompt was never dispatched", async () => {
-  const f = fixture();
-  await f.confirm();
-  await f.inference.mint(f.request("mint"));
-  for (const stage of ["attesting", "sent"]) {
-    const state = structuredClone(f.saved());
-    state.inference["1"].pending = { stage, nonce: "ab".repeat(16) };
-    const resumed = fixture({ state, key: f.key, pair: f.pair });
-    await resumed.inference.recover();
-    assert.equal(
-      Boolean(resumed.payments.state.inference["1"].pending),
-      stage === "sent",
-    );
-    if (stage === "sent") {
-      await assert.rejects(
-        resumed.inference.chat(chatRequest(resumed)),
-        refusal("REQUEST_IN_FLIGHT"),
-      );
-    }
-  }
-});
-
-// Lost mint responses must not silently create another independently usable key.
-test("ambiguous provider mint is persisted and never blindly retried", async () => {
-  const f = fixture();
-  await f.confirm();
-  let attempts = 0;
-  f.provider.mint = async () => {
-    attempts++;
-    throw new NearError("PROVIDER_UNAVAILABLE");
+  await f.credit();
+  f.provider.chatEncrypted = async () => {
+    throw Error("connection lost");
   };
-  await assert.rejects(f.inference.mint(f.request("mint")));
-  await assert.rejects(
-    f.inference.mint(f.request("mint")),
-    refusal("MINT_AMBIGUOUS"),
-  );
-  assert.equal(attempts, 1);
-});
-
-// Closing while evidence is being checked cannot strand a reservation with no billing ID.
-test("close during attestation preserves a recoverable allocation", async () => {
-  const f = fixture();
-  await f.confirm();
-  await f.inference.mint(f.request("mint"));
-  f.advance(10);
-  let entered, release;
-  const enteredPromise = new Promise((resolve) => entered = resolve),
-    gate = new Promise((resolve) => release = resolve);
-  const attest = f.provider.attest;
-  f.provider.attest = async (r) => {
-    entered();
-    await gate;
-    return await attest(r);
-  };
-  const pending = f.inference.chat(chatRequest(f));
-  await enteredPromise;
-  await assert.rejects(
-    f.inference.close(f.request("close")),
-    refusal("REQUEST_IN_FLIGHT"),
-  );
-  assert.equal(f.saved().inference["1"].status, "active");
-  assert.equal(f.revoked(), 0);
-  release();
-  await (await pending).text();
-  await f.inference.usage(f.request("usage"));
-  const closed = await f.inference.close(f.request("close"));
-  assert.equal(closed.receipt.finalReceipt, true);
-});
-
-// Run the exported broker handler over loopback HTTP, including browser CORS and SSE.
-test("local HTTP broker confirms credit, streams, reconciles charges and refuses invalid requests", async () => {
-  const { handleRequest } = await import("./server.ts");
-  const f = fixture();
-  const b = {
-    cfg: { inference: f.cfg },
-    inference: f.inference,
-    payments: f.payments,
-    live: () => [],
-    key: { public_key: "ab".repeat(32) },
-  };
-  const shutdown = new AbortController();
-  const server = Deno.serve({
-    hostname: "127.0.0.1",
-    port: 0,
-    signal: shutdown.signal,
-    onListen() {},
-  }, (req) => handleRequest(req, b));
-  const base = `http://127.0.0.1:${server.addr.port}`,
-    origin = "http://localhost:8765";
-  const post = (path, value) =>
-    fetch(base + path, {
-      method: "POST",
-      headers: { origin, "content-type": "application/json" },
-      body: JSON.stringify(value),
+  await assert.rejects(f.send(), /connection lost/);
+  const saved = f.saved(),
+    payment = new Payments({
+      cfg: {},
+      key: {},
+      state: saved,
+      quorum: {},
+      save: async () => {},
     });
-  try {
-    const page = await fetch(base + "/");
-    assert.equal(page.status, 200);
-    assert((await page.text()).includes("Attested egress relay"));
-    const preflight = await fetch(base + "/inference/chat", {
-      method: "OPTIONS",
+  const restarted = new Inference({
+    payments: payment,
+    cfg: { model: MODEL },
+    provider: f.provider,
+    now: () => 2000000000,
+  });
+  assert.equal(restarted.recover().pendingRequests, 1);
+  await assert.rejects(
+    restarted.usage(await f.signed("usage")),
+    code("USAGE_PENDING"),
+  );
+  await assert.rejects(
+    restarted.prepare(
+      await f.signed("prepare", { attestationNonce: "ef".repeat(32) }),
+    ),
+    code("REQUEST_IN_FLIGHT"),
+  );
+  assert(
+    BigInt(restarted.summary(f.wallet.address.toLowerCase()).reservedNanoUsd) >
+      0n,
+  );
+});
+
+test("browser disconnect still drains the encrypted provider stream for billing evidence", async () => {
+  const f = fixture();
+  await f.credit();
+  let finishSource, responded;
+  const gate = new Promise((resolve) => finishSource = resolve),
+    stored = new Promise((resolve) => responded = resolve);
+  const save = f.payments.save;
+  f.payments.save = async (next) => {
+    await save(next);
+    if (
+      Object.values(next.inferenceRequests ?? {}).some((r) =>
+        r.status === "responded"
+      )
+    ) responded();
+  };
+  f.provider.chatEncrypted = async () =>
+    new Response(
+      new ReadableStream({
+        async start(controller) {
+          controller.enqueue(
+            new TextEncoder().encode('data: {"choices":[]}\n\n'),
+          );
+          await gate;
+          controller.enqueue(
+            new TextEncoder().encode(
+              'data: {"usage":{"total_tokens":12}}\n\ndata: [DONE]\n\n',
+            ),
+          );
+          controller.close();
+        },
+      }),
+      {
+        headers: {
+          "content-type": "text/event-stream",
+          "inference-id": "inference-disconnected",
+        },
+      },
+    );
+  const response = await f.send();
+  await response.body.cancel();
+  finishSource();
+  await stored;
+  const result = await f.inference.usage(await f.signed("usage"));
+  assert.equal(result.spentNanoUsd, "300");
+  assert.equal(result.usedTokens, "12");
+});
+
+test("provider billing IDs cannot charge a different wallet and missing token evidence stays pending", async () => {
+  const f = fixture();
+  await f.credit();
+  await (await f.send()).text();
+  await f.inference.usage(await f.signed("usage"));
+  const other = Wallet.createRandom();
+  await f.credit(other);
+  const session = await f.prepare(other);
+  f.provider.chatEncrypted = async () =>
+    new Response("data: [DONE]\n\n", {
       headers: {
-        origin,
-        "access-control-request-method": "POST",
-        "access-control-request-headers": "content-type",
+        "content-type": "text/event-stream",
+        "inference-id": "inference-1",
       },
     });
-    assert.equal(preflight.status, 204);
-    assert.equal(preflight.headers.get("access-control-allow-origin"), origin);
-    assert.equal(preflight.headers.get("cache-control"), "no-store");
-    await preflight.text();
-    const quote = await fetch(base + "/inference/quote", {
-      headers: { origin },
+  await assert.rejects(
+    f.inference.chat(await f.signed("chat", await f.encrypted(session), other)),
+    code("USAGE_MISMATCH"),
+  );
+  assert.equal(
+    f.inference.summary(other.address.toLowerCase()).spentNanoUsd,
+    "0",
+  );
+  const g = fixture();
+  await g.credit();
+  g.provider.chatEncrypted = async () =>
+    new Response("data: [DONE]\n\n", {
+      headers: {
+        "content-type": "text/event-stream",
+        "inference-id": "inference-no-tokens",
+      },
     });
-    assert.equal(quote.status, 200);
-    const quoted = await quote.json();
-    assert.equal(quoted.unitId, 2);
-    assert.equal(quoted.chainId, 84532);
-    assert.equal(quoted.priceWei, "11");
-    const unpaid = await post("/inference/mint", f.request("mint"));
-    assert.equal(unpaid.status, 402);
-    assert.equal((await unpaid.json()).error.code, "CREDIT_NOT_CONFIRMED");
-    const fields = {
-      client_peer: f.request("mint").client_peer,
-      purchaseId: "1",
-      txHash: TX,
-    };
-    const confirmed = await post("/payments/confirm", {
-      ...fields,
-      sig: sign(null, grantBytes(fields), f.pair.privateKey).toString("hex"),
-    });
-    assert.equal(confirmed.status, 200);
-    assert.equal((await confirmed.json()).purchaseId, "1");
-    const mintedRequest = f.request("mint"),
-      minted = await post("/inference/mint", mintedRequest);
-    assert.equal(minted.status, 200);
-    const allocation = await minted.json();
-    assert.equal(allocation.amountTokens, "100");
-    assert(!JSON.stringify(allocation).includes(SECRET));
-    const replay = await post("/inference/mint", mintedRequest);
-    assert.equal(replay.status, 409);
-    assert.equal((await replay.json()).error.code, "REQUEST_REPLAY");
-    f.advance(10);
-    const signedChat = chatRequest(f);
-    const response = await post("/inference/chat", signedChat);
-    assert.equal(response.status, 200);
-    assert.equal(response.headers.get("content-type"), "text/event-stream");
-    assert.equal(response.headers.get("cache-control"), "no-store");
-    const stream = await response.text();
-    assert(stream.includes("event: attestation"));
-    const evidenceLine = stream.split("\n").find((line) =>
-      line.startsWith("data: {")
-    );
-    const shownEvidence = JSON.parse(evidenceLine.slice(6));
-    const expectedNonce = Buffer.from(
-      await crypto.subtle.digest(
-        "SHA-256",
-        new TextEncoder().encode(
-          "dsmack-near-attestation/1:" + signedChat.purchaseId + ":" +
-            signedChat.txHash + ":" + signedChat.nonce,
-        ),
-      ),
-    ).toString("hex");
-    assert.equal(shownEvidence.nonce, expectedNonce);
-    assert(stream.includes(ANSWER));
-    assert(stream.includes("[DONE]"));
-    const usageResponse = await post("/inference/usage", f.request("usage"));
-    assert.equal(usageResponse.status, 200);
-    assert.equal((await usageResponse.json()).usage.totalTokens, "30");
-    const finalResponse = await post("/inference/close", f.request("close"));
-    assert.equal(finalResponse.status, 200);
-    const final = await finalResponse.json();
-    assert.equal(final.receipt.finalReceipt, true);
-    assert.equal(final.refundableWei, "770");
-    const untrusted = await fetch(base + "/inference/quote", {
-      headers: { origin: "https://foreign.invalid" },
-    });
-    assert.equal(untrusted.status, 403);
-    assert.equal((await untrusted.json()).error.code, "ORIGIN_REFUSED");
-    assert.equal(untrusted.headers.get("access-control-allow-origin"), null);
-    const badJson = await fetch(base + "/inference/chat", {
-      method: "POST",
-      headers: { origin, "content-type": "application/json" },
-      body: "[]",
-    });
-    assert.equal(badJson.status, 400);
-    assert.equal((await badJson.json()).error.code, "BAD_REQUEST");
-    const oversized = await fetch(base + "/inference/chat", {
-      method: "POST",
-      headers: { origin, "content-type": "application/json" },
-      body: " ".repeat(150001),
-    });
-    assert.equal(oversized.status, 413);
-    assert.equal((await oversized.json()).error.code, "BAD_REQUEST");
-    const serialized = JSON.stringify(f.saved());
-    for (const marker of [SECRET, PROMPT, ANSWER]) {
-      assert(!serialized.includes(marker));
-    }
-    console.log(
-      JSON.stringify({
-        transport: "local HTTP",
-        chainId: quoted.chainId,
-        unit: quoted.unit,
-        usedTokens: final.receipt.used,
-        chargeWei: final.chargeWei,
-        operatorWei: final.operatorWei,
-        premiumWei: final.premiumWei,
-        refundableWei: final.refundableWei,
-        stateMarkersFound: 0,
-      }),
-    );
-  } finally {
-    shutdown.abort();
-    await server.finished;
-  }
+  await (await g.send()).text();
+  await assert.rejects(
+    g.inference.usage(await g.signed("usage")),
+    code("USAGE_PENDING"),
+  );
+  assert.equal(g.costsCalls(), 0);
+  assert.equal(
+    g.inference.summary(g.wallet.address.toLowerCase()).spentNanoUsd,
+    "0",
+  );
+});
+
+test("prepared sessions are wallet-bound and expire before any paid call", async () => {
+  const f = fixture();
+  await f.credit();
+  const session = await f.prepare(), other = Wallet.createRandom();
+  await f.credit(other);
+  await assert.rejects(
+    f.inference.chat(await f.signed("chat", await f.encrypted(session), other)),
+    code("ATTESTATION_INVALID"),
+  );
+  f.advance(60);
+  await assert.rejects(
+    f.inference.chat(await f.signed("chat", await f.encrypted(session))),
+    code("ATTESTATION_INVALID"),
+  );
+  assert.equal(f.calls(), 0);
 });

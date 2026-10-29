@@ -6,8 +6,6 @@ const context = { purpose: "dsmack-near-env/1", project: "relay-broker" };
 const aad = enc.encode(canonical(context));
 const fields = new Set([
   "NEAR_API_KEY",
-  "NEAR_MANAGEMENT_TOKEN",
-  "NEAR_REPORTING_TOKEN",
 ]);
 const pubkey = (v) => typeof v === "string" && /^0x04[0-9a-fA-F]{128}$/.test(v);
 const hex = (v) =>

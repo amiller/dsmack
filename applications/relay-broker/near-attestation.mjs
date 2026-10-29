@@ -113,6 +113,7 @@ export async function verifyNearAttestation(
   const verifiedAt = Math.floor(Date.now() / 1000);
   let closed = false;
   return {
+    modelPublicKey: models[0].signingPublicKey,
     evidence: {
       verified: true,
       verification: "verified",
@@ -143,6 +144,14 @@ export async function verifyNearAttestation(
     transport: {
       close() {
         closed = true;
+      },
+      async fetchEncrypted(input, init) {
+        need(
+          !closed &&
+            new URL(input instanceof Request ? input.url : input).origin ===
+              new URL(baseUrl).origin,
+        );
+        return await pinnedFetch(input, init);
       },
       async fetch(input, init) {
         need(

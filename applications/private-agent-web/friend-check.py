@@ -108,9 +108,9 @@ with sync_playwright() as runtime:
         report['patch_applied'] = True
         report['updated_greet'] = actual
         report['job_status'] = page.locator('#job-status').inner_text()
-        evidence = json.loads(page.locator('#job-evidence').inner_text())
+        evidence = json.loads(page.locator('#job-evidence').text_content())
         (args.out/'job-evidence.json').write_text(json.dumps(evidence, indent=2)+'\n')
-        transcript = page.locator('#transcript').inner_text()
+        transcript = page.locator('#transcript').text_content()
         (args.out/'transcript').write_text(transcript)
         report['provider_responses'] = sum(json.loads(line).get('type') == 'provider_attestation'
                                            for line in transcript.splitlines())

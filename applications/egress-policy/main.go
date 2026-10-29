@@ -34,6 +34,7 @@ type Rule struct {
 	DownloadBytes     int64    `json:"download_bytes"`
 	Requests          int      `json:"requests"`
 	RequestsPerMinute int      `json:"requests_per_minute"`
+	WebSocketSeconds  int      `json:"websocket_seconds,omitempty"`
 }
 type Policy struct {
 	Rules []Rule `json:"rules"`
@@ -86,8 +87,8 @@ func loadPolicy(b []byte) (Policy, error) {
 	}
 	seen := map[string]bool{}
 	for _, r := range p.Rules {
-		if !validName(r.Name) || seen[r.Name] || r.Port != 443 {
-			return p, errors.New("exact DNS name and TLS port 443 required")
+		if !(validName(r.Name) || (strings.HasPrefix(r.Name, "*.") && validName(strings.TrimPrefix(r.Name, "*.")))) || seen[r.Name] || r.Port != 443 {
+			return p, errors.New("DNS name or one-label wildcard and TLS port 443 required")
 		}
 		seen[r.Name] = true
 		if len(r.Methods) == 0 || len(r.Paths) == 0 {
@@ -103,6 +104,9 @@ func loadPolicy(b []byte) (Policy, error) {
 				return p, errors.New("canonical exact path required")
 			}
 		}
+		if r.WebSocketSeconds < 0 || r.WebSocketSeconds > 3600 {
+			return p, errors.New("websocket_seconds must be 0..3600")
+		}
 		if r.MaxRequestBytes < 1 || r.MaxRequestBytes > 1<<20 || r.MaxResponseBytes < 1 || r.MaxResponseBytes > 4<<20 || r.UploadBytes < r.MaxRequestBytes || r.DownloadBytes < r.MaxResponseBytes || r.Requests < 1 || r.RequestsPerMinute < 1 {
 			return p, errors.New("positive bounded budgets required")
 		}
@@ -115,7 +119,7 @@ func newGateway(p Policy, logger *log.Logger) *gateway {
 		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
 		MaxResponseHeaderBytes: 16384, DisableKeepAlives: true, DisableCompression: true,
-		// HTTP/1.1 only. No cross-authority connection coalescing or upgrades.
+		// HTTP/1.1 only. No cross-authority connection coalescing.
 		ForceAttemptHTTP2: false,
 	}}
 }
@@ -139,7 +143,7 @@ func (g *gateway) event(rule int, decision, reason string, up, down int64) {
 }
 func (g *gateway) index(name string) int {
 	for i, r := range g.policy.Rules {
-		if name == r.Name {
+		if name == r.Name || (strings.HasPrefix(r.Name, "*.") && strings.HasSuffix(name, r.Name[1:]) && !strings.Contains(strings.TrimSuffix(name, r.Name[1:]), ".") && strings.TrimSuffix(name, r.Name[1:]) != "") {
 			return i
 		}
 	}
@@ -169,6 +173,12 @@ func (g *gateway) reserve(i int, up int64) bool {
 	u.download += r.MaxResponseBytes
 	return true
 }
+func (g *gateway) refundUpload(i int, unused int64) {
+	g.mu.Lock()
+	defer g.mu.Unlock()
+	g.usage[i].upload -= unused
+}
+
 func (g *gateway) refundDownload(i int, used int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -198,7 +208,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(403, "origin_form_required")
 		return
 	}
-	if r.Header.Get("Upgrade") != "" || len(r.TransferEncoding) > 0 || len(r.Trailer) > 0 || r.URL.RawQuery != "" || r.URL.ForceQuery || !validPath(r.URL.EscapedPath()) {
+	if len(r.TransferEncoding) > 0 || len(r.Trailer) > 0 || r.URL.RawQuery != "" || r.URL.ForceQuery || !validPath(r.URL.EscapedPath()) {
 		deny(403, "unsupported_request_form")
 		return
 	}
@@ -221,6 +231,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	rule := g.policy.Rules[i]
+	isWS := strings.EqualFold(r.Header.Get("Upgrade"), "websocket")
+	if r.Header.Get("Upgrade") != "" && (!isWS || rule.WebSocketSeconds == 0 || r.Method != "GET" || r.ContentLength != 0 || r.Header.Get("Sec-WebSocket-Version") != "13" || !strings.Contains(strings.ToLower(r.Header.Get("Connection")), "upgrade")) {
+		deny(403, "websocket_policy")
+		return
+	}
 	if !contains(rule.Methods, r.Method) || !contains(rule.Paths, r.URL.Path) {
 		deny(403, "method_path_policy")
 		return
@@ -234,7 +249,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(413, "request_bytes")
 		return
 	}
-	ctx, cancel := context.WithTimeout(r.Context(), 15*time.Second)
+	duration := 15 * time.Second
+	if isWS {
+		duration = time.Duration(rule.WebSocketSeconds) * time.Second
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), duration)
 	defer cancel()
 	target := &url.URL{Scheme: "https", Host: net.JoinHostPort(name, strconv.Itoa(rule.Port)), Path: r.URL.Path}
 	out, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
@@ -243,7 +262,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.Host = name
-	out.Close = true
+	out.Close = !isWS
 	// Fresh request discards forwarding/routing/hop-by-hop headers, credentials
 	// for local proxies, trailers, and alternate authority inputs.
 	for _, k := range forwarded {
@@ -252,15 +271,26 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out.Header.Set("User-Agent", "dsmack-egress/1")
+	if isWS {
+		for _, k := range []string{"Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Protocol"} {
+			out.Header.Set(k, r.Header.Get(k))
+		}
+	}
+
 	up := int64(len(body)+len(r.Method)+len(r.URL.Path)+len(name)) + headerBytes(out.Header)
 	if up > rule.MaxRequestBytes {
 		deny(413, "request_bytes")
 		return
 	}
-	if !g.reserve(i, up) {
+	reservedUp := up
+	if isWS {
+		reservedUp = rule.MaxRequestBytes
+	}
+	if !g.reserve(i, reservedUp) {
 		deny(429, "budget_or_rate")
 		return
 	}
+	defer func() { g.refundUpload(i, reservedUp-up) }()
 	// TLS verifies the certificate chain and DNS name before sending HTTP bytes.
 	// The transport derives SNI from target.Host. Workloads never supply TLS.
 	resp, err := g.client.RoundTrip(out)
@@ -272,6 +302,14 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	defer resp.Body.Close()
 	down := headerBytes(resp.Header)
+	if isWS && resp.StatusCode == 101 {
+		extraUp, extraDown := g.websocket(w, r, resp, duration, rule.MaxRequestBytes-up, rule.MaxResponseBytes-down)
+		up += extraUp
+		down += extraDown
+		g.refundDownload(i, down)
+		g.event(i, "allow", "websocket_tls", up, down)
+		return
+	}
 	if resp.StatusCode == 101 || down > rule.MaxResponseBytes {
 		g.refundDownload(i, rule.MaxResponseBytes)
 		g.event(i, "deny", "response_bytes_or_upgrade", up, rule.MaxResponseBytes)
@@ -297,6 +335,61 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.event(i, "allow", "validated_tls", up, down)
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(response)
+}
+
+// WebSocket payload stays opaque. Reserve each direction's full byte budget
+// before the upgrade; refund unused bytes after both copy loops have stopped.
+func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.Response, duration time.Duration, upCap, downCap int64) (int64, int64) {
+	upstream, ok := resp.Body.(io.ReadWriteCloser)
+	hj, canHijack := w.(http.Hijacker)
+	if !ok || !canHijack || upCap < 0 || downCap < 0 {
+		http.Error(w, "websocket_upstream", 502)
+		return 0, 0
+	}
+	local, buffer, err := hj.Hijack()
+	if err != nil {
+		return 0, 0
+	}
+	defer local.Close()
+	defer upstream.Close()
+	_ = local.SetDeadline(time.Now().Add(duration))
+	_, err = buffer.WriteString("HTTP/1.1 101 Switching Protocols\r\n")
+	if err != nil {
+		return 0, 0
+	}
+	for _, k := range []string{"Connection", "Upgrade", "Sec-WebSocket-Accept", "Sec-WebSocket-Protocol"} {
+		for _, v := range resp.Header.Values(k) {
+			if _, err = fmt.Fprintf(buffer, "%s: %s\r\n", k, v); err != nil {
+				return 0, 0
+			}
+		}
+	}
+	if _, err = buffer.WriteString("\r\n"); err != nil {
+		return 0, 0
+	}
+	if err = buffer.Flush(); err != nil {
+		return 0, 0
+	}
+	type count struct {
+		up bool
+		n  int64
+	}
+	done := make(chan count, 2)
+	go func() { n, _ := io.CopyN(upstream, buffer, upCap); done <- count{true, n} }()
+	go func() { n, _ := io.CopyN(local, upstream, downCap); done <- count{false, n} }()
+	first := <-done
+	local.Close()
+	upstream.Close()
+	second := <-done
+	var up, down int64
+	for _, c := range []count{first, second} {
+		if c.up {
+			up = c.n
+		} else {
+			down = c.n
+		}
+	}
+	return up, down
 }
 
 // A non-recursive DNS stub: synthesize allowed A records, refuse every other
@@ -419,6 +512,7 @@ func main() {
 	listen := flag.String("http", ":8080", "guest-local HTTP listener")
 	dns := flag.String("dns", ":53", "guest-local DNS listener")
 	answer := flag.String("answer-ip", "", "private gateway IPv4 address")
+	fixedHost := flag.String("websocket-host", "", "fixed TLS hostname for loopback-only WebSocket clients")
 	flag.Parse()
 	b, err := os.ReadFile(*policyFile)
 	if err != nil {
@@ -436,7 +530,21 @@ func main() {
 	if err = g.serveDNS(*dns, ip); err != nil {
 		log.Fatal("DNS listen failed")
 	}
-	server := &http.Server{Addr: *listen, Handler: g, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
+	var handler http.Handler = g
+	if *fixedHost != "" {
+		if !validName(*fixedHost) || g.index(*fixedHost) < 0 || *listen != "127.0.0.1:8080" {
+			log.Fatal("fixed WebSocket host requires an allowed hostname and loopback listener")
+		}
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Host != "127.0.0.1:8080" || !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+				http.Error(w, "fixed_websocket_route", 403)
+				return
+			}
+			r.Host = *fixedHost + ":8080"
+			g.ServeHTTP(w, r)
+		})
+	}
+	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: 20 * time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
 	fmt.Fprintln(os.Stderr, "egress gateway ready")
 	if err = server.ListenAndServe(); err != nil {
 		log.Fatal("HTTP server stopped")

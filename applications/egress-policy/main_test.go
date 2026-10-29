@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -244,6 +245,85 @@ func TestDNSIsExactAndNeverForwardsWorkloadQueries(t *testing.T) {
 	for _, q := range [][]byte{nil, bytes.Repeat([]byte{0}, 600), {0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0xc0, 0x0c}} {
 		if g.dnsReply(q, ip) != nil {
 			t.Fatal("malformed query accepted")
+		}
+	}
+}
+
+// Prevent an allowed WebSocket from bypassing TLS identity or byte accounting.
+func TestWebSocketTLSAndByteBudget(t *testing.T) {
+	p := policy()
+	p.Rules[0].WebSocketSeconds = 2
+	p.Rules[0].MaxRequestBytes = 512
+	g, _ := withFixture(t, p, "allowed.test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "allowed.test" || r.TLS.ServerName != "allowed.test" {
+			t.Error("WebSocket authority changed")
+		}
+		c, b, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer c.Close()
+		b.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: test\r\n\r\n")
+		b.Flush()
+		io.Copy(c, b)
+	}))
+	local := httptest.NewServer(g)
+	defer local.Close()
+	c, err := net.Dial("tcp", strings.TrimPrefix(local.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	io.WriteString(c, "GET / HTTP/1.1\r\nHost: allowed.test:8080\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+	b := bufio.NewReader(c)
+	resp, err := http.ReadResponse(b, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 101 {
+		t.Fatal(resp.StatusCode)
+	}
+	c.Write([]byte("Noise bytes"))
+	got := make([]byte, 11)
+	if _, err = io.ReadFull(b, got); err != nil || string(got) != "Noise bytes" {
+		t.Fatalf("echo: %s %v", got, err)
+	}
+	c.Write(bytes.Repeat([]byte("x"), 1024))
+	io.Copy(io.Discard, b)
+	c.Close()
+	deadline := time.Now().Add(time.Second)
+	for {
+		g.mu.Lock()
+		up, down := g.usage[0].upload, g.usage[0].download
+		g.mu.Unlock()
+		if down < 1024 {
+			if up != 512 {
+				t.Fatalf("upload cap = %d", up)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("gateway failed to release connection budget")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A suffix match must not authorize another zone, a nested name, or an IP.
+func TestOneLabelWildcard(t *testing.T) {
+	p := policy()
+	p.Rules[0].Name = "*.trycloudflare.com"
+	g := newGateway(p, log.New(io.Discard, "", 0))
+	for _, host := range []string{"x.trycloudflare.com"} {
+		if g.index(host) != 0 {
+			t.Fatal(host)
+		}
+	}
+	for _, host := range []string{"trycloudflare.com", "x.y.trycloudflare.com", "x.trycloudflare.com.evil.test", "eviltrycloudflare.com", "1.1.1.1"} {
+		if g.index(host) != -1 {
+			t.Fatal(host)
 		}
 	}
 }

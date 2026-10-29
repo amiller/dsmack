@@ -155,3 +155,91 @@ locked relay's recorded assertion, rejected PeerId/caller/build/enrollment
 bindings, expiry, concurrent quotas, persisted quotas and storage failures.
 `verify-grant.py` uses Python `cryptography` for independent verification of an
 HTTP grant; `--at UNIX_SECONDS` replays verification at an evidence capture time.
+
+## Browser sandbox forwarding
+
+`GET /sandbox/nodes/PEER/attestation?challenge=HEX` fetches the node's current
+proof through libp2p. Paid nodes require a fresh 32-byte challenge. The browser
+verifies the proof, measurements and keys before sealing any inputs.
+
+`POST /sandbox/jobs` accepts `{node_peer,job_id,grant,sealed,client_peer,signature}`
+and returns the sealed node result synchronously. `sealed` is the existing
+`{epk,iv,ct}` secret box. The browser signs canonical
+`{bundle_sha256,client_peer,grant_sha256,job_id,node_peer}` with its Ed25519 buyer
+key. Both hashes are SHA-256 of canonical JSON. The node authorizes this exact
+job independently of the forwarder's transport PeerId. A lost HTTP result is
+reported as `node_result_lost`; the caller retains its job ID and does not
+resubmit it. Node refusals use `grant`, `replay`, `busy`, `bundle`, `execution`
+and `attestation`; replay/busy are HTTP 409 and other refusals are 403.
+
+Set `sandbox_forwarder` in `config.json` to the helper's internal HTTP URL and
+`browser_origins` to the exact page origins. Set `SANDBOX_FORWARDER_TOKEN` in the
+broker context and helper environment when the helper listens beyond loopback.
+The helper only receives public admission data and ciphertext.
+
+For local testing, generate keys on the machine that runs the services:
+
+```sh
+mkdir -p local-data/sandbox
+python3 applications/relay-broker/local-key.py \
+  "$PWD/local-data/sandbox/getkey.sock" "$PWD/local-data/sandbox/getkey.seed"
+# In another terminal, after writing applications/relay-broker/config.json:
+python3 applications/relay-broker/dev.py \
+  "$PWD/local-data/sandbox/getkey.sock" "$PWD/local-data/sandbox/broker" 127.0.0.1 18270
+# Build and run on zed under /data:
+(cd applications/compute-node/peer && go build -o ../../../local-data/sandbox/forwarder ./forwarder)
+local-data/sandbox/forwarder -key local-data/sandbox/forwarder.key
+```
+
+## Prepared web app deployment
+
+Run these steps on the deployment machine after Andrew approves the live change.
+Keep its existing admin token and any helper service token on that machine.
+W3 supplies `private-agent.tgz`, a shared Deno project with `project.json` and
+its entry file at the archive root paths specified by that descriptor.
+
+1. Build the helper image from the reviewed code checkout:
+   `docker build -f applications/compute-node/peer/forwarder/Dockerfile -t dsmack-sandbox-forwarder .`.
+2. Set `WEBHOST_CONTAINER` to the existing webhost container name. Create an
+   internal network with `docker network create --internal dsmack-sandbox`,
+   then attach the webhost with
+   `docker network connect dsmack-sandbox "$WEBHOST_CONTAINER"`. The helper
+   also needs an outbound network to reach libp2p relays: create it with
+   `docker network create dsmack-sandbox-egress`.
+3. Generate a helper token on this machine, save it in a mode-600 env file,
+   and keep it out of deployment evidence:
+
+   ```sh
+   install -d -m 700 local-data/sandbox-live
+   (umask 077; python3 -c 'import secrets; print("SANDBOX_FORWARDER_TOKEN="+secrets.token_hex(32))' > local-data/sandbox-live/helper.env)
+   docker run -d --name dsmack-sandbox-forwarder \
+     --network dsmack-sandbox --env-file local-data/sandbox-live/helper.env \
+     --mount type=volume,source=dsmack-sandbox-forwarder,target=/data \
+     --restart unless-stopped dsmack-sandbox-forwarder
+   docker network connect dsmack-sandbox-egress dsmack-sandbox-forwarder
+   ```
+
+4. Copy the current broker config to a private candidate file, preserving its
+   payments and enrollment settings. Set
+   `sandbox_forwarder` to `http://dsmack-sandbox-forwarder:18271` and
+   `browser_origins` to `["https://pod.dstack.soc1024.com"]`. Include the warm
+   pool's approved workload measurements. Run the pool using its README.
+5. Load the local helper token into the deploying process, export the existing
+   `TEE_DAEMON_TOKEN`, and run the prepared script:
+
+   ```sh
+   set -a
+   . local-data/sandbox-live/helper.env
+   set +a
+   bash applications/relay-broker/deploy-webapp.sh \
+     local-data/sandbox-live/config.json "$OPERATOR_TOKEN_FILE" \
+     private-agent.tgz local-data/sandbox-live/deployment \
+     https://pod.dstack.soc1024.com
+   unset SANDBOX_FORWARDER_TOKEN TEE_DAEMON_TOKEN
+   ```
+
+The script updates `relay-broker` and creates `private-agent`, compares the
+broker, payments and secret-release public keys across the update, and saves
+public deployment responses. Its imports are bundled without an npm install
+on the webhost. Visit `/private-agent/`, verify a pool node, and run the browser
+sandbox journey before making the page available to users.

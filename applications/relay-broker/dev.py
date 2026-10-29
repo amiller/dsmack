@@ -19,6 +19,7 @@ def main():
     deno = os.environ.get('DENO', str(Path.home() / '.deno/bin/deno'))
     source = Path(__file__).resolve().parent / 'server.ts'
     raise SystemExit(subprocess.run([deno, 'run', '--allow-read', '--allow-write', '--allow-net',
+                                    '--allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE',
                                     str(source), host, port, str(data)], input=json.dumps(env).encode()).returncode)
 
 

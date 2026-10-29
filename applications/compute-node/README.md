@@ -149,3 +149,56 @@ On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-out
 client config. `egress --proxy http://PROXY_IP:PROXY_PORT` joins the guest's network probe artifact
 with a verified model turn. `assemble` writes `check.json` from an object with success-condition
 keys `"1"` through `"7"` and each condition's evidence.
+
+## Browser model jobs
+
+`worker.py` accepts a delegated inference credential inside the sealed input:
+`{"schema":"dsmack-delegated-inference/1","api_key":"…"}`. Pin the provider in
+`workload.py`'s optional provider JSON:
+`{"schema":"dsmack-tee-model/1","base_url":"https://MODEL_HOST/v1","model":"MODEL_ID"}`.
+The agent uses OpenAI file tools to edit the repository. The guest-local egress
+gateway admits only `POST /v1/chat/completions` to that hostname. Its HTTPS
+connection crosses the measured CONNECT proxy, so the proxy receives ciphertext.
+Gateway decisions are included in the sealed transcript as `gateway_event` lines.
+
+Build the additional gateway executable on a Linux builder before building the
+compute image:
+
+```sh
+(cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
+  go build -o ../compute-node/dsmack-egress .)
+```
+
+Run the transport proxy on its measured operator endpoint:
+
+```sh
+python3 applications/compute-node/connect-proxy.py --listen GATEWAY_IP \
+  --port 18443 --model-host MODEL_HOST
+```
+
+Without a provider JSON, jobs use the pinned Claude CLI and the existing
+`claudeAiOauth` credential format.
+
+## Warm operator pool
+
+Run the pool on the Mac. `RUNNER` holds the installed runner app, base image and
+enrollment; `WORKLOAD` holds a packed `workload.img` and `compose-manifest.json`.
+Pack it with an 840-second lifetime; its measured `ADMIT_SECONDS` is 570.
+
+```sh
+python3 applications/compute-node/pool.py --runner RUNNER --workload WORKLOAD \
+  --state POOL_STATE --broker http://BROKER_IP:PORT --repo SOURCE_CHECKOUT
+```
+
+At 450 seconds, the daemon launches a replacement and waits for the broker's
+verified attestation and binding before counting it as ready. Each old node
+stops admitting jobs at 570 seconds, finishes admitted jobs and exits at 840
+seconds, before the runner's 900-second watchdog. At most two owned VMs overlap.
+The Mac preflight checks 12 GiB free and permits only runner sessions already
+owned by this pool; another session's VM blocks a new launch.
+
+`--cycles 2` runs two generations and exits. SIGINT/SIGTERM stops rotation and
+waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
+and a verified gzip of the original result disk under `run-*/evidence/`. The
+existing guarded cleanup checks open references before retiring that attempt's
+scratch and staged disks, recording allocated bytes reclaimed and free space.

@@ -8,7 +8,7 @@ export TEE_DAEMON_TOKEN
 export RELAY_BROKER_SOURCE_DIR
 RELAY_BROKER_SOURCE_DIR=$(cd "$(dirname "$0")" && pwd)
 python3 - "$@" <<'PY'
-import hashlib, io, json, os, secrets, stat, subprocess, sys, tarfile, time
+import hashlib, io, json, os, secrets, stat, subprocess, sys, tarfile, time, tempfile
 from pathlib import Path
 from urllib.request import Request, urlopen
 
@@ -47,17 +47,34 @@ projects = json.loads(before)
 summary = lambda p: {k: p.get(k) for k in ('name', 'runtime', 'isolation', 'mode', 'tree_hash', 'deployed_at', 'ref')}
 (evidence / 'projects-before.json').write_text(json.dumps([summary(p) for p in projects], indent=2) + '\n')
 secret_release_before = next((summary(p) for p in projects if p['name'] == 'secret-release'), None)
+broker_before = next((p for p in projects if p['name'] == 'relay-broker'), None)
+broker_key_before = api('/relay-broker/key')[1] if broker_before else None
+payment_key_before = api('/relay-broker/payments/key')[1] if broker_before and json.loads(config.read_text()).get('payments') else None
+if broker_key_before:
+    (evidence / 'broker-key-before.json').write_bytes(broker_key_before)
+if payment_key_before:
+    (evidence / 'payments-key-before.json').write_bytes(payment_key_before)
 _, release_key_before = api('/secret-release/public-key')
 (evidence / 'secret-release-key-before.json').write_bytes(release_key_before)
 ref = subprocess.check_output(['git', '-C', str(repo), 'rev-parse', 'HEAD'], text=True).strip()
 manifest = {'name': 'relay-broker', 'source': 'tarball://relay-broker', 'ref': ref,
             'env': {'OPERATOR_TOKEN_SHA256': hashlib.sha256(token.encode()).hexdigest()}}
-files = ['server.ts', 'key.ts', 'broker.mjs', 'grants.mjs', 'attestation.mjs']
+if os.environ.get('SANDBOX_FORWARDER_TOKEN'):
+    manifest['env']['SANDBOX_FORWARDER_TOKEN'] = os.environ['SANDBOX_FORWARDER_TOKEN']
+files = ['server.ts', 'key.ts', 'broker.mjs', 'grants.mjs', 'attestation.mjs', 'payments.mjs', 'sandbox.mjs']
 package = io.BytesIO()
 with tarfile.open(fileobj=package, mode='w:gz') as tar:
     for name in files:
         tar.add(app / name, arcname='applications/relay-broker/' + name)
     tar.add(config, arcname='applications/relay-broker/config.json')
+    # Shared Deno serves a self-contained ethers bundle; no npm install on the pod.
+    with tempfile.TemporaryDirectory(prefix='relay-payments-') as tmp:
+        bundled = Path(tmp)/'schema.mjs'
+        subprocess.run(['deno','bundle','--platform=browser','--minify',
+                        str(repo/'applications/payments/schema.mjs'),'-o',str(bundled)],check=True)
+        tar.add(bundled, arcname='applications/payments/schema.mjs')
+    for name in ('quorum.mjs','admission.mjs'):
+        tar.add(repo/'applications/payments'/name, arcname='applications/payments/'+name)
     tar.add(repo / 'dstack-compat/secret-release/policy.mjs', arcname='dstack-compat/secret-release/policy.mjs')
     tar.add(app / 'project.json', arcname='project.json')
 boundary = 'relay-broker-' + secrets.token_hex(16)
@@ -84,6 +101,13 @@ for _ in range(60):
 else:
     raise RuntimeError('broker key endpoint did not become available after promotion')
 (evidence / 'key.json').write_bytes(key)
+if broker_key_before and json.loads(broker_key_before) != json.loads(key):
+    raise RuntimeError('relay-broker signing key changed during deployment')
+if payment_key_before:
+    _, payment_key_after = api('/relay-broker/payments/key')
+    (evidence / 'payments-key-after.json').write_bytes(payment_key_after)
+    if json.loads(payment_key_before) != json.loads(payment_key_after):
+        raise RuntimeError('payments signing key changed during deployment')
 _, after = api('/_api/projects', authenticated=True)
 projects = json.loads(after)
 (evidence / 'projects-after.json').write_text(json.dumps([summary(p) for p in projects], indent=2) + '\n')

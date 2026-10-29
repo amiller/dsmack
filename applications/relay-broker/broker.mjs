@@ -7,12 +7,9 @@ export class Refused extends Error {
 const require = (ok, message, status) => { if (!ok) throw new Refused(message, status); };
 export const limits = { relay_lease_seconds: 60, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
 
-// PAYMENT CHECK INSERTION POINT: replace free testnet authorization here.
-// Per-client credit accounting below applies to every successful authorization.
-export async function authorizePayment(_request) { return { credit: "free testnet" }; }
-
 export class Broker {
-  constructor({ cfg, chain, key, credits = {}, saveCredits, now = () => Math.floor(Date.now() / 1000) }) {
+  constructor({ cfg, chain, key, credits = {}, saveCredits, payments, now = () => Math.floor(Date.now() / 1000) }) {
+    this.payments = payments;
     this.cfg = cfg; this.chain = chain; this.key = key;
     this.credits = credits; this.saveCredits = saveCredits; this.now = now;
     this.relays = new Map();
@@ -22,16 +19,25 @@ export class Broker {
   live() {
     const now = this.now();
     for (const [id, r] of this.relays) if (r.expires_at <= now) this.relays.delete(id);
-    return [...this.relays.values()];
+    return [...this.relays.values()].filter((r) => !r.admit_until || r.admit_until > now);
   }
 
   async register(r) {
     const now = this.now();
-    const attestation = await verifyRelay(r, this.cfg, this.chain, now);
+    require(!r.payments || this.payments, "paid admission is not configured");
+    require(!this.payments || r.payments, "paid broker requires receipt key admission");
+    const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);
     const out = Object.fromEntries(["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"].map((k) => [k, r[k]]));
     Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + limits.relay_lease_seconds });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
-    if (r.kind === "compute") out.secret_key = r.secret_key;
+    if (r.payments) out.payments = r.payments;
+    if (r.kind === "compute") {
+      out.secret_key = r.secret_key;
+      if (r.admit_until !== undefined) {
+        require(Number.isSafeInteger(r.admit_until) && r.admit_until > 0, "node admission deadline");
+        out.admit_until = r.admit_until;
+      }
+    }
     this.relays.set(r.relay_peer, out);
     return out;
   }
@@ -44,6 +50,7 @@ export class Broker {
   }
 
   async issue(r) {
+    require(!this.payments, "paid broker requires /payments/grant", 402);
     const now = this.now();
     const fields = await verifyRequest(r, peerBytes);
     const { unit, amount } = fields;
@@ -57,7 +64,6 @@ export class Broker {
     const credit = previous && now < previous.start + 3600 ? previous : { start: now, count: 0, bytes: 0, seconds: 0, nonces: previous?.nonces ?? [] };
     require(!(credit.nonces ?? []).includes(r.nonce), "grant request nonce replay", 409);
     require(credit.count < limits.grants_per_hour && (credit[unit] ?? 0) + amount <= maximum, "free testnet credit exhausted for this client_peer", 429);
-    await authorizePayment(r);
     const grant = await signGrant(this.key, { relay_peer: r.relay_peer, client_peer: r.client_peer,
       unit, [unit]: amount, expires_at: unit === "bytes" ? Math.min(now + limits.grant_seconds, relay.expires_at) : now + limits.grant_seconds });
     // Commit quota before returning a signed grant. Disk failure must fail the request.

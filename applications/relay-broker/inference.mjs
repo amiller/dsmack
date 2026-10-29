@@ -125,6 +125,8 @@ export class Inference {
       ? ["attestationNonce"]
       : action === "chat"
       ? ["sessionId", "body", "headers"]
+      : action === "sandbox-grant"
+      ? ["client_peer", "node_peer", "job_id"]
       : [];
     check(
       fields(r, ["action", "wallet", "nonce", "issuedAt", "sig", ...extra]) &&

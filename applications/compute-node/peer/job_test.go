@@ -218,3 +218,36 @@ func TestBrokerDialsMeasuredIPWithoutProviderProxy(t *testing.T) {
 		t.Fatal(response.StatusCode)
 	}
 }
+
+func TestWorkerFailureReportsStageWithoutChildOutput(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	secret, _ := ecdh.P256().GenerateKey(rand.Reader)
+	output, _ := ecdh.P256().GenerateKey(rand.Reader)
+	worker := filepath.Join(t.TempDir(), "worker.py")
+	os.WriteFile(worker, []byte("import sys,json\nprint(json.dumps({'error':{'stage':'agent','code':'broker_http_502'}}))\nprint('private-child-stderr',file=sys.stderr)\nsys.exit(1)\n"), 0600)
+	n := &engine{broker: pub, secret: secret, node: "node", until: time.Now().Add(time.Hour), worker: worker, seen: map[string]bool{}, used: map[string]int64{}}
+	g := grantFor(priv)
+	id := "dddddddddddddddddddddddddddddddd"
+	j := job{JobID: id, GrantID: g["grant_id"].(string), OutputPub: hex.EncodeToString(public(output))}
+	sealed, _ := seal(public(secret), id, canon(j))
+	server, client := net.Pipe()
+	defer client.Close()
+	done := make(chan struct{})
+	go func() { defer close(done); defer server.Close(); n.handle(server, "client") }()
+	writeFrame(client, admission{JobID: id, Grant: g})
+	var frame map[string]any
+	readFrame(client, 4096, &frame)
+	if frame["status"] != "ready" {
+		t.Fatal(frame)
+	}
+	writeFrame(client, sealed)
+	readFrame(client, 4096, &frame)
+	<-done
+	failure, ok := frame["failure"].(map[string]any)
+	if frame["error"] != "execution" || !ok || failure["stage"] != "agent" || failure["code"] != "broker_http_502" {
+		t.Fatal(frame)
+	}
+	if strings.Contains(string(canon(frame)), "private-child-stderr") {
+		t.Fatal("child output disclosed")
+	}
+}

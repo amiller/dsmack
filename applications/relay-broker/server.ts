@@ -221,6 +221,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (/^\/sandbox\/operator-jobs\/[0-9a-f]{32}$/.test(path) && req.method === "GET") {
       response = Response.json(await new SandboxInference(b).operatorJob(
         req, path.split("/").at(-1), ctx?.env.OPERATOR_TOKEN_SHA256));
+    } else if (path === "/sandbox/starter-grant" && req.method === "POST") {
+      response = Response.json(await new SandboxInference(b).starterGrant(await body(req)));
     } else if (path === "/sandbox/operator-grant" && req.method === "POST") {
       response = Response.json(
         await new SandboxInference(b).operatorGrant(

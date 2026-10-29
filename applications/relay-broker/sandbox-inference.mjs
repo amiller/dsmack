@@ -206,8 +206,19 @@ export class SandboxInference {
       .filter((key) => job[key] !== undefined).map((key) => [key, job[key]]));
   }
   async operatorGrant(req, r, tokenHash) {
-    const b = this.b;
     await operator(req, tokenHash);
+    return this.diagnosticGrant(r);
+  }
+  async starterGrant(r) {
+    const wallet = await this.b.inference.authorized(r, "sandbox-grant");
+    const grant = await this.diagnosticGrant({
+      client_peer: r.client_peer, node_peer: r.node_peer,
+      job_id: r.job_id, amount: 180,
+    }, wallet);
+    return { grant, allowance: { seconds: grant.seconds, remainingJobs: 0 } };
+  }
+  async diagnosticGrant(r, wallet) {
+    const b = this.b;
     need(
       /^[0-9a-f]{32}$/.test(r.job_id) && Number.isSafeInteger(r.amount) &&
         r.amount >= 1 && r.amount <= 180,
@@ -220,6 +231,8 @@ export class SandboxInference {
     need(node, "diagnostic_node_not_live", 404);
     need(peerBytes(r.client_peer).length === 38, "operator_client");
     return b.payments.serial(async () => {
+      if (wallet) need(!b.payments.state.sandboxStarterJobs?.[wallet],
+        "starter_sandbox_used", 409);
       const existing = b.payments.state.sandboxDiagnosticGrants ?? {};
       need(
         !Object.values(existing).some((g) => g.job_id === r.job_id),
@@ -234,6 +247,9 @@ export class SandboxInference {
         expires_at: b.now() + 300,
       });
       await this.save({
+        ...(wallet ? { sandboxStarterJobs: {
+          ...b.payments.state.sandboxStarterJobs, [wallet]: r.job_id,
+        } } : {}),
         sandboxDiagnosticGrants: {
           ...existing,
           [grant.grant_id]: {

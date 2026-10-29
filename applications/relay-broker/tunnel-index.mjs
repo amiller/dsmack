@@ -15,6 +15,7 @@ export async function tunnelIndex(req,operatorHash) {
   let chunks=[],size=0;for await(const b of req.body??[]){size+=b.length;if(size>16384)return reply({error:'body limit'},413);chunks.push(b)}
   const raw=new Uint8Array(size);let at=0;for(const b of chunks){raw.set(b,at);at+=b.length}
   const body=JSON.parse(new TextDecoder('utf-8',{fatal:true}).decode(raw));
+  if(!operator&&Array.isArray(body))return reply({error:'publisher signature required'},403);
   let publisher;const values=operator?body:body.entries;
   if(!operator){
    const {signature,...unsigned}=body;publisher=String(body.publisher).toLowerCase();

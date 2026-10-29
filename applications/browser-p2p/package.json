@@ -21,6 +21,7 @@
   "devDependencies": {
     "esbuild": "0.28.2",
     "playwright": "1.49.1",
-    "kubo": "0.43.1"
+    "kubo": "0.43.1",
+    "solc": "0.8.30"
   }
 }

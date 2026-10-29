@@ -46,7 +46,7 @@ def wait_receipt(quorum, tx_hash):
     raise RuntimeError(f"receipt timeout; inspect transaction before rerunning: {tx_hash}")
 
 
-def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_reserve_wei=MIN_RESERVE_WEI):
+def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_reserve_wei=MIN_RESERVE_WEI, balance_block="finalized"):
     # Pending nonce must agree too; a chainId=84532 signature cannot replay on mainnet.
     tx = {"chainId": CHAIN_ID, "nonce": int(quorum.read("eth_getTransactionCount", [account.address, "pending"]), 16),
           "value": value, "data": data}
@@ -63,7 +63,7 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_res
     if tx["gas"] > 5_000_000:
         raise RuntimeError("gas estimate exceeds deployment cap")
     head=quorum.finalized()
-    balance=int(quorum.at("eth_getBalance",[account.address],head),16)
+    balance=int(quorum.at("eth_getBalance",[account.address],head) if balance_block=="finalized" else quorum.read("eth_getBalance",[account.address,balance_block]),16)
     if balance-value-tx["gas"]*gas_price < min_reserve_wei:
         raise RuntimeError(f"transaction would breach the {min_reserve_wei} wei reserve")
     signed = account.sign_transaction(tx)

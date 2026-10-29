@@ -36,7 +36,7 @@ def public_config(value):
 def envelope(value):
     if not isinstance(value, dict) or set(value) != {"v", "ephemeralPublicKey", "iv", "ciphertext"}:
         raise ValueError("encrypted environment must contain only ciphertext envelope fields")
-    if value["v"] != 1 or not isinstance(value["ephemeralPublicKey"], str) or not re.fullmatch(r"0x04[0-9a-fA-F]{128}", value["ephemeralPublicKey"]):
+    if type(value["v"]) is not int or value["v"] != 1 or not isinstance(value["ephemeralPublicKey"], str) or not re.fullmatch(r"0x04[0-9a-fA-F]{128}", value["ephemeralPublicKey"]):
         raise ValueError("invalid encrypted environment version or public key")
     if not isinstance(value["iv"], str) or not re.fullmatch(r"[0-9a-f]{24}", value["iv"]):
         raise ValueError("invalid encrypted environment IV")
@@ -218,11 +218,17 @@ def deploy(args):
         deadline = time.monotonic() + 30
         while True:
             try:
-                timeout = max(.1, min(5, deadline - time.monotonic()))
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("broker did not become ready within 30 seconds")
+                timeout = min(5, remaining)
                 key = api("/relay-broker/key", timeout=timeout)
                 if {k: key.get(k) for k in ("algorithm", "public_key")} != before["broker"]:
                     raise ValueError("broker signing identity changed")
-                api("/relay-broker/inference/environment-key", timeout=timeout)
+                remaining = deadline - time.monotonic()
+                if remaining <= 0:
+                    raise RuntimeError("broker did not become ready within 30 seconds")
+                api("/relay-broker/inference/environment-key", timeout=min(5, remaining))
                 break
             except RuntimeError:
                 remaining = deadline - time.monotonic()

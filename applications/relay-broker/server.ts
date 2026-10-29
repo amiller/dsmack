@@ -9,6 +9,8 @@ import { canonical } from "./grants.mjs";
 import { getProviderEnvKey, getSigningKey } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
 import { providerCheck } from "./provider-check.mjs";
+import { sandbox } from "./sandbox.mjs";
+import { SandboxInference } from "./sandbox-inference.mjs";
 
 type Context = { env: Record<string, string>; dataDir: string };
 async function load(ctx: Context) {
@@ -138,13 +140,13 @@ function page(b: Broker) {
   }</html>`;
 }
 
-async function body(req: Request) {
+async function body(req: Request, maximum = 150000) {
   if (!req.body) throw new Refused("JSON body required", 400);
   let size = 0;
   const chunks = [];
   for await (const chunk of req.body) {
     size += chunk.length;
-    if (size > 150000) throw new Refused("request too large", 413);
+    if (size > maximum) throw new Refused("request too large", 413);
     chunks.push(chunk);
   }
   const raw = new Uint8Array(size);
@@ -174,7 +176,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
-      (b.cfg.inference?.origins ?? []).includes(origin));
+      (b.cfg.inference?.origins ?? []).includes(origin) ||
+      (b.cfg.browser_origins ?? []).includes(origin));
   const finish = (response: Response) => {
     response.headers.set("cache-control", "no-store");
     if (allowedOrigin) {
@@ -203,7 +206,25 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path.startsWith("/inference/")) {
+    if (path === "/sandbox/operator-grant" && req.method === "POST") {
+      response = Response.json(
+        await new SandboxInference(b).operatorGrant(
+          req,
+          await body(req),
+          ctx?.env.OPERATOR_TOKEN_SHA256,
+        ),
+      );
+    } else if (path === "/sandbox/capability" && req.method === "POST") {
+      response = Response.json(
+        await new SandboxInference(b).mint(await body(req)),
+      );
+    } else if (path === "/sandbox/inference" && req.method === "POST") {
+      response = Response.json(
+        await new SandboxInference(b).complete(req, await body(req, 1 << 20)),
+      );
+    } else if (path.startsWith("/sandbox/")) {
+      response = await sandbox(req, b, body, ctx?.env.SANDBOX_FORWARDER_TOKEN);
+    } else if (path.startsWith("/inference/")) {
       if (!b.inference) {
         throw new InferenceError(
           "PROVIDER_NOT_CONFIGURED",
@@ -230,7 +251,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&
-        ["credit", "prepare", "usage", "chat"].includes(action)
+        ["credit", "prepare", "chat", "usage"].includes(action)
       ) {
         const request = await body(req);
         const result = await b.inference[action](request);

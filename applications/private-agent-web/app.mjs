@@ -435,16 +435,15 @@ async function run() {
     "Verify a fresh sandbox node before sending the task.",
   );
   require(
-    node.policy.model && !node.policy.model.startsWith("anthropic/"),
-    "The pinned sandbox must use a TEE model.",
+    node.policy.provider?.schema === "dsmack-broker-model/1",
+    "The pinned sandbox must use broker-verified TEE inference.",
   );
   require(
     node.registration.payments?.escrow.toLowerCase() ===
         cfg.escrow.toLowerCase() && node.registration.payments.node === p.node,
     "Verified node belongs to another escrow or credit class.",
   );
-  const credential = $("credential").value;
-  require(credential, "A capped delegated TEE model credential is required.");
+  const jobId = sandbox.hex(crypto.getRandomValues(new Uint8Array(16)));
   const grant = await api(
     "/payments/grant",
     await signed(credit.client, {
@@ -454,20 +453,58 @@ async function run() {
       runId: node.registration.payments.runId,
     }),
   );
+  const credential = await sandbox.requestCapability(cfg.broker, {
+    node,
+    client: credit.client,
+    grant,
+    jobId,
+  });
   const job = await sandbox.sealJob(node, {
     grant,
-    credential: { schema: "dsmack-delegated-inference/1", api_key: credential },
+    jobId,
+    credential,
     repoTar,
     prompt: $("job-prompt").value,
     client: credit.client,
   });
-  $("credential").value = "";
   p.uncertain = true;
   await credit.save();
   $("job-status").textContent =
     "Job sealed to the verified guest. Waiting for an attested result…";
-  const handle = await sandbox.submitJob(cfg.broker, job);
-  const result = await sandbox.receive(handle);
+  let result;
+  try {
+    result = await sandbox.receive(await sandbox.submitJob(cfg.broker, job));
+  } catch (failure) {
+    const returned = failure.response?.payment_receipt;
+    if (returned) {
+      const envelope = { ...returned, nodeBinding: grant.nodeBinding };
+      try {
+        credit.checkReceipt(envelope, p);
+        const binding = envelope.nodeBinding.binding;
+        require(
+          binding.runId === node.registration.payments.runId &&
+            binding.receiptSigner.toLowerCase() ===
+              node.registration.payments.receiptSigner.toLowerCase() &&
+            binding.composeHash === "0x" + node.registration.manifest_sha256 &&
+            binding.imageHash === "0x" + node.registration.os_image_hash &&
+            BigInt(envelope.receipt.used) >= BigInt(p.used || 0),
+          "Failure receipt does not match the verified node run.",
+        );
+        p.receipt = envelope;
+        p.used = String(envelope.receipt.used);
+        p.uncertain = false;
+        await credit.save();
+      } catch (invalid) {
+        p.uncertain = true;
+        await credit.save();
+        throw new Error(
+          failure.message + "; failure usage receipt refused: " +
+            invalid.message,
+        );
+      }
+    }
+    throw failure;
+  }
   require(
     result.status !== "refused",
     `Sandbox refused: ${result.error}. Discover a fresh node before submitting a new job.`,

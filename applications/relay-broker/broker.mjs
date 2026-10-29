@@ -1,5 +1,6 @@
 import { peerBytes, verifyRelay } from "./attestation.mjs";
 import { signGrant, verifyRequest } from "./grants.mjs";
+import { registerDiagnostic } from "./sandbox-inference.mjs";
 
 export class Refused extends Error {
   constructor(message, status = 403) { super(message); this.status = status; }
@@ -21,11 +22,12 @@ export class Broker {
   live() {
     const now = this.now();
     for (const [id, r] of this.relays) if (r.expires_at <= now) this.relays.delete(id);
-    return [...this.relays.values()];
+    return [...this.relays.values()].filter((r) => !r.admit_until || r.admit_until > now);
   }
 
   async register(r) {
     const now = this.now();
+    if(!r.payments && r.kind==='compute' && this.cfg.sandboxDiagnosticWorkloads?.some(w=>['manifest_sha256','os_image_hash','cdhash'].every(k=>w[k]===r[k]))) return registerDiagnostic(this,r);
     require(!r.payments || this.payments, "paid admission is not configured");
     require(!this.payments || r.payments, "paid broker requires receipt key admission");
     const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);
@@ -33,7 +35,13 @@ export class Broker {
     Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + limits.relay_lease_seconds });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
     if (r.payments) out.payments = r.payments;
-    if (r.kind === "compute") out.secret_key = r.secret_key;
+    if (r.kind === "compute") {
+      out.secret_key = r.secret_key;
+      if (r.admit_until !== undefined) {
+        require(Number.isSafeInteger(r.admit_until) && r.admit_until > 0, "node admission deadline");
+        out.admit_until = r.admit_until;
+      }
+    }
     this.relays.set(r.relay_peer, out);
     return out;
   }

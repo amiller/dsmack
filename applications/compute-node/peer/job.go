@@ -21,6 +21,8 @@ import (
 	"sync"
 	"syscall"
 	"time"
+
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func canon(v any) []byte {
@@ -61,9 +63,44 @@ func validID(s string) bool {
 }
 
 type admission struct {
-	JobID string         `json:"job_id"`
-	Grant map[string]any `json:"grant"`
+	JobID        string         `json:"job_id"`
+	Grant        map[string]any `json:"grant"`
+	ClientPeer   string         `json:"client_peer,omitempty"`
+	Signature    string         `json:"signature,omitempty"`
+	BundleSHA256 string         `json:"bundle_sha256,omitempty"`
 }
+
+// Forwarded admission authorizes the exact ciphertext and grant without exposing
+// the buyer's transport key to the broker. Direct Noise clients retain their path.
+func (a admission) forwardedClient(node, remote string) (string, error) {
+	if a.ClientPeer == "" && a.Signature == "" && a.BundleSHA256 == "" {
+		return remote, nil
+	}
+	fail := func() (string, error) { return "", fmt.Errorf("forwarded admission signature") }
+	id, err := peer.Decode(a.ClientPeer)
+	if err != nil {
+		return fail()
+	}
+	key, err := id.ExtractPublicKey()
+	if err != nil || key.Type().String() != "Ed25519" {
+		return fail()
+	}
+	digestBytes, err := hex.DecodeString(a.BundleSHA256)
+	if err != nil || len(digestBytes) != 32 || hex.EncodeToString(digestBytes) != a.BundleSHA256 {
+		return fail()
+	}
+	sig, err := hex.DecodeString(a.Signature)
+	if err != nil || len(sig) != 64 {
+		return fail()
+	}
+	message := map[string]any{"bundle_sha256": a.BundleSHA256, "client_peer": a.ClientPeer, "grant_sha256": digest(canon(a.Grant)), "job_id": a.JobID, "node_peer": node}
+	ok, err := key.Verify(canon(message), sig)
+	if err != nil || !ok {
+		return fail()
+	}
+	return a.ClientPeer, nil
+}
+
 type job struct {
 	JobID      string          `json:"job_id"`
 	GrantID    string          `json:"grant_id"`
@@ -72,6 +109,33 @@ type job struct {
 	Prompt     string          `json:"prompt"`
 	OutputPub  string          `json:"output_pub"`
 }
+
+func openNestedCredential(secret *ecdh.PrivateKey, jobID string, raw json.RawMessage) (json.RawMessage, error) {
+	var header struct {
+		Schema string `json:"schema"`
+	}
+	if err := json.Unmarshal(raw, &header); err != nil {
+		return nil, err
+	}
+	if header.Schema != "dsmack-sealed-credential/1" {
+		return nil, nil
+	}
+	var envelope struct {
+		Box box `json:"box"`
+	}
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		return nil, err
+	}
+	opened, err := openBox(secret, jobID+"/credential", envelope.Box)
+	if err != nil {
+		return nil, err
+	}
+	if len(opened) > 65536 || !json.Valid(opened) {
+		return nil, fmt.Errorf("nested credential JSON")
+	}
+	return opened, nil
+}
+
 type terms struct {
 	id               string
 	seconds, expires int64
@@ -107,20 +171,21 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 }
 
 type engine struct {
-	paid       *payments.Meter
-	publish    func(payments.SignedReceipt) error
-	secret     *ecdh.PrivateKey
-	signer     ed25519.PrivateKey
-	broker     ed25519.PublicKey
-	node, run  string
-	until      time.Time
-	worker     string
-	resultPath string
-	mu         sync.Mutex
-	seen       map[string]bool
-	used       map[string]int64
-	busy       bool
-	attest     func([]byte) ([]byte, error)
+	paid           *payments.Meter
+	publish        func(payments.SignedReceipt) error
+	secret         *ecdh.PrivateKey
+	signer         ed25519.PrivateKey
+	broker         ed25519.PublicKey
+	node, run      string
+	until          time.Time
+	admissionUntil time.Time
+	worker         string
+	resultPath     string
+	mu             sync.Mutex
+	seen           map[string]bool
+	used           map[string]int64
+	busy           bool
+	attest         func([]byte) ([]byte, error)
 }
 
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
@@ -144,7 +209,7 @@ func (n *engine) reserve(a admission, client string) (terms, int64, string) {
 	if n.seen[a.JobID] {
 		return t, 0, "replay"
 	}
-	if n.busy {
+	if n.busy || (!n.admissionUntil.IsZero() && !time.Now().Before(n.admissionUntil)) {
 		return t, 0, "busy"
 	}
 	left := min(t.seconds-n.used[t.id], t.expires-time.Now().Unix(), int64(time.Until(n.until).Seconds()))
@@ -175,6 +240,12 @@ func (n *engine) handle(s interface {
 	s.SetDeadline(time.Now().Add(20 * time.Second))
 	var a admission
 	if e := readFrame(s, 4096, &a); e != nil {
+		refuse("grant")
+		return
+	}
+	var err error
+	client, err = a.forwardedClient(n.node, client)
+	if err != nil {
 		refuse("grant")
 		return
 	}
@@ -221,6 +292,10 @@ func (n *engine) handle(s interface {
 		refuse("bundle")
 		return
 	}
+	if a.BundleSHA256 != "" && digest(canon(b)) != a.BundleSHA256 {
+		refuse("bundle")
+		return
+	}
 	raw, e := openBox(n.secret, a.JobID, b)
 	if e != nil {
 		refuse("bundle")
@@ -230,6 +305,15 @@ func (n *engine) handle(s interface {
 	if e = json.Unmarshal(raw, &j); e != nil || j.JobID != a.JobID || j.GrantID != t.id || len(j.Prompt) > 1<<20 {
 		refuse("bundle")
 		return
+	}
+	// A client on the credential-owning machine may seal just the credential to
+	// this node. Browser jobs then carry that opaque envelope inside the outer box.
+	if opened, err := openNestedCredential(n.secret, a.JobID, j.Credential); err != nil {
+		refuse("bundle")
+		return
+	} else if opened != nil {
+		j.Credential = opened
+		raw = canon(j)
 	}
 	outPub, e := hex.DecodeString(j.OutputPub)
 	if e != nil || len(outPub) != 64 {

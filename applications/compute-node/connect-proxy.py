@@ -1,18 +1,18 @@
 #!/usr/bin/env python3
-"""CONNECT api.anthropic.com:443 only; TLS is terminated by the guest sentinel."""
+"""CONNECT one configured model hostname:443; TLS stays between guest and provider."""
 import argparse
 import select
+import re
 import socket
 import socketserver
 import time
 
-TARGET = 'api.anthropic.com:443'
-
 class Handler(socketserver.StreamRequestHandler):
     def handle(self):
         self.connection.settimeout(10)
+        target = self.server.model_host + ':443'
         line = self.rfile.readline(4097)
-        if line not in (f'CONNECT {TARGET} HTTP/1.1\r\n'.encode(), f'CONNECT {TARGET} HTTP/1.0\r\n'.encode()):
+        if line not in (f'CONNECT {target} HTTP/1.1\r\n'.encode(), f'CONNECT {target} HTTP/1.0\r\n'.encode()):
             self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
             return
         size = len(line)
@@ -23,7 +23,7 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             if line == b'\r\n':
                 break
-        with socket.create_connection(('api.anthropic.com', 443), timeout=10) as upstream:
+        with socket.create_connection((self.server.model_host, 443), timeout=10) as upstream:
             self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n'); self.wfile.flush()
             # Unbuffered input avoids consuming the first TLS bytes with the headers.
             self.connection.settimeout(30); upstream.settimeout(30)
@@ -38,6 +38,7 @@ class Handler(socketserver.StreamRequestHandler):
     rbufsize = 0
 
 class Server(socketserver.ThreadingTCPServer):
+    model_host = 'api.anthropic.com'
     allow_reuse_address = True
     daemon_threads = True
 
@@ -45,6 +46,10 @@ if __name__ == '__main__':
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('--listen', required=True)
     p.add_argument('--port', type=int, default=18443)
+    p.add_argument('--model-host', default='api.anthropic.com')
     a = p.parse_args()
+    if not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}', a.model_host):
+        p.error('one exact lowercase model DNS hostname required')
     with Server((a.listen, a.port), Handler) as server:
+        server.model_host = a.model_host
         server.serve_forever()

@@ -22,6 +22,7 @@ From the repository root, with the qualified Claude image available locally:
 
 ```sh
 (cd applications/compute-node/peer && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dsmack-compute .)
+(cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../compute-node/dsmack-egress .)
 docker build -f applications/compute-node/Dockerfile \
   --build-arg QUALIFIED_CLAUDE_REPOSITORY=QUALIFIED_LOCAL_REPOSITORY \
   -t compute-node .
@@ -34,7 +35,7 @@ whose `base_vm` describes the installed base image:
 python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   sha256:IMAGE_DIGEST applications/compute-node/dsmack-compute \
   /ip4/RELAY_IP/tcp/RELAY_PORT/p2p/RELAY_ID \
-  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 1800
+  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 840
 ```
 
 The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
@@ -97,15 +98,6 @@ the encrypted input and result, the verified plaintext patch, transcript and
 verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
 it runs no remote shell command.
 
-For paid runs, append `--payments-config CONFIG --funding-key FUNDING_KEY
---send-payments` to `run-remote`. `--prepare-only` buys and confirms credit before
-launch; `--resume-payment` executes that purchase; `--defer-settlement` retains
-the receipt for `--finish-only` after the node exits. A loopback
-`--payment-service` can keep the funding key on its existing machine. See
-[`applications/payments`](../payments/README.md) for escrow configuration.
-Pack paid workloads by appending `PAYMENTS_JSON` after `SECONDS` in the workload
-command above; this measures `PAYMENTS_CONFIG` and exports `payment-receipts`.
-
 ## Success-condition harness
 
 Run the client probes on the credential owner's Mac. Keep its user-side
@@ -158,3 +150,55 @@ On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-out
 client config. `egress --proxy http://PROXY_IP:PROXY_PORT` joins the guest's network probe artifact
 with a verified model turn. `assemble` writes `check.json` from an object with success-condition
 keys `"1"` through `"7"` and each condition's evidence.
+
+## Browser model jobs
+
+`worker.py` accepts a job-scoped broker capability inside the sealed input:
+`{"schema":"dsmack-broker-inference/1","token":"…","job_id":"…"}`. Pin its
+broker/model in the workload's provider JSON:
+`{"schema":"dsmack-broker-model/1","base_url":"https://BROKER/relay-broker","model":"MODEL_ID","broker_key":"ED25519_HEX"}`.
+The agent uses file tools to edit the repository. The guest-local egress gateway
+permits only `POST /relay-broker/sandbox/inference` to that hostname and validates
+TLS over the measured CONNECT proxy. The broker verifies NEAR gateway/per-model
+attestation and encrypts the model request. It handles plaintext inside its CVM;
+the NEAR API key never reaches the browser or compute node. Each completion is
+signed by the pinned broker key and binds the job, fresh nonce, request hash,
+model, attestation and result. Those records and gateway decisions are sealed in
+the transcript. The capability permits eight requests and expires with its grant.
+
+Run the transport proxy on its measured operator endpoint:
+
+```sh
+python3 applications/compute-node/connect-proxy.py --listen GATEWAY_IP \
+  --port 18443 --model-host BROKER_HOST
+```
+
+Without provider JSON, jobs use the pinned Claude CLI and `claudeAiOauth` format.
+
+## Warm operator pool
+
+Run the pool on the Mac. `RUNNER` holds the installed runner app, base image and
+enrollment; `WORKLOAD` holds a packed `workload.img` and `compose-manifest.json`.
+Pack it with an 840-second lifetime; its measured `ADMIT_SECONDS` is 570.
+
+```sh
+python3 applications/compute-node/pool.py --runner RUNNER --workload WORKLOAD \
+  --state POOL_STATE --broker http://BROKER_IP:PORT --repo SOURCE_CHECKOUT
+```
+
+At 450 seconds, the daemon launches a replacement and waits for the broker's
+verified attestation and binding before counting it as ready. Each old node
+stops admitting jobs at 570 seconds, finishes admitted jobs and exits at 840
+seconds, before the runner's 900-second watchdog. At most two owned VMs overlap.
+The Mac preflight checks 12 GiB free and permits only runner sessions already
+owned by this pool; another session's VM blocks a new launch.
+
+`--cycles 2` runs two generations and exits. For a shorter rehearsal, pack a
+420-second workload with `admit_seconds=330` and run with `--seconds 420
+--drain-seconds 90 --replace-after 210 --readiness-timeout 90 --cycles 2`. SIGINT/SIGTERM stops rotation and
+waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
+and a verified gzip of the original result disk under `run-*/evidence/`. The
+existing guarded cleanup checks open references before retiring that attempt's
+scratch and staged disks, recording retired allocated bytes and free space. A
+guest failure is recorded after preserving and retiring its owned disks; the
+pool stops rotation and returns a failure even if the host driver exited zero.

@@ -29,8 +29,9 @@ to the existing pod. Set `SANDBOX_SOURCE` to the absolute path of
 sandbox checkout. `config.json` supplies public deployment pins and the RPC.
 
 Load an approved sandbox policy in Trust settings, select a repository snapshot
-or the sample, enter a task and capped TEE credential, and verify a fresh node.
-The browser seals the job to that node and verifies its attestation and receipt
+or the sample, enter a task and verify a fresh node. The browser obtains a
+job-scoped broker capability from its confirmed grant and seals it to the guest;
+provider keys remain in the broker CVM. It verifies the job attestation and receipt
 before decrypting the patch and transcript. Download the diff for `git apply`.
 
 Deploy the built page to the `private-agent` shared Deno project:

@@ -48,7 +48,7 @@ func grantFor(key ed25519.PrivateKey) map[string]any {
 func TestAdmissionRejectsBeforeBundle(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	n := &engine{broker: pub, node: "node", until: time.Now().Add(time.Hour), seen: map[string]bool{}, used: map[string]int64{}}
-	a := admission{"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", grantFor(priv)}
+	a := admission{JobID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", Grant: grantFor(priv)}
 	if _, _, c := n.reserve(a, "wrong"); c != "grant" {
 		t.Fatal(c)
 	}

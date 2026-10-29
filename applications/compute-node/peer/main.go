@@ -140,6 +140,18 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 		log.Fatal("missing guest instance_id")
 	}
 	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
+	if value := os.Getenv("ADMIT_SECONDS"); value != "" {
+		admit, err := strconv.Atoi(value)
+		must(err)
+		if admit < 1 || admit > seconds {
+			log.Fatal("ADMIT_SECONDS must be within serving lifetime")
+		}
+		n.admissionUntil = time.Now().Add(time.Duration(admit) * time.Second)
+	}
+	if n.admissionUntil.IsZero() {
+		n.admissionUntil = n.until
+	}
+	registration["admit_until"] = n.admissionUntil.Unix()
 	h.SetStreamHandler("/dsmack/attest/1", func(s network.Stream) {
 		defer s.Close()
 		s.SetDeadline(time.Now().Add(20 * time.Second))

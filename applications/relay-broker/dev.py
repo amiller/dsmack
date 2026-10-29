@@ -17,7 +17,7 @@ def main():
     env = {'DSTACK_SOCKET': str(Path(sys.argv[1]).resolve())}
     # Andrew may supply these in the local process environment. Never serialize
     # them to a config file or print the handler's stdin context.
-    for name in ('NEAR_MANAGEMENT_TOKEN', 'NEAR_REPORTING_TOKEN'):
+    for name in ('NEAR_ENCRYPTED_ENV',):
         if name in os.environ:
             env[name] = os.environ[name]
     host, port = sys.argv[3:] or ['127.0.0.1', '18270']

@@ -43,7 +43,7 @@ Ed25519 key. The budget and expiry apply across jobs using that grant.
 
 `GET /sandbox/nodes/PEER/attestation?challenge=HEX` on the broker fetches a live
 registration over libp2p. For paid nodes, `challenge` is a fresh browser-generated
-32-byte hex value and the helper uses `/dsmack/payments-attest/1`; the node binds
+32-byte hex value and the broker uses `/dsmack/payments-attest/1`; the node binds
 that challenge into its attested payment report. The browser verifies the proof
 and the expected challenge before sealing inputs.
 
@@ -60,15 +60,15 @@ its job with an Ed25519 signature over canonical
 `{bundle_sha256,client_peer,grant_sha256,job_id,node_peer}`. Hashes are lowercase
 SHA-256 hex of canonical `sealed` and canonical `grant`, including the grant's
 signature. `client_peer` must contain the inline Ed25519 public key that verifies
-this signature. The helper sends control
+this signature. The broker sends control
 `{job_id,grant,client_peer,signature,bundle_sha256}`. The node uses that verified
 buyer identity for grant checks and receipts, independently of the transport's
 Noise identity, and checks the encrypted envelope's hash after receiving it.
 The existing job-ID replay rule applies to forwarded and direct jobs alike.
 
-The HTTP endpoints return `{error:CODE}` for broker/helper failures. A missing
-live node is HTTP 404 `node_not_live`; an unavailable helper is 503
-`sandbox_forwarder_not_configured`; a transport failure is 502
+The broker runs the libp2p forwarding transport inside its CVM. The HTTP
+endpoints return `{error:CODE}` for failures. A missing live node is HTTP 404
+`node_not_live`; a transport failure is 502
 `node_unreachable` or `node_result_lost`. Node refusals preserve
 `{status:"refused",error:CODE}` with HTTP 409 for `busy`/`replay` and 403 for the
 other protocol refusals. A lost result is never automatically resubmitted.

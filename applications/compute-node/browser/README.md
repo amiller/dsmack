@@ -52,57 +52,11 @@ Run the browser/Python wire compatibility check:
 python3 applications/compute-node/browser/interop.py
 ```
 
-Replay an existing captured node/job with the verification command:
-
-```sh
-node applications/compute-node/browser/replay.mjs replay-inputs.json
-```
-
-The JSON file names `discovery`, `result`, `grant`, `sealed`, `manifest`,
-`enrollment` (directory), and `outputs` (directory). An optional `paymentsFixture` names the Go payment interoperability JSON
-for checking paid-node binding and receipt signatures/digests. The replay supplies the
-historical chain state and checks the original signatures and plaintext hashes.
-Optional `paidDiscovery` and `paidPolicy` paths replay a real paid registration
-with its captured lifetime and chain state. Live browser calls use the configured RPC.
-
 Run the capability and signed response boundary tests:
 
 ```sh
 node --test applications/compute-node/browser/capability.test.mjs
 ```
 
-Run the two-stage browser journey in a Playwright Python container:
-
-```sh
-python3 applications/compute-node/browser/e2e.py \
-  --url http://127.0.0.1:18481 --config /harness/public/config.json --out /evidence
-```
-
-The public config contains `broker`, `policy` (plus `manifestUrl`,
-`enrollmentUrl`, `keyIdUrl`, `clientDataUrl`), `repoTarUrl`, `prompt`, `seconds`
-and `credentialUrl`. After verifying a live node, the driver writes
-`credential-request.json` to its evidence directory. An independent credential
-holder seals the credential to that node with label `jobId + '/credential'`
-and publishes `{schema:'dsmack-sealed-credential/1',box}` at `credentialUrl`.
-The driver seals the complete job and saves the verified patch, transcript,
-verdict, signed evidence, screenshots and video. Its browser profile contains
-only the encrypted credential envelope.
-
 HTTP refusals throw an `Error` with numeric `status` and the original JSON
 `response`. Keep any usage receipt in that response for payment reconciliation.
-
-Run the deployed page's operator diagnostic in a Playwright Python container:
-
-```sh
-python3 applications/compute-node/browser/live-check.py \
-  --policy /policy.json --repo /repo.tar --seconds 60 --out /evidence
-```
-
-The page bundle exports `sandbox-client.js`. The driver loads the trusted policy,
-verifies a live node and writes `operator-grant-request.json`. The operator
-obtains the signed diagnostic allowance from the broker using laptop-held
-authentication and atomically publishes it as `/evidence/grant.json`. The browser
-then requests its inference capability, seals the job and records verified
-outputs. It uses a fresh browser context and labels the allowance as an operator
-diagnostic. `--inspect-credit-profile /profile` instead records existing credit
-cards while refusing broker POSTs and wallet signing or transaction requests.

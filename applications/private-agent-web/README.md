@@ -17,7 +17,7 @@ Browser wallets and sandbox buyer keys stay in IndexedDB. Conversation text,
 repository input and sandbox credentials stay in tab memory. An injected wallet
 can sign chat actions and pay for sandbox seconds.
 
-Build on a development host with Node 24.22.1 or newer:
+Build on a development host with Node 24 or newer:
 
 ```sh
 npm ci --ignore-scripts
@@ -55,16 +55,3 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```
-
-With Playwright and Chromium installed, exercise the deployed first visit with
-fresh browser storage, starter credit, a real chat and an automatically verified
-sandbox job:
-
-```sh
-python3 friend-check.py --url https://pod.dstack.soc1024.com/private-agent/ \
-  --out /absolute/path/to/local-data/friend-browser
-```
-
-The check uses the visible wallet, chat and sandbox controls. It records
-screenshots, the signed job evidence, the applied sample file and a downloaded
-patch whose hash matches the attested output statement.

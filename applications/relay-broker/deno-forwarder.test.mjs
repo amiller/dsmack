@@ -58,10 +58,8 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
       stream.send(enc.encode(JSON.stringify({ attestation: "fresh-public-proof", challenge: q.challenge }))); await stream.close();
     }, { runOnLimitedConnection: true });
     forwarder = await createDenoForwarder();
-    const reachable = await forwarder.probe(relayAddress);
-    assert.equal(reachable.reachable, true); assert.equal(reachable.peer_id, relay.peerId.toString());
-    const unreachable = await forwarder.probe(relayAddress.replace(/\/tcp\/[0-9]+/, "/tcp/1").replace(/\/p2p\/[^/]+$/, "/p2p/" + guest.peerId.toString()));
-    assert.equal(unreachable.reachable, false); assert.equal(unreachable.error, "node_unreachable");
+    const unreachable = relayAddress.replace(/\/tcp\/[0-9]+/, "/tcp/1").replace(/\/p2p\/[^/]+$/, "/p2p/" + guest.peerId.toString());
+    await assert.rejects(forwarder.forward("attestation", { target: unreachable }), /node_unreachable/);
     const discoveryRequest = new AbortController();
     assert.deepEqual(await forwarder.forward("attestation", { target }, { signal: discoveryRequest.signal }), { attestation: "public-proof" });
     // Deno's successful HTTP response can abort its Request signal afterwards.
@@ -129,8 +127,10 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary sha
     }, { once: true }));
     await relay.dial(multiaddr(target)); await identified;
     const unreachableAddress = relay.getMultiaddrs()[0].toString().replace(/\/tcp\/[0-9]+/, "/tcp/1");
-    const connection = await forwarder.probe(unreachableAddress);
-    assert.equal(connection.reachable, true); assert.equal(connection.peer_id, relay.peerId.toString());
+    await relay.handle("/dsmack/attest/1", async (stream) => {
+      stream.send(enc.encode('{"attestation":"backhaul-proof"}')); await stream.close();
+    });
+    assert.deepEqual(await forwarder.forward("attestation", { target: unreachableAddress }), { attestation: "backhaul-proof" });
     const stranger = await makeNode([]);
     try { await assert.rejects(stranger.dialProtocol(multiaddr(target), "/ipfs/id/1.0.0", { signal: AbortSignal.timeout(2000) })); }
     finally { await stranger.stop(); }

@@ -134,6 +134,14 @@ export function brokerStream(
           modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
         });
         const body = await prepared.request.json();
+        const reservation = BigInt(
+          new TextEncoder().encode(JSON.stringify(body)).length + 256 +
+            64 * body.messages.length + body.max_tokens,
+        ) * BigInt(q.maxNanoUsdPerToken);
+        require(
+          BigInt(session.remainingNanoUsd) >= reservation,
+          "CREDIT_EXHAUSTED: Available chat credit cannot cover this request's token reservation.",
+        );
         const headers = Object.fromEntries(prepared.request.headers);
         const signed = await walletBody(credit, "chat", {
           sessionId: session.sessionId,

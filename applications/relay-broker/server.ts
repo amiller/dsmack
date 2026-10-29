@@ -9,7 +9,6 @@ import { Broker, limits, Refused } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
 import { getProviderEnvKey, getSigningKey } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
-import { providerCheck } from "./provider-check.mjs";
 import { sandbox } from "./sandbox.mjs";
 import { SandboxInference } from "./sandbox-inference.mjs";
 
@@ -218,19 +217,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (/^\/sandbox\/operator-jobs\/[0-9a-f]{32}$/.test(path) && req.method === "GET") {
-      response = Response.json(await new SandboxInference(b).operatorJob(
-        req, path.split("/").at(-1), ctx?.env.OPERATOR_TOKEN_SHA256));
-    } else if (path === "/sandbox/starter-grant" && req.method === "POST") {
+    if (path === "/sandbox/starter-grant" && req.method === "POST") {
       response = Response.json(await new SandboxInference(b).starterGrant(await body(req)));
-    } else if (path === "/sandbox/operator-grant" && req.method === "POST") {
-      response = Response.json(
-        await new SandboxInference(b).operatorGrant(
-          req,
-          await body(req),
-          ctx?.env.OPERATOR_TOKEN_SHA256,
-        ),
-      );
     } else if (path === "/sandbox/capability" && req.method === "POST") {
       response = Response.json(
         await new SandboxInference(b).mint(await body(req)),
@@ -240,7 +228,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         await new SandboxInference(b).complete(req, await body(req, 1 << 20)),
       );
     } else if (path.startsWith("/sandbox/")) {
-      response = await sandbox(req, b, body, ctx?.env.SANDBOX_FORWARDER_TOKEN);
+      response = await sandbox(req, b, body);
     } else if (path.startsWith("/inference/")) {
       if (!b.inference) {
         throw new InferenceError(
@@ -254,16 +242,6 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(b.providerEnvironment);
       } else if (req.method === "GET" && action === "status") {
         response = Response.json(b.inference.status());
-      } else if (req.method === "POST" && action === "provider-check") {
-        response = Response.json(
-          await providerCheck({
-            request: req,
-            provider: b.inference.provider,
-            payments: b.payments,
-            cfg: b.cfg.inference,
-            operatorTokenHash: ctx?.env.OPERATOR_TOKEN_SHA256,
-          }),
-        );
       } else if (req.method === "GET" && action === "quote") {
         response = Response.json(await b.inference.quote());
       } else if (

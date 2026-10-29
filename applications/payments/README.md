@@ -98,17 +98,6 @@ buyer libp2p key and persists one deterministic grant per purchase.
 broker binding. `submit.mjs` settles a batch from one run, triggers timeout
 refunds and withdraws credits; transaction commands require `--send`.
 
-## Trust boundaries
-
-| Actor/action | Effect and bound |
-|---|---|
-| Dishonest broker | Can authorize an arbitrary receipt key, fabricate admission, censor grants/receipts, or double-authorize service. With its chosen key it can claim the full purchased allowance without real work, eliminating that buyer's refund. It cannot charge beyond escrowed principal, change class measurements or the snapshotted operator, divert premiums, or withdraw buyer credits. Operator payout remains used × floor. Buyers also verify the original Apple evidence and grant/run binding before releasing credentials. |
-| Dishonest operator | Cannot replace the class payout or receipt key without a broker-signed binding. A compromised admitted meter can overreport up to the purchased amount; payments cannot prove useful work. |
-| Buyer replay or concurrent jobs | Authenticated buyer PeerId, run-specific grant, one cumulative guest cap and final closure; on-chain monotonic sequence/usage and a pinned binding prevent duplicate settlement or changing meters. |
-| Forged RPC funding/revocation | Finalized quorum, code pins and staleness bound; a colluding provider majority remains trusted. |
-| Missing broker or guest | Retained signed receipts can be settled by anyone; unserved principal refunds after expiry plus grace. |
-| Owner | Trusted to select the broker and immutable class parameters. Broker selection cannot be changed after registration. |
-
 ## Test
 
 Run Go guest and compute tests on the builder with `PAYMENTS_EVIDENCE` pointing

@@ -18,7 +18,7 @@ last sealed result, and network probe outcomes.
 
 ## Build on a Linux builder
 
-From the repository root, with the qualified Claude image available locally:
+From the repository root, with the Claude image available locally:
 
 ```sh
 (cd applications/compute-node/peer && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dsmack-compute .)
@@ -64,7 +64,7 @@ wait for `ready` before sending its encrypted bundle.
 ```sh
 (cd applications/compute-node/peer && go test -race ./...)
 python3 -m unittest discover -s applications/compute-node -p 'test_*.py'
-node --test applications/relay-broker/broker.test.mjs
+deno test --allow-read --allow-net applications/relay-broker/broker.test.mjs
 ```
 
 ## Run a remote turn
@@ -97,59 +97,6 @@ observed model/tool use, then applies the patch with `git apply`. `--out` receiv
 the encrypted input and result, the verified plaintext patch, transcript and
 verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
 it runs no remote shell command.
-
-## Success-condition harness
-
-Run the client probes on the credential owner's Mac. Keep its user-side
-`client/` directory separate from the node's attempt directory and the builder's
-operator directory. A JSON config supplies `binary`, `client_key`, `manifest`,
-`enrollment`, `broker_key`, and `cdhash` using local paths; `broker`, `rpc`,
-`attest`, `canary`, `credential`, `seconds`, and `marker_file` are optional.
-`marker_file` names a shared JSON object mapping `credential`, `repo`, and
-`prompt` to three random 32-byte hex values. Without it, `primary` generates
-fresh markers. It keeps the provider tokens unchanged and marks accepted
-credential metadata in memory.
-
-```sh
-python3 applications/compute-node/success_harness.py primary --config client.json --out client/primary
-python3 applications/compute-node/success_harness.py expire --config client.json --capture client/primary --out expired.json
-```
-
-`primary` runs a real marked turn, verifies its attestation, receipt and model,
-applies and checks the toy patch, then probes repeated jobs, a wrong client and
-an exhausted grant. `expire` waits for that real signed grant to expire. After
-the owner stops the node and boots the same compose again, test the captured
-bundle under the new boot key:
-
-```sh
-python3 applications/compute-node/success_harness.py second-run --config client.json --capture client/primary --out replay.json
-```
-
-After the VM and network helper stop, scan every node-attempt and operator file.
-Run the same scan with `--control` against a marked current `run-v02` attempt;
-the control requires a hit for each marker.
-
-```sh
-python3 applications/compute-node/success_harness.py scan --root node-attempt --root operator-attempt --out scan.json < client/primary/markers.json
-```
-
-Let the node finish its measured running period so the guest exports its result
-artifacts. After the VM and helper exit, preserve the original signed result
-disk, then change one ciphertext byte in its exported `last-result` artifact.
-Fetch both encrypted result versions to the user client and verify that only
-the original is accepted:
-
-```sh
-python3 applications/compute-node/success_harness.py flip-output --disk result.img --artifact /compute-node-v1/outputs/artifacts/last-result --out tamper --stopped
-python3 applications/compute-node/success_harness.py verify-tamper --config client.json --capture client/primary --original tamper/original.json --tampered tamper/tampered.json --out tamper-check.json
-```
-
-On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-output`.
-
-`policy-refusal` checks an actual variant registration against the original
-client config. `egress --proxy http://PROXY_IP:PROXY_PORT` joins the guest's network probe artifact
-with a verified model turn. `assemble` writes `check.json` from an object with success-condition
-keys `"1"` through `"7"` and each condition's evidence.
 
 ## Browser model jobs
 

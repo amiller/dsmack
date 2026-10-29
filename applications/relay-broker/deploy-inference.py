@@ -17,7 +17,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
-FIELDS = ("name", "runtime", "entry", "isolation", "mode", "source", "tree_hash", "ref", "deployed_at")
 SECRET_FIELDS = {"near_api_key", "near_management_token", "near_reporting_token", "managementtoken",
                  "reportingtoken", "api_key", "apikey", "password", "secret", "credential"}
 
@@ -140,42 +139,6 @@ def client(url, admin=None):
     return api
 
 
-def project_summary(value):
-    return {key: value.get(key) for key in FIELDS}
-
-
-def public_snapshot(api):
-    endpoints = (
-        ("broker", "/relay-broker/key", ("algorithm", "public_key")),
-        ("payments", "/relay-broker/payments/key", ("algorithm", "address", "chainId", "escrow", "codeHash")),
-        ("secret_release", "/secret-release/public-key", ("pub",)),
-        ("secret_release_project", "/_api/projects/secret-release", FIELDS),
-    )
-    result = {}
-    for name, path, fields in endpoints:
-        value = api(path)
-        result[name] = {key: value.get(key) for key in fields}
-    if not result["broker"]["public_key"] or not result["payments"]["address"] or not result["secret_release"]["pub"] or result["secret_release_project"]["name"] != "secret-release":
-        raise ValueError("public deployment snapshot is incomplete")
-    return result
-
-
-def snapshot(args):
-    write_json(args.out, public_snapshot(client(args.url)))
-    print("Saved public deployment snapshot")
-
-
-def unchanged(before, after):
-    for field in ("broker", "payments", "secret_release", "secret_release_project"):
-        if before[field] != after[field]:
-            raise ValueError(field + " changed during broker update")
-
-
-def compare(args):
-    unchanged(*(json.loads(path.read_text()) for path in (args.before, args.after)))
-    print("Broker signing identities, current escrow and secret-release are unchanged")
-
-
 def deploy(args):
     manifest = json.loads((args.prepared / "relay-broker.manifest.json").read_text())
     required = {"name": "relay-broker", "runtime": "deno", "entry": "applications/relay-broker/server.ts",
@@ -188,67 +151,37 @@ def deploy(args):
         envelope(json.loads(manifest["env"]["NEAR_ENCRYPTED_ENV"]))
     archive = (args.prepared / "relay-broker.tgz").read_bytes()
     with tarfile.open(fileobj=io.BytesIO(archive), mode="r:gz") as package:
-        config = json.load(package.extractfile("applications/relay-broker/config.json"))
+        public_config(json.load(package.extractfile("applications/relay-broker/config.json")))
     if not args.apply:
         print("Prepared broker package accepted; use --apply to upload and promote")
         return
     args.evidence.mkdir(parents=True, exist_ok=True)
     api = client(args.url, token())
-    substrate = api("/_api/substrate")
-    if "shared" not in substrate.get("isolation_modes", []):
-        raise ValueError("webhost does not support shared Deno")
-    before = public_snapshot(api)
-    if config["payments"]["escrow"].lower() != before["payments"]["escrow"].lower() or config["payments"]["codeHash"] != before["payments"]["codeHash"]:
-        raise ValueError("broker update must preserve the current escrow and code hash")
-    write_json(args.evidence / "before.json", before)
-    projects = [project_summary(p) for p in api("/_api/projects", auth=True)]
-    write_json(args.evidence / "projects-before.json", projects)
-    old = next((p for p in projects if p["name"] == "relay-broker"), None)
-    if not old or old["runtime"] != "deno" or old["isolation"] != "shared":
-        raise ValueError("existing relay-broker must be shared Deno")
     boundary = "relay-broker-" + secrets.token_hex(16)
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="manifest"\r\nContent-Type: application/json\r\n\r\n'.encode()
             + json.dumps(manifest).encode()
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
-    failure = None
-    try:
-        project = api("/_api/projects", method="POST", body=body, kind="multipart/form-data; boundary=" + boundary, auth=True)
-        write_json(args.evidence / "deployment.json", project_summary(project))
-        if project.get("runtime") != "deno" or project.get("isolation") != "shared":
-            raise ValueError("deployed broker did not select shared Deno")
-        project = api("/_api/projects/relay-broker/promote", method="POST", auth=True)
-        write_json(args.evidence / "promotion.json", project_summary(project))
-        deadline = time.monotonic() + 30
-        while True:
-            try:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError("broker did not become ready within 30 seconds")
-                timeout = min(5, remaining)
-                key = api("/relay-broker/key", timeout=timeout)
-                if {k: key.get(k) for k in ("algorithm", "public_key")} != before["broker"]:
-                    raise ValueError("broker signing identity changed")
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError("broker did not become ready within 30 seconds")
-                api("/relay-broker/inference/environment-key", timeout=min(5, remaining))
-                break
-            except RuntimeError:
-                remaining = deadline - time.monotonic()
-                if remaining <= 0:
-                    raise RuntimeError("broker did not become ready within 30 seconds") from None
-                time.sleep(min(1, remaining))
-    except (ValueError, RuntimeError) as error:
-        failure = str(error)
-    after = public_snapshot(api)
-    write_json(args.evidence / "after.json", after)
-    unchanged(before, after)
-    if failure:
-        raise RuntimeError(failure)
-    write_json(args.evidence / "result.json", {"project": "relay-broker", "runtime": "deno", "isolation": "shared",
-               "ref": manifest["ref"], "keys_escrow_secret_release_unchanged": True})
-    print("Updated relay-broker shared Deno; keys, escrow and secret-release unchanged")
+    project = api("/_api/projects", method="POST", body=body,
+                  kind="multipart/form-data; boundary=" + boundary, auth=True)
+    if project.get("runtime") != "deno" or project.get("isolation") != "shared":
+        raise ValueError("deployed broker did not select shared Deno")
+    api("/_api/projects/relay-broker/promote", method="POST", auth=True)
+    deadline = time.monotonic() + 30
+    while True:
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("broker did not become ready within 30 seconds")
+            api("/relay-broker/key", timeout=min(5, remaining))
+            break
+        except RuntimeError:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                raise RuntimeError("broker did not become ready within 30 seconds") from None
+            time.sleep(min(1, remaining))
+    write_json(args.evidence / "result.json", {"project": "relay-broker", "ref": manifest["ref"]})
+    print("Updated relay-broker shared Deno")
 
 
 def main():
@@ -260,14 +193,6 @@ def main():
     p.add_argument("--encrypted-env", type=Path)
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(run=prepare)
-    p = sub.add_parser("snapshot", help="read public endpoints")
-    p.add_argument("--url", required=True)
-    p.add_argument("--out", type=Path, required=True)
-    p.set_defaults(run=snapshot)
-    p = sub.add_parser("compare")
-    p.add_argument("before", type=Path)
-    p.add_argument("after", type=Path)
-    p.set_defaults(run=compare)
     p = sub.add_parser("deploy", help="upload and promote only with --apply")
     p.add_argument("--prepared", type=Path, required=True)
     p.add_argument("--url", required=True)

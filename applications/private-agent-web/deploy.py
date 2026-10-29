@@ -16,7 +16,6 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 PROJECT = "private-agent"
-FIELDS = ("name", "runtime", "entry", "isolation", "mode", "source", "tree_hash", "ref", "deployed_at")
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -95,29 +94,9 @@ def main():
             # Never echo a server response that might reflect environment values.
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from None
 
-    def snapshot():
-        projects = json.loads(api("/_api/projects", auth=True))
-        summaries = [{key: project.get(key) for key in FIELDS} for project in projects]
-        return {
-            "projects": summaries,
-            "secret_release": next(p for p in summaries if p["name"] == "secret-release"),
-            "secret_release_key": json.loads(api("/secret-release/public-key")),
-            "broker_key": json.loads(api("/relay-broker/key")),
-            "payments_key": json.loads(api("/relay-broker/payments/key")),
-        }
-
     substrate = json.loads(api("/_api/substrate"))
     if "shared" not in substrate["isolation_modes"]:
         raise ValueError("Webhost does not support shared Deno")
-    write(args.evidence / "substrate.json", substrate)
-    before = snapshot()
-    write(args.evidence / "before.json", before)
-    existing = next((p for p in before["projects"] if p["name"] == PROJECT), None)
-    if existing and any(existing.get(key) != value for key, value in {
-        "runtime": "deno", "entry": "server.ts", "isolation": "shared",
-        "source": "tarball://private-agent",
-    }.items()):
-        raise ValueError("Existing private-agent project does not match this deployment")
     manifest = {
         "name": PROJECT,
         "source": "tarball://" + PROJECT,
@@ -135,35 +114,25 @@ def main():
         + archive
         + f"\r\n--{boundary}--\r\n".encode()
     )
-    try:
-        project = json.loads(api("/_api/projects", method="POST", body=body,
-                                 kind="multipart/form-data; boundary=" + boundary, auth=True))
-        write(args.evidence / "deployment.json", {key: project.get(key) for key in FIELDS})
-        if project["runtime"] != "deno" or project["isolation"] != "shared":
-            raise ValueError("Deployment did not select shared Deno")
-        if project.get("mode") != "attested":
-            project = json.loads(api("/_api/projects/private-agent/promote", method="POST", auth=True))
-            write(args.evidence / "promotion.json", {key: project.get(key) for key in FIELDS})
-        for attempt in range(30):
-            try:
-                page = api("/private-agent/")
-                if page != (args.dist / "index.html").read_bytes():
-                    raise RuntimeError("Deployed page has not loaded the built index.html")
-                break
-            except (RuntimeError, URLError):
-                if attempt == 29:
-                    raise
-                time.sleep(2)
-    finally:
-        after = snapshot()
-        write(args.evidence / "after.json", after)
-        for field in ("secret_release", "secret_release_key", "broker_key", "payments_key"):
-            if before[field] != after[field]:
-                raise ValueError(field + " changed during private-agent deployment")
+    project = json.loads(api("/_api/projects", method="POST", body=body,
+                             kind="multipart/form-data; boundary=" + boundary, auth=True))
+    if project["runtime"] != "deno" or project["isolation"] != "shared":
+        raise ValueError("Deployment did not select shared Deno")
+    if project.get("mode") != "attested":
+        project = json.loads(api("/_api/projects/private-agent/promote", method="POST", auth=True))
+    for attempt in range(30):
+        try:
+            page = api("/private-agent/")
+            if page != (args.dist / "index.html").read_bytes():
+                raise RuntimeError("Deployed page has not loaded the built index.html")
+            break
+        except (RuntimeError, URLError):
+            if attempt == 29:
+                raise
+            time.sleep(2)
     summary = {"url": base + "/private-agent/", "runtime": project["runtime"],
                "isolation": project["isolation"], "mode": project["mode"],
-               "tree_hash": project["tree_hash"], "ref": ref,
-               "broker_and_secret_release_keys_unchanged": True}
+               "ref": ref}
     write(args.evidence / "result.json", summary)
     print(json.dumps(summary))
 

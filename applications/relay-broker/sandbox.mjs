@@ -15,23 +15,12 @@ function nodeResponse(result) {
 
 // Inputs and outputs remain encrypted to the compute node/browser. No job state
 // is persisted, and a broken response is never automatically resubmitted.
-export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
+export async function sandbox(req, broker, readBody, transport = nativeTransport) {
   const url = new URL(req.url), path = url.pathname;
   let node, payload, endpoint;
   if (path.startsWith("/sandbox/p2p/")) {
     require(broker.cfg.sandbox_backhaul_peers?.length, "backhaul_not_configured", 503);
-    return (await nativeTransport(broker.cfg)).acceptBackhaul(req);
-  }
-  if (req.method === "GET" && path === "/sandbox/transport") {
-    require(!broker.cfg.sandbox_forwarder, "transport_uses_external_helper", 503);
-    try {
-      const transport = await nativeTransport(broker.cfg);
-      const result = { transport: "shared-deno-libp2p", peer_id: transport.peerId };
-      if (broker.cfg.sandbox_probe) result.probe = await transport.probe(broker.cfg.sandbox_probe, { signal: req.signal });
-      result.diagnostics = transport.snapshot();
-      return Response.json(result);
-    }
-    catch { throw new Refused("sandbox_transport_unavailable", 503); }
+    return (await transport(broker.cfg)).acceptBackhaul(req);
   }
   const match = /^\/sandbox\/nodes\/([^/]+)\/attestation$/.exec(path);
   if (req.method === "GET" && match) {
@@ -56,35 +45,9 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
     } }; endpoint = "jobs";
     require(enc.encode(canonical(payload.admission)).length <= 4096, "admission_too_large", 413);
   } else return new Response("not found", { status: 404 });
-  if (!broker.cfg.sandbox_forwarder) {
-    let forwarder;
-    try { forwarder = await nativeTransport(broker.cfg); }
-    catch { throw new Refused("sandbox_transport_unavailable", 503); }
-    try { return nodeResponse(await forwarder.forward(endpoint, payload, { signal: req.signal })); }
-    catch (error) { throw new Refused(error.code || "node_unreachable", error.status || 502); }
-  }
-  let response;
-  try {
-    response = await fetcher(broker.cfg.sandbox_forwarder.replace(/\/$/, "") + "/" + endpoint, {
-      method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
-      body: canonical(payload), signal: AbortSignal.any([req.signal, AbortSignal.timeout(endpoint === "jobs" ? 905000 : 30000)]),
-    });
-  } catch { throw new Refused(endpoint === "jobs" ? "node_result_lost" : "node_unreachable", 502); }
-  const raw = await response.text();
-  require(enc.encode(raw).length <= jobLimit, "node_response_too_large", 502);
-  let result;
-  try { result = JSON.parse(raw); } catch { throw new Refused("node_response_invalid", 502); }
-  if (!response.ok) return Response.json(result, { status: response.status });
-  return nodeResponse(result);
-}
-
-export function cors(req, response, origins = []) {
-  const origin = req.headers.get("origin");
-  if (origin && origins.includes(origin)) {
-    response.headers.set("access-control-allow-origin", origin);
-    response.headers.set("vary", "Origin");
-    response.headers.set("access-control-allow-methods", "GET, POST, OPTIONS");
-    response.headers.set("access-control-allow-headers", "content-type");
-  }
-  return response;
+  let forwarder;
+  try { forwarder = await transport(broker.cfg); }
+  catch { throw new Refused("sandbox_transport_unavailable", 503); }
+  try { return nodeResponse(await forwarder.forward(endpoint, payload, { signal: req.signal })); }
+  catch (error) { throw new Refused(error.code || "node_unreachable", error.status || 502); }
 }

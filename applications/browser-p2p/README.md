@@ -85,9 +85,7 @@ Use it if the chain write succeeded and the HTTP index was unavailable.
 
 Open `http://localhost:GATEWAY/ipfs/CID/`, with no target fragment. Changing the
 quick-tunnel hostname requires new hints and guest inputs, while the page CID
-stays the same. `probe.mjs PAGE_URL EVIDENCE_DIR` saves results, source/dial
-attempts, original attestation, screenshot and WebSocket handshake records using
-Playwright 1.49.1. Run it in the matching container on the builder.
+stays the same.
 
 After the guest halts, preserve its compressed result disk, assertions and logs,
 verify them, then use the existing guarded cleanup helper to retire owned disks.

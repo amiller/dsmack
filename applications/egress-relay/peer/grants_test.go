@@ -117,6 +117,7 @@ func TestConcurrentAccountingCutoffReuseAndReceipts(t *testing.T) {
 	book := &grantBook{}
 	var group sync.WaitGroup
 	var outputs [8]bytes.Buffer
+	start := make(chan struct{})
 	for i := range outputs {
 		c, s := tcpPair(t)
 		_ = c
@@ -128,6 +129,7 @@ func TestConcurrentAccountingCutoffReuseAndReceipts(t *testing.T) {
 		go func(i int) {
 			defer group.Done()
 			defer u.detach(s)
+			<-start
 			for {
 				if _, err := u.forward(&outputs[i], make([]byte, 333)); err != nil {
 					return
@@ -135,6 +137,7 @@ func TestConcurrentAccountingCutoffReuseAndReceipts(t *testing.T) {
 			}
 		}(i)
 	}
+	close(start)
 	group.Wait()
 	total := 0
 	for i := range outputs {

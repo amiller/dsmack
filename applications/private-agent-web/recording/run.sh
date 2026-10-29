@@ -22,7 +22,7 @@ timeout --signal=TERM --kill-after=15 600 docker run --rm --name "$name" \
     Xvfb :99 -screen 0 1440x1100x24 -nolisten tcp >/tmp/xvfb.log 2>&1 &
     for n in $(seq 1 50); do test -S /tmp/.X11-unix/X99 && break; sleep .1; done
     ffmpeg -nostdin -loglevel error -f x11grab -video_size 1440x1100 \
-      -framerate 6 -i :99 -an -c:v libx264 -preset ultrafast -crf 31 \
+      -framerate 6 -i :99 -an -c:v libx264 -pix_fmt yuv420p -preset ultrafast -crf 31 \
       -t 570 -fs 60000000 /output/continuous.mp4 >/output/recorder.log 2>&1 &
     capture=$!
     trap '\''kill -INT "$capture" 2>/dev/null || true; wait "$capture" || true'\'' EXIT

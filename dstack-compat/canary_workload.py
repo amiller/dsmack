@@ -66,7 +66,7 @@ def main(repo, files, starter, out):
     pack(repo, files, starter, out, NAME, manifest(starter, files))
 
 
-def pack(repo, files, starter, out, name, mb):
+def pack(repo, files, starter, out, name, mb, build_disk=None):
     """Validate manifest bytes mb and pack them with the image and the starter's OCI layout into out/workload.img."""
     sys.path[:0] = [str(repo / "applications/pilot-client/workload"),
                     str(repo / "base-vm/browser-sandbox-v1/source/runner-content/lib")]
@@ -86,9 +86,12 @@ def pack(repo, files, starter, out, name, mb):
                                                               "attempt_id": secrets.token_hex(16), "selectors": [name]}))
     (tree / "WORKLOAD").write_text(name + "\n")
     shutil.copytree(starter / "oci-layout", tree / "oci-layout")
-    t = load(repo / "base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py")
-    t.start_overall_deadline(300)
-    t.build_workload_disk(None, str(tree), str(out / "workload.img"), 1 << 30)
+    if build_disk is None:
+        t = load(repo / "base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py")
+        t.start_overall_deadline(300)
+        t.build_workload_disk(None, str(tree), str(out / "workload.img"), 1 << 30)
+    else:
+        build_disk(tree, out / "workload.img", name, hashlib.sha256(mb).hexdigest())
     print(json.dumps({"manifest_sha256": hashlib.sha256(mb).hexdigest(), "os_image_hash": osh,
                       "workload_sha256": fsha(out / "workload.img")}))
 

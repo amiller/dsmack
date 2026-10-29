@@ -27,7 +27,7 @@ class Handler(socketserver.StreamRequestHandler):
             self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n'); self.wfile.flush()
             # Unbuffered input avoids consuming the first TLS bytes with the headers.
             self.connection.settimeout(30); upstream.settimeout(30)
-            deadline = time.monotonic() + 240
+            deadline = time.monotonic() + self.server.connection_seconds
             while time.monotonic() < deadline:
                 ready, _, _ = select.select([self.connection, upstream], [], [], 5)
                 for source in ready:
@@ -39,6 +39,7 @@ class Handler(socketserver.StreamRequestHandler):
 
 class Server(socketserver.ThreadingTCPServer):
     model_host = 'api.anthropic.com'
+    connection_seconds = 240
     allow_reuse_address = True
     daemon_threads = True
 
@@ -47,9 +48,13 @@ if __name__ == '__main__':
     p.add_argument('--listen', required=True)
     p.add_argument('--port', type=int, default=18443)
     p.add_argument('--model-host', default='api.anthropic.com')
+    p.add_argument('--connection-seconds', type=int, default=240)
     a = p.parse_args()
+    if not 1 <= a.connection_seconds <= 600:
+        p.error('connection lifetime must be 1..600 seconds')
     if not re.fullmatch(r'(?=.{1,253}$)(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z][a-z0-9-]{0,62}', a.model_host):
         p.error('one exact lowercase model DNS hostname required')
     with Server((a.listen, a.port), Handler) as server:
         server.model_host = a.model_host
+        server.connection_seconds = a.connection_seconds
         server.serve_forever()

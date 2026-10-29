@@ -75,6 +75,6 @@ else:
  if (a.evidence/'publish-transaction.json').exists():raise ValueError('publication already submitted; inspect its receipt')
  values=json.loads(a.entries.read_text());raw=json.dumps(values,separators=(',',':'))
  data='0x'+(keccak(text='publish(string)')[:4]+encode(['string'],[raw])).hex()
- receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000} if a.publisher_address else {}))
+ receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
  publish_broker()
  print(json.dumps({'chainId':CHAIN_ID,'registry':a.registry,'transactionHash':receipt['transactionHash'],'broker':a.broker}))

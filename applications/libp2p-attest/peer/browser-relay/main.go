@@ -2,6 +2,7 @@
 package main
 
 import (
+	"crypto/rand"
 	"fmt"
 	"log"
 	"os"
@@ -23,6 +24,22 @@ func main() {
 		log.Fatal("usage: browser-relay <private key file>")
 	}
 	raw, err := os.ReadFile(os.Args[1])
+	if os.IsNotExist(err) {
+		key, _, keyErr := crypto.GenerateEd25519Key(rand.Reader)
+		if keyErr != nil {
+			log.Fatal(keyErr)
+		}
+		raw, err = crypto.MarshalPrivateKey(key)
+		if err != nil {
+			log.Fatal(err)
+		}
+		f, createErr := os.OpenFile(os.Args[1], os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0600)
+		if createErr != nil {
+			log.Fatal(createErr)
+		}
+		_, err = f.Write(raw)
+		f.Close()
+	}
 	if err != nil {
 		log.Fatal(err)
 	}

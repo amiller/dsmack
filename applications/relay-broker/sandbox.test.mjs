@@ -48,3 +48,9 @@ test("CORS exposes only configured browser origins",()=>{
  assert.equal(allowed.headers.get("access-control-allow-origin"),"http://app");
  assert.equal(cors(new Request("http://broker",{headers:{origin:"http://other"}}),new Response(),["http://app"]).headers.get("access-control-allow-origin"),null);
 });
+
+test('free diagnostic discovery uses the free attestation protocol despite a browser nonce',async()=>{
+ const b={cfg:{sandbox_forwarder:'http://127.0.0.1:18271'},live:()=>[{kind:'compute',relay_peer:'node',relay_maddr:'/ip4/127.0.0.1/tcp/1/p2p/node'}]};
+ let forwarded;const response=await sandbox(new Request('https://broker/sandbox/nodes/node/attestation?challenge='+ 'ab'.repeat(32)),b,async()=>{},undefined,async(_url,init)=>{forwarded=JSON.parse(init.body);return Response.json({attestation:'proof'})});
+ assert.equal(response.status,200);assert.equal(forwarded.challenge,'');
+});

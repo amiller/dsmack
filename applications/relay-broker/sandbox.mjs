@@ -30,7 +30,7 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
     const challenge = url.searchParams.get("challenge") ?? "";
     require(!challenge || /^[0-9a-f]{64}$/.test(challenge), "challenge");
     require(!node.payments || challenge, "fresh_challenge_required");
-    payload = { target: node.relay_maddr, challenge }; endpoint = "attestation";
+    payload = { target: node.relay_maddr, challenge: node.payments ? challenge : "" }; endpoint = "attestation";
   } else if (req.method === "POST" && path === "/sandbox/jobs") {
     const r = await readBody(req, jobLimit);
     node = broker.live().find((n) => n.kind === "compute" && n.relay_peer === r.node_peer);

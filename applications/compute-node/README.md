@@ -22,6 +22,7 @@ From the repository root, with the qualified Claude image available locally:
 
 ```sh
 (cd applications/compute-node/peer && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dsmack-compute .)
+(cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../compute-node/dsmack-egress .)
 docker build -f applications/compute-node/Dockerfile \
   --build-arg QUALIFIED_CLAUDE_REPOSITORY=QUALIFIED_LOCAL_REPOSITORY \
   -t compute-node .
@@ -34,7 +35,7 @@ whose `base_vm` describes the installed base image:
 python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   sha256:IMAGE_DIGEST applications/compute-node/dsmack-compute \
   /ip4/RELAY_IP/tcp/RELAY_PORT/p2p/RELAY_ID \
-  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 1800
+  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 840
 ```
 
 The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
@@ -197,8 +198,12 @@ seconds, before the runner's 900-second watchdog. At most two owned VMs overlap.
 The Mac preflight checks 12 GiB free and permits only runner sessions already
 owned by this pool; another session's VM blocks a new launch.
 
-`--cycles 2` runs two generations and exits. SIGINT/SIGTERM stops rotation and
+`--cycles 2` runs two generations and exits. For a shorter rehearsal, pack a
+420-second workload with `admit_seconds=330` and run with `--seconds 420
+--drain-seconds 90 --replace-after 210 --readiness-timeout 90 --cycles 2`. SIGINT/SIGTERM stops rotation and
 waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
 and a verified gzip of the original result disk under `run-*/evidence/`. The
 existing guarded cleanup checks open references before retiring that attempt's
-scratch and staged disks, recording allocated bytes reclaimed and free space.
+scratch and staged disks, recording retired allocated bytes and free space. A
+guest failure is recorded after preserving and retiring its owned disks; the
+pool stops rotation and returns a failure even if the host driver exited zero.

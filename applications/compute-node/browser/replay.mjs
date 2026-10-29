@@ -12,6 +12,13 @@ import {
 } from "./sandbox.mjs";
 import { APP_ID, verifyEnrollment } from "./enrollment.mjs";
 import { sha256 } from "../../../dstack-compat/secret-release/policy.mjs";
+import {
+  domain,
+  paymentBinding,
+  Receipt,
+  verifyTypedData,
+} from "./payments.mjs";
+import { TypedDataEncoder } from "./vendor/ethers-6.17.0.mjs";
 const cfg = JSON.parse(fs.readFileSync(process.argv[2], "utf8"));
 const read = (p) => new Uint8Array(fs.readFileSync(p)),
   json = (p) => JSON.parse(fs.readFileSync(p, "utf8"));
@@ -96,12 +103,34 @@ await assert.rejects(
   }, job),
   /signature/,
 );
+if (cfg.paymentsFixture) {
+  const f = json(cfg.paymentsFixture);
+  assert.equal(
+    paymentBinding(f.registration, f.peer, "00".repeat(32), "00".repeat(32)),
+    f.binding,
+  );
+  assert.equal(
+    verifyTypedData(
+      domain(f.escrow),
+      { Receipt },
+      f.receipt.receipt,
+      f.receipt.signature,
+    ).toLowerCase(),
+    f.registration.receiptSigner.toLowerCase(),
+  );
+  assert.equal(
+    TypedDataEncoder.hash(domain(f.escrow), { Receipt }, f.receipt.receipt),
+    f.receiptDigest,
+  );
+}
 console.log(JSON.stringify({
   apple_chain: "passed",
+  ...(cfg.paymentsFixture ? { go_payment_binding_and_receipt: "passed" } : {}),
   node_binding: "passed",
   job_attestation: "passed",
   receipt: "passed",
   plaintext_hashes: "passed",
+  transcript_verdict: "passed",
   wrong_receipt_key: "refused",
   wrong_broker_key: "refused",
   swapped_image: "refused",

@@ -51,7 +51,8 @@ node applications/compute-node/browser/replay.mjs replay-inputs.json
 ```
 
 The JSON file names `discovery`, `result`, `grant`, `sealed`, `manifest`,
-`enrollment` (directory), and `outputs` (directory). The replay supplies the
+`enrollment` (directory), and `outputs` (directory). An optional `paymentsFixture` names the Go payment interoperability JSON
+for checking paid-node binding and receipt signatures/digests. The replay supplies the
 historical chain state and checks the original signatures and plaintext hashes.
 Live browser calls use the configured RPC.
 
@@ -71,3 +72,6 @@ and publishes `{schema:'dsmack-sealed-credential/1',box}` at `credentialUrl`.
 The driver seals the complete job and saves the verified patch, transcript,
 verdict, signed evidence, screenshots and video. Its browser profile contains
 only the encrypted credential envelope.
+
+HTTP refusals throw an `Error` with numeric `status` and the original JSON
+`response`. Keep any usage receipt in that response for payment reconciliation.

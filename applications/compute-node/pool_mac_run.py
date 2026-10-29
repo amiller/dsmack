@@ -52,7 +52,7 @@ image = {'schema': 'dsmack-general-launcher/image-manifest/1', 'arch': 'aarch64'
          'kernel': desc(b/'Image'), 'initrd': desc(b/'initramfs.cpio.gz'),
          'system_disk': dict(desc(b/'rootfs.squashfs.verity'), format='raw', verity_root_hash=args['dstack.rootfs_hash']),
          'resource_profiles': {'mini-4096': {'mem_mib': 4096, 'vcpus': 1, 'basis': 'warm compute node:4096MiB/1vCPU'}},
-         'provenance': {'profile_id': 'warm-compute-node-v1', 'release_inventory_sha256': '0'*64}}
+         'provenance': {'profile_id': 'warm-compute-node-v1', 'os_image_hash': osh}}
 ir = canon(image)
 (t/'image-manifest.json').write_bytes(ir)
 (t/'policy.json').write_bytes(canon({'schema': 'dsmack-general-launcher/admission-policy/1', 'policy_id': 'warm-compute-node-4096-1-900',

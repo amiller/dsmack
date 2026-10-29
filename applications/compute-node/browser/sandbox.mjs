@@ -140,7 +140,15 @@ export async function jsonRequest(url, body, signal, max = 48 << 20) {
     chunks.push(value);
   }
   const value = JSON.parse(dec.decode(cat(...chunks)));
-  if (!response.ok) throw new Error(value.error ?? "HTTP " + response.status);
+  if (!response.ok) {
+    const message = typeof value.error === "string"
+      ? value.error
+      : value.error?.message ?? "HTTP " + response.status;
+    throw Object.assign(new Error(message), {
+      status: response.status,
+      response: value,
+    });
+  }
   return value;
 }
 async function assertion(proof, policy, enrollment, minCounter = 0) {
@@ -201,6 +209,10 @@ export async function verifyNode(registration, policy) {
     ? JSON.parse(service.environment.INFERENCE_PROVIDER)
     : null;
   const configuredModel = provider?.model ?? service.environment?.MODEL;
+  require(
+    typeof configuredModel === "string" && configuredModel.length > 0,
+    "compose model",
+  );
   if (policy.model !== undefined) {
     require(configuredModel === policy.model, "compose model");
   }
@@ -208,7 +220,7 @@ export async function verifyNode(registration, policy) {
     ...policy,
     manifestHash: await hash(policy.manifest),
     image: manifest.base_vm.os_image_hash,
-    model: policy.model ?? configuredModel ?? "claude-opus-4-8",
+    model: policy.model ?? configuredModel,
     provider,
   };
   require(

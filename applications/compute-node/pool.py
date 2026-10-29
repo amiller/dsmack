@@ -58,6 +58,12 @@ def preflight(state, active):
     return {'free_bytes': free, 'owned_runner_sessions': sorted(owned_sessions)}
 
 
+def guest_closed(run):
+    lines = (run/'out/console-v3.log').read_text(errors='replace').splitlines()
+    return ('DSMACK_SUPERVISOR_DONE runner_failures=0' in lines
+            and any(line.startswith('DSMACK_RESULT_CLOSED_V1 ') for line in lines))
+
+
 def preserve_and_retire(run, repo):
     """Keep original evidence before removing the exact stopped attempt's disks."""
     helper = json.loads((run/'helper-stopped.json').read_bytes())
@@ -120,6 +126,7 @@ class Pool:
         self.active = []
         self.launched = 0
         self.stopping = False
+        self.failure = None
         self.manifest = args.workload/'compose-manifest.json'
         self.measurement = sha(self.manifest)
         self.image = json.loads(self.manifest.read_bytes())['base_vm']['os_image_hash']
@@ -162,8 +169,14 @@ class Pool:
                 # rotation until the operator has their missing evidence.
                 if proc.returncode:
                     raise RuntimeError('owned VM driver failed; attempt retained at '+str(node['path']))
-                cleanup = preserve_and_retire(node['path'], self.args.repo)
-                self.event('retired', run=str(node['path']), **cleanup)
+                if node['node'] is None or not guest_closed(node['path']):
+                    evidence = preserve_and_retire(node['path'], self.args.repo)
+                    self.stopping = True
+                    self.failure = 'guest failed before verified result closure; evidence at '+str(node['path']/'evidence')
+                    self.event('guest_failed', run=str(node['path']), **evidence)
+                else:
+                    cleanup = preserve_and_retire(node['path'], self.args.repo)
+                    self.event('retired', run=str(node['path']), **cleanup)
                 self.active.remove(node)
                 continue
             if node['node'] is None:
@@ -189,6 +202,8 @@ class Pool:
             if not self.active and (self.stopping or (self.args.cycles and self.launched >= self.args.cycles)):
                 break
             time.sleep(2)
+        if self.failure:
+            raise RuntimeError(self.failure)
 
 
 def main():

@@ -38,7 +38,7 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
   try {
     response = await fetcher(broker.cfg.sandbox_forwarder.replace(/\/$/, "") + "/" + endpoint, {
       method: "POST", headers: { "content-type": "application/json", ...(token ? { authorization: "Bearer " + token } : {}) },
-      body: canonical(payload), signal: AbortSignal.timeout(endpoint === "jobs" ? 905000 : 30000),
+      body: canonical(payload), signal: AbortSignal.any([req.signal, AbortSignal.timeout(endpoint === "jobs" ? 905000 : 30000)]),
     });
   } catch { throw new Refused(endpoint === "jobs" ? "node_result_lost" : "node_unreachable", 502); }
   const raw = await response.text();

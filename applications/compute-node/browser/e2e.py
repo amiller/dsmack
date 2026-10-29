@@ -29,7 +29,7 @@ try:
       page.on('request',record)
       page.goto(args.url,wait_until='domcontentloaded')
       page.set_content('<title>Browser sandbox journey</title><style>body{background:#10202e;color:#e7f0f4;font:20px system-ui;padding:48px}pre{white-space:pre-wrap;font:16px monospace;background:#1a3142;padding:24px;border-radius:12px}</style><h1>Attested browser sandbox</h1><pre id="progress"></pre><pre id="patch"></pre>')
-      page.evaluate('window.progress = text => document.querySelector("#progress").textContent += text + "\\n"')
+      page.evaluate('() => { window.progress = text => { document.querySelector("#progress").textContent += text + "\\n"; }; }')
       request=page.evaluate('''async configUrl => {
         const m=await import('/applications/compute-node/browser/sandbox.mjs');
         const config=await (await fetch(configUrl)).json(),p=config.policy;
@@ -38,9 +38,8 @@ try:
         const broker=config.broker.replace(/\\/$/,''),client=await m.createClient(),jobId=m.hex(crypto.getRandomValues(new Uint8Array(16)));
         progress('Browser Ed25519 identity generated; fresh P-256 output key will stay in memory.');
         const awaitHash=m.hex(new Uint8Array(await crypto.subtle.digest('SHA-256',policy.manifest)));
-        const discovery=await m.jsonRequest(broker+'/nodes');
-        const candidate=discovery.find(n=>n.kind==='compute'&&n.manifest_sha256===awaitHash);
-        if(!candidate)throw Error('no matching warm compute node');
+        const deadline=Date.now()+(config.nodeWaitSeconds??120)*1000;let candidate;
+        while(!candidate){const discovery=await m.jsonRequest(broker+'/nodes');candidate=discovery.find(n=>n.kind==='compute'&&n.manifest_sha256===awaitHash);if(candidate)break;if(Date.now()>deadline)throw Error('no matching warm compute node');await new Promise(resolve=>setTimeout(resolve,1000));}
         const challenge=m.hex(crypto.getRandomValues(new Uint8Array(32)));
         const live=await m.jsonRequest(broker+'/sandbox/nodes/'+encodeURIComponent(candidate.relay_peer)+'/attestation'+(candidate.payments?'?challenge='+challenge:''));
         if(live.payments)policy.challenge=challenge;
@@ -64,7 +63,7 @@ try:
           time.sleep(1)
       result=page.evaluate('''async()=>{
         const {m,config,node,client,jobId,grant,repoTar}=window.sandboxJourney;
-        progress('Received node-sealed delegated credential; sealing repository and prompt in browser.');
+        progress('Received node-sealed credential; sealing repository and prompt in browser.');
         const job=await m.sealJob(node,{client,grant,jobId,credential:window.sandboxCredential,repoTar,prompt:config.prompt});
         delete window.sandboxCredential;
         progress('Signed encrypted bundle and grant hashes; forwarding through broker/libp2p.');
@@ -78,7 +77,7 @@ try:
       for name in ['patch','transcript','verdict']:(args.out/name).write_text(result['outputs'][name])
       (args.out/'sealed-input.json').write_text(json.dumps(result['sealed'])+'\n')
       (args.out/'result.json').write_text(json.dumps(result['result'])+'\n')
-      markers=page.evaluate('window.sandboxJourney.config.markers ?? []')
+      markers=page.evaluate('Array.isArray(window.sandboxJourney.config.markers) ? window.sandboxJourney.config.markers : Object.values(window.sandboxJourney.config.markers ?? {})')
       forwarding='\n'.join(json.dumps(item) for item in network if urlsplit(item['url']).path.endswith('/sandbox/jobs'))
       marker_hits=[marker for marker in markers if marker in forwarding]
       if marker_hits:raise AssertionError('private marker appeared in broker network request')

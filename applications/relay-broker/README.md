@@ -116,27 +116,10 @@ algorithm `ed25519`. The webhost proxy fixes its key path to
 `/tee-daemon/projects/relay-broker/egress-grants-v1`. Keep the same project name,
 key name and dstack application key basis to preserve the signing identity.
 
-Deploy from the laptop, with `config.json` prepared. From this directory:
-
-```sh
-bash deploy.sh config.json \
-  "$OPERATOR_TOKEN_FILE" \
-  "$EVIDENCE_DIR" \
-  "$WEBHOST_URL"
-```
-
-Export the webhost admin token as `TEE_DAEMON_TOKEN`. The script uploads a
-source tarball to `POST /_api/projects`, and promotes only `relay-broker`. It
-creates the operator token with mode 600 at the supplied laptop path and deploys
-only its SHA-256 digest in `ctx.env.OPERATOR_TOKEN_SHA256`. The original token
-stays on the laptop. The admin credential is used only for the webhost API.
-Deploy evidence contains public responses and project summaries.
-
-The script uses the tarball manifest
-`{"name":"relay-broker","source":"tarball://relay-broker","ref":"<commit>","env":{"OPERATOR_TOKEN_SHA256":"<digest>"}}`
-and includes `project.json`, the handler modules, configuration, and the shared
-assertion verifier. Promotion makes the scoped GetKey socket available; then the
-script waits for `/relay-broker/key` and checks `runtime=deno,isolation=shared`.
+Prepare and apply updates with [deploy-inference.py](INFERENCE-DEPLOY.md).
+It retains the encrypted provider environment and existing operator-token hash,
+packages the shared Deno handler and its bundled verifiers/transports, and
+compares broker/payment keys and secret-release identity after promotion.
 
 The webhost volume at `ctx.dataDir` holds quota state. The Ed25519 signing key is
 rederived directly from dstack, independently of the quota file.
@@ -191,55 +174,21 @@ python3 applications/relay-broker/dev.py \
 local-data/sandbox/forwarder -key local-data/sandbox/forwarder.key
 ```
 
-## Prepared web app deployment
+## Shared Deno web app deployment
 
-Run these steps on the deployment machine after Andrew approves the live change.
-Keep its existing admin token and any helper service token on that machine.
-W3 supplies `private-agent.tgz`, a shared Deno project with `project.json` and
-its entry file at the archive root paths specified by that descriptor.
+The broker forwards sealed jobs directly with its bundled libp2p transport.
+`GET /sandbox/transport` reports transport readiness. It creates no helper
+container. Package and update the existing broker with `deploy-inference.py`;
+see [encrypted provider deployment](INFERENCE-DEPLOY.md). Retain its encrypted
+NEAR environment, operator-token hash, payment configuration and signing keys.
+Build `applications/private-agent-web` on the Linux builder and use that app's
+`deploy.py` to update the existing `private-agent` shared Deno project.
 
-1. Build the helper image from the reviewed code checkout:
-   `docker build -f applications/compute-node/peer/forwarder/Dockerfile -t dsmack-sandbox-forwarder .`.
-2. Set `WEBHOST_CONTAINER` to the existing webhost container name. Create an
-   internal network with `docker network create --internal dsmack-sandbox`,
-   then attach the webhost with
-   `docker network connect dsmack-sandbox "$WEBHOST_CONTAINER"`. The helper
-   also needs an outbound network to reach libp2p relays: create it with
-   `docker network create dsmack-sandbox-egress`.
-3. Generate a helper token on this machine, save it in a mode-600 env file,
-   and keep it out of deployment evidence:
-
-   ```sh
-   install -d -m 700 local-data/sandbox-live
-   (umask 077; python3 -c 'import secrets; print("SANDBOX_FORWARDER_TOKEN="+secrets.token_hex(32))' > local-data/sandbox-live/helper.env)
-   docker run -d --name dsmack-sandbox-forwarder \
-     --network dsmack-sandbox --env-file local-data/sandbox-live/helper.env \
-     --mount type=volume,source=dsmack-sandbox-forwarder,target=/data \
-     --restart unless-stopped dsmack-sandbox-forwarder
-   docker network connect dsmack-sandbox-egress dsmack-sandbox-forwarder
-   ```
-
-4. Copy the current broker config to a private candidate file, preserving its
-   payments and enrollment settings. Set
-   `sandbox_forwarder` to `http://dsmack-sandbox-forwarder:18271` and
-   `browser_origins` to `["https://pod.dstack.soc1024.com"]`. Include the warm
-   pool's approved workload measurements. Run the pool using its README.
-5. Load the local helper token into the deploying process, export the existing
-   `TEE_DAEMON_TOKEN`, and run the prepared script:
-
-   ```sh
-   set -a
-   . local-data/sandbox-live/helper.env
-   set +a
-   bash applications/relay-broker/deploy-webapp.sh \
-     local-data/sandbox-live/config.json "$OPERATOR_TOKEN_FILE" \
-     private-agent.tgz local-data/sandbox-live/deployment \
-     https://pod.dstack.soc1024.com
-   unset SANDBOX_FORWARDER_TOKEN TEE_DAEMON_TOKEN
-   ```
-
-The script updates `relay-broker` and creates `private-agent`, compares the
-broker, payments and secret-release public keys across the update, and saves
-public deployment responses. Its imports are bundled without an npm install
-on the webhost. Visit `/private-agent/`, verify a pool node, and run the browser
-sandbox journey before making the page available to users.
+For a new measured sandbox, add its public compose/image/build tuple to
+`sandboxDiagnosticWorkloads` for an operator diagnostic, or register a new paid
+class through the separate payment workflow. Operator grants use
+`POST /sandbox/operator-grant` with the existing operator authentication. They
+have no escrow debit. The signed buyer request at `POST /sandbox/capability`
+returns a job-scoped capability for sealing to the guest. The broker verifies
+NEAR gateway and per-model quotes, pins upstream TLS and encrypts each model
+request. The browser and guest never receive the NEAR API key.

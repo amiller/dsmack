@@ -62,7 +62,7 @@ def main():
         credential.chmod(0o400)
         provider = json.loads(os.environ['INFERENCE_PROVIDER']) if 'INFERENCE_PROVIDER' in os.environ else None
         if provider is not None:
-            inference_provider.validate_credential(job['credential'])
+            inference_provider.validate_credential(job['credential'], job['job_id'])
             policy_path = workroot/'gateway-policy.json'
             policy_path.write_bytes(find.canonical(inference_provider.gateway_policy(provider)))
             gateway_log = (workroot/'gateway.jsonl').open('wb')

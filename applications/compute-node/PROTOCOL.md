@@ -96,7 +96,7 @@ Browser access uses the broker's exact `browser_origins` allowlist.
    `job_id + "/credential"`; the browser carries that opaque nested envelope
    inside its outer job. The guest opens it before invoking the worker.
    `prompt` is text, `output_pub` is 64-byte P-256 x||y hex. Both IDs must agree
-   with the control frame/grant. The pinned compose fixes the agent configuration. With measured `INFERENCE_PROVIDER`, credential is `{schema:"dsmack-delegated-inference/1",api_key}` and the worker uses the pinned model through the guest-local hostname gateway with `list_files`, `read_file`, and `write_file` tools. Without that configuration it uses the Claude credential path; provider errors fail the job.
+   with the control frame/grant. The pinned compose fixes the agent configuration. With measured `INFERENCE_PROVIDER`, credential is `{schema:"dsmack-broker-inference/1",token,job_id}` and the worker uses the pinned broker/model through the guest-local hostname gateway with `list_files`, `read_file`, and `write_file` tools. The broker capability is scoped to this job and its signed grant; the broker verifies NEAR gateway and per-model attestation before its encrypted model call. The broker CVM handles plaintext. The provider API key remains in that CVM. Without that configuration it uses the Claude credential path; provider errors fail the job.
 4. Node writes credential to tmpfs `/run/dsmack/credential`, runs one pinned
    `agent-turns/find.py` edit turn with repo and outputs in tmpfs, and removes
    the credential and work directory before accepting another job.

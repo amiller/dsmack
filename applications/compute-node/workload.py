@@ -44,6 +44,8 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
     if provider is not None:
         from inference_provider import validate_config
         provider = validate_config(provider)
+        if provider['base_url'].rstrip('/') != broker.rstrip('/') or provider['broker_key'] != key:
+            raise ValueError('inference capability must use the measured node broker and key')
         service['environment']['INFERENCE_PROVIDER'] = canonical(provider).decode()
         service['environment']['MODEL'] = provider['model']
     artifacts = ['registration', 'last-result', 'egress']

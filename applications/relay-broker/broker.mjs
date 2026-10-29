@@ -1,5 +1,6 @@
 import { peerBytes, verifyRelay } from "./attestation.mjs";
 import { signGrant, verifyRequest } from "./grants.mjs";
+import { registerDiagnostic } from "./sandbox-inference.mjs";
 
 export class Refused extends Error {
   constructor(message, status = 403) { super(message); this.status = status; }
@@ -8,8 +9,10 @@ const require = (ok, message, status) => { if (!ok) throw new Refused(message, s
 export const limits = { relay_lease_seconds: 60, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
 
 export class Broker {
-  constructor({ cfg, chain, key, credits = {}, saveCredits, payments, now = () => Math.floor(Date.now() / 1000) }) {
+  constructor({ cfg, chain, key, credits = {}, saveCredits, payments, inference, providerEnvironment, now = () => Math.floor(Date.now() / 1000) }) {
     this.payments = payments;
+    this.inference = inference;
+    this.providerEnvironment = providerEnvironment;
     this.cfg = cfg; this.chain = chain; this.key = key;
     this.credits = credits; this.saveCredits = saveCredits; this.now = now;
     this.relays = new Map();
@@ -24,6 +27,7 @@ export class Broker {
 
   async register(r) {
     const now = this.now();
+    if(!r.payments && r.kind==='compute' && this.cfg.sandboxDiagnosticWorkloads?.some(w=>['manifest_sha256','os_image_hash','cdhash'].every(k=>w[k]===r[k]))) return registerDiagnostic(this,r);
     require(!r.payments || this.payments, "paid admission is not configured");
     require(!this.payments || r.payments, "paid broker requires receipt key admission");
     const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);

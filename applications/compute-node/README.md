@@ -153,32 +153,27 @@ keys `"1"` through `"7"` and each condition's evidence.
 
 ## Browser model jobs
 
-`worker.py` accepts a delegated inference credential inside the sealed input:
-`{"schema":"dsmack-delegated-inference/1","api_key":"…"}`. Pin the provider in
-`workload.py`'s optional provider JSON:
-`{"schema":"dsmack-tee-model/1","base_url":"https://MODEL_HOST/v1","model":"MODEL_ID"}`.
-The agent uses OpenAI file tools to edit the repository. The guest-local egress
-gateway admits only `POST /v1/chat/completions` to that hostname. Its HTTPS
-connection crosses the measured CONNECT proxy, so the proxy receives ciphertext.
-Gateway decisions are included in the sealed transcript as `gateway_event` lines.
-
-Build the additional gateway executable on a Linux builder before building the
-compute image:
-
-```sh
-(cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 \
-  go build -o ../compute-node/dsmack-egress .)
-```
+`worker.py` accepts a job-scoped broker capability inside the sealed input:
+`{"schema":"dsmack-broker-inference/1","token":"…","job_id":"…"}`. Pin its
+broker/model in the workload's provider JSON:
+`{"schema":"dsmack-broker-model/1","base_url":"https://BROKER/relay-broker","model":"MODEL_ID","broker_key":"ED25519_HEX"}`.
+The agent uses file tools to edit the repository. The guest-local egress gateway
+permits only `POST /relay-broker/sandbox/inference` to that hostname and validates
+TLS over the measured CONNECT proxy. The broker verifies NEAR gateway/per-model
+attestation and encrypts the model request. It handles plaintext inside its CVM;
+the NEAR API key never reaches the browser or compute node. Each completion is
+signed by the pinned broker key and binds the job, fresh nonce, request hash,
+model, attestation and result. Those records and gateway decisions are sealed in
+the transcript. The capability permits eight requests and expires with its grant.
 
 Run the transport proxy on its measured operator endpoint:
 
 ```sh
 python3 applications/compute-node/connect-proxy.py --listen GATEWAY_IP \
-  --port 18443 --model-host MODEL_HOST
+  --port 18443 --model-host BROKER_HOST
 ```
 
-Without a provider JSON, jobs use the pinned Claude CLI and the existing
-`claudeAiOauth` credential format.
+Without provider JSON, jobs use the pinned Claude CLI and `claudeAiOauth` format.
 
 ## Warm operator pool
 

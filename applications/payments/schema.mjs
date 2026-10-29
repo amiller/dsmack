@@ -17,9 +17,12 @@ export {
   keccak256,
   parseEther,
   TypedDataEncoder,
+  verifyMessage,
   Wallet,
 } from "npm:ethers@6.17.0";
 export const CHAIN = 84532;
+export const UNITS = { bytes: 0, seconds: 1, tokens: 2 };
+export const MAX_TOKENS = 10_000_000;
 export const RPCS = [
   "https://sepolia.base.org",
   "https://base-sepolia-rpc.publicnode.com",

@@ -4,12 +4,25 @@ import { hex, sha256 } from "../../dstack-compat/secret-release/policy.mjs";
 const enc = new TextEncoder();
 export const jobLimit = 48 * 1024 * 1024 + 16384;
 const require = (ok, message, status = 400) => { if (!ok) throw new Refused(message, status); };
+let inProcess;
+async function nativeTransport() {
+  return await (inProcess ??= import("./deno-forwarder.mjs").then(({ createDenoForwarder }) => createDenoForwarder()));
+}
+function nodeResponse(result) {
+  if (result.status === "refused") return Response.json(result, { status: result.error === "busy" || result.error === "replay" ? 409 : 403 });
+  return Response.json(result);
+}
 
 // Inputs and outputs remain encrypted to the compute node/browser. No job state
 // is persisted, and a broken response is never automatically resubmitted.
 export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
   const url = new URL(req.url), path = url.pathname;
   let node, payload, endpoint;
+  if (req.method === "GET" && path === "/sandbox/transport") {
+    require(!broker.cfg.sandbox_forwarder, "transport_uses_external_helper", 503);
+    try { return Response.json({ transport: "shared-deno-libp2p", peer_id: (await nativeTransport()).peerId }); }
+    catch { throw new Refused("sandbox_transport_unavailable", 503); }
+  }
   const match = /^\/sandbox\/nodes\/([^/]+)\/attestation$/.exec(path);
   if (req.method === "GET" && match) {
     node = broker.live().find((r) => r.kind === "compute" && r.relay_peer === match[1]);
@@ -33,7 +46,13 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
     } }; endpoint = "jobs";
     require(enc.encode(canonical(payload.admission)).length <= 4096, "admission_too_large", 413);
   } else return new Response("not found", { status: 404 });
-  require(broker.cfg.sandbox_forwarder, "sandbox_forwarder_not_configured", 503);
+  if (!broker.cfg.sandbox_forwarder) {
+    let forwarder;
+    try { forwarder = await nativeTransport(); }
+    catch { throw new Refused("sandbox_transport_unavailable", 503); }
+    try { return nodeResponse(await forwarder.forward(endpoint, payload, { signal: req.signal })); }
+    catch (error) { throw new Refused(error.code || "node_unreachable", error.status || 502); }
+  }
   let response;
   try {
     response = await fetcher(broker.cfg.sandbox_forwarder.replace(/\/$/, "") + "/" + endpoint, {
@@ -46,8 +65,7 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
   let result;
   try { result = JSON.parse(raw); } catch { throw new Refused("node_response_invalid", 502); }
   if (!response.ok) return Response.json(result, { status: response.status });
-  if (endpoint === "jobs" && result.status === "refused") return Response.json(result, { status: result.error === "busy" || result.error === "replay" ? 409 : 403 });
-  return Response.json(result);
+  return nodeResponse(result);
 }
 
 export function cors(req, response, origins = []) {

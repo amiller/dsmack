@@ -39,6 +39,14 @@ export const domain = (escrow) => ({
   verifyingContract: escrow,
 });
 export { verifyTypedData };
+export function paymentRunId(enrollmentKeyId, runNonce) {
+  return keccak256(
+    AbiCoder.defaultAbiCoder().encode(["bytes32", "bytes32"], [
+      enrollmentKeyId,
+      runNonce,
+    ]),
+  );
+}
 export function paymentBinding(p, peer, compose, image) {
   return keccak256(
     AbiCoder.defaultAbiCoder().encode([

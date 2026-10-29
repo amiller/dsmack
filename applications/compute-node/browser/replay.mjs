@@ -15,6 +15,7 @@ import { sha256 } from "../../../dstack-compat/secret-release/policy.mjs";
 import {
   domain,
   paymentBinding,
+  paymentRunId,
   Receipt,
   verifyTypedData,
 } from "./payments.mjs";
@@ -68,7 +69,7 @@ const node = await verifyNode(registration, policy),
   };
 await verifyJobAttestation(node, result, job);
 await verifyReceipt(node, result, job);
-verifyTurnOutputs(
+await verifyTurnOutputs(
   node,
   Object.fromEntries(
     ["patch", "transcript", "verdict"].map(
@@ -103,8 +104,44 @@ await assert.rejects(
   }, job),
   /signature/,
 );
+if (cfg.paidDiscovery && cfg.paidPolicy) {
+  const d = json(cfg.paidDiscovery), raw = json(cfg.paidPolicy);
+  const p = {
+    ...raw,
+    manifest: unhex(raw.manifest),
+    enrollment: {
+      ...raw.enrollment,
+      attestation: unhex(raw.enrollment.attestation),
+      clientData: unhex(raw.enrollment.clientData),
+    },
+  };
+  const enrolled = await verifyEnrollment(p.enrollment, p.cdhash);
+  p.challenge = d.payments.challenge;
+  p.chain = {
+    ...chain,
+    key: async () => ({
+      x: enrolled.point.slice(1, 33),
+      y: enrolled.point.slice(33),
+      enrolled: true,
+      expires: enrolled.expires / 1000,
+      counter: 0,
+    }),
+    buildId: async () => unhex(d.payments.buildId.slice(2)),
+  };
+  const original = Date.now;
+  Date.now = () => (d.payments.runExpires - 100) * 1000;
+  try {
+    await verifyNode(d, p);
+  } finally {
+    Date.now = original;
+  }
+}
 if (cfg.paymentsFixture) {
   const f = json(cfg.paymentsFixture);
+  assert.equal(
+    paymentRunId(f.registration.enrollmentKeyId, f.registration.runNonce),
+    f.registration.runId,
+  );
   assert.equal(
     paymentBinding(f.registration, f.peer, "00".repeat(32), "00".repeat(32)),
     f.binding,
@@ -125,6 +162,7 @@ if (cfg.paymentsFixture) {
 }
 console.log(JSON.stringify({
   apple_chain: "passed",
+  ...(cfg.paidDiscovery ? { real_paid_registration: "passed" } : {}),
   ...(cfg.paymentsFixture ? { go_payment_binding_and_receipt: "passed" } : {}),
   node_binding: "passed",
   job_attestation: "passed",

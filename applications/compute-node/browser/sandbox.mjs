@@ -16,6 +16,7 @@ import {
   Grant,
   NodeBinding,
   paymentBinding,
+  paymentRunId,
   Receipt,
   verifyTypedData,
 } from "./payments.mjs";
@@ -25,6 +26,8 @@ const enc = new TextEncoder(),
   subtle = crypto.subtle;
 export const REGISTRY = "0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E";
 export const ATTEST = "0xFF8393e6D4c3dF89e826A5BF14829733B953c948";
+export const INFERENCE_PRIVACY =
+  "NEAR TEE model via broker CVM; broker handles plaintext";
 export const CANARY = "0xdC66c90291973167126a3c4455D5A6064634f3B1";
 const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const eq = (a, b) => bytesEqual(a, b),
@@ -208,6 +211,16 @@ export async function verifyNode(registration, policy) {
   const provider = service.environment?.INFERENCE_PROVIDER
     ? JSON.parse(service.environment.INFERENCE_PROVIDER)
     : null;
+  if (provider) {
+    require(
+      provider.schema === "dsmack-broker-model/1" &&
+        provider.broker_key === policy.brokerKey &&
+        provider.base_url.replace(/\/$/, "") ===
+          service.command[3].replace(/\/$/, "") &&
+        service.environment.MODEL === provider.model,
+      "compose broker inference binding",
+    );
+  }
   const configuredModel = provider?.model ?? service.environment?.MODEL;
   require(
     typeof configuredModel === "string" && configuredModel.length > 0,
@@ -304,7 +317,8 @@ export async function verifyNode(registration, policy) {
     );
     require(
       p.enrollmentKeyId.toLowerCase() === "0x" + hex(enrollment.kid) &&
-        p.runId.toLowerCase() === "0x" + hex(a.run),
+        p.runId.toLowerCase() ===
+          paymentRunId(p.enrollmentKeyId, p.runNonce).toLowerCase(),
       "payment run/key",
     );
     require(
@@ -410,6 +424,35 @@ async function checkGrant(node, grant, clientPeer) {
     );
   }
 }
+export async function requestCapability(
+  brokerUrl,
+  { node, client, grant, jobId },
+  { signal } = {},
+) {
+  require(/^[0-9a-f]{32}$/.test(jobId), "capability job ID");
+  await checkGrant(node, grant, client.peer);
+  const body = await signBrokerRequest(client, {
+    job_id: jobId,
+    node_peer: node.registration.relay_peer,
+    client_peer: client.peer,
+    grant,
+    nonce: hex(crypto.getRandomValues(new Uint8Array(16))),
+  });
+  const credential = await jsonRequest(
+    brokerUrl.replace(/\/$/, "") + "/sandbox/capability",
+    body,
+    signal,
+    16384,
+  );
+  require(
+    credential?.schema === "dsmack-broker-inference/1" &&
+      credential.job_id === jobId && typeof credential.token === "string" &&
+      credential.token.length > 0 && credential.token.length <= 8192 &&
+      !/[\r\n]/.test(credential.token),
+    "broker inference capability",
+  );
+  return credential;
+}
 export async function sealJob(
   node,
   {
@@ -427,6 +470,9 @@ export async function sealJob(
     "job inputs",
   );
   await checkGrant(node, grant, client.peer);
+  if (credential?.schema === "dsmack-broker-inference/1") {
+    require(credential.job_id === jobId, "capability belongs to another job");
+  }
   const pair = await subtle.generateKey(
       { name: "ECDH", namedCurve: "P-256" },
       false,
@@ -459,6 +505,7 @@ export async function sealJob(
     jobId,
     sealed,
     outputKey: { priv: pair.privateKey, pub },
+    sealedAt: Date.now(),
   };
 }
 export async function submitJob(brokerUrl, job, { signal } = {}) {
@@ -581,22 +628,90 @@ export async function openOutputs(job, result) {
       "plaintext output digest",
     );
   }
-  verifyTurnOutputs(job.node, outputs);
+  await verifyTurnOutputs(job.node, outputs, job);
   return outputs;
 }
 
 // Match the worker's transcript and verdict checks before exposing a patch.
-export function verifyTurnOutputs(node, outputs) {
+export async function verifyTurnOutputs(node, outputs, job) {
   const events = dec.decode(outputs.transcript).trimEnd().split("\n").map(
     (line) => JSON.parse(line),
   );
   const verdict = JSON.parse(dec.decode(outputs.verdict)),
     provider = node.policy.provider;
-  const core = events.filter((e) => e.type !== "gateway_event"),
+  const core = events.filter((e) =>
+      !["gateway_event", "provider_attestation"].includes(e.type)
+    ),
     assistants = core.filter((e) => e.type === "assistant");
   let summary, turns, model;
   if (provider) {
+    require(
+      provider.schema === "dsmack-broker-model/1" && job,
+      "broker inference job context",
+    );
     model = provider.model;
+    const exchange = events.filter((e) => e.type !== "gateway_event"),
+      nonces = new Set();
+    require(
+      exchange.length === assistants.length * 2,
+      "provider evidence count",
+    );
+    for (let i = 0; i < assistants.length; i++) {
+      const proof = exchange[i * 2],
+        assistant = exchange[i * 2 + 1],
+        payload = proof.payload;
+      require(
+        proof.type === "provider_attestation" && assistant === assistants[i],
+        "provider evidence order",
+      );
+      await verifyEd(node.policy.brokerKey, proof.signature, payload);
+      require(
+        payload.schema === "dsmack-broker-inference-response/1" &&
+          payload.job_id === job.jobId && payload.model === model &&
+          /^[0-9a-f]{64}$/.test(payload.nonce) &&
+          /^[0-9a-f]{64}$/.test(payload.request_sha256) &&
+          !nonces.has(payload.nonce),
+        "provider response job/model/nonce",
+      );
+      nonces.add(payload.nonce);
+      const evidence = payload.attestation;
+      require(
+        evidence?.mode === "broker-proxy" && evidence.provider === "near" &&
+          evidence.model === model && evidence.nonce === payload.nonce &&
+          evidence.verification === "verified" &&
+          evidence.privacy === INFERENCE_PRIVACY,
+        "provider attestation identity",
+      );
+      require(
+        Number.isSafeInteger(evidence.verifiedAt) &&
+          evidence.verifiedAt * 1000 >= job.sealedAt - 30000 &&
+          evidence.verifiedAt * 1000 <= Date.now() + 30000,
+        "provider attestation freshness",
+      );
+      require(
+        evidence.verifier && evidence.gateway?.signingAddress &&
+          evidence.gateway?.tlsFingerprint && evidence.models?.some((m) =>
+            m.model === model && m.signingAddress
+          ) && evidence.tls?.checkedBy === "broker" &&
+          evidence.tls.browserObservable === false &&
+          evidence.tls.binding === "spki",
+        "provider broker verification evidence",
+      );
+      require(
+        assistant.nonce === payload.nonce &&
+          assistant.request_sha256 === payload.request_sha256 &&
+          payload.result?.model === model &&
+          eq(
+            canonical(assistant.message),
+            canonical(payload.result.choices?.[0]?.message),
+          ) &&
+          eq(
+            canonical(assistant.usage ?? null),
+            canonical(payload.result.usage ?? null),
+          ),
+        "assistant differs from signed provider result",
+      );
+    }
     require(
       core.length > 0 && core.length === assistants.length &&
         assistants.every((e) => e.model === model),
@@ -646,7 +761,9 @@ export function verifyTurnOutputs(node, outputs) {
     summary: [...summary].slice(0, 1000).join(""),
     num_turns: turns,
     observed_models: [model],
-    ...(provider ? { provider: "delegated-openai" } : {}),
+    ...(provider
+      ? { provider: "broker-near", privacy: INFERENCE_PRIVACY }
+      : {}),
   };
   require(eq(canonical(verdict), canonical(expected)), "turn verdict mismatch");
   return verdict;

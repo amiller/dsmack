@@ -1,0 +1,9 @@
+{
+  "chainId": 84532,
+  "escrow": "0x927202770c0e2bc30B2aee82Ef58229AD89e72F2",
+  "codeHash": "0x033e38f688e77afb49c338d120049a782a0acbca9f26e961395b8907036cf3c0",
+  "broker": "/relay-broker",
+  "rpc": "https://base-sepolia-rpc.publicnode.com",
+  "brokerKey": "2276041fc1337a93b8ad5731796030e1d90e71906e40f7958ea43a3df9977c62",
+  "grantSigner": "0xd3DD9f6ff4AC0e2d4B7A833F645085EB5C1e03E7"
+}

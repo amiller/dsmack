@@ -11,9 +11,7 @@ CodeDirectory, first page and entitlements of real builds, used by
   a re-sign with a different signature allocation, and changed code.
 - `iphone-honest.json`, `iphone-modified.json`: the iPhone probe and changed code.
 
-`contracts/test/make_identity_test_fixtures.py` derives these from
-`node-honest.json` by editing metadata and recomputing the special-slot seal
-and CDHash; code pages are unchanged and nothing is re-signed:
+Metadata variants of `node-honest.json` test the sealed entitlement parser:
 
 - `node-synthetic-team.json`: team and App ID prefix changed to `TESTTEAM01`.
 - `node-synthetic-prefix-only.json`: no team entitlement.

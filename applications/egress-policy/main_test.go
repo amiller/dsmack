@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdsa"
@@ -16,6 +17,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -245,5 +247,150 @@ func TestDNSIsExactAndNeverForwardsWorkloadQueries(t *testing.T) {
 		if g.dnsReply(q, ip) != nil {
 			t.Fatal("malformed query accepted")
 		}
+	}
+}
+
+// Prevent an allowed WebSocket from bypassing TLS identity or byte accounting.
+func TestWebSocketTLSAndByteBudget(t *testing.T) {
+	p := policy()
+	p.Rules[0].WebSocketSeconds = 2
+	p.Rules[0].MaxRequestBytes = 512
+	g, _ := withFixture(t, p, "allowed.test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "allowed.test" || r.TLS.ServerName != "allowed.test" {
+			t.Error("WebSocket authority changed")
+		}
+		c, b, err := w.(http.Hijacker).Hijack()
+		if err != nil {
+			t.Error(err)
+			return
+		}
+		defer c.Close()
+		b.WriteString("HTTP/1.1 101 Switching Protocols\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Accept: test\r\n\r\n")
+		b.Flush()
+		io.Copy(c, b)
+	}))
+	local := httptest.NewServer(g)
+	defer local.Close()
+	c, err := net.Dial("tcp", strings.TrimPrefix(local.URL, "http://"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close()
+	c.SetDeadline(time.Now().Add(3 * time.Second))
+	io.WriteString(c, "GET / HTTP/1.1\r\nHost: allowed.test:8080\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\r\n")
+	b := bufio.NewReader(c)
+	resp, err := http.ReadResponse(b, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.StatusCode != 101 {
+		t.Fatal(resp.StatusCode)
+	}
+	c.Write([]byte("Noise bytes"))
+	got := make([]byte, 11)
+	if _, err = io.ReadFull(b, got); err != nil || string(got) != "Noise bytes" {
+		t.Fatalf("echo: %s %v", got, err)
+	}
+	c.Write(bytes.Repeat([]byte("x"), 1024))
+	io.Copy(io.Discard, b)
+	c.Close()
+	deadline := time.Now().Add(time.Second)
+	for {
+		g.mu.Lock()
+		up, down := g.usage[0].upload, g.usage[0].download
+		g.mu.Unlock()
+		if down < 1024 {
+			if up != 512 {
+				t.Fatalf("upload cap = %d", up)
+			}
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("gateway failed to release connection budget")
+		}
+		time.Sleep(time.Millisecond)
+	}
+}
+
+// A suffix match must not authorize another zone, a nested name, or an IP.
+func TestOneLabelWildcard(t *testing.T) {
+	p := policy()
+	p.Rules[0].Name = "*.trycloudflare.com"
+	g := newGateway(p, log.New(io.Discard, "", 0))
+	for _, host := range []string{"x.trycloudflare.com"} {
+		if g.index(host) != 0 {
+			t.Fatal(host)
+		}
+	}
+	for _, host := range []string{"trycloudflare.com", "x.y.trycloudflare.com", "x.trycloudflare.com.evil.test", "eviltrycloudflare.com", "1.1.1.1"} {
+		if g.index(host) != -1 {
+			t.Fatal(host)
+		}
+	}
+}
+
+// A transport proxy may route a CONNECT tunnel, but must never receive model
+// authorization or request bytes before the gateway authenticates provider TLS.
+func TestConnectProxyCarriesOnlyProviderTLS(t *testing.T) {
+	for _, name := range []string{"allowed.test", "wrong.test"} {
+		t.Run(name, func(t *testing.T) {
+			var hits atomic.Int32
+			upstream, roots := fixture(t, name, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				hits.Add(1)
+				if r.TLS.ServerName != "allowed.test" || r.Header.Get("Authorization") != "key-secret" {
+					t.Error("provider identity or credential")
+				}
+				io.WriteString(w, "ok")
+			}))
+			wire := make(chan []byte, 1)
+			proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.Method != "CONNECT" || r.Host != "allowed.test:443" {
+					t.Error("wrong tunnel target")
+					w.WriteHeader(403)
+					return
+				}
+				tunnel, err := net.Dial("tcp", upstream.Listener.Addr().String())
+				if err != nil {
+					t.Error(err)
+					return
+				}
+				client, _, err := w.(http.Hijacker).Hijack()
+				if err != nil {
+					tunnel.Close()
+					t.Error(err)
+					return
+				}
+				io.WriteString(client, "HTTP/1.1 200 Connection Established\r\n\r\n")
+				var observed bytes.Buffer
+				done := make(chan struct{})
+				go func() { io.Copy(tunnel, io.TeeReader(client, &observed)); close(done) }()
+				io.Copy(client, tunnel)
+				client.Close()
+				tunnel.Close()
+				<-done
+				wire <- observed.Bytes()
+			}))
+			defer proxy.Close()
+			g := newGateway(policy(), log.New(io.Discard, "", 0))
+			g.client.TLSClientConfig.RootCAs = roots
+			proxyURL, _ := url.Parse(proxy.URL)
+			g.client.Proxy = http.ProxyURL(proxyURL)
+			r := call(g, "POST", "/", "allowed.test:8080", "body-secret", http.Header{"Authorization": {"key-secret"}})
+			expectedStatus, expectedHits := 200, int32(1)
+			if name != "allowed.test" {
+				expectedStatus, expectedHits = 502, 0
+			}
+			if r.Code != expectedStatus || hits.Load() != expectedHits {
+				t.Fatalf("status=%d hits=%d", r.Code, hits.Load())
+			}
+			select {
+			case raw := <-wire:
+				if len(raw) == 0 || bytes.Contains(raw, []byte("key-secret")) || bytes.Contains(raw, []byte("body-secret")) {
+					t.Fatal("plaintext crossed CONNECT transport")
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("tunnel did not close")
+			}
+		})
 	}
 }

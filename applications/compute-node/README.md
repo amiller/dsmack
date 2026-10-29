@@ -18,10 +18,11 @@ last sealed result, and network probe outcomes.
 
 ## Build on a Linux builder
 
-From the repository root, with the qualified Claude image available locally:
+From the repository root, with the Claude image available locally:
 
 ```sh
 (cd applications/compute-node/peer && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dsmack-compute .)
+(cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../compute-node/dsmack-egress .)
 docker build -f applications/compute-node/Dockerfile \
   --build-arg QUALIFIED_CLAUDE_REPOSITORY=QUALIFIED_LOCAL_REPOSITORY \
   -t compute-node .
@@ -34,7 +35,7 @@ whose `base_vm` describes the installed base image:
 python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   sha256:IMAGE_DIGEST applications/compute-node/dsmack-compute \
   /ip4/RELAY_IP/tcp/RELAY_PORT/p2p/RELAY_ID \
-  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 1800
+  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 840
 ```
 
 The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
@@ -63,7 +64,7 @@ wait for `ready` before sending its encrypted bundle.
 ```sh
 (cd applications/compute-node/peer && go test -race ./...)
 python3 -m unittest discover -s applications/compute-node -p 'test_*.py'
-node --test applications/relay-broker/broker.test.mjs
+deno test --allow-read --allow-net applications/relay-broker/broker.test.mjs
 ```
 
 ## Run a remote turn
@@ -97,55 +98,54 @@ the encrypted input and result, the verified plaintext patch, transcript and
 verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
 it runs no remote shell command.
 
-## Success-condition harness
+## Browser model jobs
 
-Run the client probes on the credential owner's Mac. Keep its user-side
-`client/` directory separate from the node's attempt directory and the builder's
-operator directory. A JSON config supplies `binary`, `client_key`, `manifest`,
-`enrollment`, `broker_key`, and `cdhash` using local paths; `broker`, `rpc`,
-`attest`, `canary`, `credential`, `seconds`, and `marker_file` are optional.
-`marker_file` names a shared JSON object mapping `credential`, `repo`, and
-`prompt` to three random 32-byte hex values. Without it, `primary` generates
-fresh markers. It keeps the provider tokens unchanged and marks accepted
-credential metadata in memory.
+`worker.py` accepts a job-scoped broker capability inside the sealed input:
+`{"schema":"dsmack-broker-inference/1","token":"…","job_id":"…"}`. Pin its
+broker/model in the workload's provider JSON:
+`{"schema":"dsmack-broker-model/1","base_url":"https://BROKER/relay-broker","model":"MODEL_ID","broker_key":"ED25519_HEX"}`.
+The agent uses file tools to edit the repository. The guest-local egress gateway
+permits only `POST /relay-broker/sandbox/inference` to that hostname and validates
+TLS over the measured CONNECT proxy. The broker verifies NEAR gateway/per-model
+attestation and encrypts the model request. It handles plaintext inside its CVM;
+the NEAR API key never reaches the browser or compute node. Each completion is
+signed by the pinned broker key and binds the job, fresh nonce, request hash,
+model, attestation and result. Those records and gateway decisions are sealed in
+the transcript. The capability permits eight requests and expires with its grant.
 
-```sh
-python3 applications/compute-node/success_harness.py primary --config client.json --out client/primary
-python3 applications/compute-node/success_harness.py expire --config client.json --capture client/primary --out expired.json
-```
-
-`primary` runs a real marked turn, verifies its attestation, receipt and model,
-applies and checks the toy patch, then probes repeated jobs, a wrong client and
-an exhausted grant. `expire` waits for that real signed grant to expire. After
-the owner stops the node and boots the same compose again, test the captured
-bundle under the new boot key:
+Run the transport proxy on its measured operator endpoint:
 
 ```sh
-python3 applications/compute-node/success_harness.py second-run --config client.json --capture client/primary --out replay.json
+python3 applications/compute-node/connect-proxy.py --listen GATEWAY_IP \
+  --port 18443 --model-host BROKER_HOST
 ```
 
-After the VM and network helper stop, scan every node-attempt and operator file.
-Run the same scan with `--control` against a marked current `run-v02` attempt;
-the control requires a hit for each marker.
+Without provider JSON, jobs use the pinned Claude CLI and `claudeAiOauth` format.
+
+## Warm operator pool
+
+Run the pool on the Mac. `RUNNER` holds the installed runner app, base image and
+enrollment; `WORKLOAD` holds a packed `workload.img` and `compose-manifest.json`.
+Pack it with an 840-second lifetime; its measured `ADMIT_SECONDS` is 570.
 
 ```sh
-python3 applications/compute-node/success_harness.py scan --root node-attempt --root operator-attempt --out scan.json < client/primary/markers.json
+python3 applications/compute-node/pool.py --runner RUNNER --workload WORKLOAD \
+  --state POOL_STATE --broker http://BROKER_IP:PORT --repo SOURCE_CHECKOUT
 ```
 
-Let the node finish its measured running period so the guest exports its result
-artifacts. After the VM and helper exit, preserve the original signed result
-disk, then change one ciphertext byte in its exported `last-result` artifact.
-Fetch both encrypted result versions to the user client and verify that only
-the original is accepted:
+At 450 seconds, the daemon launches a replacement and waits for the broker's
+verified attestation and binding before counting it as ready. Each old node
+stops admitting jobs at 570 seconds, finishes admitted jobs and exits at 840
+seconds, before the runner's 900-second watchdog. At most two owned VMs overlap.
+The Mac preflight checks 12 GiB free and permits only runner sessions already
+owned by this pool; another session's VM blocks a new launch.
 
-```sh
-python3 applications/compute-node/success_harness.py flip-output --disk result.img --artifact /compute-node-v1/outputs/artifacts/last-result --out tamper --stopped
-python3 applications/compute-node/success_harness.py verify-tamper --config client.json --capture client/primary --original tamper/original.json --tampered tamper/tampered.json --out tamper-check.json
-```
-
-On macOS, pass `--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs` to `flip-output`.
-
-`policy-refusal` checks an actual variant registration against the original
-client config. `egress --proxy http://PROXY_IP:PROXY_PORT` joins the guest's network probe artifact
-with a verified model turn. `assemble` writes `check.json` from an object with success-condition
-keys `"1"` through `"7"` and each condition's evidence.
+`--cycles 2` runs two generations and exits. For a shorter rehearsal, pack a
+420-second workload with `admit_seconds=330` and run with `--seconds 420
+--drain-seconds 90 --replace-after 210 --readiness-timeout 90 --cycles 2`. SIGINT/SIGTERM stops rotation and
+waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
+and a verified gzip of the original result disk under `run-*/evidence/`. The
+existing guarded cleanup checks open references before retiring that attempt's
+scratch and staged disks, recording retired allocated bytes and free space. A
+guest failure is recorded after preserving and retiring its owned disks; the
+pool stops rotation and returns a failure even if the host driver exited zero.

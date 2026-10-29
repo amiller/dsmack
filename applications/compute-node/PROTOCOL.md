@@ -39,6 +39,41 @@ for compute; a relay has `bytes` in place of `seconds`. `v=1`; `grant_id` is
 16-byte hex; `sig` signs the object without `sig` with the pinned broker
 Ed25519 key. The budget and expiry apply across jobs using that grant.
 
+## Browser forwarding
+
+`GET /sandbox/nodes/PEER/attestation?challenge=HEX` on the broker fetches a live
+registration over libp2p. For paid nodes, `challenge` is a fresh browser-generated
+32-byte hex value and the broker uses `/dsmack/payments-attest/1`; the node binds
+that challenge into its attested payment report. The browser verifies the proof
+and the expected challenge before sealing inputs.
+
+`POST /sandbox/jobs` takes
+`{node_peer,job_id,grant,sealed,client_peer,signature}`. `sealed` is the secret-box
+`{epk,iv,ct}` envelope described below. The broker selects the registered node
+address, forwards the public admission and encrypted envelope, and returns the
+node's sealed result synchronously. It stores neither jobs nor results. A
+registration's optional `admit_until` Unix timestamp excludes draining nodes
+from new grants and forwarding while their current jobs finish.
+
+The forwarding transport has its own libp2p identity. The browser authorizes
+its job with an Ed25519 signature over canonical
+`{bundle_sha256,client_peer,grant_sha256,job_id,node_peer}`. Hashes are lowercase
+SHA-256 hex of canonical `sealed` and canonical `grant`, including the grant's
+signature. `client_peer` must contain the inline Ed25519 public key that verifies
+this signature. The broker sends control
+`{job_id,grant,client_peer,signature,bundle_sha256}`. The node uses that verified
+buyer identity for grant checks and receipts, independently of the transport's
+Noise identity, and checks the encrypted envelope's hash after receiving it.
+The existing job-ID replay rule applies to forwarded and direct jobs alike.
+
+The broker runs the libp2p forwarding transport inside its CVM. The HTTP
+endpoints return `{error:CODE}` for failures. A missing live node is HTTP 404
+`node_not_live`; a transport failure is 502
+`node_unreachable` or `node_result_lost`. Node refusals preserve
+`{status:"refused",error:CODE}` with HTTP 409 for `busy`/`replay` and 403 for the
+other protocol refusals. A lost result is never automatically resubmitted.
+Browser access uses the broker's exact `browser_origins` allowlist.
+
 ## Job exchange
 
 1. Client sends control `{job_id,grant}`. `job_id` is 16 random bytes in hex.
@@ -55,8 +90,13 @@ Ed25519 key. The budget and expiry apply across jobs using that grant.
    Plaintext is canonical `{job_id,grant_id,credential,repo_tar,prompt,output_pub}`.
    `credential` is the `claude-subscription/1` JSON object (project the local
    credential store to the validator’s `ACCEPTED_OAUTH_FIELDS` before sealing), `repo_tar` is base64 tar,
+   Alternatively, `credential` may be
+   `{schema:"dsmack-sealed-credential/1",box:{epk,iv,ct}}`. The credential-owning
+   client seals its ordinary credential JSON to this same node with task ID
+   `job_id + "/credential"`; the browser carries that opaque nested envelope
+   inside its outer job. The guest opens it before invoking the worker.
    `prompt` is text, `output_pub` is 64-byte P-256 x||y hex. Both IDs must agree
-   with the control frame/grant. The pinned compose fixes the agent configuration.
+   with the control frame/grant. The pinned compose fixes the agent configuration. With measured `INFERENCE_PROVIDER`, credential is `{schema:"dsmack-broker-inference/1",token,job_id}` and the worker uses the pinned broker/model through the guest-local hostname gateway with `list_files`, `read_file`, and `write_file` tools. The broker capability is scoped to this job and its signed grant; the broker verifies NEAR gateway and per-model attestation before its encrypted model call. The broker CVM handles plaintext. The provider API key remains in that CVM. Without that configuration it uses the Claude credential path; provider errors fail the job.
 4. Node writes credential to tmpfs `/run/dsmack/credential`, runs one pinned
    `agent-turns/find.py` edit turn with repo and outputs in tmpfs, and removes
    the credential and work directory before accepting another job.

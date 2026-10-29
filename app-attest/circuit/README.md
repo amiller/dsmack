@@ -16,14 +16,11 @@ directory:
 . ./env.sh
 ./check-leaf.sh fixture.json   # witness generation for one fixture
 ./prove-leaf.sh                # proofs for the Mac, iPhone and fresh-Mac fixtures
-python3 negative-leaf.py       # tampered public inputs fail witness generation
-python3 test-leaf.py           # parser unit tests under nargo
 ```
 
 Fixture JSON contains hex strings `cert`, `intermediate`, `auth`, and
-`clientData`. `prepare-leaf.py` turns a fixture into `Prover.toml`; optional
-`intermediate_x`, `intermediate_y` and `public_inputs` override witness values
-for negative tests. Builds run in `tools/attest-build/leaf` under a lock.
+`clientData`. `prepare-leaf.py` turns a fixture into `Prover.toml`.
+Builds run in `tools/attest-build/leaf` under a lock.
 
 `prove-leaf.sh` compiles the circuit, writes the VK, proves and natively
 verifies each fixture, checks the public outputs against fixture-derived

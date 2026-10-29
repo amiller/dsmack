@@ -52,6 +52,10 @@ verification and cleanup.
 
 | Path | Role |
 |---|---|
+| [`applications/private-agent-web/`](applications/private-agent-web/README.md) | Browser chat and sealed coding jobs on attested Mac nodes |
+| [`applications/relay-broker/`](applications/relay-broker/README.md) | Grants, inference credit, payments and native libp2p forwarding |
+| [`applications/browser-p2p/`](applications/browser-p2p/README.md) | Mac-owned quick tunnel and static browser peer |
+| [`applications/payments/`](applications/payments/README.md) | Base Sepolia allowance, metering and settlement loop |
 | [`app-attest/`](app-attest/README.md) | App Attest verification in Solidity and a Noir proof circuit |
 | [`contracts/`](contracts/DEPLOY.md) | Approved-code and App Attest key registries; bounty escrow in `work-escrow/` |
 | [`runner-vm/`](runner-vm/README.md) | Signed macOS app and its libkrun/Apple Hypervisor backend |
@@ -96,5 +100,5 @@ Set up the tools as in [CONTRIBUTING.md](CONTRIBUTING.md), then:
 ./test.sh
 ```
 
-This runs the Python verifier tests, both Foundry projects and the leaf circuit.
-Each component README lists its own tests.
+This runs Python, Node, Deno and Go suites, the Foundry projects and leaf circuit.
+The private-agent page README also gives the browser boundary test command.

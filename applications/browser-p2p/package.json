@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "description": "Static browser to attested guest over a public WSS circuit relay",
   "scripts": {
-    "build": "mkdir -p dist && cp index.html dist/ && esbuild main.js --bundle --format=esm --platform=browser --outfile=dist/bundle.js"
+    "build": "mkdir -p dist && cp index.html dist/ && esbuild main.js --bundle --format=esm --platform=browser --outfile=dist/bundle.js",
+    "contract": "mkdir -p contract-build && solcjs --bin --abi --optimize TunnelIndex.sol -o contract-build"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "17.0.0",

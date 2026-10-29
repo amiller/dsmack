@@ -4,7 +4,7 @@ const [url, dir]=process.argv.slice(2)
 const browser=await chromium.launch({headless:true,args:['--no-sandbox']})
 try {
  const page=await browser.newPage(); const events=[]
- page.on('websocket',ws=>events.push({type:'websocket',url:ws.url(),time:new Date().toISOString()}))
+ page.on('websocket',ws=>{events.push({type:'websocket',url:ws.url(),time:new Date().toISOString()});ws.on('socketerror',error=>events.push({type:'socketerror',url:ws.url(),error:String(error)}))})
  page.on('console',msg=>events.push({type:'console',text:msg.text()}))
  page.on('pageerror',e=>events.push({type:'pageerror',text:e.stack}))
  // Fail if any browser fetch or WebSocket attempts a private mesh connection.
@@ -14,7 +14,7 @@ try {
  await page.goto(url)
  await page.waitForFunction(()=>window.result || window.failure,{},{timeout:65000})
  await page.screenshot({path:dir+'/browser.png',fullPage:true})
- const result=await page.evaluate(()=>({result:window.result,failure:window.failure}))
+ const result=await page.evaluate(()=>({result:window.result,failure:window.failure,attempts:window.attempts}))
  await fs.writeFile(dir+'/browser-events.json',JSON.stringify(events,null,2))
  await fs.writeFile(dir+'/browser-result.json',JSON.stringify(result,null,2))
  if(result.failure)throw Error(result.failure)

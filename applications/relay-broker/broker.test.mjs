@@ -171,3 +171,16 @@ test("real compute assertion binds node identity, bundle key and receipt key", a
   const g=await b.grant(signed({...request,relay_peer:compute.relay_peer,unit:"seconds",amount:30}));
   assert.equal(g.seconds,30);
 });
+
+test("draining compute nodes renew but are excluded from new job routing", async () => {
+  const c = JSON.parse(readFileSync(new URL("fixtures/compute.json", import.meta.url)));
+  let now = NOW;
+  const b = broker({cfg:{workloads:[{...c,service:"node"}]},now:()=>now});
+  await b.register({...c,admit_until:NOW+1});
+  assert.equal(b.live().length,1);
+  now+=2;
+  assert.equal(b.live().length,0);
+  await b.register({...c,admit_until:NOW+1});
+  assert.equal(b.live().length,0);
+  assert.equal(b.relays.size,1);
+});

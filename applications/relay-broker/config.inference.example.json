@@ -1,0 +1,9 @@
+{
+  "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
+  "starterCreditNanoUsd": "10000000",
+  "maxNanoUsdPerToken": "1500",
+  "maxOutputTokens": 512,
+  "gatewayComposeHashes": [],
+  "modelComposeHashes": [],
+  "origins": ["https://pod.dstack.soc1024.com", "http://127.0.0.1:18271"]
+}

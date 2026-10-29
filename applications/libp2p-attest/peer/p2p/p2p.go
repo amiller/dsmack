@@ -206,6 +206,6 @@ func Main() {
 	case len(args) >= 3 && args[0] == "dial":
 		dialMain(args[1], args[2:])
 	default:
-		log.Fatal("usage: keygen <file> | relay <listen maddr> <key file> [broker WSS URL broker PeerId] | serve <relay maddr> <seconds> [attestation file] | dial <circuit maddr> <verifier cmd...>")
+		log.Fatal("usage: keygen <file> | relay <listen maddr> <key file> [broker HTTPS backhaul base broker PeerId] | serve <relay maddr> <seconds> [attestation file] | dial <circuit maddr> <verifier cmd...>")
 	}
 }

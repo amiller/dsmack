@@ -28,6 +28,7 @@ export async function sandbox(req, broker, readBody, token, fetcher = fetch) {
       const transport = await nativeTransport(broker.cfg);
       const result = { transport: "shared-deno-libp2p", peer_id: transport.peerId };
       if (broker.cfg.sandbox_probe) result.probe = await transport.probe(broker.cfg.sandbox_probe, { signal: req.signal });
+      result.diagnostics = transport.snapshot();
       return Response.json(result);
     }
     catch { throw new Refused("sandbox_transport_unavailable", 503); }

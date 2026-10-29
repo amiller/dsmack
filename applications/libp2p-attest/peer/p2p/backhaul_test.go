@@ -8,10 +8,10 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
@@ -20,7 +20,7 @@ import (
 	ma "github.com/multiformats/go-multiaddr"
 )
 
-func TestBrokerCanUseOutboundWebSocketRelayForPrivateCircuit(t *testing.T) {
+func TestBrokerCanUseOutboundHTTPRelayForPrivateCircuit(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
 	defer cancel()
 	broker, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"), libp2p.EnableRelay())
@@ -32,48 +32,73 @@ func TestBrokerCanUseOutboundWebSocketRelayForPrivateCircuit(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	upgrader := websocket.Upgrader{}
+	var mu sync.Mutex
+	channels := map[string]net.Conn{}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/relay-broker/sandbox/p2p" {
-			t.Error("wrong shared HTTP route")
+		const prefix = "/relay-broker/sandbox/p2p"
+		if r.Method == "POST" && r.URL.Path == prefix+"/open" {
+			conn, err := net.Dial("tcp", "127.0.0.1:"+addr)
+			if err != nil {
+				t.Error(err)
+				w.WriteHeader(500)
+				return
+			}
+			id := strings.Repeat("ab", 32)
+			mu.Lock()
+			channels[id] = conn
+			mu.Unlock()
+			io.WriteString(w, `{"id":"`+id+`"}`)
+			return
+		}
+		parts := strings.Split(strings.TrimPrefix(r.URL.Path, prefix+"/"), "/")
+		mu.Lock()
+		conn := channels[parts[0]]
+		mu.Unlock()
+		if conn == nil {
 			w.WriteHeader(404)
 			return
 		}
-		ws, err := upgrader.Upgrade(w, r, nil)
-		if err != nil {
-			t.Error(err)
+		if r.Method == "DELETE" {
+			conn.Close()
+			mu.Lock()
+			delete(channels, parts[0])
+			mu.Unlock()
+			w.WriteHeader(204)
 			return
 		}
-		defer ws.Close()
-		conn, err := net.Dial("tcp", "127.0.0.1:"+addr)
-		if err != nil {
-			t.Error(err)
+		if len(parts) != 2 {
+			w.WriteHeader(404)
 			return
 		}
-		defer conn.Close()
-		go func() {
-			defer conn.Close()
-			defer ws.Close()
-			buffer := make([]byte, 32<<10)
-			for {
-				n, err := conn.Read(buffer)
-				if n > 0 && ws.WriteMessage(websocket.BinaryMessage, buffer[:n]) != nil {
-					return
-				}
-				if err != nil {
-					return
-				}
-			}
-		}()
-		for {
-			kind, reader, err := ws.NextReader()
-			if err != nil || kind != websocket.BinaryMessage {
+		if r.Method == "POST" && parts[1] == "send" {
+			raw, err := io.ReadAll(io.LimitReader(r.Body, (64<<10)+1))
+			if err != nil || len(raw) > 64<<10 {
+				w.WriteHeader(400)
 				return
 			}
-			if _, err := io.Copy(conn, reader); err != nil {
+			if _, err := conn.Write(raw); err != nil {
+				w.WriteHeader(500)
 				return
 			}
+			w.WriteHeader(204)
+			return
 		}
+		if r.Method == "GET" && parts[1] == "recv" {
+			conn.SetReadDeadline(time.Now().Add(100 * time.Millisecond))
+			raw := make([]byte, 64<<10)
+			n, err := conn.Read(raw)
+			if n > 0 {
+				w.Write(raw[:n])
+				return
+			}
+			if timeout, ok := err.(net.Error); ok && timeout.Timeout() {
+				w.WriteHeader(204)
+				return
+			}
+			w.WriteHeader(404)
+			return
+		}
+		w.WriteHeader(404)
 	}))
 	defer server.Close()
 	operator, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"), libp2p.ForceReachabilityPublic(), libp2p.DisableRelay())
@@ -86,7 +111,7 @@ func TestBrokerCanUseOutboundWebSocketRelayForPrivateCircuit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if err := maintainBackhaul(ctx, operator, "ws"+strings.TrimPrefix(server.URL, "http")+"/relay-broker/sandbox/p2p", broker.ID().String()); err != nil {
+	if err := maintainBackhaul(ctx, operator, server.URL+"/relay-broker/sandbox/p2p", broker.ID().String()); err != nil {
 		t.Fatal(err)
 	}
 	for broker.Network().Connectedness(operator.ID()) != network.Connected {

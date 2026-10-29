@@ -1,7 +1,8 @@
 # Update the inference broker
 
-The broker runs as shared Deno in the existing `relay-broker` project. W3 owns
-`private-agent` and its deployment. This tool updates only `relay-broker`.
+The broker runs as shared Deno in the existing `relay-broker` project.
+`applications/private-agent-web/deploy.py` deploys the separate `private-agent`
+page. This tool updates only `relay-broker`.
 The existing CVM, persistent data directory, escrow and signing key identities
 remain in place. It performs no chain transaction or substrate update.
 
@@ -123,3 +124,41 @@ The live update command deliberately preserves the current escrow. A later
 escrow switch is separate: finish all old purchase/settlement/refund consumers
 and register needed classes before switching, or implement multi-escrow support.
 Preserving an old state file alone does not serve its outstanding purchases.
+
+
+## Connect an operator relay to shared Deno
+
+A relay on a private operator network opens an outbound authenticated libp2p
+connection through finite HTTPS frames. Set `sandbox_backhaul_peers` to its
+existing PeerId in the broker configuration before preparing the package. The
+broker accepts Noise connections only from those relay identities. Its internal
+WebSocket listener stays on loopback; the public path uses ordinary HTTPS.
+
+After each broker promotion, obtain its new transport PeerId:
+
+```sh
+curl --fail --silent --show-error \
+  https://pod.dstack.soc1024.com/relay-broker/sandbox/transport
+```
+
+Build the relay on zed under `/data`, then run it there with its existing local
+key and the returned `peer_id`:
+
+```sh
+(cd applications/libp2p-attest/peer && go build -o /data/OPERATOR/dsmack-relay .)
+/data/OPERATOR/dsmack-relay relay /ip4/0.0.0.0/tcp/4033 \
+  /data/OPERATOR/relay.key \
+  https://pod.dstack.soc1024.com/relay-broker/sandbox/p2p BROKER_TRANSPORT_PEER_ID
+```
+
+The relay prints a connection confirmation. A configured `sandbox_probe`
+containing that relay's public multiaddress makes `/sandbox/transport` also
+check reachability before launching nodes. Keep the relay key on zed. A broker
+promotion changes its ephemeral transport identity; restart the owned relay
+with that new identity before starting the next job.
+
+The backhaul opens `POST /sandbox/p2p/open`, then uses bounded binary
+`POST /sandbox/p2p/:channel/send` and `GET /sandbox/p2p/:channel/recv` frames,
+closing with `DELETE /sandbox/p2p/:channel`. The random channel capability is
+transport state. Noise authenticates and encrypts the libp2p connection; job
+payloads retain their separate browser-to-node encryption.

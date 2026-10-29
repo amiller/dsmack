@@ -54,7 +54,7 @@ def main():
         (a.state/'workload/disk/workload.img').rename(run/'workload.img')
         import shutil
         shutil.copyfile(a.state/'workload/compose-manifest.json',run/'compose-manifest.json')
-        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18290','--model-host',hostname],'proxy.log')
+        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18290','--model-host',hostname,'--connection-seconds','540'],'proxy.log')
         guest=start([sys.executable,ROOT/'applications/libp2p-attest/run-mac.py',a.runner,run],'guest-launch.log')
         peer=wait_for(run/'out/console-v3.log',r'peer [^\n]*/p2p-circuit/p2p/(12D3KooW[1-9A-HJ-NP-Za-km-z]{44})',180)
         locator['guestPeer']=peer

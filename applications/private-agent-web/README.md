@@ -2,8 +2,10 @@
 
 A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
 nodes. Create or connect an Ethereum wallet to receive $0.010000 starter chat
-credit. The wallet signs credit and chat actions; chatting needs no ETH purchase.
-Sandbox seconds use the separate Base Sepolia escrow controls.
+credit and a first sandbox job of up to 180 seconds. Sending a first message or
+job also creates a browser wallet automatically. The wallet signs credit and job
+actions; starter use needs no ETH purchase. Existing Base Sepolia escrow purchases can
+still be checked and refunded.
 
 The broker verifies fresh NEAR attestation. Before sending a message, the browser
 checks its nonce, model and encryption-key address, then encrypts the conversation
@@ -28,11 +30,16 @@ to the existing pod. Set `SANDBOX_SOURCE` to the absolute path of
 `applications/compute-node/browser/sandbox.mjs` when building against a separate
 sandbox checkout. `config.json` supplies public deployment pins and the RPC.
 
-Load an approved sandbox policy in Trust settings, select a repository snapshot
-or the sample, enter a task and verify a fresh node. The browser obtains a
-job-scoped broker capability from its confirmed grant and seals it to the guest;
-provider keys remain in the broker CVM. It verifies the job attestation and receipt
-before decrypting the patch and transcript. Download the diff for `git apply`.
+The approved policy and Apple enrollment ship in the page source as
+`sandbox-policy.json`, imported into `cfg.sandboxPolicy`. Run the included task
+to use the sample repository. The page discovers a compatible node and verifies
+it automatically, obtains a wallet-bound starter grant and job-scoped model
+capability, then seals the job to the guest. It verifies the job attestation,
+receipt and output hashes before applying the patch to the included repository
+in browser memory and displaying the updated files. Provider keys remain in
+the broker CVM. Advanced controls support a custom repository snapshot, policy
+override, existing credit and patch download. The wallet panel has its address,
+a copy button and a Base Sepolia faucet link for additional paid use.
 
 Deploy the built page to the `private-agent` shared Deno project:
 
@@ -48,3 +55,16 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```
+
+With Playwright and Chromium installed, exercise the deployed first visit with
+fresh browser storage, starter credit, a real chat and an automatically verified
+sandbox job:
+
+```sh
+python3 friend-check.py --url https://pod.dstack.soc1024.com/private-agent/ \
+  --out /absolute/path/to/local-data/friend-browser
+```
+
+The check uses the visible wallet, chat and sandbox controls. It records
+screenshots, the signed job evidence, the applied sample file and a downloaded
+patch whose hash matches the attested output statement.

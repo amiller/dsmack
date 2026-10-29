@@ -15,19 +15,22 @@ import {
 } from "./credit.mjs";
 import { brokerStream, PRIVACY } from "./inference.mjs";
 import * as sandbox from "@sandbox";
+import approvedSandboxPolicy from "./sandbox-policy.json";
+import { applyVerifiedPatch } from "./patch.mjs";
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   encode = new TextEncoder();
 let cfg,
   credit,
   quote,
-  classes = [],
   policy,
   node,
   verifiedAt,
   repoTar,
+  repoFiles,
   patch,
-  agent;
+  agent,
+  starterSandboxUsed = false;
 function error(e) {
   $("alert").textContent = e.message || String(e);
   $("alert").hidden = false;
@@ -82,17 +85,29 @@ async function api(path, body, opts = {}) {
     try {
       e = JSON.parse(raw).error;
     } catch {}
-    throw new Error(
-      typeof e === "object"
-        ? (e.code + ": " + e.message)
-        : e || `Broker ${path}: HTTP ${response.status}`,
-    );
+    const code = typeof e === "object" ? e?.code : e;
+    const friendly = code === "starter_sandbox_used"
+      ? "Your starter sandbox job has already been reserved by this wallet. Additional starter time is not available for this trial."
+      : code === "diagnostic_node_not_live"
+      ? "The selected sandbox retired before your job was reserved. No repository or task was sent."
+      : undefined;
+    const message = friendly || (typeof e === "object"
+      ? [e?.code, e?.message].filter(Boolean).join(": ")
+      : e) ||
+      `Broker ${path}: HTTP ${response.status}`;
+    throw Object.assign(new Error(message), { code, status: response.status });
   }
   return opts.stream ? response : response.json();
 }
 function render() {
   $("wallet").textContent = credit.address || "No wallet connected";
   $("burner").disabled = !!credit.address;
+  $("connect").disabled = !!credit.address;
+  $("wallet-tools").hidden = !credit.address;
+  $("sandbox-credit").dataset.remainingJobs = starterSandboxUsed ? "0" : "1";
+  $("sandbox-credit").textContent = starterSandboxUsed
+    ? "Starter sandbox job reserved · Its submitted job will not be retried automatically."
+    : "Your first sandbox job includes up to 180 seconds. No testnet ETH needed.";
   const list = $("purchases");
   list.replaceChildren();
   if (!credit.purchases.length) {
@@ -140,7 +155,6 @@ function render() {
     list.append(div);
   }
   renderChatCredit();
-  renderPrice();
 }
 function renderChatCredit() {
   const c = credit.chatCredit;
@@ -153,13 +167,7 @@ function renderChatCredit() {
     ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
       c.pendingInferenceId ? " · Usage pending" : ""
     }`
-    : "Receive $0.010000 starter credit. No ETH purchase needed for chat.";
-}
-function renderPrice() {
-  const q = classes.find((c) => Number(c.unit) === 1);
-  $("price").textContent = q
-    ? `${q.price} wei per sandbox second`
-    : "Sandbox credit is unavailable on this broker.";
+    : "Receive $0.010000 chat credit and a first sandbox job. No testnet ETH needed.";
 }
 async function claimChatCredit() {
   require(
@@ -176,35 +184,28 @@ async function claimChatCredit() {
     "Chat credit belongs to another wallet.",
   );
   credit.chatCredit = result;
-  renderChatCredit();
+  starterSandboxUsed = !!await store(
+    "sandbox-starter:" + credit.address.toLowerCase(),
+  );
+  render();
+}
+async function ensureWallet() {
+  if (!credit.signer) await credit.burner();
+  if (!credit.chatCredit) await claimChatCredit();
 }
 async function refreshServices() {
   await credit.checkBroker(api);
-  const [prices, inference] = await Promise.allSettled([
-    api("/payments/classes"),
-    api("/inference/quote"),
-  ]);
-  classes = prices.status === "fulfilled" ? prices.value : [];
-  if (inference.status === "fulfilled") {
-    quote = inference.value;
-    require(
-      quote.mode === "broker-e2ee" && quote.provider === "near" &&
-        typeof quote.model === "string",
-      "Broker does not offer browser-encrypted NEAR chat.",
-    );
-    setModel();
-    $("service").textContent = quote.configured
-      ? "Chat ready · " + PRIVACY
-      : "Private inference is not configured.";
-    if (credit.signer && quote.configured) await claimChatCredit();
-  } else {
-    quote = undefined;
-    $("service").textContent = inference.reason.message;
-  }
-  if (prices.status === "rejected") {
-    $("price").textContent = "Sandbox classes unavailable: " +
-      prices.reason.message;
-  }
+  quote = await api("/inference/quote");
+  require(
+    quote.mode === "broker-e2ee" && quote.provider === "near" &&
+      typeof quote.model === "string",
+    "Broker does not offer browser-encrypted NEAR chat.",
+  );
+  setModel();
+  $("service").textContent = quote.configured
+    ? "Chat ready · " + PRIVACY
+    : "Private inference is not configured.";
+  if (credit.signer && quote.configured) await claimChatCredit();
   $("pins").textContent = JSON.stringify(
     {
       chainId: 84532,
@@ -314,10 +315,7 @@ function initChat() {
         quote?.configured,
         "Private inference is not configured on this broker.",
       );
-      require(
-        credit.signer && credit.chatCredit,
-        "Create or connect a wallet to receive starter chat credit.",
-      );
+      await ensureWallet();
       require(
         !credit.chatCredit.pendingInferenceId,
         "Usage is unresolved. Reconcile provider usage before sending another message.",
@@ -375,22 +373,42 @@ function loadPolicy(raw) {
   policy = p;
   node = undefined;
   $("node-status").textContent =
-    "Trusted policy loaded. Verify a node to continue.";
+    "Approved sandbox policy included. A node will be verified when you run.";
 }
-async function discover() {
+async function discover({ wait = false } = {}) {
   await credit.checkBroker(api);
   require(
     policy,
-    "Load the independently approved sandbox policy in Trust settings before sending a job.",
+    "The bundled sandbox policy could not load. Refresh the page before sending a job.",
   );
-  const nodes = await api("/nodes");
+  const manifestHash = sandbox.hex(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)),
+  );
+  const deadline = Date.now() + (wait ? 90000 : 0);
+  let selected;
+  do {
+    const nodes = await api("/nodes");
+    selected = nodes.filter((entry) =>
+      entry.kind === "compute" &&
+      entry.manifest_sha256 === manifestHash &&
+      entry.cdhash === policy.cdhash &&
+      Number(entry.admit_until) * 1000 >= Date.now() + 30000
+    )
+      .sort((a, b) => b.admit_until - a.admit_until)[0];
+    if (selected || Date.now() >= deadline) break;
+    $("job-status").textContent =
+      "Waiting for an approved sandbox to warm up. Your starter job has not been used…";
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+  } while (true);
   require(
-    nodes.length,
-    "No warm sandbox node is available. Try fresh discovery when one is running.",
+    selected,
+    "No approved sandbox is available right now. Your starter job has not been used. Please try again shortly.",
   );
+  $("node-status").textContent =
+    "Checking the sandbox's Apple attestation, approved build and bound keys…";
   const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
   const registration = await api(
-    "/sandbox/nodes/" + encodeURIComponent(nodes[0].relay_peer) +
+    "/sandbox/nodes/" + encodeURIComponent(selected.relay_peer) +
       "/attestation?challenge=" + challenge,
   );
   const resolved = { ...policy, challenge };
@@ -415,44 +433,77 @@ async function discover() {
   $("node-evidence").textContent = JSON.stringify(registration, null, 2);
 }
 async function run() {
-  const p = credit.forSpend(1);
-  require(
-    p,
-    "CREDIT_NOT_CONFIRMED: Confirm sandbox credit before sending a job.",
-  );
-  require(
-    !p.uncertain && !p.receipt && BigInt(p.amount) - BigInt(p.used || 0) > 0n,
-    "CREDIT_EXHAUSTED: This sandbox purchase has been used or its result is unresolved.",
-  );
+  await ensureWallet();
   await credit.checkBroker(api);
+  require(repoTar, "Choose a repository or reset the included sample.");
   require(
-    repoTar,
-    "Choose a repository snapshot or use the sample repository.",
+    $("job-prompt").value.trim(),
+    "Describe the change you want the sandbox to make.",
   );
-  require($("job-prompt").value.trim(), "Enter a sandbox task.");
-  require(
-    node && Date.now() - verifiedAt < 30000,
-    "Verify a fresh sandbox node before sending the task.",
-  );
+  $("job-status").textContent = "Finding and verifying an approved sandbox…";
+  if (!node || Date.now() - verifiedAt >= 30000) await discover({ wait: true });
   require(
     node.policy.provider?.schema === "dsmack-broker-model/1",
-    "The pinned sandbox must use broker-verified TEE inference.",
+    "The approved sandbox must use broker-verified TEE inference.",
   );
-  require(
-    node.registration.payments?.escrow.toLowerCase() ===
-        cfg.escrow.toLowerCase() && node.registration.payments.node === p.node,
-    "Verified node belongs to another escrow or credit class.",
-  );
+  const p = credit.forSpend(1);
   const jobId = sandbox.hex(crypto.getRandomValues(new Uint8Array(16)));
-  const grant = await api(
-    "/payments/grant",
-    await signed(credit.client, {
-      client_peer: credit.client.peer,
-      purchaseId: p.purchaseId,
-      txHash: p.txHash,
-      runId: node.registration.payments.runId,
-    }),
-  );
+  let grant;
+  if (p) {
+    require(
+      !p.uncertain && !p.receipt && BigInt(p.amount) - BigInt(p.used || 0) > 0n,
+      "This paid sandbox credit is used or awaiting its usage receipt. Your saved purchase details are below.",
+    );
+    require(
+      node.registration.payments?.escrow.toLowerCase() ===
+          cfg.escrow.toLowerCase() &&
+        node.registration.payments.node === p.node,
+      "The available sandbox does not match this paid credit class.",
+    );
+    grant = await api(
+      "/payments/grant",
+      await signed(credit.client, {
+        client_peer: credit.client.peer,
+        purchaseId: p.purchaseId,
+        txHash: p.txHash,
+        runId: node.registration.payments.runId,
+      }),
+    );
+  } else {
+    const reserveStarter = async () =>
+      api(
+        "/sandbox/starter-grant",
+        await walletBody(credit, "sandbox-grant", {
+          client_peer: credit.client.peer,
+          node_peer: node.registration.relay_peer,
+          job_id: jobId,
+        }),
+      );
+    let starter;
+    try {
+      starter = await reserveStarter();
+    } catch (failure) {
+      if (failure.code === "starter_sandbox_used") {
+        starterSandboxUsed = true;
+        await store("sandbox-starter:" + credit.address.toLowerCase(), true);
+        render();
+        throw failure;
+      }
+      if (failure.code !== "diagnostic_node_not_live") throw failure;
+      $("job-status").textContent =
+        "The sandbox rotated. Verifying a fresh node before reserving your job…";
+      node = undefined;
+      await discover({ wait: true });
+      starter = await reserveStarter();
+    }
+    grant = starter.grant;
+    starterSandboxUsed = starter.allowance.remainingJobs === 0;
+    await store(
+      "sandbox-starter:" + credit.address.toLowerCase(),
+      starterSandboxUsed,
+    );
+    render();
+  }
   const credential = await sandbox.requestCapability(cfg.broker, {
     node,
     client: credit.client,
@@ -467,8 +518,10 @@ async function run() {
     prompt: $("job-prompt").value,
     client: credit.client,
   });
-  p.uncertain = true;
-  await credit.save();
+  if (p) {
+    p.uncertain = true;
+    await credit.save();
+  }
   $("job-status").textContent =
     "Job sealed to the verified guest. Waiting for an attested result…";
   let result;
@@ -476,7 +529,7 @@ async function run() {
     result = await sandbox.receive(await sandbox.submitJob(cfg.broker, job));
   } catch (failure) {
     const returned = failure.response?.payment_receipt;
-    if (returned) {
+    if (returned && p) {
       const envelope = { ...returned, nodeBinding: grant.nodeBinding };
       try {
         credit.checkReceipt(envelope, p);
@@ -513,12 +566,14 @@ async function run() {
   await sandbox.verifyReceipt(node, result, job);
   const outputs = await sandbox.openOutputs(job, result);
   const receipt = result.payment_receipt;
-  require(receipt, "Paid sandbox result has no settlement receipt.");
-  p.receipt = { ...receipt, nodeBinding: grant.nodeBinding };
-  p.used = String(receipt.receipt.used);
-  p.uncertain = false;
-  await credit.save();
-  await api("/payments/receipts", receipt);
+  if (p) {
+    require(receipt, "Paid sandbox result has no settlement receipt.");
+    p.receipt = { ...receipt, nodeBinding: grant.nodeBinding };
+    p.used = String(receipt.receipt.used);
+    p.uncertain = false;
+    await credit.save();
+    await api("/payments/receipts", receipt);
+  }
   $("job-status").textContent =
     `Verified job attestation and receipt · ${result.statement.seconds_used} seconds. Patch decrypted and hashes verified.`;
   $("job-evidence").textContent = JSON.stringify(
@@ -532,7 +587,25 @@ async function run() {
     2,
   );
   patch = outputs.patch;
-  renderDiff(decode.decode(patch));
+  const patchText = decode.decode(patch);
+  renderDiff(patchText);
+  $("updated-files").replaceChildren();
+  if (repoFiles) {
+    const applied = applyVerifiedPatch(repoFiles, patchText);
+    repoFiles = applied.files;
+    repoTar = sampleTar(repoFiles);
+    for (const name of applied.changes) {
+      const heading = document.createElement("h3"),
+        contents = document.createElement("pre");
+      heading.textContent = name;
+      contents.textContent = repoFiles.get(name) ?? "File deleted";
+      contents.dataset.file = name;
+      $("updated-files").append(heading, contents);
+    }
+    $("job-status").textContent +=
+      " Patch applied to the included repository in this browser.";
+    $("job-status").dataset.patchApplied = "true";
+  }
   $("transcript").textContent = decode.decode(outputs.transcript);
   $("download").disabled = false;
   node = undefined;
@@ -552,30 +625,58 @@ function renderDiff(text) {
     $("diff").append(span);
   }
 }
-function sampleTar() {
-  const content = encode.encode("Hello world.\n"), header = new Uint8Array(512);
-  const put = (pos, text) => header.set(encode.encode(text), pos);
-  put(0, "greet.txt");
-  put(100, "0000644\0");
-  put(108, "0000000\0");
-  put(116, "0000000\0");
-  put(124, content.length.toString(8).padStart(11, "0") + "\0");
-  put(136, "00000000000\0");
-  put(148, "        ");
-  put(156, "0");
-  put(257, "ustar\0");
-  put(263, "00");
-  const sum = header.reduce((a, b) => a + b, 0);
-  put(148, sum.toString(8).padStart(6, "0") + "\0 ");
-  const tar = new Uint8Array(2048);
-  tar.set(header);
-  tar.set(content, 512);
+function resetSample() {
+  repoFiles = new Map([["greet.txt", "Hello world.\n"]]);
+  repoTar = sampleTar(repoFiles);
+  $("job-prompt").value =
+    "Replace greet.txt with this single line, including the final period and a newline:\nHello from the private agent.\nLeave all other files unchanged.";
+  $("job-status").textContent =
+    "Included repository ready: greet.txt. Describe a change and run it.";
+  delete $("job-status").dataset.patchApplied;
+  $("updated-files").replaceChildren();
+}
+function sampleTar(files) {
+  const chunks = [];
+  for (const [name, value] of files) {
+    const content = encode.encode(value), header = new Uint8Array(512);
+    require(
+      encode.encode(name).length <= 100,
+      "Updated filename exceeds the sample archive limit.",
+    );
+    const put = (pos, text) => header.set(encode.encode(text), pos);
+    put(0, name);
+    put(100, "0000644\0");
+    put(108, "0000000\0");
+    put(116, "0000000\0");
+    put(124, content.length.toString(8).padStart(11, "0") + "\0");
+    put(136, "00000000000\0");
+    put(148, "        ");
+    put(156, "0");
+    put(257, "ustar\0");
+    put(263, "00");
+    put(
+      148,
+      header.reduce((a, b) => a + b, 0).toString(8).padStart(6, "0") + "\0 ",
+    );
+    const block = new Uint8Array(Math.ceil(content.length / 512) * 512);
+    block.set(content);
+    chunks.push(header, block);
+  }
+  const tar = new Uint8Array(
+    chunks.reduce((total, chunk) => total + chunk.length, 1024),
+  );
+  let offset = 0;
+  for (const chunk of chunks) {
+    tar.set(chunk, offset);
+    offset += chunk.length;
+  }
   return tar;
 }
+
 async function refund() {
   require(credit.address, "Connect the original purchase wallet.");
   const p = credit.purchases.find((p) =>
-    p.unit === Number($("unit").value) && !p.closed && p.purchaseId &&
+    p.unit === 1 && !p.closed && p.purchaseId &&
     p.payer?.toLowerCase() === credit.address.toLowerCase()
   );
   if (!p) {
@@ -610,7 +711,7 @@ async function refund() {
 async function main() {
   const response = await fetch("./config.json", { cache: "no-store" });
   require(response.ok, "Page configuration could not load.");
-  cfg = await response.json();
+  cfg = { ...await response.json(), sandboxPolicy: approvedSandboxPolicy };
   require(cfg.chainId === 84532, "This page is restricted to Base Sepolia.");
   let client = await store("client");
   if (!client) {
@@ -628,16 +729,16 @@ async function main() {
     await credit.connect();
     await claimChatCredit();
   });
+  action("copy-address", async () => {
+    require(credit.address, "Create or connect a wallet first.");
+    await navigator.clipboard.writeText(credit.address);
+    $("copy-address").textContent = "Address copied";
+  });
   action("balance", async () => {
     require(credit.address, "Create or connect a wallet first.");
     $("eth").textContent =
       formatEther(await credit.rpc.getBalance(credit.address)) +
       " Base Sepolia ETH";
-  });
-  action("buy", async () => {
-    await credit.checkBroker(api);
-    const q = classes.find((c) => Number(c.unit) === 1);
-    await credit.buy(q ? { ...q, unit: 1 } : null, $("amount").value);
   });
   action("refresh", async () => {
     for (const p of credit.purchases.filter((p) => p.status === "pending")) {
@@ -648,12 +749,7 @@ async function main() {
   action("refund", refund);
   action("discover", discover);
   action("run", run);
-  action("sample", () => {
-    repoTar = sampleTar();
-    $("job-prompt").value =
-      "Change greet.txt to say Hello from the private agent. Return a patch.";
-    $("job-status").textContent = "Sample repository ready: greet.txt";
-  });
+  action("sample", resetSample);
   action("download", () => {
     require(patch, "No verified patch.");
     const url = URL.createObjectURL(new Blob([patch], { type: "text/x-diff" })),
@@ -663,7 +759,6 @@ async function main() {
     a.click();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   });
-  $("unit").onchange = renderPrice;
   $("policy").onchange = async (event) => {
     try {
       loadPolicy(JSON.parse(await event.target.files[0].text()));
@@ -681,12 +776,18 @@ async function main() {
         "Repository exceeds the 16 MiB input limit.",
       );
       repoTar = new Uint8Array(await file.arrayBuffer());
+      repoFiles = undefined;
+      $("job-status").textContent =
+        "Custom snapshot selected. Your verified patch will be available for download.";
+      delete $("job-status").dataset.patchApplied;
+      $("updated-files").replaceChildren();
     } catch (e) {
       repoTar = undefined;
       error(e);
     }
   };
-  if (cfg.sandboxPolicy) loadPolicy(cfg.sandboxPolicy);
+  loadPolicy(cfg.sandboxPolicy);
+  resetSample();
   document.documentElement.dataset.ready = "true";
   await refreshServices();
 }

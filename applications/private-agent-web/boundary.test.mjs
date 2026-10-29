@@ -182,15 +182,67 @@ async function run(name, kind, fn) {
   console.log(result.status + ": " + name);
 }
 try {
-  await run("wallet-required-before-chat", "valid", async (page, calls) => {
-    await send(page, "This uncredited prompt stays in the browser.");
-    await alert(page, "Create or connect a wallet");
-    assert(
-      !calls.some((r) =>
-        r.path === "/inference/prepare" || r.path === "/inference/chat"
-      ),
+  await run("first-send-creates-wallet", "valid", async (page, calls) => {
+    const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
+    assert.equal(await page.locator("#policy").inputValue(), "");
+    assert.match(
+      await page.locator("#node-status").textContent(),
+      /Approved sandbox policy included/,
     );
+    assert.match(await page.locator("#job-prompt").inputValue(), /greet.txt/);
+    await send(page, marker);
+    await alert(page, "SYNTHETIC_STOP");
+    assert.match(
+      await page.locator("#wallet").textContent(),
+      /^0x[0-9a-f]{40}$/i,
+    );
+    assert(calls.some((r) => r.path === "/inference/credit"));
+    const chat = calls.find((r) => r.path === "/inference/chat");
+    assert(chat && !JSON.stringify(chat.body).includes(marker));
+    assert.equal(await page.locator("#wallet-tools").isVisible(), true);
   });
+  await run(
+    "injected-wallet-switches-to-base-sepolia",
+    "valid",
+    async (page, calls) => {
+      const wallet = Wallet.createRandom();
+      await page.exposeFunction(
+        "fixtureWalletSign",
+        async (hex) => wallet.signMessage(Buffer.from(hex.slice(2), "hex")),
+      );
+      await page.evaluate((address) => {
+        let chainId = "0x1";
+        window.fixtureWalletMethods = [];
+        window.ethereum = {
+          request: async ({ method, params }) => {
+            window.fixtureWalletMethods.push(method);
+            if (method === "eth_chainId") return chainId;
+            if (method === "eth_requestAccounts" || method === "eth_accounts") {
+              return [address];
+            }
+            if (method === "wallet_switchEthereumChain") {
+              chainId = params[0].chainId;
+              return null;
+            }
+            if (method === "personal_sign") {
+              return window.fixtureWalletSign(params[0]);
+            }
+            throw new Error("Unexpected synthetic wallet method " + method);
+          },
+        };
+      }, wallet.address);
+      await page.locator("#connect").click();
+      await page.waitForFunction(() =>
+        document.querySelector("#chat-credit").textContent ===
+          "Chat credit $0.010000"
+      );
+      assert.equal(await page.locator("#wallet").textContent(), wallet.address);
+      const methods = await page.evaluate(() => window.fixtureWalletMethods);
+      assert(methods.includes("wallet_switchEthereumChain"));
+      assert(!methods.some((method) => method.startsWith("eth_send")));
+      assert(calls.some((request) => request.path === "/inference/credit"));
+    },
+  );
   for (const kind of ["nonce", "key"]) {
     await run(
       "provider-" + kind + "-refused-before-chat",

@@ -121,18 +121,50 @@ export class Credit {
   async connect() {
     require(
       window.ethereum,
-      "No injected wallet found. Create a browser wallet and fund its address with Base Sepolia ETH.",
+      "No wallet extension was found. Choose Create browser wallet; starter chat and sandbox need no ETH.",
     );
     require(
       !this.address || !await store("burner"),
       "Browser wallet already active. Use another profile for an injected wallet.",
     );
-    const p = new BrowserProvider(window.ethereum);
-    await p.send("eth_requestAccounts", []);
+    await window.ethereum.request({ method: "eth_requestAccounts" });
+    if (
+      BigInt(await window.ethereum.request({ method: "eth_chainId" })) !==
+        84532n
+    ) {
+      try {
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x14a34" }],
+        });
+      } catch (error) {
+        if (error.code !== 4902) {
+          throw new Error(
+            "Connect on Base Sepolia to continue. Approve the network switch in your wallet.",
+          );
+        }
+        await window.ethereum.request({
+          method: "wallet_addEthereumChain",
+          params: [{
+            chainId: "0x14a34",
+            chainName: "Base Sepolia",
+            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
+            rpcUrls: [this.cfg.rpc],
+            blockExplorerUrls: ["https://sepolia.basescan.org"],
+          }],
+        });
+        await window.ethereum.request({
+          method: "wallet_switchEthereumChain",
+          params: [{ chainId: "0x14a34" }],
+        });
+      }
+    }
     require(
-      (await p.getNetwork()).chainId === 84532n,
-      "Wrong network. Switch your wallet to Base Sepolia (84532).",
+      BigInt(await window.ethereum.request({ method: "eth_chainId" })) ===
+        84532n,
+      "Your wallet must approve Base Sepolia before it can connect.",
     );
+    const p = new BrowserProvider(window.ethereum, 84532);
     this.signer = await p.getSigner();
     this.address = await this.signer.getAddress();
     this.changed();

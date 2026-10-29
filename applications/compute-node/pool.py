@@ -148,6 +148,8 @@ class Pool:
             with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
                 return json.load(response)
         except (HTTPError, URLError, TimeoutError) as error:
+            if isinstance(error, HTTPError) and error.code < 500 and error.code not in (408, 429):
+                raise
             self.event('broker_unavailable', error=type(error).__name__, status=getattr(error, 'code', None))
             return None
 

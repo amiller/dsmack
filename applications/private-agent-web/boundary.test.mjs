@@ -83,7 +83,7 @@ async function backend(page, kind) {
       mode: "broker-e2ee",
       grantedNanoUsd: "10000000",
       spentNanoUsd: "0",
-      remainingNanoUsd: "10000000",
+      remainingNanoUsd: kind === "insufficient" ? "1" : "10000000",
       reservedNanoUsd: "0",
       usedTokens: "0",
       pendingInferenceId: null,
@@ -93,6 +93,7 @@ async function backend(page, kind) {
     }
     if (path === "/inference/prepare") {
       return respond({
+        ...credit,
         sessionId: "12".repeat(16),
         modelPublicKey: kind === "key"
           ? Wallet.createRandom().signingKey.publicKey.slice(4)
@@ -216,6 +217,14 @@ try {
       },
     );
   }
+  await run("insufficient-reservation-refused-before-chat", "insufficient", async (page, calls) => {
+    await page.locator("#burner").click();
+    await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd === "1");
+    await send(page, "Private text must stay here when the token reservation exceeds credit.");
+    await alert(page, "CREDIT_EXHAUSTED.*reservation");
+    assert(calls.some((r) => r.path === "/inference/prepare"));
+    assert(!calls.some((r) => r.path === "/inference/chat"), "Underfunded prompt left the browser");
+  });
   await run(
     "starter-credit-and-encrypted-wire",
     "valid",

@@ -60,7 +60,7 @@ def main():
             except MacOccupied:print('waiting for the other Mac lane',flush=True);time.sleep(10)
         if stopping:raise RuntimeError('stopped before guest launch')
         guest=start([sys.executable,ROOT/'applications/libp2p-attest/run-mac.py',a.runner,run],'guest-launch.log')
-        peer=wait_for(run/'out/console-v3.log',r'peer [^\n]*/p2p-circuit/p2p/(12D3KooW[1-9A-HJ-NP-Za-km-z]{44})',180)
+        peer=wait_for(a.state/'relay.log',r'reserve (12D3KooW[1-9A-HJ-NP-Za-km-z]{44})',180)
         locator['guestPeer']=peer
         (a.state/'locator.json').write_text(json.dumps(locator,indent=2))
         entries=[dict(url=locator['url'],relayPeer=relay,guestPeer=peer,expiresAt=int(time.time())+3300)]

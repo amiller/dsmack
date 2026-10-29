@@ -114,6 +114,13 @@ Signed HTTP publication uses this same Mac-local key and needs no operator token
 Each publisher replaces only its own expiring HTTP hints; the page verifies the
 guest independently of the publisher.
 
+Cross-build the Mac relay on the Linux builder:
+
+```sh
+(cd applications/libp2p-attest/peer && \
+  CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o ../browser-relay ./browser-relay)
+```
+
 ```sh
 python3 applications/browser-p2p/mac-pool.py --state RUN --runner RUNNER \
   --reference REFERENCE --peer BIN/browser-guest-arm64 \

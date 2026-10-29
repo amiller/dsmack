@@ -17,6 +17,7 @@ export {
   keccak256,
   parseEther,
   TypedDataEncoder,
+  verifyMessage,
   Wallet,
 } from "npm:ethers@6.17.0";
 export const CHAIN = 84532;

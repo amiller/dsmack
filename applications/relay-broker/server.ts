@@ -6,7 +6,9 @@ import { rpcChain } from "../../dstack-compat/secret-release/policy.mjs";
 import { withEnrollment } from "./attestation.mjs";
 import { Broker, limits, Refused } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
-import { getSigningKey } from "./key.ts";
+import { getProviderEnvKey, getSigningKey } from "./key.ts";
+import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
+import { providerCheck } from "./provider-check.mjs";
 
 type Context = { env: Record<string, string>; dataDir: string };
 async function load(ctx: Context) {
@@ -44,17 +46,29 @@ async function load(ctx: Context) {
       save: (v: object) => atomicSave(path, v),
     });
   }
-  let inference;
+  let inference, providerEnvironment;
   if (cfg.inference) {
-    const provider =
-      ctx.env.NEAR_MANAGEMENT_TOKEN && ctx.env.NEAR_REPORTING_TOKEN
-        ? new NearProvider({
-          ...cfg.inference,
-          managementToken: ctx.env.NEAR_MANAGEMENT_TOKEN,
-          reportingToken: ctx.env.NEAR_REPORTING_TOKEN,
-          attestationPolicy: cfg.inference,
-        })
-        : undefined;
+    if (!payments) {
+      throw new Error("inference requires a configured payment broker");
+    }
+    const encryptionKey = await getProviderEnvKey(ctx.env.DSTACK_SOCKET);
+    providerEnvironment = await environmentInfo(encryptionKey, payments.key);
+    const secrets = ctx.env.NEAR_ENCRYPTED_ENV
+      ? await decryptEnvelope(
+        JSON.parse(ctx.env.NEAR_ENCRYPTED_ENV),
+        encryptionKey,
+      )
+      : {};
+    const provider = secrets.NEAR_API_KEY ||
+        (secrets.NEAR_MANAGEMENT_TOKEN && secrets.NEAR_REPORTING_TOKEN)
+      ? new NearProvider({
+        ...cfg.inference,
+        apiKey: secrets.NEAR_API_KEY,
+        managementToken: secrets.NEAR_MANAGEMENT_TOKEN,
+        reportingToken: secrets.NEAR_REPORTING_TOKEN,
+        attestationPolicy: cfg.inference,
+      })
+      : undefined;
     inference = new Inference({ payments, cfg: cfg.inference, provider });
     await inference.recover();
   }
@@ -76,6 +90,7 @@ async function load(ctx: Context) {
     credits,
     payments,
     inference,
+    providerEnvironment,
     saveCredits: (value: object) => atomicSave(path, value),
   });
 }
@@ -200,7 +215,21 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         );
       }
       const action = path.slice("/inference/".length);
-      if (req.method === "GET" && action === "quote") {
+      if (req.method === "GET" && action === "environment-key") {
+        response = Response.json(b.providerEnvironment);
+      } else if (req.method === "GET" && action === "status") {
+        response = Response.json(b.inference.status());
+      } else if (req.method === "POST" && action === "provider-check") {
+        response = Response.json(
+          await providerCheck({
+            request: req,
+            provider: b.inference.provider,
+            payments: b.payments,
+            cfg: b.cfg.inference,
+            operatorTokenHash: ctx?.env.OPERATOR_TOKEN_SHA256,
+          }),
+        );
+      } else if (req.method === "GET" && action === "quote") {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&

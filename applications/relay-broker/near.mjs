@@ -29,6 +29,7 @@ export class NearProvider {
       organizationId,
       managementToken,
       reportingToken,
+      apiKey,
       fetcher = fetch,
       verifyAttestation = verifyNearAttestation,
       attestationPolicy,
@@ -40,6 +41,7 @@ export class NearProvider {
       organizationId,
       managementToken,
       reportingToken,
+      apiKey,
       fetcher,
       verifyAttestation,
       attestationPolicy,
@@ -80,6 +82,37 @@ export class NearProvider {
       );
     }
     return r;
+  }
+  get canMint() {
+    return Boolean(
+      this.managementToken && this.reportingToken && this.workspaceId &&
+        this.organizationId,
+    );
+  }
+  async costs({ key, requestIds }) {
+    need(
+      Array.isArray(requestIds) && requestIds.length > 0 &&
+        requestIds.length <= 10000 && requestIds.every(id),
+    );
+    const body = await readJson(
+      await this.request("/v1/billing/costs", {
+        token: key,
+        method: "POST",
+        body: { requestIds },
+      }),
+    );
+    need(
+      Array.isArray(body.requests) &&
+        body.requests.every((r) =>
+          requestIds.includes(r.requestId) && integer(r.costNanoUsd)
+        ),
+    );
+    return {
+      requests: body.requests.map((r) => ({
+        requestId: r.requestId,
+        costNanoUsd: r.costNanoUsd,
+      })),
+    };
   }
   async mint({ name, capNanoUsd, expiresAt }) {
     need(

@@ -187,9 +187,29 @@ export class Inference {
       capNanoUsd: a.capNanoUsd,
       costNanoUsd: a.costNanoUsd,
       expiresAt: a.purchase.expires,
+      activeAt: a.activeAt,
+    };
+  }
+  status() {
+    return {
+      mode: "broker-proxy",
+      provider: "near",
+      model: this.cfg.model,
+      providerConfigured: Boolean(this.provider?.apiKey),
+      delegationConfigured: Boolean(
+        this.provider && this.provider.canMint !== false,
+      ),
+      tokenEscrowConfigured: this.cfg.tokenEscrowReady !== false,
+      privacy: PRIVACY,
     };
   }
   async quote() {
+    check(
+      this.cfg.tokenEscrowReady !== false,
+      "TOKEN_ESCROW_NOT_CONFIGURED",
+      "existing escrow serves sandbox credit; tokens require a separately deployed Sepolia escrow",
+      503,
+    );
     const s = await this.payments.chain.snapshot();
     const node = await s.call("getNode", [this.cfg.node]);
     check(
@@ -213,7 +233,7 @@ export class Inference {
       requestTokenCeiling: this.cfg.requestTokenCeiling,
       maxNanoUsdPerToken: String(this.cfg.maxNanoUsdPerToken),
       finalizedBlock: s.block.hash,
-      configured: Boolean(this.provider),
+      configured: Boolean(this.provider && this.provider.canMint !== false),
     };
   }
   async seal(key, id) {
@@ -240,7 +260,7 @@ export class Inference {
   }
   configured() {
     check(
-      this.provider,
+      this.provider && this.provider.canMint !== false,
       "PROVIDER_NOT_CONFIGURED",
       "Andrew must provision NEAR management and reporting credentials",
       503,

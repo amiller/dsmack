@@ -124,7 +124,7 @@ export function createAgentServer(root, options = {}) {
     try {
       const result = await tool.execute(String(ctx.mcpReq.id), args, signal, onUpdate);
       await notifications;
-      return { content: result.content, _meta: { "dsmack/piDetails": result.details ?? null } };
+      return { content: result.content, ...(result.isError ? { isError: true } : {}), _meta: { "dsmack/piDetails": result.details ?? null } };
     } catch (error) {
       await notifications.catch(() => {});
       return { isError: true, content: [{ type: "text", text: error.message || String(error) }] };

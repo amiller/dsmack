@@ -50,7 +50,7 @@ function action(id, fn) {
     } catch (e) {
       error(e);
     } finally {
-      $(id).disabled = false;
+      $(id).disabled = id === "end-session" ? !guest?.lease : false;
     }
   });
 }
@@ -183,6 +183,7 @@ async function claimChatCredit() {
     "Chat credit belongs to another wallet.",
   );
   credit.chatCredit = result;
+  if (guest) await guest.restore();
   render();
 }
 async function ensureWallet() {
@@ -324,8 +325,25 @@ async function useSession(data) {
   guest = guests.get(conversationId);
   if (!guest) {
     guest = new GuestSession({
-      api, cfg, credit, conversationId, discover,
-      changed: (status) => { const held = guests.get(conversationId); if (held) held.statusSnapshot = status; if (currentSession.id === conversationId) renderGuest(status); },
+      api, cfg, credit, conversationId, discover, savedLease: currentSession.dsmack.guest,
+      changed: (status) => {
+        const held = guests.get(conversationId);
+        if (held) {
+          held.statusSnapshot = status;
+          if (status.lease && held.record && (status.active !== undefined || ["connecting", "released", "held", "disconnected-held"].includes(status.state))) {
+            const record = held.record;
+            record.session.dsmack.guest = {
+              sessionId: status.lease.sessionId, conversationId,
+              wallet: credit.address.toLowerCase(), active: status.active ?? !["released"].includes(status.state),
+              node: status.node || held.node?.registration,
+              environment: status.environment || held.environment,
+              guestSeconds: status.guestSeconds || 0,
+            };
+            lastSave = lastSave.catch(() => {}).then(() => saveChat(storage, record.session, record.agent));
+          }
+        }
+        if (currentSession.id === conversationId) renderGuest(status);
+      },
       repository: () => repoFiles, catalog: piToolCatalog,
     });
     guests.set(conversationId, guest);
@@ -351,6 +369,11 @@ async function useSession(data) {
       }),
     }),
   });
+  guest.record = { session: currentSession, agent };
+  if (credit.signer) {
+    try { await guest.restore(); }
+    catch (e) { renderGuest({ state: guest.lease ? "disconnected-held" : "error", error: e.message }); }
+  }
   setModel();
   $("attestations").replaceChildren();
   for (const e of currentSession.dsmack.evidence) renderEvidence(e);
@@ -522,9 +545,9 @@ function measuredEnvironment() {
   };
 }
 function renderGuest(status) {
-  const held = ["held", "connecting"].includes(status.state);
+  const held = ["held", "connecting", "disconnected-held"].includes(status.state);
   $("end-session").disabled = !held;
-  $("download").disabled = !held;
+  $("download").disabled = status.state !== "held";
   $("repo").disabled = held;
   $("sample").disabled = held;
   $("guest-seconds").textContent = `${status.guestSeconds || 0} guest seconds`;
@@ -534,6 +557,7 @@ function renderGuest(status) {
     verifying: "Verifying an available guest…",
     connecting: "Connecting to the verified guest…",
     held: "Guest held for this conversation: " + status.node?.relay_peer,
+    "disconnected-held": "This conversation holds a disconnected guest. End session before starting a fresh workspace.",
     released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call starts a fresh workspace.",
     ending: "Ending session; waiting for the guest’s signed final usage…",
     disconnected: "Guest stream closed.",

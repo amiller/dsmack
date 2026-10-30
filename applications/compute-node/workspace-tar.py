@@ -16,7 +16,11 @@ MAX_FILES_BYTES = 256 * 1024 * 1024
 
 
 def pack(root):
-    raw = subprocess.check_output(['git', 'ls-files', '--cached', '-z'], cwd=root)
+    head = subprocess.run(['git', 'rev-parse', '--verify', '--quiet', 'HEAD'], cwd=root,
+                          stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    raw = subprocess.check_output(['git', 'ls-tree', '-r', '--name-only', '-z', 'HEAD'], cwd=root) if head.returncode == 0 else b''
+    raw += subprocess.check_output(['git', 'diff', '--cached', '--name-only', '-z',
+                                    '--ita-invisible-in-index', '--diff-filter=ACMR'], cwd=root)
     tracked = {os.fsdecode(name) for name in raw.split(b'\0') if name}
     parents = {str(parent) for name in tracked for parent in PurePosixPath(name).parents}
 

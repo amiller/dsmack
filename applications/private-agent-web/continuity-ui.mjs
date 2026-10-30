@@ -39,7 +39,7 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   const emailInstructions = document.createElement("div");
   emailInstructions.id = "recovery-email-instructions";
   emailInstructions.hidden = true;
-  $("send-recovery-email").after(emailInstructions);
+  $("send-recovery-email").before(emailInstructions);
   const showEmailInstructions = (request) => {
     emailInstructions.replaceChildren();
     const instruction = document.createElement("p");
@@ -82,6 +82,7 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     $("send-recovery-email").href = request.mailto;
     $("send-recovery-email").hidden = false;
     emailInstructions.hidden = false;
+    emailInstructions.scrollIntoView({ block: "nearest" });
   };
   const requestDkim = async (purpose) => {
     $("alert").hidden = true;

@@ -8,6 +8,7 @@ import { Client } from "@modelcontextprotocol/client";
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { createAgentServer, createWorkspaceTools, initializeWorkspace, workspacePath } from "./agent-mcp.mjs";
 import { toolCatalog } from "./pi-tools.mjs";
+import { WorkspaceSnapshots } from "./workspace.mjs";
 const testTmp = tmpdir();
 
 async function workspace(t) {
@@ -63,4 +64,32 @@ test("bash terminates raw output floods", async (t) => {
   const root = await workspace(t);
   const [bash] = createWorkspaceTools(root);
   await assert.rejects(bash.execute("bash", { command: "yes flood" }), /output limit/);
+});
+
+
+test("workspace keys and pending saves survive a browser MCP connection closing", async (t) => {
+  const root = await workspace(t), snapshots = new WorkspaceSnapshots(root);
+  async function connection() {
+    const toServer = new PassThrough(), fromServer = new PassThrough();
+    const handle = serveStdio(() => createAgentServer(root, { snapshots }), { transport: new StdioServerTransport(toServer, fromServer), legacy: "reject" });
+    const client = new Client({ name: "workspace-reconnect-test", version: "1" }, { versionNegotiation: { mode: { pin: "2026-07-28" } } });
+    await client.connect(new StdioServerTransport(fromServer, toServer));
+    return { client, close: async () => { await client.close(); await handle.close(); } };
+  }
+  const first = await connection();
+  await first.client.callTool({ name: "dsmack_workspace", arguments: { operation: "bind", workspaceId: "conversation-reconnect", key: "ab".repeat(32), head: null } });
+  await first.client.callTool({ name: "write", arguments: { path: "survives.txt", content: "browser closed" } });
+  await first.close();
+  const internal = await connection();
+  try {
+    const saved = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "seal" } });
+    assert.equal(saved.structuredContent.version, 1);
+    const repeated = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "seal" } });
+    assert.deepEqual(repeated.structuredContent, saved.structuredContent);
+    const chunk = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "read", offset: 0 } });
+    assert.equal(Buffer.from(chunk.structuredContent.data, "base64").length, saved.structuredContent.size);
+    await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "commit", head: { ...saved.structuredContent, cid: "stored", mac: "mac" } } });
+    const later = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "seal" } });
+    assert.equal(later.structuredContent.version, 2);
+  } finally { await internal.close(); }
 });

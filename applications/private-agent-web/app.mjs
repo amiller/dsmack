@@ -304,7 +304,8 @@ function initChat() {
     editor = document.querySelector("message-editor");
   agent = new Agent({
     initialState: {
-      systemPrompt: "You are a helpful coding assistant.",
+      systemPrompt:
+        'You cannot know which model you are or where you run. Do not guess or state it. If asked, say so and point to the page\'s "Answer evidence" panel, which shows the verified model attestation. In this chat you have no tools: you cannot run commands, browse, or see network details such as IP addresses. Say so plainly instead of guessing. You are a helpful coding assistant.',
       tools: [],
     },
     getApiKey: () => undefined,

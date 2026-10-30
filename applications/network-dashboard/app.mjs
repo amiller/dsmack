@@ -66,9 +66,11 @@ function drawNetwork() {
 }
 function drawHistory() {
   if (!history) return;
-  const chart = $("history-chart"), now = Math.floor(Date.now() / 1000), start = now - 86400, x = t => 55 + (t - start) / 86400 * 720, y = p => 175 - p * 145;
+  const chart = $("history-chart"), width = Math.max(320, Math.min(800, chart.clientWidth || 800));
+  chart.setAttribute("viewBox", `0 0 ${width} 220`);
+  const now = Math.floor(Date.now() / 1000), start = now - 86400, x = t => 55 + (t - start) / 86400 * (width - 80), y = p => 175 - p * 145;
   chart.replaceChildren();
-  for (const p of [0, .5, 1]) chart.append(svg("line", { x1: 55, x2: 775, y1: y(p), y2: y(p), class: "chart-grid" }), svg("text", { x: 42, y: y(p) + 4, "text-anchor": "end", class: "chart-label" }, `${p * 100}%`));
+  for (const p of [0, .5, 1]) chart.append(svg("line", { x1: 55, x2: width - 25, y1: y(p), y2: y(p), class: "chart-grid" }), svg("text", { x: 42, y: y(p) + 4, "text-anchor": "end", class: "chart-label" }, `${p * 100}%`));
   for (const hours of [24, 18, 12, 6, 0]) chart.append(svg("text", { x: x(now - hours * 3600), y: 205, "text-anchor": hours === 24 ? "start" : hours === 0 ? "end" : "middle", class: "chart-label" }, hours ? `${hours}h ago` : "Now"));
   const samples = history.samples.filter(s => s.timestamp >= start && s.timestamp <= now), groups = [];
   for (const s of samples) {
@@ -84,7 +86,7 @@ function drawHistory() {
     }
     group.forEach((s, i) => { const dot = svg("circle", { cx: points[i][0], cy: points[i][1], r: group.length === 1 ? 4 : 2, class: "chart-dot" }); dot.append(svg("title", {}, `${new Date(s.timestamp * 1000).toLocaleString()} · ${s.busy_slots}/${s.total_slots} busy · ${s.ready_slots} ready · ${s.macs_online} Macs online`)); chart.append(dot); });
   }
-  if (!samples.length) chart.append(svg("text", { x: 420, y: 110, "text-anchor": "middle", class: "chart-empty" }, "Waiting for the first minute of history"));
+  if (!samples.length) chart.append(svg("text", { x: width / 2 + 15, y: 110, "text-anchor": "middle", class: "chart-empty" }, "Waiting for the first observation"));
   const since = new Date(history.started_at * 1000).toLocaleString([], { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
   $("history-status").textContent = `Per-minute network totals · ${samples.length.toLocaleString()} observations since ${since}. History is held in memory for 24h and lost on broker restart. Gaps have no observations.`;
 }
@@ -122,6 +124,7 @@ const themes = ["system", "light", "dark"];
 let theme = "system";
 $("theme").onclick = () => { theme = themes[(themes.indexOf(theme) + 1) % themes.length]; if (theme === "system") delete document.documentElement.dataset.theme; else document.documentElement.dataset.theme = theme; $("theme").textContent = `Theme: ${theme}`; };
 $("refresh").onclick = () => { refresh(); readChain(); };
+window.addEventListener("resize", drawHistory);
 try {
   const response = await fetch("./config.json"); if (!response.ok) throw Error("Cannot read the dashboard configuration"); config = await response.json();
   chain = new NetworkChain(config); $("agent-link").href = config.agent; $("network-data").href = config.broker + "/network";

@@ -62,6 +62,11 @@ class ArtifactStoreTests(unittest.TestCase):
             with self.assertRaisesRegex(module.ArtifactStoreError, 'not been published'):
                 module.artifact_call(host, 'raw-get', {'cid': body['cid']})
             self.assertEqual(len(host.state['artifactPins']), 1)
+            from unittest.mock import patch
+            host.state['artifactPins']['existing']['size'] = 29
+            with patch.object(module, 'MAX_PIN_RECORDS', 1):
+                with self.assertRaisesRegex(module.ArtifactStoreError, 'storage is full'):
+                    module.artifact_call(host, 'raw-put', body)
 
 
     def test_broker_signature_and_replay_are_checked_before_pin_authority(self):

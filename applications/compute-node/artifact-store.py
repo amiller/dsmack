@@ -8,11 +8,13 @@ from pathlib import Path
 import threading
 import time
 import re
+import secrets
 from urllib.parse import urlencode
 from urllib.request import Request, urlopen
 
 MAX_BLOCK_BYTES = 512 * 1024
 MAX_PIN_BYTES = 64 * 1024 * 1024
+MAX_PIN_RECORDS = 4096
 
 class ArtifactStoreError(Exception):
     def __init__(self, message, status=400, code='ARTIFACT_STORE_REQUEST'):
@@ -27,7 +29,7 @@ def cid_for(data):
     return 'b' + base64.b32encode(b'\x01\x55\x12\x20' + hashlib.sha256(data).digest()).decode().lower().rstrip('=')
 
 def put_block(kubo, data):
-    boundary = 'dsmack-artifact-block'
+    boundary = 'dsmack-artifact-' + secrets.token_hex(16)
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="file"; filename="artifact.sealed"\r\n'
             'Content-Type: application/octet-stream\r\n\r\n').encode() + data + f'\r\n--{boundary}--\r\n'.encode()
     connection = http.client.HTTPConnection(kubo.host, kubo.port, timeout=120)
@@ -55,7 +57,8 @@ def artifact_call(store, action, body):
             data = base64.urlsafe_b64decode(text + '=' * (-len(text) % 4))
             need(29 <= len(data) <= MAX_BLOCK_BYTES and cid_for(data) == cid, 'artifact ciphertext size/CID mismatch')
             if cid not in pins:
-                need(sum(pin['size'] for pin in pins.values()) + len(data) <= MAX_PIN_BYTES,
+                need(len(pins) < MAX_PIN_RECORDS and
+                     sum(pin['size'] for pin in pins.values()) + len(data) <= MAX_PIN_BYTES,
                      'artifact pin storage is full; no published artifacts were removed', 507)
                 pins[cid] = {'size': len(data), 'published': False}
                 store.save()

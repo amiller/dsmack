@@ -1,7 +1,8 @@
 # Operator fleet
 
-A static, view-only fleet page. Connect the wallet that receives your operator
-payouts to see Mac capacity, rotating guest slots, attestation evidence and errors.
+A static, view-only fleet page. Open `?operator=0xADDRESS` or connect your operator
+wallet to see linked Macs, reported capacity, rotating guest slots, attestation
+evidence and errors.
 Earnings and recent jobs come from finalized Base Sepolia escrow settlements.
 Signed guest receipts and broker run bindings are recovered from settlement
 transactions. Daily earnings use the settlement block time.
@@ -22,11 +23,12 @@ Run the model checks with `node --test model.test.mjs`. A fresh public gateway
 browser check uses the existing Playwright installation:
 
 ```sh
-PAYOUT_ADDRESS=0xYourPayoutAddress PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
+OPERATOR_ADDRESS=0xYourOperatorAddress PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
   node browser-check.mjs https://NAME.ipns.GATEWAY/fleet/ /absolute/path/to/evidence
 ```
 
-The browser check connects a read-only EIP-1193 test account using the supplied
-public payout address. It reads the live broker and chain, opens Mac details and
-saves a screenshot and result JSON. Changing capacity means editing
+The browser check opens the supplied public operator address without connecting
+a wallet. It reads the live broker and chain, opens Mac details and saves a
+screenshot and result JSON. The operator comes from the Mac’s signed ownership
+link. Changing capacity means editing
 `~/.dsmack/operator.json` on the Mac and restarting its pool.

@@ -18,6 +18,7 @@ export {
   parseEther,
   TypedDataEncoder,
   verifyMessage,
+  verifyTypedData,
   Wallet,
 } from "npm:ethers@6.17.0";
 export const CHAIN = 84532;

@@ -2,8 +2,8 @@ export const sameAddress = (a, b) => typeof a === "string" && typeof b === "stri
 export function running(mac) {
   return new Set(mac.slots.filter(s => ["attesting", "ready", "busy", "draining"].includes(s.state)).map(s => s.slot_id)).size;
 }
-export function summarize(events, macs, payout, now = Date.now() / 1000) {
-  const owned = events.filter(e => sameAddress(e.operator, payout));
+export function summarize(events, macs, operator, now = Date.now() / 1000) {
+  const owned = events.filter(e => sameAddress(e.operator, operator));
   const latest = new Map();
   for (const event of owned) {
     const prior = latest.get(event.purchaseId);
@@ -22,7 +22,7 @@ export function summarize(events, macs, payout, now = Date.now() / 1000) {
   });
   return {
     ...stats(owned), daily,
-    macs: macs.filter(m => sameAddress(m.payout, payout)).map(mac => {
+    macs: macs.filter(m => sameAddress(m.operator, operator)).map(mac => {
       const classes = new Set([...(mac.classes || []), ...mac.slots.map(s => s.node_id).filter(Boolean)].map(c => c.toLowerCase()));
       const runs = new Set(mac.slots.map(s => s.run_id?.toLowerCase()).filter(Boolean));
       return { ...mac, running: running(mac), chain: stats(owned.filter(e => classes.has(e.node.toLowerCase()) || runs.has(e.runId.toLowerCase()))) };

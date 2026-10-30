@@ -26,6 +26,8 @@ import (
 type brokerGatewayTransport struct {
 	hostname string
 	http     *http.Transport
+	gate     chan struct{}
+	next     time.Time
 }
 
 func (t *brokerGatewayTransport) RoundTrip(request *http.Request) (*http.Response, error) {
@@ -33,11 +35,31 @@ func (t *brokerGatewayTransport) RoundTrip(request *http.Request) (*http.Respons
 		(request.Host != "" && request.Host != request.URL.Host) || request.URL.User != nil {
 		return nil, fmt.Errorf("broker gateway authority")
 	}
+	// Registration and metering share the gateway's one-token broker rule.
+	// Hold the reservation through response headers, then leave a small margin
+	// beyond its 500 ms refill before the next local HTTP request starts.
+	select {
+	case t.gate <- struct{}{}:
+	case <-request.Context().Done():
+		return nil, request.Context().Err()
+	}
+	defer func() { <-t.gate }()
+	if delay := time.Until(t.next); delay > 0 {
+		timer := time.NewTimer(delay)
+		defer timer.Stop()
+		select {
+		case <-timer.C:
+		case <-request.Context().Done():
+			return nil, request.Context().Err()
+		}
+	}
 	local := request.Clone(request.Context())
 	local.URL.Scheme = "http"
 	local.URL.Host = t.hostname
 	local.Host = t.hostname
-	return t.http.RoundTrip(local)
+	response, err := t.http.RoundTrip(local)
+	t.next = time.Now().Add(time.Minute/120 + 10*time.Millisecond)
+	return response, err
 }
 
 func gatewayBrokerClient(broker *url.URL, gateway string) (*http.Client, error) {
@@ -53,7 +75,7 @@ func gatewayBrokerClient(broker *url.URL, gateway string) (*http.Client, error) 
 		}
 		return (&net.Dialer{Timeout: 15 * time.Second}).DialContext(ctx, network, u.Host)
 	}}
-	return &http.Client{Timeout: 30 * time.Second, Transport: &brokerGatewayTransport{broker.Hostname(), transport},
+	return &http.Client{Timeout: 30 * time.Second, Transport: &brokerGatewayTransport{hostname: broker.Hostname(), http: transport, gate: make(chan struct{}, 1)},
 		CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 

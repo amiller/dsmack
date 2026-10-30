@@ -3,50 +3,23 @@ import {
   checkAssertion,
   decodeAttestation,
   hex,
-  open,
   rpcChain,
-  seal,
   sha256,
   unhex,
 } from "../../../dstack-compat/secret-release/policy.mjs";
 import { bytesEqual, decodeCbor, require } from "./encoding.mjs";
 import { APP_ID, verifyEnrollment } from "./enrollment.mjs";
-import {
-  domain,
-  Grant,
-  NodeBinding,
-  paymentBinding,
-  paymentRunId,
-  Receipt,
-  verifyTypedData,
-} from "./payments.mjs";
+import { paymentBinding, paymentRunId } from "./payments.mjs";
 export { hex, unhex };
 const enc = new TextEncoder(),
   dec = new TextDecoder("utf-8", { fatal: true }),
   subtle = crypto.subtle;
 export const REGISTRY = "0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E";
 export const ATTEST = "0xFF8393e6D4c3dF89e826A5BF14829733B953c948";
-export const INFERENCE_PRIVACY =
-  "NEAR TEE model via broker CVM; broker handles plaintext";
 export const CANARY = "0xdC66c90291973167126a3c4455D5A6064634f3B1";
 const alphabet = "123456789ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz";
 const eq = (a, b) => bytesEqual(a, b),
   hash = async (raw) => hex(await sha256(raw));
-export function canonical(value) {
-  function sorted(v) {
-    if (v === null || typeof v === "string" || typeof v === "boolean") return v;
-    if (typeof v === "number") {
-      require(Number.isSafeInteger(v), "canonical integer");
-      return v;
-    }
-    if (Array.isArray(v)) return v.map(sorted);
-    require(v && typeof v === "object", "canonical value");
-    return Object.fromEntries(
-      Object.keys(v).sort().map((k) => [k, sorted(v[k])]),
-    );
-  }
-  return enc.encode(JSON.stringify(sorted(value)));
-}
 export function peerBytes(peer) {
   require(
     typeof peer === "string" && peer.length >= 32 && peer.length <= 100,
@@ -91,30 +64,6 @@ export async function createClient() {
     privateKey: key.privateKey,
   };
 }
-export async function signBrokerRequest(client, body) {
-  require(client.peer === body.client_peer, "request client peer");
-  return {
-    ...body,
-    sig: hex(
-      new Uint8Array(
-        await subtle.sign("Ed25519", client.privateKey, canonical(body)),
-      ),
-    ),
-  };
-}
-async function verifyEd(key, signature, body) {
-  const pub = await subtle.importKey(
-    "raw",
-    unhex(key),
-    { name: "Ed25519" },
-    false,
-    ["verify"],
-  );
-  require(
-    await subtle.verify("Ed25519", pub, unhex(signature), canonical(body)),
-    "Ed25519 signature",
-  );
-}
 async function rpc(rpcUrl, method, params) {
   const v = await jsonRequest(rpcUrl, {
     jsonrpc: "2.0",
@@ -125,7 +74,7 @@ async function rpc(rpcUrl, method, params) {
   require(!v.error && typeof v.result === "string", "RPC response");
   return v.result;
 }
-export async function jsonRequest(url, body, signal, max = 48 << 20) {
+async function jsonRequest(url, body, signal, max = 48 << 20) {
   const response = await fetch(url, {
     method: body === undefined ? "GET" : "POST",
     headers: { "content-type": "application/json" },
@@ -144,12 +93,9 @@ export async function jsonRequest(url, body, signal, max = 48 << 20) {
   }
   const value = JSON.parse(dec.decode(cat(...chunks)));
   if (!response.ok) {
-    let message = typeof value.error === "string"
+    const message = typeof value.error === "string"
       ? value.error
       : value.error?.message ?? "HTTP " + response.status;
-    if (value.error === "execution" && value.failure?.stage && value.failure?.code) {
-      message += ": " + value.failure.stage + ": " + value.failure.code;
-    }
     throw Object.assign(new Error(message), {
       status: response.status,
       response: value,
@@ -351,416 +297,4 @@ export async function verifyNode(registration, policy) {
     head: hex(a.head),
     counter: a.counter,
   };
-}
-function terms(grant) {
-  return grant.grant
-    ? {
-      id: String(grant.grant.purchaseId),
-      seconds: Number(grant.grant.amount),
-    }
-    : { id: grant.grant_id, seconds: grant.seconds };
-}
-async function checkGrant(node, grant, clientPeer) {
-  const r = node.registration, now = Math.floor(Date.now() / 1000);
-  if (grant.grant) {
-    const g = grant.grant, p = r.payments;
-    require(p, "paid grant for unpaid node");
-    require(
-      verifyTypedData(domain(p.escrow), { Grant }, g, grant.signature)
-        .toLowerCase() === node.policy.grantSigner.toLowerCase(),
-      "paid grant signature",
-    );
-    const b = grant.nodeBinding?.binding;
-    require(
-      b &&
-        verifyTypedData(
-            domain(p.escrow),
-            { NodeBinding },
-            b,
-            grant.nodeBinding.signature,
-          ).toLowerCase() === node.policy.grantSigner.toLowerCase(),
-      "broker run binding",
-    );
-    require(
-      g.node === p.node && g.runId === p.runId &&
-        g.buyerKey === "0x" + hex(peerBytes(clientPeer).slice(6)) &&
-        Number(g.unit) === 1,
-      "paid grant target",
-    );
-    require(
-      g.issuedAt <= now && now < g.serviceUntil &&
-        g.serviceUntil <= Math.min(g.issuedAt + 600, p.runExpires) &&
-        Number.isSafeInteger(Number(g.amount)) && Number(g.amount) > 0,
-      "paid grant lifetime/budget",
-    );
-    require(
-      g.destinationPolicyHash === node.policy.destinationPolicyHash,
-      "paid destination policy",
-    );
-    require(
-      b.node === p.node && b.runId === p.runId &&
-        b.operator.toLowerCase() === p.operator.toLowerCase() &&
-        b.receiptSigner.toLowerCase() === p.receiptSigner.toLowerCase() &&
-        b.composeHash === "0x" + r.manifest_sha256 &&
-        b.imageHash === "0x" + r.os_image_hash && g.serviceUntil <= b.expires,
-      "paid run binding fields",
-    );
-  } else {
-    const { sig, ...body } = grant;
-    await verifyEd(node.policy.brokerKey, sig, body);
-    require(
-      Object.keys(body).sort().join() ===
-          "client_peer,expires_at,grant_id,relay_peer,seconds,unit,v" &&
-        body.client_peer === clientPeer && body.relay_peer === r.relay_peer &&
-        body.unit === "seconds" && body.v === 1 &&
-        Number.isInteger(body.seconds) && body.seconds > 0 &&
-        body.seconds <= 1800 && body.expires_at > now &&
-        /^[0-9a-f]{32}$/.test(body.grant_id),
-      "grant fields/expiry",
-    );
-  }
-}
-export async function requestCapability(
-  brokerUrl,
-  { node, client, grant, jobId },
-  { signal } = {},
-) {
-  require(/^[0-9a-f]{32}$/.test(jobId), "capability job ID");
-  await checkGrant(node, grant, client.peer);
-  const body = await signBrokerRequest(client, {
-    job_id: jobId,
-    node_peer: node.registration.relay_peer,
-    client_peer: client.peer,
-    grant,
-    nonce: hex(crypto.getRandomValues(new Uint8Array(16))),
-  });
-  const credential = await jsonRequest(
-    brokerUrl.replace(/\/$/, "") + "/sandbox/capability",
-    body,
-    signal,
-    16384,
-  );
-  require(
-    credential?.schema === "dsmack-broker-inference/1" &&
-      credential.job_id === jobId && typeof credential.token === "string" &&
-      credential.token.length > 0 && credential.token.length <= 8192 &&
-      !/[\r\n]/.test(credential.token),
-    "broker inference capability",
-  );
-  return credential;
-}
-export async function sealJob(
-  node,
-  {
-    grant,
-    jobId = hex(crypto.getRandomValues(new Uint8Array(16))),
-    credential,
-    repoTar,
-    prompt,
-    client,
-  },
-) {
-  require(
-    /^[0-9a-f]{32}$/.test(jobId) && repoTar instanceof Uint8Array &&
-      repoTar.length <= 16 << 20 && typeof prompt === "string",
-    "job inputs",
-  );
-  await checkGrant(node, grant, client.peer);
-  if (credential?.schema === "dsmack-broker-inference/1") {
-    require(credential.job_id === jobId, "capability belongs to another job");
-  }
-  const pair = await subtle.generateKey(
-      { name: "ECDH", namedCurve: "P-256" },
-      false,
-      ["deriveBits"],
-    ),
-    pub = new Uint8Array(await subtle.exportKey("raw", pair.publicKey)).slice(
-      1,
-    );
-  let binary = "";
-  for (let i = 0; i < repoTar.length; i += 8192) {
-    binary += String.fromCharCode(...repoTar.subarray(i, i + 8192));
-  }
-  const plain = {
-    job_id: jobId,
-    grant_id: terms(grant).id,
-    credential,
-    repo_tar: btoa(binary),
-    prompt,
-    output_pub: hex(pub),
-  };
-  const sealed = await seal(
-    unhex(node.registration.secret_key),
-    canonical(plain),
-    jobId,
-  );
-  return {
-    node,
-    client,
-    grant,
-    jobId,
-    sealed,
-    outputKey: { priv: pair.privateKey, pub },
-    sealedAt: Date.now(),
-  };
-}
-export async function submitJob(brokerUrl, job, { signal } = {}) {
-  await checkGrant(job.node, job.grant, job.client.peer);
-  const signed = {
-    bundle_sha256: await hash(canonical(job.sealed)),
-    client_peer: job.client.peer,
-    grant_sha256: await hash(canonical(job.grant)),
-    job_id: job.jobId,
-    node_peer: job.node.registration.relay_peer,
-  };
-  const signature = hex(
-    new Uint8Array(
-      await subtle.sign("Ed25519", job.client.privateKey, canonical(signed)),
-    ),
-  );
-  return {
-    result: jsonRequest(brokerUrl.replace(/\/$/, "") + "/sandbox/jobs", {
-      node_peer: signed.node_peer,
-      job_id: job.jobId,
-      grant: job.grant,
-      sealed: job.sealed,
-      client_peer: job.client.peer,
-      signature,
-    }, signal),
-  };
-}
-export async function receive(handle) {
-  return handle.result;
-}
-export async function verifyJobAttestation(node, result, job) {
-  require(result.status === "complete", "node job did not complete");
-  const s = result.statement, t = terms(job.grant);
-  require(
-    Object.keys(s).sort().join() ===
-        "bundle_sha256,grant_id,job_id,outputs,seconds_used" &&
-      s.job_id === job.jobId && s.grant_id === t.id,
-    "job statement fields/IDs",
-  );
-  require(
-    s.bundle_sha256 === await hash(canonical(job.sealed)),
-    "input bundle digest",
-  );
-  require(
-    Number.isInteger(s.seconds_used) && s.seconds_used > 0 &&
-      s.seconds_used <= t.seconds,
-    "result seconds",
-  );
-  const a = await assertion(
-    result.attestation,
-    node.policy,
-    node.enrollment,
-    node.counter,
-  );
-  require(
-    hex(a.run) === node.run && hex(a.head) === node.head,
-    "job came from another node run",
-  );
-  require(
-    eq(a.report_data, cat(await sha256(canonical(s)), new Uint8Array(32))),
-    "job statement attestation binding",
-  );
-  return { ...a, statement: s };
-}
-export async function verifyReceipt(node, result, job) {
-  const checked = await verifyJobAttestation(node, result, job),
-    { sig, ...body } = result.receipt;
-  await verifyEd(node.registration.receipt_key, sig, body);
-  const expected = {
-    client_peer: job.client.peer,
-    node_peer: node.registration.relay_peer,
-    run: node.run,
-    report_sha256: await hash(canonical(result.statement)),
-    grant_id: terms(job.grant).id,
-    job_id: job.jobId,
-    seconds_used: result.statement.seconds_used,
-  };
-  require(
-    eq(canonical(body), canonical(expected)),
-    "receipt does not bind job",
-  );
-  if (job.grant.grant) {
-    const e = result.payment_receipt, p = node.registration.payments;
-    require(
-      e &&
-        verifyTypedData(domain(p.escrow), { Receipt }, e.receipt, e.signature)
-            .toLowerCase() === p.receiptSigner.toLowerCase(),
-      "paid usage receipt signer",
-    );
-    require(
-      String(e.receipt.purchaseId) === terms(job.grant).id &&
-        Number(e.receipt.used) >= result.statement.seconds_used &&
-        Number(e.receipt.used) <= terms(job.grant).seconds &&
-        e.receipt.finalReceipt === true && e.receipt.sequence > 0 &&
-        e.receipt.endedAt <= Math.floor(Date.now() / 1000) + 30,
-      "paid usage receipt bounds",
-    );
-  }
-  return { ...body, counter: checked.counter };
-}
-export async function openOutputs(job, result) {
-  await verifyReceipt(job.node, result, job);
-  require(
-    Object.keys(result.outputs).sort().join() === "patch,transcript,verdict" &&
-      Object.keys(result.statement.outputs).sort().join() ===
-        "patch,transcript,verdict",
-    "output names",
-  );
-  const outputs = {};
-  for (const [name, box] of Object.entries(result.outputs)) {
-    require(
-      Object.keys(box).sort().join() === "ct,epk,iv" &&
-        /^[0-9a-f]{128}$/.test(box.epk) && /^[0-9a-f]{24}$/.test(box.iv) &&
-        typeof box.ct === "string" && box.ct.length >= 32,
-      "sealed output fields",
-    );
-    outputs[name] = await open(job.outputKey, box, job.jobId + "/" + name);
-    require(
-      await hash(outputs[name]) === result.statement.outputs[name],
-      "plaintext output digest",
-    );
-  }
-  await verifyTurnOutputs(job.node, outputs, job);
-  return outputs;
-}
-
-// Match the worker's transcript and verdict checks before exposing a patch.
-export async function verifyTurnOutputs(node, outputs, job) {
-  const events = dec.decode(outputs.transcript).trimEnd().split("\n").map(
-    (line) => JSON.parse(line),
-  );
-  const verdict = JSON.parse(dec.decode(outputs.verdict)),
-    provider = node.policy.provider;
-  const core = events.filter((e) =>
-      !["gateway_event", "provider_attestation"].includes(e.type)
-    ),
-    assistants = core.filter((e) => e.type === "assistant");
-  let summary, turns, model;
-  if (provider) {
-    require(
-      provider.schema === "dsmack-broker-model/1" && job,
-      "broker inference job context",
-    );
-    model = provider.model;
-    const exchange = events.filter((e) => e.type !== "gateway_event"),
-      nonces = new Set();
-    require(
-      exchange.length === assistants.length * 2,
-      "provider evidence count",
-    );
-    for (let i = 0; i < assistants.length; i++) {
-      const proof = exchange[i * 2],
-        assistant = exchange[i * 2 + 1],
-        payload = proof.payload;
-      require(
-        proof.type === "provider_attestation" && assistant === assistants[i],
-        "provider evidence order",
-      );
-      await verifyEd(node.policy.brokerKey, proof.signature, payload);
-      require(
-        payload.schema === "dsmack-broker-inference-response/1" &&
-          payload.job_id === job.jobId && payload.model === model &&
-          /^[0-9a-f]{64}$/.test(payload.nonce) &&
-          /^[0-9a-f]{64}$/.test(payload.request_sha256) &&
-          !nonces.has(payload.nonce),
-        "provider response job/model/nonce",
-      );
-      nonces.add(payload.nonce);
-      const evidence = payload.attestation;
-      require(
-        evidence?.mode === "broker-proxy" && evidence.provider === "near" &&
-          evidence.model === model && evidence.nonce === payload.nonce &&
-          evidence.verification === "verified" &&
-          evidence.privacy === INFERENCE_PRIVACY,
-        "provider attestation identity",
-      );
-      require(
-        Number.isSafeInteger(evidence.verifiedAt) &&
-          evidence.verifiedAt * 1000 >= job.sealedAt - 30000 &&
-          evidence.verifiedAt * 1000 <= Date.now() + 30000,
-        "provider attestation freshness",
-      );
-      require(
-        evidence.verifier && evidence.gateway?.signingAddress &&
-          evidence.gateway?.tlsFingerprint && evidence.models?.some((m) =>
-            m.model === model && m.signingAddress
-          ) && evidence.tls?.checkedBy === "broker" &&
-          evidence.tls.browserObservable === false &&
-          evidence.tls.binding === "spki",
-        "provider broker verification evidence",
-      );
-      require(
-        assistant.nonce === payload.nonce &&
-          assistant.request_sha256 === payload.request_sha256 &&
-          payload.result?.model === model &&
-          eq(
-            canonical(assistant.message),
-            canonical(payload.result.choices?.[0]?.message),
-          ) &&
-          eq(
-            canonical(assistant.usage ?? null),
-            canonical(payload.result.usage ?? null),
-          ),
-        "assistant differs from signed provider result",
-      );
-    }
-    require(
-      core.length > 0 && core.length === assistants.length &&
-        assistants.every((e) => e.model === model),
-      "provider transcript model",
-    );
-    require(
-      assistants.every((e) =>
-        (e.message.tool_calls ?? []).every((c) =>
-          ["list_files", "read_file", "write_file"].includes(c.function.name)
-        )
-      ),
-      "provider tool outside allowlist",
-    );
-    const last = assistants.at(-1);
-    require(!last.message.tool_calls?.length, "provider turn unfinished");
-    summary = last.message.content ?? "";
-    turns = assistants.length;
-  } else {
-    model = node.policy.model;
-    const init = core.filter((e) =>
-      e.type === "system" && e.subtype === "init"
-    );
-    require(
-      init.length === 1 && init[0].model === model && assistants.length > 0 &&
-        assistants.every((e) => e.message.model === model),
-      "requested/observed model mismatch",
-    );
-    require(
-      assistants.every((e) =>
-        e.message.content.filter((b) => b.type === "tool_use").every((b) =>
-          ["Read", "Grep", "Glob", "Edit", "Write"].includes(b.name)
-        )
-      ),
-      "tool outside allowlist",
-    );
-    const last = core.at(-1);
-    require(
-      last.type === "result" && last.subtype === "success" &&
-        last.is_error === false,
-      "CLI result not success",
-    );
-    summary = last.result;
-    turns = last.num_turns;
-  }
-  const expected = {
-    answer: null,
-    summary: [...summary].slice(0, 1000).join(""),
-    num_turns: turns,
-    observed_models: [model],
-    ...(provider
-      ? { provider: "broker-near", privacy: INFERENCE_PRIVACY }
-      : {}),
-  };
-  require(eq(canonical(verdict), canonical(expected)), "turn verdict mismatch");
-  return verdict;
 }

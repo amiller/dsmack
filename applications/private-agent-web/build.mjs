@@ -5,13 +5,11 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const app = dirname(fileURLToPath(import.meta.url));
 const pi = resolve(app, "node_modules/@earendil-works/pi-web-ui/dist");
-const sandboxSource = process.env.SANDBOX_SOURCE ||
-  resolve(app, "../compute-node/browser/sandbox.mjs");
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
   plugins: [piPromptPlugin()],
-  entryPoints: { app: "app.mjs", "sandbox-client": sandboxSource },
+  entryPoints: { app: "app.mjs" },
   bundle: true,
   format: "esm",
   platform: "browser",
@@ -21,7 +19,7 @@ await build({
   alias: {
     process: "process/browser.js",
     "npm:ethers@6.17.0": "ethers",
-    "@sandbox": sandboxSource,
+    "@sandbox": resolve(app, "../compute-node/browser/sandbox.mjs"),
     "@pi-components": pi,
   },
   define: { "process.env.NODE_ENV": '"production"' },

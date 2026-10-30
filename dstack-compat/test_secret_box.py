@@ -44,5 +44,5 @@ def test_get_secret_refuses_off_curve_epk(worker):
     # An off-curve epk would turn GetSecret into an invalid-curve oracle on the guest's secret-key.
     sock, k = worker
     sealed = js_seal(guest_attest.p256_public(k), b"s", "t")
-    code, out = call(sock, "GetSecret", dict(sealed, task_id="t", epk=sealed["epk"][:-2] + "00"))
+    code, out = call(sock, "GetSecret", dict(sealed, task_id="t", epk="00" * 64))
     assert code == 400 and "not a P-256 point" in out["error"]

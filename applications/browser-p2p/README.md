@@ -40,7 +40,7 @@ python3 applications/browser-p2p/workload.py --base BASE --reference REFERENCE \
 ```
 
 On the Mac, run `applications/compute-node/connect-proxy.py --listen 127.0.0.1
---port 18290 --model-host HOST`, then launch with the libp2p application's
+--port 18290 --allow-host HOST`, then launch with the libp2p application's
 `run-mac.py`. The guest's firewall admits only `192.168.127.254:18290`, gvproxy's
 host-loopback alias. The measured gateway performs TLS through that CONNECT
 proxy and permits bounded WebSocket upgrades to `*.trycloudflare.com` on port

@@ -56,7 +56,7 @@ def main():
         (a.state/'workload/disk/workload.img').rename(run/'workload.img')
         import shutil
         shutil.copyfile(a.state/'workload/compose-manifest.json',run/'compose-manifest.json')
-        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18290','--model-host',hostname,'--connection-seconds','540'],'proxy.log')
+        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18290','--allow-host',hostname,'--connection-seconds','540'],'proxy.log')
         while True:
             try:preflight(a.state,[]);break
             except MacOccupied:print('waiting for the other Mac lane',flush=True);time.sleep(10)

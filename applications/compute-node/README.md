@@ -61,16 +61,13 @@ image as a gzip OCI layout and pack it with a starter compose manifest:
 ```sh
 python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   sha256:IMAGE_DIGEST applications/compute-node/dsmack-compute \
-  /ip4/RELAY_IP/tcp/RELAY_PORT/p2p/RELAY_ID \
-  https://BROKER/relay-broker BROKER_ED25519_HEX RUNNER_CDHASH \
-  http://PROXY_IP:PROXY_PORT OUT 840
+  /ip4/127.0.0.1/tcp/18082/ws/p2p/MAC_RELAY_PEER \
+  https://pod.dstack.soc1024.com/relay-broker BROKER_ED25519_HEX RUNNER_CDHASH \
+  http://192.168.127.254:18484 OUT 840 PAYMENTS_JSON_OR_- \
+  https://pod.dstack.soc1024.com/private-agent/tunnels [OPERATOR_JSON]
 ```
 
-For the Mac pool, the relay is
-`/ip4/127.0.0.1/tcp/18082/ws/p2p/MAC_RELAY_PEER`, the proxy is
-`http://192.168.127.254:18484`, and the tunnel index is a same-host HTTPS URL
-such as `https://pod.dstack.soc1024.com/private-agent/tunnels`.
-The guest's hostname gateway verifies broker TLS and the discovered quick-tunnel
+The tunnel index must be on the broker's host. The guest's hostname gateway verifies broker TLS and the discovered quick-tunnel
 hostname. Noise authenticates the relay PeerId measured in the compose.
 
 ## Test
@@ -95,7 +92,7 @@ physical, reserved and available numbers. Editing the file takes effect on
 restart; `--operator PATH` selects another configuration.
 
 Pack the matching guest size by supplying the operator file as the final
-argument after `TUNNEL_INDEX` to `workload.py`. The compose manifest and launch
+argument to `workload.py`. The compose manifest and launch
 image's `resource_profiles` bind the memory and vCPU count. Each size uses its
 own escrow node class, compose measurement and price; register the packed class
 with `applications/payments/register-class.mjs` before starting the pool.

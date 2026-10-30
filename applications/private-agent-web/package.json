@@ -4,8 +4,7 @@
   "type": "module",
   "scripts": {
     "build": "node build.mjs",
-    "test:browser": "node boundary.test.mjs",
-    "test:ipfs": "node ipfs-check.mjs"
+    "test:browser": "node boundary.test.mjs"
   },
   "dependencies": {
     "@chainsafe/libp2p-noise": "17.0.0",

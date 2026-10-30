@@ -3,7 +3,7 @@ import { SandboxIframe } from "@pi-components/components/SandboxedIframe.js";
 import { RUNTIME_MESSAGE_ROUTER } from "@pi-components/components/sandbox/RuntimeMessageRouter.js";
 
 export const ARTIFACT_ORIGIN = "https://artifacts.private-agent.dstack.soc1024.com";
-export const ARTIFACT_PROMPT = `Use the artifacts tool for runnable browser apps, with a .html filename. Write one complete self-contained HTML document: inline JavaScript and CSS, minimal styles, explicit background and readable text. Keep it concise (aim below 150 lines). No imports, CDNs, remote fonts, fetch, links to external sites, or browser storage. Network and host APIs are unavailable. Use DOM controls and in-memory state. The tool returns browser console logs; fix reported errors. These apps run in the browser and do not need a guest.`;
+export const ARTIFACT_PROMPT = `Use the artifacts tool for runnable browser apps, with a .html filename. Write one complete self-contained HTML document: inline JavaScript and CSS, minimal styles, explicit background and readable text. Keep it concise (aim below 150 lines and 8000 characters). No imports, CDNs, remote fonts, fetch, links to external sites, or browser storage. Network and host APIs are unavailable. Use DOM controls and in-memory state. The tool returns browser console logs; fix reported errors. These apps run in the browser and do not need a guest.`;
 
 // Pi routes messages by a caller-supplied ID. Bind each ID to its actual opaque
 // iframe before the upstream listener can see console or lifecycle messages.

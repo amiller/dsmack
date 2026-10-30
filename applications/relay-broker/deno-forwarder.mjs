@@ -13,7 +13,6 @@ import { multiaddr } from "npm:@multiformats/multiaddr@13.0.3";
 const enc = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const CONTROL_LIMIT = 4096;
-const BUNDLE_LIMIT = 48 << 20;
 const ATTESTATION_LIMIT = 150000;
 const canonical = (value) => JSON.stringify(value, (_key, v) => v && typeof v === "object" && !Array.isArray(v)
   ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v);
@@ -75,12 +74,6 @@ class Reader {
       this.offset += size; used += size;
     }
     return out;
-  }
-  async frame(limit) {
-    const prefix = await this.bytes(4);
-    const length = new DataView(prefix.buffer).getUint32(0, false);
-    if (!length || length > limit) throw new Error("frame size");
-    return JSON.parse(decoder.decode(await this.bytes(length)));
   }
   async registration() {
     const parts = []; let length = 0;
@@ -210,47 +203,27 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
     peerId: node.peerId.toString(),
     stop: () => { for (const id of channels.keys()) closeChannel(id); return node.stop(); },
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
-      if (endpoint !== "attestation" && endpoint !== "jobs") throw new Error("forward endpoint");
-      const scope = operationScope(endpoint === "jobs" ? 900000 : 30000, requestedSignal), { signal } = scope;
-      let stream, jobConnection;
+      if (endpoint !== "attestation") throw new Error("forward endpoint");
+      const scope = operationScope(30000, requestedSignal), { signal } = scope;
+      let stream;
       let phase = "node_unreachable";
       try {
-        const protocol = endpoint === "jobs" ? "/dsmack/job/1" : payload.challenge
-          ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
-        if (endpoint === "jobs") {
-          // Each job gets its own finite circuit budget and a full lifetime.
-          // Reusing a partially spent circuit can truncate a later result.
-          jobConnection = await node.dial(multiaddr(payload.target), { signal, force: true });
-          stream = await jobConnection.newStream(protocol, { signal, runOnLimitedConnection: true });
-        } else {
-          stream = await node.dialProtocol(multiaddr(payload.target), protocol,
-            { signal, runOnLimitedConnection: true });
-        }
-        // Agent turns may be quiet for longer than libp2p's default 120 seconds.
-        stream.inactivityTimeout = endpoint === "jobs" ? 900000 : 30000;
+        const protocol = payload.challenge ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
+        stream = await node.dialProtocol(multiaddr(payload.target), protocol,
+          { signal, runOnLimitedConnection: true });
+        stream.inactivityTimeout = 30000;
         const abort = () => stream.abort(signal.reason instanceof Error ? signal.reason : new Error("request aborted"));
         signal.addEventListener("abort", abort, { once: true });
         try {
           signal.throwIfAborted();
-          const reader = new Reader(stream);
-          if (endpoint === "attestation") {
-            phase = "node_attestation";
-            if (payload.challenge) await sendFrame(stream, { challenge: payload.challenge }, CONTROL_LIMIT, signal);
-            return await reader.registration();
-          }
-          phase = "node_admission";
-          await sendFrame(stream, payload.admission, CONTROL_LIMIT, signal);
-          const admission = await reader.frame(CONTROL_LIMIT);
-          if (admission.status === "refused") return admission;
-          if (admission.status !== "ready") throw new Error("node did not send ready");
-          phase = "node_result_lost";
-          await sendFrame(stream, payload.sealed, BUNDLE_LIMIT, signal);
-          return await reader.frame(BUNDLE_LIMIT);
+          phase = "node_attestation";
+          if (payload.challenge) await sendFrame(stream, { challenge: payload.challenge }, CONTROL_LIMIT, signal);
+          return await new Reader(stream).registration();
         } finally { signal.removeEventListener("abort", abort); }
       } catch (cause) {
         throw new ForwardError(phase, cause);
       }
-      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); if (jobConnection) await jobConnection.close(); }
+      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
     },
   };
 }

@@ -18,8 +18,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
-SECRET_FIELDS = {"near_api_key", "near_management_token", "near_reporting_token", "managementtoken",
-                 "reportingtoken", "api_key", "apikey", "password", "secret", "credential"}
+SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
 
 def public_config(value):

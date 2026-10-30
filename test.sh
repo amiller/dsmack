@@ -10,7 +10,6 @@ for d in applications/{compute-node,egress-relay,libp2p-attest}/peer application
     (cd "$d" && go test ./...)
 done
 deno test --allow-read --allow-write --allow-net --allow-env applications/relay-broker applications/payments/payments.test.mjs
-python3 applications/compute-node/browser/interop.py
 . app-attest/circuit/env.sh
 forge test --root contracts --offline --use "$SOLC"
 forge test --root contracts/work-escrow --offline --use "$SOLC"

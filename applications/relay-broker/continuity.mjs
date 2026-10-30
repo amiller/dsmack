@@ -109,9 +109,14 @@ export class Continuity {
       const envelope=await this.signedHead(head);
       const tx=await this.rpc(() => this.chain.commit(wallet,r.previous,headDigest(head)));
       // Persist the candidate before waiting, so a mined transaction survives a runtime restart.
-      let next={...this.state,heads:{...this.state.heads,[wallet]:{...envelope,anchorTx:tx.hash}}};
+      const prior=this.state,next={...prior,heads:{...prior.heads,[wallet]:{...envelope,anchorTx:tx.hash}}};
       await this.save(next);this.state=next;
-      await this.receipt(tx.hash);
+      try { await this.receipt(tx.hash); }
+      catch (error) {
+        // A reverted commit left the chain at the previous counter; keep the broker head with it.
+        if (/reverted/.test(error.message)) { await this.save(prior); this.state=prior; }
+        throw error;
+      }
       return this.state.heads[wallet];
     });
     throw Object.assign(new Error("sync route not found"),{status:404});

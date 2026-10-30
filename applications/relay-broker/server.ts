@@ -1,4 +1,5 @@
 import { Continuity } from "./continuity.mjs";
+import { Workspaces } from "./workspaces.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { fleet, readFleet } from "./fleet.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
@@ -100,7 +101,12 @@ async function load(ctx: Context) {
   let syncState;
   try { syncState = JSON.parse(await Deno.readTextFile(syncPath)); }
   catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
-  return Object.assign(broker, { continuity: new Continuity({
+  const workspacePath = ctx.dataDir + "/workspaces.json";
+  let workspaceState;
+  try { workspaceState = JSON.parse(await Deno.readTextFile(workspacePath)); }
+  catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
+  return Object.assign(broker, { workspaces: new Workspaces({ broker, cfg: cfg.workspaces,
+    state: workspaceState, save: (v: object) => atomicSave(workspacePath, v) }), continuity: new Continuity({
     cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
     anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
     state: syncState,
@@ -243,7 +249,11 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path.startsWith("/sync/") && req.method === "POST") {
+    if (path.startsWith("/workspaces/") && req.method === "POST") {
+      const workspaces = (b as Broker & { workspaces?: Workspaces }).workspaces;
+      if (!workspaces || !b.payments) throw new InferenceError("WORKSPACE_STORE_UNAVAILABLE", "workspace storage is not configured", 503);
+      response = Response.json(await workspaces.call(path.slice("/workspaces/".length), await body(req, 1024 * 1024)));
+    } else if (path.startsWith("/sync/") && req.method === "POST") {
       const sync = (b as Broker & { continuity?: Continuity }).continuity;
       if (!sync) return finish(Response.json({ error: "sync not configured" }, { status: 503 }));
       try { response = Response.json(await sync.call(path.slice(6), await body(req, 3 * 1024 * 1024))); }

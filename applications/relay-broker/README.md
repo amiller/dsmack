@@ -160,3 +160,20 @@ Run the network boundary tests with:
 ```sh
 deno test --allow-read --allow-write --allow-net --allow-env continuity.test.mjs
 ```
+
+## Saved workspaces
+
+Set `workspaces.stores` to a map from Mac publisher addresses to their workspace
+store HTTPS URLs. Wallet-signed `/workspaces/{head,begin,chunk,commit,read,history}`
+POSTs use `action: "workspace-OP"` and a conversation `workspaceId`. The guest can
+use its stay ID and attested Ed25519 receipt key to seal before its final receipt;
+its conversation ID selects the workspace and its recorded placement selects the
+Mac. The broker retains version/hash pointers in `workspaces.json`.
+
+`begin` takes `version`, `previousHash`, `hash`, `size`, and optionally `mac`, and
+returns `uploadId` and `offset`. `chunk` takes that upload ID, a byte offset and
+at most 512 KiB of standard base64 ciphertext. `commit` returns the new `head`.
+A head contains `workspaceId`, `version`, `previousHash`, `hash`, `size`, `cid`,
+and `mac`. `read` takes the trusted version/hash and a bounded byte range;
+`history` returns ascending heads after `afterVersion`. Identical uploads and
+commits can resume after interrupted responses.

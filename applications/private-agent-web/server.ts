@@ -55,9 +55,14 @@ export default async function handler(req: Request,ctx?: {env:Record<string,stri
     const bytes = await Deno.readFile(
       new URL(file.split("/").map(encodeURIComponent).join("/"), root),
     );
+    const headers = { ...security };
+    if (file === "network/index.html") {
+      const hash = new TextDecoder().decode(bytes).match(/script-src 'sha256-([A-Za-z0-9+/]{43}=)'/)?.[1];
+      if (hash) headers["content-security-policy"] = security["content-security-policy"].replace("script-src 'self'", `script-src 'sha256-${hash}'`);
+    }
     return new Response(req.method === "HEAD" ? null : bytes, {
       headers: {
-        ...security,
+        ...headers,
         "content-type": type,
         "content-length": String(bytes.length),
       },

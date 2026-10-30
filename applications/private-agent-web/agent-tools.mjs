@@ -98,8 +98,8 @@ async function admission(stream, session) {
   }
 }
 export class GuestSession {
-  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog }) {
-    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog });
+  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease }) {
+    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease });
   }
   tools() {
     return this.catalog.map(tool => ({
@@ -119,7 +119,20 @@ export class GuestSession {
       },
     }));
   }
+  async restore() {
+    const saved = this.savedLease;
+    if (!saved?.active || this.lease || !this.credit.signer) return;
+    require(saved.wallet === this.credit.address.toLowerCase(), "This conversation’s held guest belongs to another wallet. Connect its owner to end the session.");
+    require(saved.conversationId === this.conversationId, "Saved guest belongs to another conversation.");
+    this.lease = { sessionId: saved.sessionId };
+    this.node = { registration: saved.node };
+    this.environment = saved.environment;
+    await this.status();
+    if (this.lease) this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "disconnected-held", lease: this.lease, node: this.node?.registration, active: true, error: e.message })), 10000);
+  }
   async ensure(signal) {
+    await this.restore();
+    require(!this.lease || this.client, "This conversation still holds a disconnected guest. Choose End session before starting a fresh workspace.");
     if (this.client) return this.client;
     if (!this.opening) this.opening = this.open(signal).catch(async e => {
       await this.end().catch(() => {});
@@ -162,7 +175,10 @@ export class GuestSession {
       versionNegotiation: { mode: { pin: "2026-07-28" } },
       supportedProtocolVersions: ["2026-07-28"],
     });
-    transport.onclose = () => this.changed({ state: "disconnected", lease: this.lease });
+    transport.onclose = () => {
+      this.client = null;
+      if (this.lease && this.statusSnapshot?.active !== false) this.changed({ state: "disconnected-held", active: true, lease: this.lease, node: this.node?.registration });
+    };
     await client.connect(transport);
     const { tools } = await client.listTools();
     const expected = new Map(this.catalog.map(t => [t.name, t]));
@@ -185,12 +201,13 @@ export class GuestSession {
     if (!this.lease) return;
     const result = await this.api("/agent/status", await walletBody(this.credit, "agent-status", { sessionId: this.lease.sessionId }));
     if (result.credit) this.credit.chatCredit = result.credit;
-    this.changed({ ...result, state: result.active ? "held" : "released", lease: this.lease, node: this.node.registration, environment: this.environment });
+    this.changed({ ...result, state: result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
     if (!result.active) {
       clearInterval(this.poll);
       await this.client?.close(); this.client = null;
       await this.peer?.stop(); this.peer = null;
       this.lease = null;
+      this.savedLease = null;
     }
     return result;
   }
@@ -213,7 +230,7 @@ export class GuestSession {
       }
       if (result.credit) this.credit.chatCredit = result.credit;
       this.changed({ ...result, state: result.active ? "ending" : "released", lease: this.lease });
-      if (!result.active) this.lease = null;
+      if (!result.active) { this.lease = null; this.savedLease = null; }
       else this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 5000);
     }
   }

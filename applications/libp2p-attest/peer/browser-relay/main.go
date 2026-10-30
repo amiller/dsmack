@@ -51,9 +51,11 @@ func main() {
 	if err != nil {
 		log.Fatal(err)
 	}
+	muxer := *yamux.DefaultTransport
+	muxer.ConnectionWriteTimeout = 90 * time.Second // HTTP backhaul drains over a public WAN, not a LAN.
 	h, err := libp2p.New(libp2p.Identity(key), libp2p.NoTransports,
 		libp2p.Transport(websocket.New), libp2p.Transport(tcp.NewTCPTransport), libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/4019/ws"),
-		libp2p.Security(noise.ID, noise.New), libp2p.Muxer(yamux.ID, yamux.DefaultTransport),
+		libp2p.Security(noise.ID, noise.New), libp2p.Muxer(yamux.ID, &muxer),
 		libp2p.ForceReachabilityPublic(), libp2p.DisableRelay())
 	if err != nil {
 		log.Fatal(err)

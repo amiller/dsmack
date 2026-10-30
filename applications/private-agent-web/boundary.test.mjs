@@ -43,6 +43,7 @@ async function backend(page, kind) {
   const cfg = await (await page.request.get(new URL("config.json", base).href))
     .json();
   const calls = [];
+  let recoveredEnded = false;
   await page.route("**/relay-broker/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/relay-broker", "");
@@ -98,6 +99,10 @@ async function backend(page, kind) {
       usedTokens: "0",
       pendingInferenceId: null,
     };
+    if (kind === "recovery" && (path === "/agent/status" || path === "/agent/end")) {
+      if (path === "/agent/end") recoveredEnded = true;
+      return respond({ sessionId: body.sessionId, active: !recoveredEnded, guestSeconds: 17, credit });
+    }
     if (path === "/inference/credit" || path === "/inference/usage") {
       return respond(credit);
     }
@@ -265,6 +270,40 @@ try {
     await alert(page, "SYNTHETIC_STOP");
     assert(!calls.some(r => r.path.startsWith("/agent/")));
     assert.equal(await page.locator("#guest-status").getAttribute("data-state"), "idle");
+  });
+  await run("held-guest-can-be-ended-after-reload", "recovery", async (page, calls) => {
+    await send(page, "Saved conversation survives lease recovery.");
+    await alert(page, "SYNTHETIC_STOP");
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    const wallet = (await page.locator("#wallet").textContent()).toLowerCase();
+    await page.evaluate(wallet => new Promise((resolve, reject) => {
+      const id = document.querySelector("#chat").dataset.sessionId;
+      const open = indexedDB.open("dsmack-private-agent-chats", 1);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("sessions", "readwrite"), store = tx.objectStore("sessions");
+        const get = store.get(id);
+        get.onsuccess = () => {
+          const data = get.result;
+          data.dsmack.guest = { sessionId: "ab".repeat(16), conversationId: id, wallet, active: true,
+            guestSeconds: 12, node: { relay_peer: "saved-guest" } };
+          if (store.keyPath) store.put(data); else store.put(data, id);
+        };
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      };
+    }), wallet);
+    await ready(page);
+    await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "disconnected-held");
+    assert.equal(await page.locator("#end-session").isEnabled(), true);
+    assert.equal(await page.locator("#download").isDisabled(), true);
+    assert.match(await page.locator("user-message").innerText(), /Saved conversation survives/);
+    assert.equal(await page.locator("#attestations .evidence-item").count(), 1);
+    await page.locator("#end-session").click();
+    await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "released");
+    assert(calls.some(r => r.path === "/agent/status" && r.body.wallet.toLowerCase() === wallet));
+    assert(calls.some(r => r.path === "/agent/end" && r.body.sessionId === "ab".repeat(16)));
+    assert(!calls.some(r => r.path === "/agent/open"));
   });
   for (const kind of ["nonce", "key", "model"]) {
     await run(

@@ -5,18 +5,24 @@ import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const mainUrl = process.argv[2] || process.env.PAGE_URL, output = process.argv[3] || process.env.EVIDENCE;
-assert(mainUrl && output && process.env.ALT_PAGE_URL, "Usage: ALT_PAGE_URL=... node ipfs-check.mjs PAGE_URL EVIDENCE");
+const publicGateway = process.env.PUBLIC_GATEWAY === "1";
+assert(mainUrl && output && (publicGateway || process.env.ALT_PAGE_URL), "Usage: ALT_PAGE_URL=... or PUBLIC_GATEWAY=1 node ipfs-check.mjs PAGE_URL EVIDENCE");
 const pageUrl = new URL(mainUrl);
-const alternateUrl = new URL(process.env.ALT_PAGE_URL);
+const alternateUrl = new URL(process.env.ALT_PAGE_URL || mainUrl);
 const evidence = resolve(output);
 for (const url of [pageUrl, alternateUrl]) {
-  assert.equal(url.protocol, "http:", "local gateway must use HTTP localhost");
-  assert.match(url.hostname, /^b[a-z2-7]+\.ipfs\..*localhost$/);
+  if (publicGateway) {
+    assert.equal(url.protocol, "https:", "public gateway must use HTTPS");
+    assert.match(url.hostname, /^(b[a-z2-7]+\.ipfs|k[0-9a-z]+\.ipns)\./);
+  } else {
+    assert.equal(url.protocol, "http:", "local gateway must use HTTP localhost");
+    assert.match(url.hostname, /^b[a-z2-7]+\.ipfs\..*localhost$/);
+  }
   assert.equal(url.pathname, "/", "load the CID root, not a shared path gateway");
   assert(!url.username && !url.password && !url.search && !url.hash);
 }
 assert.equal(pageUrl.hostname.split(".")[0], alternateUrl.hostname.split(".")[0]);
-assert.notEqual(pageUrl.origin, alternateUrl.origin, "alternate gateway needs another origin");
+if (!publicGateway) assert.notEqual(pageUrl.origin, alternateUrl.origin, "alternate gateway needs another origin");
 const moduleName = process.env.PLAYWRIGHT_MODULE || "playwright";
 const { chromium } = await import(
   isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName
@@ -40,6 +46,7 @@ const report = {
   chainTransactionsAttempted: 0,
   requests: [],
   responses: [],
+  responseErrors: [],
   requestFailures: [],
   corsErrors: [],
   pageErrors: [],
@@ -50,6 +57,7 @@ const address = (url) => {
   const u = new URL(url);
   return { origin: u.origin, path: u.pathname };
 };
+const responseReads = [];
 const allowedOrigins = new Set([pageUrl.origin, alternateUrl.origin]);
 await context.route("**/*", async (route) => {
   const request = route.request();
@@ -72,6 +80,10 @@ context.on("request", (request) => {
 });
 context.on("response", (response) => {
   const headers = response.headers();
+  if (response.status() >= 400 && new URL(response.url()).origin === "https://pod.dstack.soc1024.com") {
+    responseReads.push(response.text().then((body) => report.responseErrors.push({ ...address(response.url()), status: response.status(), body: clean(body.slice(0, 8192)) }),
+      (error) => report.responseErrors.push({ ...address(response.url()), status: response.status(), readError: clean(error.message) })));
+  }
   report.responses.push({
     ...address(response.url()),
     method: response.request().method(),
@@ -194,6 +206,7 @@ try {
   await page.screenshot({ path: resolve(evidence, "04-agent-patch-downloaded.png"), fullPage: true });
   await page.locator("#end-session").click();
   await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "released");
+  if (!publicGateway) {
   const alternate = await context.newPage();
   observe(alternate);
   await ready(alternate, alternateUrl);
@@ -202,6 +215,7 @@ try {
   assert.deepEqual(report.otherOriginStorage, { hasBurner: false, hasSentinel: false, sentinelMatches: false, localStorageHasSentinel: false, localStorageMatches: false });
   report.origins = { first: pageUrl.origin, alternate: new URL(alternate.url()).origin, sameCid: true, sameBrowserContext: true, secureContexts: true };
   await alternate.screenshot({ path: resolve(evidence, "05-other-gateway-isolated.png"), fullPage: true });
+  }
   const sessions = report.requests.filter((r) => r.method === "POST" && r.path.endsWith("/agent/open"));
   assert.equal(sessions.length, 1, "One conversation holds one guest session");
   assert.equal(report.chainTransactionsAttempted, 0);
@@ -214,6 +228,7 @@ try {
   await page.screenshot({ path: resolve(evidence, "failure.png"), fullPage: true }).catch((e) => { report.screenshotError = clean(e.message); });
   process.exitCode = 1;
 } finally {
+  await Promise.all(responseReads);
   await writeFile(resolve(evidence, "ipfs-browser.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify({ status: report.status, wallet: report.wallet, origins: report.origins, chat: report.chat, sandbox: report.sandbox, error: report.error }));
   await context.close();

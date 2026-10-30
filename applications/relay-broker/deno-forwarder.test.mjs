@@ -9,7 +9,7 @@ import { yamux } from "npm:@chainsafe/libp2p-yamux@8.0.1";
 import { identify } from "npm:@libp2p/identify@4.1.14";
 import { byteStream } from "npm:@libp2p/utils@7.4.1";
 // Test either source or the deployment bundle, with identical peer fixtures.
-const { createDenoForwarder } = await import(Deno.args[0] || "./deno-forwarder.mjs");
+const { createDenoForwarder, ForwardError } = await import(Deno.args[0] || "./deno-forwarder.mjs");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 async function makeNode(listen, services = {}) {
@@ -77,9 +77,12 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
 });
 
-Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary shared-project requests", async () => {
-  const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { applyDefaultLimit: false } }) });
+Deno.test("HTTP polling backhaul carries pinned relay Noise and a 3040542-byte result over a finite circuit", async () => {
+  const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { defaultDurationLimit: 120000, defaultDataLimit: 8n << 20n } }) });
   const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()] });
+  const sendDelayMs = 100;
+  let sends = 0;
+  let guest;
   const http = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => forwarder.acceptBackhaul(req));
   const base = "http://127.0.0.1:" + http.addr.port + "/sandbox/p2p";
   const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
@@ -91,10 +94,12 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary sha
       const response = await fetch(base + "/open", { method: "POST", signal: controller.signal });
       assert.equal(response.status, 200); id = (await response.json()).id;
       const upload = async () => {
-        const buffer = new Uint8Array(65536);
+        const buffer = new Uint8Array(32768);
         while (true) {
           const size = await conn.read(buffer);
           if (size === null) return;
+          await new Promise((resolve) => setTimeout(resolve, sendDelayMs));
+          sends++;
           const sent = await fetch(base + "/" + id + "/send", { method: "POST", body: buffer.slice(0, size), signal: controller.signal });
           if (sent.status !== 204) throw new Error("backhaul send refused");
         }
@@ -131,11 +136,24 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary sha
       stream.send(enc.encode('{"attestation":"backhaul-proof"}')); await stream.close();
     });
     assert.deepEqual(await forwarder.forward("attestation", { target: unreachableAddress }), { attestation: "backhaul-proof" });
+    guest = await makeNode([relay.getMultiaddrs()[0].toString() + "/p2p-circuit"]);
+    const targetJob = unreachableAddress + "/p2p-circuit/p2p/" + guest.peerId;
+    const result = { status: "complete", outputs: { patch: { ct: "" } } };
+    result.outputs.patch.ct = "x".repeat(3040542 - enc.encode(JSON.stringify(result)).length);
+    assert.equal(enc.encode(JSON.stringify(result)).length, 3040542);
+    await guest.handle("/dsmack/job/1", async (stream) => {
+      const s = byteStream(stream); await readFrame(s);
+      await writeFrame(s, { status: "ready" }); await readFrame(s);
+      await writeFrame(s, result); await stream.close();
+    }, { runOnLimitedConnection: true });
+    const started = performance.now();
+    assert.deepEqual(await forwarder.forward("jobs", { target: targetJob, admission: { job_id: "large-result" }, sealed: { ct: "tiny-input" } }), result);
+    console.log(JSON.stringify({ resultBytes: 3040542, sendDelayMs, sends, elapsedMs: Math.round(performance.now() - started) }));
     const stranger = await makeNode([]);
     try { await assert.rejects(stranger.dialProtocol(multiaddr(target), "/ipfs/id/1.0.0", { signal: AbortSignal.timeout(2000) })); }
     finally { await stranger.stop(); }
   } finally {
-    listener.close(); await relay.stop(); await forwarder.stop(); await accepting;
+    listener.close(); await guest?.stop(); await relay.stop(); await forwarder.stop(); await accepting;
     await Promise.all([...adapters]); await http.shutdown();
   }
 });
@@ -147,4 +165,19 @@ Deno.test("project signing identity keeps relay backhaul peer pins valid after p
   const restarted = await createDenoForwarder({ signingKey: key });
   try { assert.equal(first.peerId, restarted.peerId); }
   finally { await first.stop(); await restarted.stop(); }
+});
+
+Deno.test("forward errors retain bounded nested dial causes without stacks", () => {
+  const dial = new AggregateError([
+    new Error("connect ECONNREFUSED"),
+    new Error("circuit hop refused", { cause: new Error("reservation expired") }),
+  ], "All multiaddr dials failed");
+  const error = new ForwardError("node_unreachable", dial);
+  assert.equal(error.stage, "node_unreachable");
+  assert.deepEqual(error.detail, { name: "AggregateError", message: "All multiaddr dials failed", errors: [
+    { name: "Error", message: "connect ECONNREFUSED" },
+    { name: "Error", message: "circuit hop refused", cause: { name: "Error", message: "reservation expired" } },
+  ] });
+  assert.equal(JSON.stringify(error.detail).includes("stack"), false);
+  assert.equal(new ForwardError("node_result_lost", new Error("x".repeat(2000))).detail.message.length, 512);
 });

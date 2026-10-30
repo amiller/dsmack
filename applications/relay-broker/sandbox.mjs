@@ -52,5 +52,9 @@ export async function sandbox(req, broker, readBody, transport = nativeTransport
   try { forwarder = await transport(broker.cfg, broker.key); }
   catch { throw new Refused("sandbox_transport_unavailable", 503); }
   try { return nodeResponse(await forwarder.forward(endpoint, payload, { signal: req.signal })); }
-  catch (error) { throw new Refused(error.code || "node_unreachable", error.status || 502); }
+  catch (error) {
+    const code = error.code || "node_unreachable", status = error.status || 502;
+    if (error.detail) return Response.json({ error: code, stage: error.stage || code, detail: error.detail }, { status });
+    throw new Refused(code, status);
+  }
 }

@@ -1,6 +1,8 @@
 #!/usr/bin/env python3
 """Deploy/update the Base Sepolia tunnel index, then publish the same hints to the broker."""
-import argparse,json,os,sys
+import argparse,json,os,sys,time
+from http.client import HTTPException
+from urllib.error import HTTPError,URLError
 from pathlib import Path
 from urllib.request import Request,urlopen
 from eth_abi import encode
@@ -36,7 +38,23 @@ def publish_broker():
   body['signature']='0x'+signer.sign_message(encode_defunct(text='dsmack-tunnels/1\n'+canonical)).signature.hex()
   raw=json.dumps(body,separators=(',',':'))
  request=Request(a.broker,raw.encode(),headers,method='POST')
- with urlopen(request,timeout=30) as response:result=json.load(response)
+ for attempt in range(1,4):
+  try:
+   with urlopen(request,timeout=30) as response:result=json.load(response)
+   break
+  except (HTTPError,URLError,TimeoutError,HTTPException,OSError) as error:
+   record={'stage':'broker_publication','attempt':attempt,'status':getattr(error,'code',None),'error':str(error),'body':'','body_truncated':False}
+   transient=not isinstance(error,HTTPError) or error.code in (408,429) or 500<=error.code<600
+   if isinstance(error,HTTPError):
+    try:
+     body=error.read(4097);record['body']=body[:4096].decode(errors='replace');record['body_truncated']=len(body)>4096
+    except (OSError,HTTPException) as body_error:record['body_read_error']=str(body_error)
+    finally:error.close()
+   record['retrying']=transient and attempt<3
+   (a.evidence/('broker-error-'+str(attempt)+'.json')).write_text(json.dumps(record,indent=2)+'\n')
+   print(json.dumps(record),flush=True)
+   if not record['retrying']:raise RuntimeError('broker publication failed; last error: '+json.dumps(record)) from error
+   time.sleep(5)
  (a.evidence/'broker-published.json').write_text(json.dumps(result,indent=2)+'\n')
  print(json.dumps({'broker':a.broker,'published':True}))
 def publisher():

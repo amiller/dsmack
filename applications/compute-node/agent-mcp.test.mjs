@@ -44,6 +44,10 @@ test("MCP 2026 discovery, pi tools, progress and patch preserve real execution",
   const run = await client.callTool({ name: "bash", arguments: { command: "node hello.js; sleep 0.2; printf 'done\\n'" } }, { onprogress: (progress) => updates.push(progress) });
   assert.match(run.content[0].text, /after\ndone/);
   assert(updates.some((progress) => progress.message.includes("after")));
+  const failed = await client.callTool({ name: "bash", arguments: { command: "printf 'script failed\\n'; exit 7" } });
+  assert.equal(failed.isError, true);
+  assert.match(failed.content[0].text, /script failed/);
+  assert.match(failed.content[0].text, /code 7/);
   const patch = await client.readResource({ uri: "dsmack://workspace/patch" });
   const diff = Buffer.from(patch.contents[0].blob, "base64").toString();
   assert.match(diff, /new file mode/); assert.match(diff, /console.log\("after"\)/);

@@ -47,3 +47,13 @@ test('free diagnostic discovery uses the free attestation protocol despite a bro
  let forwarded;const response=await sandbox(new Request('https://broker/sandbox/nodes/node/attestation?challenge='+ 'ab'.repeat(32)),broker,readBody,transport(async(_endpoint,payload)=>{forwarded=payload;return {attestation:'proof'}}));
  assert.equal(response.status,200);assert.equal(forwarded.challenge,'');
 });
+
+test("network 502 preserves the nested dial cause and stage", async () => {
+ const detail={name:"AggregateError",message:"All multiaddr dials failed",errors:[
+  {name:"Error",message:"hop refused",cause:{name:"Error",message:"reservation expired"}},
+ ]};
+ const error=Object.assign(new Error("node_unreachable"),{code:"node_unreachable",stage:"node_unreachable",status:502,detail});
+ const response=await sandbox(request(job),broker,readBody,transport(async()=>{throw error}));
+ assert.equal(response.status,502);
+ assert.deepEqual(await response.json(),{error:"node_unreachable",stage:"node_unreachable",detail});
+});

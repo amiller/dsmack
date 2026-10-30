@@ -6,7 +6,7 @@
   "rpc": "https://base-sepolia-rpc.publicnode.com",
   "brokerKey": "2276041fc1337a93b8ad5731796030e1d90e71906e40f7958ea43a3df9977c62",
   "grantSigner": "0xd3DD9f6ff4AC0e2d4B7A833F645085EB5C1e03E7",
-  "registry": "0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E",
+  "registry": "0x14b569c5D81d42621c5C0d4d62185239C86D8d20",
   "tunnels": "https://pod.dstack.soc1024.com/private-agent/tunnels",
   "syncAnchor": "0x04EE64A2C22e6E0d48F2ca05eF4086E2aaAc9c3b",
   "syncAnchorCodeHash": "0xa92abf9ca5d270b88627c8a2723696e962d31e79864dcc80595cf8480dbdeec5",

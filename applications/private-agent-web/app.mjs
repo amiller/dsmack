@@ -1,4 +1,3 @@
-import "./theme.mjs";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import { renderToolProgress } from "./tool-renderers.mjs";
 import { AgentInterface } from "@pi-components/components/AgentInterface.js";
@@ -28,7 +27,7 @@ import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-p
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   guests = new Map();
-let keys, sync, cfg,
+let keys, sync, continuity, cfg,
   credit,
   quote,
   policy,
@@ -42,6 +41,11 @@ let keys, sync, cfg,
   unsubscribeChat,
   lastSave = Promise.resolve(),
   chatBusy = false;
+async function startupStep(name, task) {
+  const start = performance.now();
+  try { return await task(); }
+  finally { performance.measure("startup:" + name, { start, end: performance.now() }); }
+}
 function error(e) {
   $("alert").textContent = e.message || String(e);
   $("alert").hidden = false;
@@ -114,7 +118,9 @@ async function api(path, body, opts = {}) {
   return opts.stream ? response : response.json();
 }
 function render() {
-  $("wallet").textContent = credit.address || "No wallet connected";
+  $("wallet").textContent = credit.address || "Choose Start fresh or recover your wallet.";
+  document.documentElement.dataset.walletLoaded = "true";
+  continuity?.update({ hasValue: BigInt(credit.chatCredit?.remainingNanoUsd || "0") > 0n || currentSession?.messages?.some(m => m.role === "user") || agent?.state.messages.some(m => m.role === "user") }).catch(error);
   $("wallet-tools").hidden = !credit.address;
   const list = $("purchases");
   list.replaceChildren();
@@ -170,12 +176,12 @@ function renderChatCredit() {
   $("chat-credit").dataset.spentNanoUsd = c?.spentNanoUsd || "";
   $("chat-credit").textContent = c
     ? "Chat credit " + formatNanoUsd(c.remainingNanoUsd)
-    : "Chat credit · Create or connect a wallet";
+    : credit.address ? "Chat credit · Checking balance…" : "Chat credit · Choose how to begin";
   $("chat-credit-status").textContent = c
     ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
       c.pendingInferenceId ? " · Usage pending" : ""
     }`
-    : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
+    : credit.address ? "Your wallet is loaded. Checking your current credit…" : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
 }
 async function claimChatCredit() {
   require(
@@ -192,16 +198,17 @@ async function claimChatCredit() {
     "Chat credit belongs to another wallet.",
   );
   credit.chatCredit = result;
-  if (guest) await guest.restore();
   render();
+  if (guest) await guest.restore();
 }
 async function ensureWallet() {
-  if (!credit.signer) await credit.burner();
+  require(credit.signer, "Choose Start fresh or recover your wallet before chatting.");
   if (!credit.chatCredit) await claimChatCredit();
 }
 async function refreshServices() {
-  await credit.checkBroker(api);
-  quote = await api("/inference/quote");
+  $("service").textContent = "Checking the broker…";
+  await startupStep("broker-identity", () => credit.checkBroker(api));
+  quote = await startupStep("inference-quote", () => api("/inference/quote"));
   require(
     quote.mode === "broker-e2ee" && quote.provider === "near" &&
       typeof quote.model === "string",
@@ -211,7 +218,7 @@ async function refreshServices() {
   $("service").textContent = quote.configured
     ? "Chat ready · " + PRIVACY
     : "Private inference is not configured.";
-  if (credit.signer && quote.configured) await claimChatCredit();
+  if (credit.signer && quote.configured) await startupStep("wallet-credit", claimChatCredit);
   $("pins").textContent = JSON.stringify(
     {
       chainId: 84532,
@@ -300,8 +307,9 @@ async function saveCurrentChat(publish = false) {
       $("session-title").textContent = data.title;
       $("chat-status").textContent = "Saved on this device";
       chat.dataset.saved = "true";
+      continuity?.update({ hasValue: data.messages.some(m => m.role === "user") || BigInt(credit.chatCredit?.remainingNanoUsd || "0") > 0n }).catch(error);
     }
-    if (publish) {
+    if (publish && sync) {
       try {
         chat.dataset.synced = "false";
         await sync.push(data.id);
@@ -341,7 +349,7 @@ async function useSession(data) {
   unsubscribeChat?.();
   currentSession = data || {
     id: crypto.randomUUID(), title: "New chat", createdAt: new Date().toISOString(),
-    messages: [], dsmack: { evidence: [], wallet: credit.address.toLowerCase() },
+    messages: [], dsmack: { evidence: [], wallet: credit.address?.toLowerCase() },
   };
   const conversationId = currentSession.id;
   guest = guests.get(conversationId);
@@ -430,9 +438,7 @@ async function useSession(data) {
 }
 async function initChat() {
   storage = createChatStorage();
-  sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
-  try { await sync.pull(); await sync.flush(); }
-  catch (e) { error(e); }
+  if (keys.bundle) sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
   chat = new AgentInterface();
   chat.id = "chat";
   chat.enableAttachments = false;
@@ -467,17 +473,10 @@ async function initChat() {
     }
   };
   chat.onCostClick = () => usage().catch(error);
-  const imported = await store("continuity.imported");
-  let active = await storage.settings.get("chat.active");
-  if (imported) {
-    const remoteIds = new Set(Object.keys(sync.state?.sessions || {}));
-    const saved = await storage.sessions.getAllMetadata();
-    active = saved.filter((m) => remoteIds.has(m.id))
-      .sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0]?.id;
-    if (remoteIds.size) await store("continuity.imported", false);
-  }
-  active ||= await storage.sessions.getLatestSessionId();
-  await useSession(active ? await storage.sessions.get(active) : null);
+  const active = await storage.settings.get("chat.active") || await storage.sessions.getLatestSessionId();
+  const saved = active ? await storage.sessions.get(active) : null;
+  const sameWallet = credit.address && (!saved?.dsmack?.wallet || saved.dsmack.wallet === credit.address.toLowerCase());
+  await useSession(sameWallet ? saved : null);
   await renderPersistence();
   action("new-chat", () => useSession());
   action("sessions", () => SessionListDialog.open(
@@ -768,12 +767,36 @@ async function refund() {
   $("service").textContent =
     "Unused testnet credit withdrawn. View the refund in your purchase card.";
 }
+async function checkSync() {
+  if (!sync) { $("sync-status").textContent = "Choose how to begin. Chats save on this device."; return; }
+  const checking = sync;
+  $("sync-status").textContent = "Checking sync… Your saved chats are ready on this device.";
+  try {
+    await startupStep("sync-pull", () => checking.pull());
+    // A recovered wallet may need to select its newest verified remote chat.
+    const imported = await store("continuity.imported");
+    if (!chatBusy) {
+      const remoteIds = new Set(Object.keys(checking.state?.sessions || {}));
+      const all = await storage.sessions.getAllMetadata();
+      const latest = all.filter(m => remoteIds.has(m.id)).sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0];
+      const id = (imported || !agent.state.messages.some(m => m.role === "user")) && latest ? latest.id : currentSession.id;
+      const data = await storage.sessions.get(id);
+      if (data && (id !== currentSession.id || JSON.stringify(data.messages) !== JSON.stringify(agent.state.messages))) await useSession(data);
+      if (imported && latest) await store("continuity.imported", false);
+    }
+    await startupStep("sync-flush", () => checking.flush());
+    $("sync-status").textContent = "Chats checked and synced.";
+  } catch (e) {
+    $("sync-status").textContent = "Chats are saved here. Sync couldn’t finish; check your connection and try again.";
+    $("sync-status").title = e.message;
+  }
+}
 async function main() {
   require(
     !/^\/(ipfs|ipns)\//.test(window.location.pathname),
     "Open this app through a CID or IPNS subdomain gateway. Shared path gateways cannot isolate your wallet from other sites.",
   );
-  const response = await fetch("./config.json", { cache: "no-store" });
+  const response = await startupStep("configuration", () => fetch("./config.json", { cache: "no-store" }));
   require(response.ok, "Page configuration could not load.");
   cfg = await response.json();
   for (const name of ["broker", "rpc"]) {
@@ -781,16 +804,35 @@ async function main() {
   }
   cfg.sandboxPolicy = { ...approvedSandboxPolicy, registry: cfg.registry, rpc: cfg.rpc };
   require(cfg.chainId === 84532, "This page is restricted to Base Sepolia.");
-  let client = await store("client");
+  keys = await startupStep("local-wallet", () => new DeviceKeys().init());
+  $("wallet").textContent = keys.address || "Choose Start fresh or recover your wallet.";
+  document.documentElement.dataset.walletLoaded = "true";
+  let client = await startupStep("local-client", () => store("client"));
   if (!client) {
     client = await sandbox.createClient();
     await store("client", client);
   }
-  keys = await new DeviceKeys().init();
-  credit = await new Credit(cfg, client, render).init();
-  continuityUI({ keys, credit, cfg, api, error, beforeExport: () => sync.flush() });
-  await initChat();
+  credit = await startupStep("local-credit", () => new Credit(cfg, client, render).init());
+  continuity = continuityUI({ keys, credit, cfg, api, error, beforeExport: async () => {
+    require(sync, "Start fresh or recover your wallet first.");
+    await sync.flush();
+  } });
   render();
+  await startupStep("local-chat", initChat);
+  render();
+  action("start-fresh", async () => {
+    await keys.create();
+    await credit.init();
+    currentSession.dsmack.wallet = credit.address.toLowerCase();
+    sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
+    render();
+    $("welcome").hidden = true;
+    $("service").textContent = "Your wallet is ready. Checking your credit…";
+    refreshServices().catch(error);
+    checkSync().catch(error);
+  });
+  $("start-fresh").disabled = false;
+  $("used-before").disabled = false;
   action("copy-address", async () => {
     require(credit.address, "Create or connect a wallet first.");
     await navigator.clipboard.writeText(credit.address);
@@ -846,7 +888,9 @@ async function main() {
   loadPolicy(cfg.sandboxPolicy);
   resetSample();
   document.documentElement.dataset.ready = "true";
-  await refreshServices();
+  // Network verification follows local rendering and never gates the wallet.
+  refreshServices().catch(error);
+  checkSync().catch(error);
 }
 main().catch((e) => {
   error(e);

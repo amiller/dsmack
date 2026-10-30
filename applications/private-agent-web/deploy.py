@@ -104,6 +104,9 @@ def main():
     substrate = json.loads(api("/_api/substrate"))
     if "shared" not in substrate["isolation_modes"]:
         raise ValueError("Webhost does not support shared Deno")
+    # Page updates retain enrolled recovery/receiver configuration.
+    existing = json.loads(api("/_api/projects/" + PROJECT, auth=True))
+    page_env = existing.get("env", {})
     manifest = {
         "name": PROJECT,
         "source": "tarball://" + PROJECT,
@@ -111,7 +114,7 @@ def main():
         "runtime": "deno",
         "entry": "server.ts",
         "isolation": "shared",
-        "env": {**smtp_env, **({"OPERATOR_TOKEN_SHA256":args.operator_token_sha256} if args.operator_token_sha256 else {})},
+        "env": {**page_env, **smtp_env, **({"OPERATOR_TOKEN_SHA256":args.operator_token_sha256} if args.operator_token_sha256 else {})},
     }
     boundary = "private-agent-" + secrets.token_hex(16)
     body = (

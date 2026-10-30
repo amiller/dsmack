@@ -26,7 +26,7 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(measured['network']['egress'], [
             {'destination':'192.168.127.254/32','protocol':'tcp','port':18484}])
         self.assertEqual(node['command'][1], RELAY)
-        self.assertEqual(env['ADMIT_SECONDS'], '570')
+        self.assertEqual(env['ADMIT_SECONDS'], '360')
         self.assertTrue({'egress-checks','gateway-log'}.issubset({a['name'] for a in measured['outputs']['artifacts']}))
 
     def test_hour_guest_binds_lifetime_and_paid_run_to_its_measured_compose(self):

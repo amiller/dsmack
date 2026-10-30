@@ -281,6 +281,15 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(instance.slots[0]['last_error']['stage'], 'broker_readiness')
             self.assertEqual(instance.active, [healthy]); instance.launch.assert_called_once()
 
+    def test_legacy_socket_timeout_is_reported_without_stopping_the_pool(self):
+        # Python 3.9 on the Mac raises socket.timeout as OSError, not TimeoutError.
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp)); instance.args.broker = 'https://broker'
+            with patch.object(pool, 'urlopen', side_effect=OSError('The read operation timed out')):
+                self.assertIsNone(instance.nodes())
+            self.assertFalse(instance.stopping)
+            self.assertEqual(instance.last_broker_error['error_type'], 'OSError')
+
     def test_broker_error_response_body_is_bounded_and_malformed_200_is_visible(self):
         from urllib.error import HTTPError
         with tempfile.TemporaryDirectory() as tmp:

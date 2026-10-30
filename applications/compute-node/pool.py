@@ -290,7 +290,7 @@ class Pool:
                 raise ValueError('broker node index is not an array')
             self.last_broker_error = None
             return nodes
-        except (HTTPError, URLError, TimeoutError, HTTPException, ValueError) as error:
+        except (OSError, HTTPException, ValueError) as error:
             details = {'stage': 'broker_readiness', 'error': str(error), 'error_type': type(error).__name__,
                        'status': getattr(error, 'code', status), 'body': raw[:4096].decode(errors='replace')}
             if isinstance(error, HTTPError):

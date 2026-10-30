@@ -115,6 +115,7 @@ def main():
         "source": "tarball://" + PROJECT,
         "ref": ref,
         "runtime": "deno",
+        "mode": "attested",
         "entry": "server.ts",
         "isolation": "shared",
         "env": {**smtp_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256},
@@ -135,6 +136,8 @@ def main():
     if project.get("mode") != "attested":
         wait_for_idle(base, args.wait_idle_minutes)
         project = json.loads(api("/_api/projects/private-agent/promote", method="POST", auth=True))
+    if project.get("mode") != "attested":
+        raise ValueError("Deployment did not enter attested mode")
     for attempt in range(30):
         try:
             page = api("/private-agent/")

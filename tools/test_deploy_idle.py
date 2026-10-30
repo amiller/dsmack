@@ -56,10 +56,10 @@ class BrokerPromotionTest(unittest.TestCase):
             nonlocal uploaded, promoted
             if path == '/_api/projects':
                 uploaded = True
-                return {'runtime': 'deno', 'isolation': 'shared'}
+                return {'runtime': 'deno', 'isolation': 'shared', 'mode': 'dev'}
             if path.endswith('/promote'):
                 promoted = True
-                return {}
+                return {'mode': 'attested'}
             if path == '/relay-broker/key':
                 self.assertTrue(promoted)
                 return {}
@@ -68,7 +68,7 @@ class BrokerPromotionTest(unittest.TestCase):
             root = Path(directory)
             (root / 'relay-broker.manifest.json').write_text(json.dumps({
                 'name':'relay-broker', 'runtime':'deno', 'entry':'applications/relay-broker/server.ts',
-                'isolation':'shared', 'source':'tarball://relay-broker', 'env':{}, 'ref':'test-ref'}))
+                'isolation':'shared', 'source':'tarball://relay-broker', 'mode':'attested', 'env':{}, 'ref':'test-ref'}))
             with tarfile.open(root / 'relay-broker.tgz', 'w:gz') as archive:
                 body = b'{"payments":{},"inference":{}}'
                 info = tarfile.TarInfo('applications/relay-broker/config.json')

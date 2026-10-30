@@ -61,7 +61,7 @@ def prepare(args):
         raise ValueError("operator token SHA256 must be 64 lowercase hex characters")
     manifest = {"name": "relay-broker", "source": "tarball://relay-broker",
                 "ref": subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip(),
-                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "shared",
+                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "shared", "mode": "attested",
                 "env": {"OPERATOR_TOKEN_SHA256": args.operator_token_sha256}}
     if args.encrypted_env:
         manifest["env"]["NEAR_ENCRYPTED_ENV"] = json.dumps(envelope(json.loads(args.encrypted_env.read_text())))
@@ -145,9 +145,9 @@ def client(url, admin=None):
 def deploy(args):
     manifest = json.loads((args.prepared / "relay-broker.manifest.json").read_text())
     required = {"name": "relay-broker", "runtime": "deno", "entry": "applications/relay-broker/server.ts",
-                "isolation": "shared", "source": "tarball://relay-broker"}
+                "isolation": "shared", "source": "tarball://relay-broker", "mode": "attested"}
     if any(manifest.get(key) != value for key, value in required.items()):
-        raise ValueError("prepared project must be relay-broker shared Deno")
+        raise ValueError("prepared project must be attested relay-broker shared Deno")
     if set(manifest.get("env", {})) - {"OPERATOR_TOKEN_SHA256", "NEAR_ENCRYPTED_ENV"}:
         raise ValueError("prepared environment contains unsupported fields")
     if "NEAR_ENCRYPTED_ENV" in manifest["env"]:
@@ -170,9 +170,12 @@ def deploy(args):
                   kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
-    # Upload selects dev mode: its CVM-only provider key cannot load until
-    # promotion. The pre-upload idle check and shared lock cover both steps.
-    api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
+    # The pre-upload idle check and shared lock cover both steps. A dev-mode
+    # fallback cannot report CVM-only provider activity until promotion.
+    if project.get("mode") != "attested":
+        project = api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
+    if project.get("mode") != "attested":
+        raise ValueError("deployed broker did not enter attested mode")
     deadline = time.monotonic() + 30
     while True:
         try:

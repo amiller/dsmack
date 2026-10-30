@@ -123,6 +123,7 @@ VENV/bin/python applications/compute-node/mac-pool.py \
   --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
   --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
   --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
+  --pool-version SOURCE_COMMIT \
   --broker https://pod.dstack.soc1024.com/relay-broker \
   --index https://pod.dstack.soc1024.com/private-agent/tunnels
 ```

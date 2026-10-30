@@ -255,8 +255,7 @@ class Pool:
         self.publisher = None
         if args.publisher_key:
             from heartbeat import Publisher
-            version = subprocess.check_output(['git', '-C', str(args.repo), 'rev-parse', 'HEAD'], text=True).strip()
-            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, version)
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
         self.started = time.monotonic()
 
     def event(self, name, **fields):
@@ -420,11 +419,11 @@ class Pool:
                         state = 'attesting'
                 slots.append({'slot_id': slot['slot_id'], 'state': state,
                               'relay_peer': registered['relay_peer'] if registered else None,
-                              'run_id': registered.get('payments', {}).get('runId') if registered else None,
+                              'run_id': (registered.get('payments', {}).get('runId') or registered.get('attestation', {}).get('run')) if registered else None,
                               'node_id': self.payments['node'],
                               'started_at': node['started_at'] if node else None,
                               'jobs_served': slot['jobs_served'] + sum((n['node'] or {}).get('telemetry', {}).get('jobs_served', 0) for n in active),
-                              'last_error': slot['last_error'],
+                              'last_error': json.dumps(slot['last_error'], ensure_ascii=False) if slot['last_error'] else None,
                               'attestation': registered.get('attestation') if registered else None})
         return {'classes': [self.payments['node']], 'config': self.config, 'hardware': self.hardware, 'slots': slots, 'errors': self.errors}
 
@@ -436,7 +435,11 @@ class Pool:
             if self.publisher:
                 record = self.publisher.tick(self.snapshot())
                 if record:
-                    self.event(record.pop('event'), **record)
+                    name = record.pop('event')
+                    if name == 'heartbeat_error':
+                        self.errors.append({'at': int(time.time()), 'slot_id': None, 'stage': 'heartbeat', **record})
+                        self.errors = self.errors[-10:]
+                    self.event(name, **record)
             if not self.active and (self.stopping or all(s['stopped'] for s in self.slots) or (self.args.cycles and self.launched >= self.args.cycles)):
                 break
             time.sleep(2)
@@ -447,6 +450,7 @@ def main():
     parser.add_argument('--operator', type=Path, default=Path.home()/'.dsmack/operator.json')
     parser.add_argument('--publisher-key', type=Path)
     parser.add_argument('--publisher-address')
+    parser.add_argument('--pool-version', help='source commit used by this staged pool')
     parser.add_argument('--runner', required=True, type=Path)
     parser.add_argument('--workload', required=True, type=Path)
     parser.add_argument('--state', required=True, type=Path)
@@ -462,6 +466,8 @@ def main():
     args = parser.parse_args()
     if bool(args.publisher_key) != bool(args.publisher_address):
         parser.error('--publisher-key and --publisher-address are required together')
+    if args.publisher_key and not args.pool_version:
+        parser.error('--pool-version is required for published heartbeats')
     if (not 1 <= args.seconds <= 840 or not 1 <= args.drain_seconds < args.seconds
             or not 1 <= args.replace_after < args.seconds
             or max(args.replace_after, args.seconds-args.replace_after) + args.readiness_timeout >= args.seconds-args.drain_seconds):

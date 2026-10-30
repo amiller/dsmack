@@ -69,6 +69,16 @@ test("concurrent claims hold one guest and expired unused grants release without
  assert.equal(status.credit.spentNanoUsd,"0");
 });
 
+test("ending before transport admission releases credit and revokes the unused grant",async()=>{
+ const f=await fixture(),session=await f.open();
+ const ended=await f.sessions.status(await f.signed("agent-end",{sessionId:session.sessionId}),true);
+ assert.equal(ended.active,false);
+ assert.equal(ended.credit.reservedNanoUsd,"0");
+ assert.equal(ended.credit.spentNanoUsd,"0");
+ await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,0)),e=>e.code==="SESSION_CLOSED");
+ assert.notEqual((await f.open()).sessionId,session.sessionId);
+});
+
 test("expired started session releases ownership and preserves unresolved credit until signed final recovery",async()=>{
  const f=await fixture(),session=await f.open();
  await f.sessions.receipt(await f.receipt(session.sessionId,5));

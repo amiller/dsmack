@@ -5,7 +5,7 @@ import { InferenceError } from "./inference.mjs";
 import { unhex } from "../../dstack-compat/secret-release/policy.mjs";
 
 export const workspaceChunkBytes = 512 * 1024;
-export const maxEncryptedSnapshotBytes = 272 * 1024 * 1024;
+export const maxEncryptedSnapshotBytes = 224 * 1024 * 1024;
 const zero = "0".repeat(64), hash = v => typeof v === "string" && /^[0-9a-f]{64}$/.test(v);
 const need = (ok, code, message, status = 400) => { if (!ok) throw new InferenceError(code, message, status); };
 const fields = { head: [], history: ["afterVersion"], begin: ["version", "previousHash", "hash", "size", "mac"],

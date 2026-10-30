@@ -17,7 +17,7 @@ from urllib.parse import urlencode, urlsplit
 from urllib.request import Request, urlopen
 
 CHUNK_BYTES = 512 * 1024
-MAX_BYTES = 272 * 1024 * 1024
+MAX_BYTES = 224 * 1024 * 1024
 RETENTION_SECONDS = 30 * 86400
 PREFIX = 'dsmack-workspace-store/1\n'
 HEX = re.compile(r'^[0-9a-f]{64}$')

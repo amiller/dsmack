@@ -303,7 +303,7 @@ export class Inference {
         b.max_tokens > 0 && b.max_tokens <= this.cfg.maxOutputTokens &&
         fields(b.stream_options, ["include_usage"]) && b.stream_options.include_usage === true &&
         Array.isArray(b.messages) && b.messages.length > 0 && b.messages.length <= 128 && b.messages.every(message) &&
-        (b.tools === undefined || (Array.isArray(b.tools) && b.tools.length <= 4 && b.tools.every(tool))) &&
+        (b.tools === undefined || (Array.isArray(b.tools) && b.tools.every(tool))) &&
         (b.tool_choice === undefined || (b.tool_choice === "auto" && b.tools?.length > 0)),
       "BAD_REQUEST", "only bounded SDK-encrypted messages and tool fields are accepted",
     );

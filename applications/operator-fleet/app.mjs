@@ -89,7 +89,7 @@ function showDetail() {
   body.append(el("h3", "Last ten errors", "section-title"));
   if (!mac.errors.length) body.append(el("p", "No errors reported.", "muted"));
   for (const item of mac.errors.slice(-10).reverse()) {
-    const div = el("article", null, "error-item"); div.append(el("small", `${when(item.at)} · slot ${item.slot_id}`), el("pre", item.error)); body.append(div);
+    const div = el("article", null, "error-item"); div.append(el("small", `${when(item.at)} · slot ${item.slot_id}`), el("pre", json(item))); body.append(div);
   }
   body.append(el("h3", "Operator config", "section-title"), el("pre", json(mac.config)));
   $("detail").replaceChildren(head, body);

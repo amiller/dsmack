@@ -142,16 +142,28 @@ export class GuestSession {
   }
   async open(signal) {
     this.changed({ state: "verifying" });
-    const verified = await this.discover({ wait: true });
-    this.node = verified;
+    const deadline = Date.now() + 90000, exclude = new Set();
+    let verified = await this.discover({ wait: true, deadline, exclude, signal });
     const peer = await createLibp2p({
       addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
       connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
     });
     this.peer = peer;
-    this.lease = await this.api("/agent/open", await walletBody(this.credit, "agent-open", {
-      conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: verified.registration.relay_peer,
-    }), { signal });
+    for (;;) {
+      signal?.throwIfAborted();
+      this.node = verified;
+      try {
+        this.lease = await this.api("/agent/open", await walletBody(this.credit, "agent-open", {
+          conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: verified.registration.relay_peer,
+        }), { signal });
+        break;
+      } catch (e) {
+        if (e.code !== "GUEST_BUSY" || Date.now() >= deadline) throw e;
+        exclude.add(verified.registration.relay_peer);
+        this.changed({ state: "verifying", error: "That guest was claimed by another conversation. Finding another approved guest…" });
+        verified = await this.discover({ wait: true, deadline, exclude, signal });
+      }
+    }
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
     const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
     require(response.ok, "Guest relay discovery failed: HTTP " + response.status);

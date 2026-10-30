@@ -1,4 +1,5 @@
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
+import { renderToolProgress } from "./tool-renderers.mjs";
 import { AgentInterface } from "@pi-components/components/AgentInterface.js";
 import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
@@ -382,6 +383,7 @@ async function useSession(data) {
   if (!chat.isConnected) $("chat-host").append(chat);
   await chat.updateComplete;
   unsubscribeChat = agent.subscribe((event) => {
+    renderToolProgress(chat, agent, event);
     // Pi's message list observes array references; the agent appends in place.
     if (event.type === "message_end") {
       agent.state.messages = [...agent.state.messages];

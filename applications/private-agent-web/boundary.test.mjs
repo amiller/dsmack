@@ -271,6 +271,36 @@ try {
     assert(!calls.some(r => r.path.startsWith("/agent/")));
     assert.equal(await page.locator("#guest-status").getAttribute("data-state"), "idle");
   });
+  await run("inline-tool-output-and-markdown-code-visible", "valid", async (page, calls) => {
+    // Display fixture derived from the real guest script journey. No model or
+    // guest request is made: this catches missing custom-element registration.
+    await page.evaluate(async () => {
+      const chat = document.querySelector("agent-interface"), model = chat.session.state.model;
+      const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+      const assistant = content => ({ role: "assistant", content, api: model.api, provider: model.provider,
+        model: model.id, usage, stopReason: "stop", timestamp: Date.now() });
+      chat.session.state.messages = [
+        assistant([{ type: "toolCall", id: "render-write", name: "write", arguments: { path: "/workspace/proof-script.sh", content: "echo DSMACK_GUEST_SCRIPT_OK" } },
+          { type: "toolCall", id: "render-bash", name: "bash", arguments: { command: "bash /workspace/proof-script.sh" } }]),
+        { role: "toolResult", toolCallId: "render-write", toolName: "write", isError: false, content: [{ type: "text", text: "Successfully wrote to /workspace/proof-script.sh" }], details: {}, timestamp: Date.now() },
+        { role: "toolResult", toolCallId: "render-bash", toolName: "bash", isError: false, content: [{ type: "text", text: "DSMACK_GUEST_SCRIPT_OK\n6 * 7 = 42\n" }], details: {}, timestamp: Date.now() },
+        assistant([{ type: "text", text: "Output:\n```text\nDSMACK_GUEST_SCRIPT_OK\n6 * 7 = 42\n```" }]),
+      ];
+      chat.requestUpdate(); await chat.updateComplete;
+    });
+    const bash = page.locator("tool-message").filter({ has: page.locator("console-block") });
+    await bash.locator("console-block pre").waitFor({ state: "visible" });
+    assert.match(await bash.innerText(), /bash · completed/);
+    assert.doesNotMatch(await bash.innerText(), /bash · running|Running command/);
+    assert.match(await bash.locator("console-block pre").innerText(), /bash \/workspace\/proof-script\.sh[\s\S]*DSMACK_GUEST_SCRIPT_OK[\s\S]*42/);
+    const write = page.locator("tool-message").filter({ has: page.locator("code-block") });
+    assert.match(await write.innerText(), /Successfully wrote to \/workspace\/proof-script\.sh/);
+    const fenced = page.locator("assistant-message markdown-block code-block pre code");
+    await fenced.waitFor({ state: "visible" });
+    assert.match(await fenced.innerText(), /DSMACK_GUEST_SCRIPT_OK[\s\S]*42/);
+    assert(!calls.some(r => r.path.startsWith("/agent/") || r.path === "/inference/chat"));
+  });
   await run("held-guest-can-be-ended-after-reload", "recovery", async (page, calls) => {
     await send(page, "Saved conversation survives lease recovery.");
     await alert(page, "SYNTHETIC_STOP");

@@ -1,0 +1,11 @@
+{
+  "methods": [
+    {
+      "name": "runtime.getCapabilities",
+      "introducedVersion": 1,
+      "parameters": {},
+      "returns": "RuntimeSnapshot"
+    }
+  ],
+  "events": []
+}

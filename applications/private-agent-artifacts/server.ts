@@ -16,12 +16,12 @@ function receive(event) {
   const data = event.data;
   if (!data || typeof data !== 'object') return;
   if (inner && event.source === inner.contentWindow && event.origin === 'null') {
-    if (data.sandboxId === sandboxId && data.type === 'console') parent.postMessage(data, host);
+    if (data.sandboxId === sandboxId && ['console','execution-complete','execution-error','dsmack-request'].includes(data.type)) parent.postMessage(data, host);
     return;
   }
   if (event.source !== parent || event.origin !== host) return;
   if (inner) {
-    if (data.type === 'runtime-response' && data.sandboxId === sandboxId) inner.contentWindow.postMessage(data, '*');
+    if ((data.type === 'runtime-response' || data.type === 'dsmack-response') && data.sandboxId === sandboxId) inner.contentWindow.postMessage(data, '*');
     return;
   }
   if (data.type !== 'sandbox-load' || typeof data.code !== 'string' || typeof data.sandboxId !== 'string') return;

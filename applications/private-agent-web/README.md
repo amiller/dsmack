@@ -26,6 +26,17 @@ opaque iframe served by `../private-agent-artifacts`, with inline styles and
 JavaScript and no network access. Apps and console feedback are saved with the
 conversation; the Apps button reopens the panel.
 
+Apps receive a frozen `window.dsmack` SDK. Call `await dsmack.ready()` and check
+`dsmack.capabilities.has(method)` before using `storage.get/put/list`,
+`agent.complete`, `credit.balance` or `diagnostics.log`. Storage is encrypted
+under a key derived for the conversation and HTML filename. The viewer grants
+each app a model budget once in the host bar, starting at $0.02; the bar shows
+its limit, spent amount and pending reservation. Model requests use an isolated
+untrusted transcript and the viewer's credit. Amounts use nano-USD strings.
+
+The per-category bridge contracts live in `bridge/Categories/`; the build runs
+`node bridge/generate.mjs` to merge them into `bridge/Manifest.json`.
+
 The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
 repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository

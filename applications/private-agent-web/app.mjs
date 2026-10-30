@@ -6,6 +6,9 @@ import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
+import { ArtifactState } from "./artifact-state.mjs";
+import { ArtifactModels } from "./artifact-models.mjs";
+import { createSessionPersistence } from "./artifact-persistence.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
@@ -38,6 +41,7 @@ let keys, sync, cfg,
   agent,
   chat,
   storage,
+  persistSession,
   currentSession,
   unsubscribeChat,
   lastSave = Promise.resolve(),
@@ -292,7 +296,7 @@ async function saveCurrentChat(publish = false) {
   const session = currentSession;
   chat.dataset.saved = "false";
   $("chat-status").textContent = "Saving chat…";
-  const task = saveChat(storage, session, agent);
+  const task = persistSession(session, agent);
   lastSave = task;
   try {
     const data = await task;
@@ -361,7 +365,7 @@ async function useSession(data) {
               environment: status.environment || held.environment,
               guestSeconds: status.guestSeconds || 0,
             };
-            lastSave = lastSave.catch(() => {}).then(() => saveChat(storage, record.session, record.agent));
+            lastSave = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
           }
         }
         if (currentSession.id === conversationId) renderGuest(status);
@@ -371,11 +375,40 @@ async function useSession(data) {
     guests.set(conversationId, guest);
   }
   renderGuest(guest.statusSnapshot || { state: "idle" });
-  const artifacts = createArtifacts();
+  const artifactSession = currentSession;
+  let artifactAgent, artifacts;
+  const saveArtifact = async (scope, envelope) => {
+    const task = persistSession(artifactSession, artifactAgent, { scope, envelope });
+    lastSave = task;
+    await task;
+    try { await sync.push(artifactSession.id); }
+    catch (e) { error(e); }
+  };
+  const artifactState = new ArtifactState({ dataKey: keys.bundle.dk,
+    getRecord: async scope => (await storage.sessions.get(artifactSession.id))?.dsmack?.artifactState?.[scope],
+    saveRecord: saveArtifact,
+  });
+  const artifactModels = new ArtifactModels({ state: artifactState, credit, api, cfg, quote: () => quote, usage,
+    evidence: async evidence => {
+      artifactSession.dsmack.evidence.push(evidence);
+      if (currentSession === artifactSession) renderEvidence(evidence);
+      const task = persistSession(artifactSession, artifactAgent);
+      lastSave = task;
+      await task;
+      try { await sync.push(artifactSession.id); } catch (e) { error(e); }
+    },
+    changed: scope => artifacts?.refreshBudget(scope).catch(error),
+  });
+  artifacts = createArtifacts(undefined, { state: artifactState, models: artifactModels, credit,
+    scopeForFilename: filename => JSON.stringify([artifactSession.id, filename]), error,
+  });
   const artifactHost = $("artifacts-host");
-  artifactHost.replaceChildren(artifacts.panel);
+  artifactHost.replaceChildren(artifacts.budgetBar, artifacts.panel);
   artifactHost.hidden = true;
-  const openArtifacts = () => { artifactHost.hidden = false; artifacts.panel.collapsed = false; };
+  const openArtifacts = () => {
+    artifactHost.hidden = false; artifacts.panel.collapsed = false;
+    artifacts.refreshSelectedBudget().catch(error);
+  };
   artifacts.panel.onOpen = openArtifacts;
   artifacts.panel.onClose = () => { artifactHost.hidden = true; };
   artifacts.panel.onArtifactsChange = () => { $("open-artifacts").hidden = !artifacts.panel.artifacts.size; };
@@ -400,6 +433,7 @@ async function useSession(data) {
       }) + "\n\n" + ARTIFACT_PROMPT,
     }),
   });
+  artifactAgent = agent;
   artifacts.panel.agent = agent;
   await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
     message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
@@ -430,6 +464,7 @@ async function useSession(data) {
 }
 async function initChat() {
   storage = createChatStorage();
+  persistSession = createSessionPersistence({ storage, save: saveChat });
   sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
   try { await sync.pull(); await sync.flush(); }
   catch (e) { error(e); }

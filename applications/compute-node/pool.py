@@ -424,7 +424,7 @@ class Pool:
                               'started_at': node['started_at'] if node else None,
                               'jobs_served': slot['jobs_served'] + sum((n['node'] or {}).get('telemetry', {}).get('jobs_served', 0) for n in active),
                               'last_error': json.dumps(slot['last_error'], ensure_ascii=False) if slot['last_error'] else None,
-                              'attestation': registered.get('attestation') if registered else None})
+                              'attestation': registered})
         return {'classes': [self.payments['node']], 'config': self.config, 'hardware': self.hardware, 'slots': slots, 'errors': self.errors}
 
     def run(self):

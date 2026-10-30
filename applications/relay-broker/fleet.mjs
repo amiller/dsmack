@@ -38,7 +38,7 @@ async function handle(req, publishers, path, now) {
     const chunks = []; let size = 0;
     for await (const bytes of req.body ?? []) {
       size += bytes.length;
-      if (size > 65536) return reply({ error: "body limit" }, 413);
+      if (size > 256 * 1024) return reply({ error: "body limit" }, 413);
       chunks.push(bytes);
     }
     const raw = new Uint8Array(size); let at = 0;

@@ -55,6 +55,20 @@ test("fleet keeps the signed heartbeat and offline timestamp across broker reloa
   } finally { await Deno.remove(dir, { recursive: true }); }
 });
 
+test("four rotating slots retain their signed proofs and all ten full error bodies", async () => {
+  const wallet = Wallet.createRandom(), payout = wallet.address.toLowerCase(), now = 1793372400;
+  const body = status(wallet, payout, now);
+  body.slots = Array.from({ length: 8 }, (_, i) => ({ slot_id: i % 4, state: i < 4 ? "ready" : "draining",
+    attestation: { proof: "ab".repeat(3000) } }));
+  body.errors = Array.from({ length: 10 }, (_, i) => ({ slot_id: i % 4, at: now, error: "broker HTTP 503", body: "x".repeat(4096) }));
+  const heartbeat = await sign(wallet, body);
+  assert(JSON.stringify(heartbeat).length > 65536);
+  const response = await fleet(post(heartbeat), { [payout]: payout }, undefined, () => now);
+  assert.equal(response.status, 200);
+  const saved = await response.json();
+  assert.deepEqual(saved.slots, body.slots); assert.deepEqual(saved.errors, body.errors);
+});
+
 test("guest workload counters require the attested receipt key signature", async () => {
   const key = await signingKey("61".repeat(32)), now = 1793372400;
   const value = { relay_peer: "guest", updated_at: now, busy: true, jobs_served: 4, last_error: "worker deadline_exceeded" };

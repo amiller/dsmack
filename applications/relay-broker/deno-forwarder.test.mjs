@@ -139,3 +139,12 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise through ordinary sha
     await Promise.all([...adapters]); await http.shutdown();
   }
 });
+
+Deno.test("project signing identity keeps relay backhaul peer pins valid after promotion", async () => {
+  const { signingKey } = await import("./grants.mjs");
+  const key = await signingKey("71".repeat(32));
+  const first = await createDenoForwarder({ signingKey: key });
+  const restarted = await createDenoForwarder({ signingKey: key });
+  try { assert.equal(first.peerId, restarted.peerId); }
+  finally { await first.stop(); await restarted.stop(); }
+});

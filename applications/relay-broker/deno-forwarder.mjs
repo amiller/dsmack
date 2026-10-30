@@ -1,5 +1,6 @@
 // In-process TCP/Noise/circuit-relay transport for the shared Deno broker.
 // Only public admission data and secret-box ciphertext cross this transport.
+import { privateKeyFromRaw } from "npm:@libp2p/crypto@5.2.0/keys";
 import { createLibp2p } from "npm:libp2p@3.3.11";
 import { tcp } from "npm:@libp2p/tcp@11.0.28";
 import { webSockets } from "npm:@libp2p/websockets@10.1.21";
@@ -82,7 +83,15 @@ async function sendFrame(stream, value, limit, signal) {
   }
 }
 
-export async function createDenoForwarder({ privateKey, logger, backhaulPeers = [] } = {}) {
+export async function createDenoForwarder({ privateKey, signingKey, logger, backhaulPeers = [] } = {}) {
+  if (signingKey) {
+    // Noise signs its protocol-prefixed static key; grants sign canonical JSON.
+    // Keep the project identity stable across shared-worker promotions.
+    const jwk = await crypto.subtle.exportKey("jwk", signingKey.priv);
+    const bytes = (value) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    const raw = new Uint8Array(64); raw.set(bytes(jwk.d)); raw.set(bytes(jwk.x), 32);
+    privateKey = privateKeyFromRaw(raw);
+  }
   const node = await createLibp2p({
     ...(privateKey ? { privateKey } : {}), ...(logger ? { logger } : {}),
     addresses: { listen: backhaulPeers.length ? ["/ip4/127.0.0.1/tcp/0/ws"] : [] },

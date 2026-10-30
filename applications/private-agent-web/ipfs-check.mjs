@@ -163,7 +163,7 @@ try {
   await page.screenshot({ path: resolve(evidence, "02-wallet-reloaded.png"), fullPage: true });
   const reply = "IPFS_CHAT_OK", editor = page.locator("#chat-editor");
   await editor.locator("textarea").fill("Reply with exactly IPFS_CHAT_OK.");
-  await editor.getByRole("button", { name: /send/i }).first().click();
+  await editor.locator("textarea").press("Enter");
   await page.waitForFunction((reply) => ([...document.querySelectorAll("#messages assistant-message")].some((e) => e.textContent.includes(reply)) && document.querySelector("#chat-editor").isStreaming === false) || (document.querySelector("#alert") && !document.querySelector("#alert").hidden), reply, { timeout: 180000 });
   await throwAlert(page);
   await page.waitForFunction((before) => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== before, report.creditBeforeNanoUsd, { timeout: 60000 });

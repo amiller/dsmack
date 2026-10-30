@@ -19,6 +19,6 @@
   },
   "devDependencies": {
     "esbuild": "0.25.12",
-    "playwright": "1.49.1"
+    "playwright": "1.63.0"
   }
 }

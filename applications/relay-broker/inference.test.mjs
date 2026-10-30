@@ -702,6 +702,10 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   await restarted.recover();
   assert.equal(restarted.status().inFlightStreams, 0);
   assert.equal(payments.state.inferenceRequests[id].interrupted, true);
+  f.cost("0");
+  await assert.rejects(restarted.usage(await f.signed("usage")), code("USAGE_PENDING"));
+  assert.equal(restarted.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "0");
+  f.cost("300");
   const first = await restarted.usage(await f.signed("usage"));
   assert.equal(first.spentNanoUsd, "300");
   assert.equal(first.reservedNanoUsd, "0");
@@ -710,6 +714,6 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   assert.equal(payments.state.inferenceRequests[id].usedTokens, null);
   const second = await restarted.usage(await f.signed("usage"));
   assert.equal(second.spentNanoUsd, "300");
-  assert.equal(f.costsCalls(), 1);
+  assert.equal(f.costsCalls(), 2);
   assert.equal(f.calls(), 1, "reconciliation never resends the interrupted model request");
 });

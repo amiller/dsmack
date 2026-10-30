@@ -97,6 +97,12 @@ async function admission(stream, session) {
     joined.set(pending); joined.set(data, pending.length); pending = joined;
   }
 }
+export function createGuestPeer() {
+  return createLibp2p({
+    addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
+    connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
+  });
+}
 export class GuestSession {
   constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease }) {
     Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease });
@@ -146,12 +152,9 @@ export class GuestSession {
     performance.mark("dsmack:guest:start");
     this.changed({ state: "verifying" });
     const deadline = Date.now() + 90000, exclude = new Set();
-    const peer = await createLibp2p({
-      addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
-      connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
-    });
+    const peer = await createGuestPeer();
     this.peer = peer;
-    const verified = await this.discover({ wait: true, deadline, exclude, signal,
+    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal,
       claim: async selected => {
         // Claim capacity before expensive verification to avoid four browsers
         // all attesting the first guest. Only verified guests receive MCP/data.
@@ -171,19 +174,23 @@ export class GuestSession {
     this.node = verified;
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
     performance.mark("dsmack:tunnels:start");
-    const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
-    require(response.ok, "Guest relay discovery failed: HTTP " + response.status);
+    let tunnelEntries = verified.chainTunnels;
+    if (!tunnelEntries) {
+      const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
+      require(response.ok, "Guest relay discovery through the broker failed (HTTP " + response.status + "). Directory: broker.");
+      tunnelEntries = await response.json();
+    }
     const measured = JSON.parse(new TextDecoder().decode(verified.policy.manifest));
     const relayPeer = JSON.parse(measured.docker_compose_file).services.node.command[1].split("/").at(-1);
-    const entries = (await response.json()).map(tunnel).filter(t =>
+    const entries = tunnelEntries.map(tunnel).filter(t =>
       t.relayPeer === relayPeer && (!t.guestPeer || t.guestPeer === verified.registration.relay_peer) &&
       t.expiresAt * 1000 > Date.now()
     ).map(t => ({ ...t, guestPeer: verified.registration.relay_peer }));
     performance.mark("dsmack:tunnels:end");
     require(entries.length, "No live browser relay advertises the verified guest.");
     performance.mark("dsmack:dial:start");
-    let connection, failure;
-    for (const entry of entries) {
+    let connection = verified.connection, failure;
+    for (const entry of connection ? [] : entries) {
       try { connection = await connecting(20000, signal, scoped => peer.dial(multiaddr(address(entry)), { signal: scoped })); break; }
       catch (e) { failure = e; }
     }

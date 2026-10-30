@@ -19,5 +19,13 @@
       "b598fde9491427341bc4683b75d10d3e36770af3a36a6954d8b6b7b22aa66358f13e1f172e51b7d6e6710d99a8d8532f",
       "9284cde236231d5ddace01104a440fd504df5182a2ad1ac3d2138b80c6a7864bd2c30f69041d8264217f3d24541580cf"
     ]
+  },
+  "chainDirectory": {
+    "registry": "0xc70110193b4760e939b8dfa22650e0a48c8d5b59",
+    "publisher": "0xa43f9f32411358c1319cb36027650a206644c131",
+    "rpcs": [
+      "https://sepolia.base.org",
+      "https://base-sepolia-rpc.publicnode.com"
+    ]
   }
 }

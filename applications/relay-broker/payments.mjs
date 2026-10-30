@@ -102,6 +102,10 @@ export class Payments {
         this.key.address.toLowerCase(),
       "on-chain broker signer mismatch",
     );
+    return await this.bindRun(r, checked, s.block.hash);
+  }
+  async bindRun(r, checked, block) {
+    const p = r.payments;
     return await this.serial(async () => {
       let envelope = this.state.bindings?.[p.runId];
       if (!envelope) {
@@ -112,7 +116,7 @@ export class Payments {
           composeHash: "0x" + r.manifest_sha256,
           imageHash: "0x" + r.os_image_hash,
           runId: p.runId,
-          expires: Math.min(p.runExpires, this.now() + 600),
+          expires: p.runExpires,
         };
         envelope = {
           binding: value,
@@ -135,7 +139,7 @@ export class Payments {
         "run binding changed or expired",
       );
       this.challenges.delete(p.challenge);
-      return { ...checked, block: s.block.hash, nodeBinding: envelope };
+      return { ...checked, block, nodeBinding: envelope };
     });
   }
   async classes() {

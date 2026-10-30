@@ -21,6 +21,7 @@ const uint = (v) =>
 const fields = (value, allowed) =>
   value && typeof value === "object" && !Array.isArray(value) &&
   Object.keys(value).every((k) => allowed.includes(k));
+export const creditGrantPrefix = "dsmack-agent-credit-grant/1\n";
 export const PRIVACY =
   "Browser-encrypted prompts and replies; broker forwards ciphertext to NEAR TEE model";
 
@@ -77,27 +78,6 @@ export class Inference {
     return this.quote();
   }
   async recover() {
-    await this.payments.serial(async () => {
-      const state = this.payments.state;
-      const starter = BigInt(this.cfg.starterCreditNanoUsd);
-      const accounts = { ...state.inferenceCredit };
-      let changed = false;
-      for (const [wallet, account] of Object.entries(accounts)) {
-        const granted = BigInt(account.grantedNanoUsd);
-        if (granted >= starter) continue;
-        accounts[wallet] = {
-          ...account,
-          grantedNanoUsd: String(starter),
-          starterTopUps: [...(account.starterTopUps ?? []), {
-            amountNanoUsd: String(starter - granted),
-            grantedNanoUsd: String(starter),
-            grantedAt: this.now(),
-          }],
-        };
-        changed = true;
-      }
-      if (changed) await this.save({ ...state, inferenceCredit: accounts });
-    });
     // A persisted dispatch without a billing ID is ambiguous. Keep its credit
     // reserved: restarting must never send another request on its behalf.
     return {
@@ -220,6 +200,38 @@ export class Inference {
   async credit(r) {
     const wallet = await this.authorized(r, "credit");
     return this.summary(wallet);
+  }
+  async grantCredit(r, { issuer, escrow, brokerKey }) {
+    check(/^0x[0-9a-fA-F]{40}$/.test(issuer ?? "") && /^0x[0-9a-fA-F]{40}$/.test(escrow ?? "") &&
+      /^[0-9a-f]{64}$/.test(brokerKey ?? ""), "CREDIT_GIFT_NOT_CONFIGURED", "operator credit gifts are not configured", 503);
+    const g = r.grant;
+    check(fields(r, ["grant", "signature"]) && fields(g, ["v", "chainId", "escrow", "brokerKey", "wallet", "amountNanoUsd", "nonce", "expiresAt"]) &&
+      Object.keys(g).length === 8 && g.v === 1 && g.chainId === 84532 &&
+      typeof g.escrow === "string" && g.escrow.toLowerCase() === escrow.toLowerCase() && g.brokerKey === brokerKey &&
+      typeof g.wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(g.wallet) && typeof g.amountNanoUsd === "string" && /^[1-9][0-9]*$/.test(g.amountNanoUsd) &&
+      g.amountNanoUsd.length <= 39 && BigInt(g.amountNanoUsd) < (1n << 128n) && typeof g.nonce === "string" && /^[0-9a-f]{64}$/.test(g.nonce) &&
+      Number.isSafeInteger(g.expiresAt),
+      "CREDIT_GIFT_REQUEST", "bounded, unexpired credit gift for this broker required", 403);
+    check(typeof r.signature === "string" && /^0x[0-9a-fA-F]{130}$/.test(r.signature), "CREDIT_GIFT_SIGNATURE", "funding wallet signature required", 403);
+    let signer;
+    try { signer = verifyMessage(creditGrantPrefix + canonical(g), r.signature).toLowerCase(); } catch { /* refused below */ }
+    check(signer === issuer.toLowerCase(), "CREDIT_GIFT_SIGNATURE", "credit gift is not signed by the configured funding wallet", 403);
+    return this.payments.serial(async () => {
+      const state = this.payments.state, old = state.inferenceGifts?.[g.nonce], wallet = g.wallet.toLowerCase();
+      if (old) {
+        check(canonical(old.grant) === canonical(g), "CREDIT_GIFT_REPLAY", "credit gift nonce was already used for different terms", 409);
+        return { wallet, amountNanoUsd: g.amountNanoUsd, nonce: g.nonce, applied: false };
+      }
+      check(g.expiresAt > this.now() && g.expiresAt <= this.now() + 86400,
+        "CREDIT_GIFT_REQUEST", "bounded, unexpired credit gift for this broker required", 403);
+      const account = this.account(wallet);
+      await this.save({ ...state,
+        inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...account,
+          grantedNanoUsd: String(BigInt(account.grantedNanoUsd) + BigInt(g.amountNanoUsd)) } },
+        inferenceGifts: { ...state.inferenceGifts, [g.nonce]: { grant: g, issuer: signer, signature: r.signature, appliedAt: this.now() } },
+      });
+      return { wallet, amountNanoUsd: g.amountNanoUsd, nonce: g.nonce, applied: true };
+    });
   }
   async prepare(r) {
     const wallet = await this.authorized(r, "prepare");

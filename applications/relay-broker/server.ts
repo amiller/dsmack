@@ -284,6 +284,10 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(b.inference.status());
       } else if (req.method === "GET" && action === "quote") {
         response = Response.json(await b.inference.quote());
+      } else if (req.method === "POST" && action === "grant-credit") {
+        response = Response.json(await b.inference.grantCredit(await body(req), {
+          issuer: b.cfg.payments?.fundingAddress, escrow: b.cfg.payments?.escrow, brokerKey: b.key.public_key,
+        }));
       } else if (
         req.method === "POST" &&
         ["credit", "prepare", "chat", "usage"].includes(action)

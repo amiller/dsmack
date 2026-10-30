@@ -467,120 +467,23 @@ test("prepared sessions are wallet-bound and expire before any paid call", async
   assert.equal(f.calls(), 0);
 });
 
-test("startup tops up every old account once while preserving spend and pending requests", async () => {
-  const wallet = Wallet.createRandom(), inactive = Wallet.createRandom();
-  const activeKey = wallet.address.toLowerCase(),
-    inactiveKey = inactive.address.toLowerCase();
-  const account = {
-    grantedNanoUsd: "10000000",
-    spentNanoUsd: "9000000",
-    usedTokens: "1234",
-    pending: "pending-request",
-    nonces: { ["ab".repeat(16)]: 2000000000 },
-  };
-  const pending = {
-    wallet: activeKey,
-    status: "sent",
-    reservedNanoUsd: "500000",
-    inferenceId: null,
-    createdAt: 1999999999,
-  };
-  const history = { status: "charged", costNanoUsd: "9000000" };
-  const f = fixture({
-    state: {
-      grants: { existing: { retained: true } },
-      receipts: {},
-      inferenceCredit: {
-        [activeKey]: account,
-        [inactiveKey]: { ...account, pending: null },
-        alreadyAbove: { ...account, grantedNanoUsd: "300000000" },
-      },
-      inferenceRequests: { "pending-request": pending, old: history },
-    },
-  });
-  let finishSave, saving;
-  const gate = new Promise((resolve) => finishSave = resolve),
-    started = new Promise((resolve) => saving = resolve);
-  const save = f.payments.save;
-  f.payments.save = async (next) => {
-    saving();
-    await gate;
-    await save(next);
-  };
-  const recovery = f.inference.recover();
-  await started;
-  assert.equal(
-    f.payments.state.inferenceCredit[activeKey].grantedNanoUsd,
-    "10000000",
-  );
-  const claim = f.inference.credit(await f.signed("credit", {}, wallet));
-  finishSave();
-  assert.equal((await recovery).pendingRequests, 1);
-  assert.equal((await claim).remainingNanoUsd, "240500000");
-  for (const key of [activeKey, inactiveKey]) {
-    const migrated = f.saved().inferenceCredit[key];
-    assert.equal(migrated.grantedNanoUsd, "250000000");
-    assert.equal(migrated.spentNanoUsd, account.spentNanoUsd);
-    assert.equal(migrated.usedTokens, account.usedTokens);
-    assert.equal(migrated.pending, key === activeKey ? account.pending : null);
-    assert.equal(migrated.nonces["ab".repeat(16)], 2000000000);
-    assert.deepEqual(migrated.starterTopUps, [{
-      amountNanoUsd: "240000000",
-      grantedNanoUsd: "250000000",
-      grantedAt: 2000000000,
-    }]);
-  }
-  assert.deepEqual(f.saved().inferenceRequests, {
-    "pending-request": pending,
-    old: history,
-  });
-  assert.deepEqual(f.saved().grants, { existing: { retained: true } });
-  assert.equal(
-    f.saved().inferenceCredit.alreadyAbove.grantedNanoUsd,
-    "300000000",
-  );
-  assert.equal(f.saved().inferenceCredit.alreadyAbove.starterTopUps, undefined);
-  const restarted = fixture({ state: f.saved() });
-  await restarted.inference.recover();
-  assert.equal(restarted.records.length, 0);
-  const repeated = await restarted.inference.credit(
-    await restarted.signed("credit", {}, wallet),
-  );
-  assert.equal(repeated.grantedNanoUsd, "250000000");
-  assert.equal(
-    restarted.saved().inferenceCredit[activeKey].starterTopUps.length,
-    1,
-  );
-  await restarted.inference.recover();
-  assert.equal(restarted.records.length, 1);
-});
-
-test("failed startup top-up persistence leaves the original grant available for retry", async () => {
-  const original = {
-    grantedNanoUsd: "10000000",
-    spentNanoUsd: "100",
-    usedTokens: "3",
-    pending: null,
-    nonces: {},
-  };
-  const f = fixture({
-    state: { inferenceCredit: { wallet: original } },
-    cfg: { starterCreditNanoUsd: "500000000" },
-  });
-  const save = f.payments.save;
-  f.payments.save = async () => {
-    throw new Error("disk write failed");
-  };
-  await assert.rejects(f.inference.recover(), /disk write failed/);
-  assert.deepEqual(f.payments.state.inferenceCredit.wallet, original);
-  f.payments.save = save;
-  await f.inference.recover();
-  assert.equal(f.saved().inferenceCredit.wallet.grantedNanoUsd, "500000000");
-  assert.equal(f.saved().inferenceCredit.wallet.starterTopUps.length, 1);
-  assert.equal(
-    f.saved().inferenceCredit.wallet.starterTopUps[0].amountNanoUsd,
-    "490000000",
-  );
+test("broker restart preserves existing grants, spending and pending work without issuing another signup gift",async()=>{
+ const wallet=Wallet.createRandom(),key=wallet.address.toLowerCase();
+ const account={grantedNanoUsd:"200000",spentNanoUsd:"190000",usedTokens:"12",pending:"model",nonces:{}};
+ const state={inferenceCredit:{[key]:account},inferenceRequests:{model:{wallet:key,status:"sent",reservedNanoUsd:"5000",inferenceId:null}},
+  agentSessions:{held:{wallet:key,final:false,reservedNanoUsd:"1000"}},grants:{old:{retained:true}}};
+ const f=fixture({state,cfg:{starterCreditNanoUsd:"250000000"}});
+ assert.equal((await f.inference.recover()).pendingRequests,1);
+ assert.equal(f.records.length,0);
+ assert.deepEqual(f.payments.state,state);
+ const credit=await f.credit(wallet);
+ assert.equal(credit.grantedNanoUsd,"200000");assert.equal(credit.spentNanoUsd,"190000");
+ assert.equal(credit.remainingNanoUsd,"4000");
+ const restarted=fixture({state:f.saved(),cfg:{starterCreditNanoUsd:"500000000"}});
+ await restarted.inference.recover();
+ assert.equal(restarted.records.length,0);
+ assert.equal(restarted.inference.summary(key).grantedNanoUsd,"200000");
+ assert.deepEqual(restarted.payments.state.inferenceRequests,state.inferenceRequests);
 });
 
 test("SDK-encrypted tool schemas and tool results remain opaque at the broker", async () => {

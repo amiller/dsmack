@@ -112,7 +112,7 @@ async function backend(page, kind) {
         attestation: {
           mode: "broker-e2ee",
           provider: "near",
-          model,
+          model: kind === "model" ? model + "-other" : model,
           verification: "verified",
           verifier: "synthetic-browser-boundary",
           nonce: kind === "nonce" ? "00".repeat(32) : body.attestationNonce,
@@ -303,7 +303,7 @@ try {
       );
     },
   );
-  for (const kind of ["nonce", "key"]) {
+  for (const kind of ["nonce", "key", "model"]) {
     await run(
       "provider-" + kind + "-refused-before-chat",
       kind,
@@ -321,7 +321,9 @@ try {
           page,
           kind === "nonce"
             ? "stale or reused nonce"
-            : "differs from the attested signing address",
+            : kind === "key"
+            ? "differs from the attested signing address"
+            : "invalid or names another model",
         );
         assert(calls.some((r) => r.path === "/inference/prepare"));
         assert(!calls.some((r) => r.path === "/inference/chat"));

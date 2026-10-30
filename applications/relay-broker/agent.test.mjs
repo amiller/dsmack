@@ -7,7 +7,7 @@ import { AgentSessions } from "./agent.mjs";
 import { canonical, signingKey } from "./grants.mjs";
 const hex = (v) => [...new Uint8Array(v)].map(v => v.toString(16).padStart(2,"0")).join("");
 const peer = "12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x";
-async function fixture({ starter = "250000000", lifetime = 1800 } = {}) {
+async function fixture({ starter = "250000000", lifetime = 1800, initialized = true } = {}) {
  let now=2000000000;
  const wallet=Wallet.createRandom(), other=Wallet.createRandom();
  const key=await signingKey("12".repeat(32));
@@ -25,7 +25,7 @@ async function fixture({ starter = "250000000", lifetime = 1800 } = {}) {
   const body={action,wallet:who.address,nonce:crypto.randomUUID().replaceAll("-",""),issuedAt:now,...extra};
   return {...body,sig:await who.signMessage(canonical(body))};
  }
- await inference.credit(await signed("credit"));
+ if(initialized)await inference.credit(await signed("credit"));
  async function open(who=wallet) {return sessions.open(await signed("agent-open",{conversationId:"conversation",client_peer:peer,node_peer:peer},who));}
  async function receipt(sessionId,guestSeconds,final=false,wrongKey=false,closedReason=undefined) {
   const body={sessionId,node_peer:peer,guestSeconds,final,...(closedReason?{closedReason}:{})};
@@ -204,23 +204,31 @@ test("rolling reservations protect an in-flight model budget and final idle rele
  assert.equal(f.inference.summary(wallet).reservedNanoUsd,"600000");
 });
 
-test("explicit gift credit resumes on a new grant after a credit stop, without reviving the ending stay",async()=>{
- const f=await fixture({starter:"200000"}),session=await f.open();
- assert.equal(session.activeBudgetSeconds,20);
+test("operator-funded onboarding preserves its gift on credit refresh, exhausts and resumes only after another gift",async()=>{
+ const f=await fixture({initialized:false}),issuer=Wallet.createRandom(),escrow="0x"+"81".repeat(20);
+ const gift=async nonce=>{
+  const grant={v:1,chainId:84532,escrow,brokerKey:f.broker.key.public_key,wallet:f.wallet.address,
+   amountNanoUsd:"200000",nonce,expiresAt:f.broker.now()+600};
+  await f.inference.grantCredit({grant,signature:await issuer.signMessage(creditGrantPrefix+canonical(grant))},
+   {issuer:issuer.address,escrow,brokerKey:f.broker.key.public_key});
+ };
+ assert.equal(f.payments.state.inferenceCredit?.[f.wallet.address.toLowerCase()],undefined);
+ await gift("ab".repeat(32));
+ const initial=await f.inference.credit(await f.signed("credit"));
+ assert.equal(initial.grantedNanoUsd,"200000");assert.equal(initial.remainingNanoUsd,"200000");
+ const session=await f.open();assert.equal(session.activeBudgetSeconds,20);
  assert.equal((await f.sessions.receipt(await f.receipt(session.sessionId,20))).reason,"credit");
- const issuer=Wallet.createRandom(),escrow="0x"+"81".repeat(20);
- const grant={v:1,chainId:84532,escrow,brokerKey:f.broker.key.public_key,wallet:f.wallet.address,
-  amountNanoUsd:"200000",nonce:"ab".repeat(32),expiresAt:f.broker.now()+600};
- await f.inference.grantCredit({grant,signature:await issuer.signMessage(creditGrantPrefix+canonical(grant))},
-  {issuer:issuer.address,escrow,brokerKey:f.broker.key.public_key});
+ const exhausted=await f.inference.credit(await f.signed("credit"));
+ assert.equal(exhausted.grantedNanoUsd,"200000");assert.equal(exhausted.remainingNanoUsd,"0");
+ await gift("cd".repeat(32));
  const ending=await f.sessions.receipt(await f.receipt(session.sessionId,20));
  assert.equal(ending.stop,true);assert.equal(ending.reason,"credit");
  await f.sessions.receipt(await f.receipt(session.sessionId,20,true));
  const replacement={...f.node,relay_peer:peer+"-after-credit"};f.broker.live=()=>[replacement];
  const resumed=await f.sessions.open(await f.signed("agent-open",{conversationId:"conversation",client_peer:peer,node_peer:replacement.relay_peer}));
- assert.notEqual(resumed.sessionId,session.sessionId);
- assert.equal(resumed.activeBudgetSeconds,20);
- assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"200000");
+ assert.notEqual(resumed.sessionId,session.sessionId);assert.equal(resumed.activeBudgetSeconds,20);
+ const credit=f.inference.summary(f.wallet.address.toLowerCase());
+ assert.equal(credit.grantedNanoUsd,"400000");assert.equal(credit.spentNanoUsd,"200000");
 });
 
 

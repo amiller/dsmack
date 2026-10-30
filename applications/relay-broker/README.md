@@ -180,7 +180,7 @@ commits can resume after interrupted responses.
 
 ## Operator credit gifts
 
-The configured `payments.fundingAddress` can add NanoUSD credit to an existing
+The configured `payments.fundingAddress` can add NanoUSD credit to a new or existing
 wallet with a signed gift. Include the broker's pinned Ed25519 `brokerKey` in the
 full broker configuration, then run:
 
@@ -193,4 +193,5 @@ deno run --allow-read --allow-write --allow-net \
 The CLI saves the signed voucher before submitting it. Repeat the same command
 and voucher file to recover an interrupted response. The broker applies each
 nonce once; the recipient refreshes credit to continue its saved conversation.
+A new wallet starts with its gifted amount; refreshing credit preserves it.
 Existing grants and spending survive broker restarts unchanged.

@@ -232,7 +232,9 @@ export class Inference {
       }
       check(g.expiresAt > this.now() && g.expiresAt <= this.now() + 86400,
         "CREDIT_GIFT_REQUEST", "bounded, unexpired credit gift for this broker required", 403);
-      const account = this.account(wallet);
+      const account = state.inferenceCredit?.[wallet] ?? {
+        grantedNanoUsd: "0", spentNanoUsd: "0", usedTokens: "0", pending: null, nonces: {},
+      };
       await this.save({ ...state,
         inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...account,
           grantedNanoUsd: String(BigInt(account.grantedNanoUsd) + BigInt(g.amountNanoUsd)) } },

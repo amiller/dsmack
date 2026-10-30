@@ -1,4 +1,4 @@
-// Issue or retry an explicit operator gift to an existing private-agent wallet.
+// Issue or retry an explicit operator gift to a new or existing private-agent wallet.
 import { Wallet } from "./schema.mjs";
 import { canonical } from "../relay-broker/grants.mjs";
 import { creditGrantPrefix } from "../relay-broker/inference.mjs";

@@ -292,8 +292,8 @@ export class GuestSession {
     return this.workspace.save(this.client, this.lease);
   }
   async end() {
-    clearInterval(this.poll);
     if (this.client && this.workspaceReady) await this.save();
+    clearInterval(this.poll);
     await this.client?.close(); this.client = null;
     await this.peer?.stop(); this.peer = null;
     if (this.lease) {

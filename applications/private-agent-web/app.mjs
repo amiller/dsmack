@@ -204,7 +204,7 @@ async function claimChatCredit() {
 }
 async function ensureWallet() {
   require(credit.signer, "Choose Start fresh or recover your wallet before chatting.");
-  if (!credit.chatCredit) await claimChatCredit();
+  await claimChatCredit();
 }
 async function refreshServices() {
   $("service").textContent = "Checking the broker…";

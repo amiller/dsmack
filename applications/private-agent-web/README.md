@@ -37,6 +37,12 @@ untrusted transcript and the viewer's credit. Amounts use nano-USD strings.
 The per-category bridge contracts live in `bridge/Categories/`; the build runs
 `node bridge/generate.mjs` to merge them into `bridge/Manifest.json`.
 
+Share app encrypts the original HTML and its functional manifest, pins the
+ciphertext, and shows a link to `/a/` with the decryption key in its fragment.
+The bundle contains code only. Each viewer chooses their own wallet and uses
+their own encrypted storage and model credit. Reloading a link preserves that
+viewer's state and the budget bound to the ciphertext CID.
+
 The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
 repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository

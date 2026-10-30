@@ -3,6 +3,8 @@ import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { verifyMessage, Wallet, keccak256 } from "ethers";
+import { sealArtifact, sharedScope, viewerSessionId } from "./artifact-share.mjs";
+import { loader as artifactLoader } from "../private-agent-artifacts/server.ts";
 const base = process.env.BASE_URL || "http://127.0.0.1:18731/private-agent/";
 const evidence = resolve(process.env.EVIDENCE || "local-data/chat-boundaries");
 const moduleName = process.env.PLAYWRIGHT_MODULE || "playwright";
@@ -54,13 +56,14 @@ async function backend(page, kind) {
   await page.route("**/relay-broker/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/relay-broker", "");
-    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: publicHeaders});
+    const responseHeaders = { ...publicHeaders, "access-control-allow-origin": req.headers().origin || publicHeaders["access-control-allow-origin"] };
+    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: responseHeaders});
     const body = req.method() === "POST" ? req.postDataJSON() : undefined;
     calls.push({ path, method: req.method(), body });
     const respond = (value, status = 200) =>
       route.fulfill({
         status,
-        headers: publicHeaders,
+        headers: responseHeaders,
         body: JSON.stringify(value),
       });
     if (path === "/key") {
@@ -217,6 +220,40 @@ async function run(name, kind, fn) {
   console.log(result.status + ": " + name);
 }
 try {
+  await run("shared-viewer-requires-own-wallet-and-keeps-encrypted-state-on-reload", "valid", async (page, calls) => {
+    const sealed = await sealArtifact('<!doctype html><button id="shared-ready">Shared app</button>');
+    const origin = "https://private-agent.dstack.soc1024.com";
+    await page.route(origin + "/**", async route => {
+      const url = new URL(route.request().url());
+      if (url.pathname.endsWith("config.json")) return route.fallback();
+      const response = await route.fetch({ url: new URL("a/" + url.pathname.replace(/^\/a\/?/, ""), base).href });
+      return route.fulfill({ response });
+    });
+    await page.route("https://artifacts.private-agent.dstack.soc1024.com/loader.html", route => route.fulfill({contentType:"text/html",body:artifactLoader}));
+    await page.route("**/artifacts/share/" + sealed.cid, route => route.fulfill({ headers:{...publicHeaders,"access-control-allow-origin":origin}, body:JSON.stringify({cid:sealed.cid,ciphertext:sealed.ciphertext}) }));
+    await page.goto(origin + "/a/#" + new URLSearchParams({cid:sealed.cid,k:sealed.key}));
+    await page.waitForSelector("#chat");
+    assert(await page.locator("#start-fresh").isVisible());
+    assert.equal(await page.locator("#artifacts-host artifacts-panel").count(),0);
+    await page.locator("#start-fresh").click();
+    await page.waitForFunction(()=>document.querySelector("#artifacts-host artifacts-panel"));
+    await page.waitForFunction(()=>Array.from(document.querySelectorAll("iframe")).length>0);
+    let app;
+    for(let retry=0;retry<50&&!app;retry++){app=page.frames().find(frame=>frame.url().startsWith("blob:"));if(!app)await page.waitForTimeout(100);}
+    assert(app,"shared HTML opens without a model request");
+    await app.waitForFunction(()=>window.dsmack);
+    assert.equal(await app.evaluate(()=>dsmack.storage.get("viewer-secret")),null);
+    await app.evaluate(()=>dsmack.storage.put("viewer-secret","VIEWER_PRIVATE_STATE"));
+    const wallet=(await page.locator("#wallet").textContent()).trim().match(/0x[0-9a-f]{40}/i)[0];
+    assert.equal(await page.locator("#chat").getAttribute("data-session-id"),viewerSessionId(wallet,sealed.cid));
+    await page.reload();await page.waitForSelector("#chat");
+    app=undefined;
+    for(let retry=0;retry<50&&!app;retry++){app=page.frames().find(frame=>frame.url().startsWith("blob:"));if(!app)await page.waitForTimeout(100);}
+    assert(app);await app.waitForFunction(()=>window.dsmack);
+    assert.equal(await app.evaluate(()=>dsmack.storage.get("viewer-secret")),"VIEWER_PRIVATE_STATE");
+    assert.equal(await page.locator("#chat").getAttribute("data-session-id"),viewerSessionId(wallet,sealed.cid));
+    assert(!calls.some(call=>call.path==="/inference/chat"),"opening a shared app must not create a model turn");
+  });
   await run("directory-outages-preserve-broker-and-chain-errors", "valid", async (page, calls) => {
     let brokerReads = 0;
     const rpcReads = [];

@@ -261,7 +261,7 @@ class Pool:
         self.publisher = None
         if args.publisher_key:
             from heartbeat import Publisher
-            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, args.broker, args.pool_version)
         self.started = time.monotonic()
 
     def remember_error(self, record):
@@ -280,7 +280,7 @@ class Pool:
         raw = b''
         status = None
         try:
-            with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
+            with urlopen(self.args.broker.rstrip('/')+'/nodes?all=1', timeout=20) as response:
                 status = response.status
                 raw = response.read((1 << 20) + 1)
             if len(raw) > 1 << 20:
@@ -442,8 +442,12 @@ class Pool:
         self.event('capacity', config=self.config, hardware=self.hardware)
         while True:
             self.tick()
+            snapshot = self.snapshot()
+            temporary = self.args.state/'directory.tmp'
+            temporary.write_text(json.dumps(snapshot))
+            temporary.replace(self.args.state/'directory.json')
             if self.publisher:
-                record = self.publisher.tick(self.snapshot())
+                record = self.publisher.tick(snapshot)
                 if record:
                     name = record.pop('event')
                     if name == 'heartbeat_error':

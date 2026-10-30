@@ -1,15 +1,17 @@
 import { build } from "esbuild";
+import { generateManifest } from "./bridge/generate.mjs";
 import { piPromptPlugin } from "../compute-node/pi-browser-build.mjs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const app = dirname(fileURLToPath(import.meta.url));
 const pi = resolve(app, "node_modules/@earendil-works/pi-web-ui/dist");
+await generateManifest();
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
   plugins: [piPromptPlugin()],
-  entryPoints: { app: "app.mjs" },
+  entryPoints: { app: "app.mjs", "wallet-bootstrap": "wallet-bootstrap.mjs" },
   bundle: true,
   format: "esm",
   platform: "browser",

@@ -1,0 +1,16 @@
+{
+  "methods": [
+    {
+      "name": "diagnostics.log",
+      "introducedVersion": 1,
+      "parameters": {
+        "message": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "returns": null
+    }
+  ],
+  "events": []
+}

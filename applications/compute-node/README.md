@@ -107,7 +107,10 @@ The preflight requires 12 GiB free and waits while another lane owns a VM.
 
 The Mac posts signed fleet heartbeats every 15 seconds with the operator config,
 hardware, active and draining guests, errors and source commit. The publisher
-uses the existing Mac tunnel-discovery key. The broker's `/fleet` endpoint serves
+uses the existing Mac tunnel-discovery key. Link that publisher to an operator
+with `dsmack link` before starting the pool. Heartbeats contain no payout or
+operator assertion; the broker takes the operator from the signed ownership link.
+The broker's `/fleet?operator=ADDRESS` endpoint serves
 the latest status; the fleet page reads job and earnings events from the escrow.
 
 `mac-pool.py` starts the loopback libp2p relay, its broker backhaul, a Cloudflare

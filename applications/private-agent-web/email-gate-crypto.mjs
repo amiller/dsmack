@@ -26,3 +26,10 @@ export async function open(privateKey,publicKey,sealed,context) {
 export async function quoteBinding(nonce,publicKey) {
   return new Uint8Array([...new Uint8Array(await crypto.subtle.digest('SHA-256',bytes({v:1,service:'dsmack-email-gate',nonce,publicKey}))),...new Uint8Array(32)]);
 }
+export const emailRecoveryLabel=(email,userId)=>JSON.stringify(['dsmack.email-recovery/1',email.trim().toLowerCase(),userId]);
+export async function emailRecoveryNonce(publicKey,userId,ts) {
+  const hash=new Uint8Array(await crypto.subtle.digest('SHA-256',new Uint8Array([...unb64(publicKey),...bytes(userId),...bytes(String(ts))])));
+  const alphabet='abcdefghijklmnopqrstuvwxyz234567';let bits=0,value=0,result='';
+  for(const byte of hash){value=(value<<8)|byte;bits+=8;while(bits>=5){result+=alphabet[(value>>>(bits-5))&31];bits-=5;}}
+  return result.slice(0,26);
+}

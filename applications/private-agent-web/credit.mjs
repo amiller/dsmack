@@ -1,3 +1,5 @@
+import { store } from "./wallet-store.mjs";
+export { store } from "./wallet-store.mjs";
 import {
   Contract,
   formatEther,
@@ -7,40 +9,11 @@ import {
   Wallet,
 } from "ethers";
 import { abi, domain, NodeBinding, Receipt } from "../payments/schema.mjs";
-import { canonical, hex, peerBytes } from "@sandbox";
+import { hex, peerBytes } from "@sandbox";
 export { formatEther };
 export const require = (ok, message) => {
   if (!ok) throw new Error(message);
 };
-export function store(key, value) {
-  return new Promise((resolve, reject) => {
-    const open = indexedDB.open("dsmack-private-agent", 1);
-    open.onupgradeneeded = () => open.result.createObjectStore("wallet");
-    open.onerror = () => reject(open.error);
-    open.onsuccess = () => {
-      const db = open.result,
-        tx = db.transaction(
-          "wallet",
-          value === undefined ? "readonly" : "readwrite",
-        );
-      const request = value === undefined
-        ? tx.objectStore("wallet").get(key)
-        : tx.objectStore("wallet").put(value, key);
-      let result;
-      request.onsuccess = () => {
-        result = request.result;
-      };
-      tx.oncomplete = () => {
-        db.close();
-        resolve(result);
-      };
-      tx.onerror = () => {
-        db.close();
-        reject(tx.error);
-      };
-    };
-  });
-}
 export async function signed(client, body) {
   return {
     ...body,

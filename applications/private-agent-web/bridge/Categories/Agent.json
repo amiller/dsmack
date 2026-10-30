@@ -1,0 +1,24 @@
+{
+  "methods": [
+    {
+      "name": "agent.complete",
+      "introducedVersion": 1,
+      "parameters": {
+        "messages": {
+          "type": "Array<{role: user | assistant, content: string}>",
+          "required": true,
+          "minItems": 1,
+          "maxItems": 32,
+          "maxTextBytes": 32768
+        },
+        "maxTokens": {
+          "type": "integer",
+          "required": false,
+          "minimum": 64
+        }
+      },
+      "returns": "{text: string, model: string, usage: object, evidence: object}"
+    }
+  ],
+  "events": []
+}

@@ -1,5 +1,7 @@
 import { tunnelIndex } from "../relay-broker/tunnel-index.mjs";
 import { emailGate } from "./email-gate-runtime.mjs";
+import { HeaderReceiver } from "./email-receiver/receiver.mjs";
+const emailHeaders = new HeaderReceiver();
 const root = new URL("./dist/", import.meta.url);
 const types: Record<string, string> = {
   html: "text/html; charset=utf-8",
@@ -15,7 +17,7 @@ const types: Record<string, string> = {
 };
 const security = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
@@ -23,6 +25,8 @@ const security = {
 
 // The shared webhost router strips /private-agent before invoking this handler.
 export default async function handler(req: Request,ctx?: {env:Record<string,string>;dataDir?:string}) {
+  if(new URL(req.url).pathname.startsWith("/email-recovery/"))return await emailHeaders.handle(req);
+  if(new URL(req.url).pathname==="/continuity/email/config")return Response.json({receiverAddress:ctx?.env.EMAIL_RECOVERY_ADDRESS||""},{headers:{"cache-control":"no-store"}});
   if(new URL(req.url).pathname.startsWith("/continuity/"))return await emailGate(req,ctx);
   if(new URL(req.url).pathname==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   if (req.method !== "GET" && req.method !== "HEAD") {

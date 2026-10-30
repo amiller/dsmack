@@ -3,6 +3,10 @@ import contextlib
 import importlib.util
 import io
 import json
+import os
+import signal
+import sys
+import tempfile
 import http.server
 import threading
 import time
@@ -52,8 +56,11 @@ def transport_server(responses, peer=PEER):
             self.send_response(status)
             self.send_header('Content-Type', 'application/json')
             self.end_headers()
-            self.wfile.write(json.dumps({'peer_id': peer} if status == 200 else
-                                        {'private_error': 'response body must stay private'}).encode())
+            try:
+                self.wfile.write(json.dumps({'peer_id': peer} if status == 200 else
+                                            {'private_error': 'response body must stay private'}).encode())
+            except (BrokenPipeError, ConnectionResetError):
+                pass  # The deadline case deliberately closes a request early.
 
         def log_message(self, *_):
             pass
@@ -104,6 +111,57 @@ class TransportDiscoveryTests(unittest.TestCase):
             with self.assertRaisesRegex(RuntimeError, 'stopped during'):
                 mac_pool.discover_transport(url, stopped=lambda: len(requests) > calls, retry_seconds=.01)
             self.assertEqual(len(requests), calls + 1)
+
+
+class OwnedTransportCleanupTests(unittest.TestCase):
+    def test_interrupted_pin_publication_reaps_its_owned_group_descendant(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            root = Path(temporary)
+            state = root / 'pin-state'
+            (state / 'repo').mkdir(parents=True)
+            (state / 'repo/config').write_text(json.dumps({'Addresses': {}, 'Swarm': {'ConnMgr': {}}, 'Datastore': {}}))
+            ipfs = root / 'ipfs-fixture'
+            ipfs.write_text('#!' + sys.executable + "\n" + r'''
+import json,os,signal,subprocess,sys,time
+from pathlib import Path
+args=sys.argv[1:]
+state=Path(os.environ['IPFS_PATH']).parent
+if args[:2]==['key','list']:print('fixture-key friends-page')
+elif args[0]=='daemon':
+ print('Daemon is ready',flush=True)
+ time.sleep(120)
+elif args[:2]==['dag','import']:
+ print(json.dumps({'Root':{'Cid':{'/':'fixture-cid'}}}))
+elif args[:2]==['name','publish']:
+ child=subprocess.Popen([sys.executable,'-c','import signal,time; signal.signal(signal.SIGTERM,signal.SIG_IGN); time.sleep(120)'],stdout=subprocess.DEVNULL)
+ (state/'descendant.pid').write_text(str(child.pid))
+ time.sleep(120)
+''')
+            ipfs.chmod(0o755)
+            tunnel = root / 'tunnel-fixture'
+            tunnel.write_text('#!' + sys.executable + "\nimport time\nprint('https://pin-fixture.trycloudflare.com',flush=True)\ntime.sleep(120)\n")
+            tunnel.chmod(0o755)
+            script = Path(__file__).resolve().parents[1] / 'private-agent-web/pin-mac.py'
+            with (root / 'pin.log').open('w') as log:
+                proc = subprocess.Popen([sys.executable, str(script), '--ipfs', str(ipfs), '--cloudflared', str(tunnel),
+                                         '--car', str(root / 'page.car'), '--state', str(state)],
+                                        stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
+                try:
+                    deadline = time.monotonic() + 10
+                    while not (state / 'descendant.pid').exists() and proc.poll() is None and time.monotonic() < deadline:
+                        time.sleep(.02)
+                    self.assertTrue((state / 'descendant.pid').exists(), (root / 'pin.log').read_text())
+                    groups = mac_pool.stop_transports([proc], grace_seconds=1)
+                    self.assertEqual(groups, [proc.pid])
+                    self.assertFalse(mac_pool.transport_group_running(proc.pid))
+                    self.assertTrue(json.loads((state / 'stopped.json').read_text())['retainedRecursivePin'])
+                    descendant = int((state / 'descendant.pid').read_text())
+                    status = subprocess.run(['ps', '-p', str(descendant), '-o', 'stat='], capture_output=True, text=True)
+                    self.assertTrue(status.returncode != 0 or status.stdout.strip().startswith('Z'))
+                finally:
+                    if mac_pool.transport_group_running(proc.pid):
+                        os.killpg(proc.pid, signal.SIGKILL)
+                    proc.wait(timeout=5)
 
 
 if __name__ == '__main__':

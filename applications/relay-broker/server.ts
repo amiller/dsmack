@@ -1,6 +1,7 @@
 import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
-import { fleet } from "./fleet.mjs";
+import { fleet, readFleet } from "./fleet.mjs";
+import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, InferenceError } from "./inference.mjs";
@@ -208,7 +209,7 @@ export default async function handler(req: Request, ctx: Context) {
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
-  if(path==="/fleet")return await fleet(req,b.cfg.fleet_publishers,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
@@ -249,7 +250,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
       catch (e) { if (e instanceof Error && "status" in e) return finish(Response.json({ error: e.message }, { status: Number(e.status) })); throw e; }
     } else if (path.startsWith("/agent/") && req.method === "POST") {
       if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
-      const sessions = new AgentSessions(b), request = await body(req);
+      const sessions = new AgentSessions(b, () => readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now())), request = await body(req);
       const action = path.slice("/agent/".length);
       if (action === "open") response = Response.json(await sessions.open(request));
       else if (action === "status") response = Response.json(await sessions.status(request));
@@ -275,10 +276,10 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(await b.inference.quote());
       } else if (
         req.method === "POST" &&
-        ["credit", "prepare", "chat", "usage"].includes(action)
+        ["credit", "prepare", "chat", "usage", "artifact-budget"].includes(action)
       ) {
         const request = await body(req);
-        const result = await b.inference[action](request);
+        const result = await b.inference[action === "artifact-budget" ? "artifactBudget" : action](request);
         response = result instanceof Response ? result : Response.json(result);
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/payments/key") {
@@ -316,9 +317,29 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/relays") {
       response = Response.json(b.live().filter((r) => r.kind === "relay"));
     } else if (req.method === "GET" && path === "/nodes") {
-      const sessions = new AgentSessions(b);
-      response = Response.json(b.live().filter((r) => r.kind === "compute")
-        .map(node => ({ ...node, available: sessions.available(node) })));
+      const sessions = new AgentSessions(b), url = new URL(req.url);
+      const nodes = b.live().filter((r) => r.kind === "compute");
+      const currentFleet = await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now());
+      if (url.searchParams.get("all") === "1") {
+        // Preserve every peer for operator readiness and retirement observation.
+        response = Response.json(rankNodes(nodes, currentFleet,
+          (node, placement) => sessions.available(node, placement), { now: b.now() }));
+      } else {
+        const workspaceId = url.searchParams.get("workspaceId"), version = Number(url.searchParams.get("version"));
+        const hash = url.searchParams.get("hash");
+        const snapshotOwner = workspaceId && workspaceId.length <= 128 && Number.isSafeInteger(version) && version > 0 &&
+          /^[0-9a-f]{64}$/.test(hash ?? "")
+          ? await (b as Broker & {workspaces?: {snapshotOwner?: (ref: {workspaceId: string; version: number; hash: string | null}) => Promise<string | undefined>}})
+            .workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
+        const ranked = rankNodes(nodes, currentFleet,
+          (node, placement) => sessions.available(node, placement), { now: b.now(), snapshotOwner });
+        if (ranked.some(node => node.available)) response = Response.json(ranked);
+        else {
+          const retryAfterSeconds = busyRetrySeconds(nodes, b.payments?.state.agentSessions, b.now());
+          response = Response.json({ error: { code: "FLEET_BUSY", message: `busy, retry in ${retryAfterSeconds} seconds`, retryAfterSeconds } },
+            { status: 503, headers: { "retry-after": String(retryAfterSeconds) } });
+        }
+      }
     } else if (req.method === "GET" && path === "/") {
       response = new Response(page(b), {
         headers: { "content-type": "text/html; charset=utf-8" },

@@ -1,0 +1,37 @@
+{
+  "methods": [
+    {
+      "name": "storage.get",
+      "introducedVersion": 1,
+      "parameters": {
+        "key": {
+          "type": "string",
+          "required": true
+        }
+      },
+      "returns": "JSONValue | null"
+    },
+    {
+      "name": "storage.put",
+      "introducedVersion": 1,
+      "parameters": {
+        "key": {
+          "type": "string",
+          "required": true
+        },
+        "value": {
+          "type": "JSONValue",
+          "required": true
+        }
+      },
+      "returns": "JSONValue"
+    },
+    {
+      "name": "storage.list",
+      "introducedVersion": 1,
+      "parameters": {},
+      "returns": "string[]"
+    }
+  ],
+  "events": []
+}

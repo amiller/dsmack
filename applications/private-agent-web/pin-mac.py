@@ -13,7 +13,27 @@ def main():
         nonlocal stop
         stop=True
     signal.signal(signal.SIGTERM,stopping);signal.signal(signal.SIGINT,stopping)
-    def ipfs(*args):return subprocess.check_output([str(a.ipfs),*args],env=env,text=True,timeout=240).strip()
+    def ipfs(*args):
+        if stop:raise InterruptedError('IPFS publisher stopping')
+        command=subprocess.Popen([str(a.ipfs),*args],env=env,stdout=subprocess.PIPE,text=True)
+        deadline=time.monotonic()+240
+        try:
+            while not stop:
+                remaining=deadline-time.monotonic()
+                if remaining<=0:raise subprocess.TimeoutExpired(command.args,240)
+                try:
+                    output,_=command.communicate(timeout=min(.5,remaining))
+                    if command.returncode:raise subprocess.CalledProcessError(command.returncode,command.args,output)
+                    return output.strip()
+                except subprocess.TimeoutExpired:
+                    if time.monotonic()>=deadline:raise
+            raise InterruptedError('IPFS publisher stopping')
+        finally:
+            if command.poll() is None:
+                command.terminate()
+                try:command.wait(timeout=5)
+                except subprocess.TimeoutExpired:command.kill();command.wait()
+            if command.stdout:command.stdout.close()
     def start(cmd,name):
         log=(a.state/name).open('w');logs.append(log)
         child=subprocess.Popen([str(x) for x in cmd],env=env,stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT);children.append(child);return child

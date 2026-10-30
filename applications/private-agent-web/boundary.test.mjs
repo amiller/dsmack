@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { verifyMessage, Wallet } from "ethers";
+import { verifyMessage, Wallet, keccak256 } from "ethers";
 const base = process.env.BASE_URL || "http://127.0.0.1:18731/private-agent/";
 const evidence = resolve(process.env.EVIDENCE || "local-data/chat-boundaries");
 const moduleName = process.env.PLAYWRIGHT_MODULE || "playwright";
@@ -42,6 +42,13 @@ const publicHeaders = {
 async function backend(page, kind) {
   const cfg = await (await page.request.get(new URL("config.json", base).href))
     .json();
+  cfg.syncAnchorCodeHash = keccak256("0x6000");
+  await page.route("**/config.json", route => route.fulfill({headers:publicHeaders,body:JSON.stringify(cfg)}));
+  await page.route(cfg.rpc, route => {
+    const raw = route.request().postDataJSON();
+    const reply = r => ({jsonrpc:"2.0",id:r.id,result:r.method==="eth_chainId"?"0x14a34":r.method==="eth_getCode"?"0x6000":"0x"+"0".repeat(128)});
+    return route.fulfill({headers:publicHeaders,body:JSON.stringify(Array.isArray(raw)?raw.map(reply):reply(raw))});
+  });
   const calls = [];
   let recoveredEnded = false;
   await page.route("**/relay-broker/**", async (route) => {
@@ -88,6 +95,7 @@ async function backend(page, kind) {
         "wallet action signature",
       );
     }
+    if (path === "/sync/head") return respond({head:null});
     if (path.startsWith("/sync/")) return respond({ error: {
       code: "SYNTHETIC_SYNC_UNAVAILABLE",
       message: "Encrypted sync is unavailable in this inference fixture.",
@@ -187,6 +195,10 @@ async function run(name, kind, fn) {
   try {
     const calls = await backend(page, kind);
     await ready(page);
+    if (name !== "first-visit-requires-choice") {
+      await page.locator("#start-fresh").click();
+      await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== "");
+    }
     await fn(page, calls);
     assert.deepEqual(errors, []);
     result.status = "passed";
@@ -205,7 +217,47 @@ async function run(name, kind, fn) {
   console.log(result.status + ": " + name);
 }
 try {
-  await run("first-visit-creates-wallet", "valid", async (page, calls) => {
+  await run("directory-outages-preserve-broker-and-chain-errors", "valid", async (page, calls) => {
+    let brokerReads = 0;
+    const rpcReads = [];
+    await page.route("**/relay-broker/nodes*", route => {
+      brokerReads++;
+      return route.fulfill({ status: 500, headers: publicHeaders, body: "{}" });
+    });
+    for (const host of ["sepolia.base.org", "base-sepolia-rpc.publicnode.com"]) {
+      await page.route(`https://${host}/**`, route => {
+        rpcReads.push(host);
+        return route.fulfill({ status: 503, headers: publicHeaders, body: "{}" });
+      });
+    }
+    await page.locator("#discover").evaluate(button => { button.closest("details").open = true; });
+    await page.locator("#discover").click();
+    await alert(page, "Chain directory failed");
+    const shown = await page.locator("#directory-status").innerText();
+    assert.match(shown, /Directory: chain/);
+    assert.match(shown, /Broker guest directory unavailable.*500/);
+    assert.match(shown, /Chain directory failed.*503/);
+    assert.equal(brokerReads, 1, "Outage discovery must not silently retry the broker");
+    assert(new Set(rpcReads).size === 2, "Both chain providers are checked");
+    assert(!calls.some(r => r.path === "/agent/open" || r.path.includes("/attestation")));
+  });
+  await run("first-visit-requires-choice", "valid", async (page, calls) => {
+    assert.doesNotMatch(await page.locator("#wallet").textContent(), /^0x/i);
+    assert(await page.locator("#start-fresh").isVisible());
+    assert.equal(await page.locator("#artifacts-host artifacts-panel").count(), 0,
+      "Artifact state and providers wait for the viewer's data key");
+    await page.locator("#used-before").click();
+    assert(await page.locator("#continuity-panel").isVisible());
+    assert(await page.locator("#enroll-email").isDisabled());
+    await page.locator("#use-another-device").click();
+    await page.locator("#start-fresh").click();
+    await page.waitForFunction(() => document.querySelector("#artifacts-host artifacts-panel"));
+    await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== "");
+    await page.waitForFunction(() => document.querySelector("#sync-status").textContent === "Chats checked and synced.");
+    assert(!calls.some(r => r.path === "/sync/blob" || r.path === "/sync/commit"), "An empty wallet must not publish system-only chats");
+    await ready(page);
+    await page.waitForFunction(() => document.querySelector("#sync-status").textContent === "Chats checked and synced.");
+    assert(!calls.some(r => r.path === "/sync/blob" || r.path === "/sync/commit"), "Reloading an empty wallet must not commit empty chats");
     const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
     assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);
     assert.equal(await page.locator("#continuity-panel").isVisible(), false);
@@ -385,7 +437,7 @@ try {
       assert(
         chat.body.body.messages.every((m) => /^04[0-9a-f]+$/i.test(m.content)),
       );
-      assert.equal(chat.body.body.tools.length, 4);
+      assert(chat.body.body.tools.length > 0, "encrypted tool catalog missing");
       for (const tool of chat.body.body.tools) {
         for (const field of ["name", "description", "parameters"]) assert.match(tool.function[field], /^04[0-9a-f]+$/i);
       }

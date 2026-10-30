@@ -21,6 +21,22 @@ descriptions, truncation and edit behavior. MCP uses the official split SDK
 stream carries newline-delimited JSON-RPC; cancellation uses MCP notifications.
 Bash progress appears inline through MCP progress notifications.
 
+Ask for a single-file browser app to open Pi's Apps panel. HTML apps run in an
+opaque iframe served by `../private-agent-artifacts`, with inline styles and
+JavaScript and no network access. Apps and console feedback are saved with the
+conversation; the Apps button reopens the panel.
+
+Apps receive a frozen `window.dsmack` SDK. Call `await dsmack.ready()` and check
+`dsmack.capabilities.has(method)` before using `storage.get/put/list`,
+`agent.complete`, `credit.balance` or `diagnostics.log`. Storage is encrypted
+under a key derived for the conversation and HTML filename. The viewer grants
+each app a model budget once in the host bar, starting at $0.02; the bar shows
+its limit, spent amount and pending reservation. Model requests use an isolated
+untrusted transcript and the viewer's credit. Amounts use nano-USD strings.
+
+The per-category bridge contracts live in `bridge/Categories/`; the build runs
+`node bridge/generate.mjs` to merge them into `bridge/Manifest.json`.
+
 The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
 repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository
@@ -41,12 +57,20 @@ checks the contract code, on-chain head, signature and ciphertext CID before
 loading remote sessions. Refresh loads changes made on another device.
 
 Email recovery verifies the gate's Intel TDX quote and approved boot measurements
-in the browser before sending keys sealed to its quoted ECDH key. A verified
-email code enrolls or recovers a copy; recovered keys are sealed to the browser's
-fresh ECDH key. The gate limits code attempts and sends. Configure SMTP_HOST,
-SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM through the project's
-private environment. SMTP_TLS defaults to true and uses implicit TLS; use port 465
-for a provider supporting that transport.
+in the browser before sending keys sealed to its quoted ECDH key. Enter your
+address and send the prepared recovery email from that account. The page polls
+for its headers; the gate verifies the DKIM signature and browser-bound subject
+nonce, then stores or releases the labelled encrypted recovery wrap. Passkeys
+remain the primary recovery path.
+
+Set EMAIL_RECOVERY_ADDRESS in the project's private deployment environment and
+connect an inbound forwarder to POST unchanged raw messages to
+`https://private-agent.dstack.soc1024.com/email-recovery/inbound` with Content-Type
+`message/rfc822`. The receiver keeps headers for fifteen minutes. The
+[email receiver](email-receiver/README.md) also includes a local SMTP path.
+The email-code path remains available under Email code. Configure SMTP_HOST,
+SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM for code delivery;
+SMTP_TLS defaults to implicit TLS on port 465.
 
 Build on a development host with Node 24 or newer:
 
@@ -63,10 +87,14 @@ approved measured compose and Apple enrollment. The guest's tools run as an
 unprivileged user within `/workspace`; the measured firewall and CONNECT proxy
 apply the guest's host allowlist to commands.
 
-Deploy the built page to the shared Deno project:
+The saved wallet renders before chat sync, broker checks and RPC calls. A first visit offers Start fresh or recovery; creating a wallet is explicit. After receiving credit or saving a chat, add a passkey or email on the original browser to return on another device.
+
+Deploy the built page using its existing private environment JSON and operator-token SHA256:
 
 ```sh
-python3 deploy.py --evidence /absolute/path/to/local-data/ui/deploy
+python3 deploy.py --evidence /absolute/path/to/local-data/ui/deploy \
+  --smtp-env /absolute/path/to/private/page-env.json \
+  --operator-token-sha256 YOUR_EXISTING_OPERATOR_TOKEN_SHA256
 ```
 
 Run browser boundary checks with an existing browser:
@@ -75,6 +103,13 @@ Run browser boundary checks with an existing browser:
 BASE_URL=http://127.0.0.1:18731/private-agent/ \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
+```
+
+Run the generated-app boundary checks with Node 24 and an existing browser:
+
+```sh
+CHROMIUM_PATH=/absolute/path/to/chromium \
+EVIDENCE=/absolute/path/to/local-data/artifacts node artifacts.test.mjs
 ```
 
 For IPFS, add `dist` with Kubo and serve through a CID subdomain gateway. Assets

@@ -1,7 +1,8 @@
 # Operator fleet
 
-A static, view-only fleet page. Connect the wallet that receives your operator
-payouts to see Mac capacity, rotating guest slots, attestation evidence and errors.
+A static, view-only fleet page. Open `?operator=0xADDRESS` or connect your operator
+wallet to see linked Macs, reported capacity, rotating guest slots, attestation
+evidence and errors.
 Earnings and recent jobs come from finalized Base Sepolia escrow settlements.
 Signed guest receipts and broker run bindings are recovered from settlement
 transactions. Daily earnings use the settlement block time.
@@ -18,5 +19,6 @@ All assets are relative to the page. `config.json` contains the public broker,
 escrow, deployment block and RPC pins. `classesByPublisher` associates previous
 node classes with their Mac publisher so historical earnings survive a class change.
 
-Run the model checks with `node --test model.test.mjs`. Changing capacity means editing
-`~/.dsmack/operator.json` on the Mac and restarting its pool.
+Run the model checks with `node --test model.test.mjs`.
+The operator comes from the Mac’s signed ownership link. Changing capacity means
+editing `~/.dsmack/operator.json` on the Mac and restarting its pool.

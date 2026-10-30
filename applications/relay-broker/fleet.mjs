@@ -15,18 +15,32 @@ export function fleet(req, escrow, path, now = () => Math.floor(Date.now() / 100
   return result;
 }
 
+async function readState(path) {
+  if (!path) return memory;
+  try { return ownershipState(JSON.parse(await Deno.readTextFile(path))); }
+  catch (error) { if (!(error instanceof Deno.errors.NotFound)) throw error; return ownershipState(); }
+}
+
+export async function readFleet(path, now = Math.floor(Date.now() / 1000)) {
+  const state = await readState(path);
+  return Object.values(state.heartbeats).filter(mac => state.links[mac.publisher])
+    .map(mac => visibleMac(state, mac, now));
+}
+
+function visibleMac(state, mac, at) {
+    const online = at - mac.received_at < 60 && at - mac.updated_at < 60;
+    const link = state.links[mac.publisher];
+    const { payout: _legacyPayout, operator: _legacyOperator, ...heartbeat } = mac;
+    return { ...heartbeat, operator: link.link.operator, kid: link.link.kid, link, capacity: "reported", online, status: online ? "online" : "offline" };
+}
+
 async function handle(req, escrow, path, now) {
   const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type", "cache-control": "no-store", "content-type": "application/json" };
   const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (!["GET", "POST"].includes(req.method)) return reply({ error: "method" }, 405);
-  let state = memory;
-  if (path) {
-    try { state = JSON.parse(await Deno.readTextFile(path)); }
-    catch (error) { if (!(error instanceof Deno.errors.NotFound)) throw error; state = {}; }
-  }
-  state = ownershipState(state);
+  const state = await readState(path);
   const domain = ownershipDomain(escrow);
   const save = async () => {
     if (path) {
@@ -35,12 +49,7 @@ async function handle(req, escrow, path, now) {
       await Deno.rename(path + ".tmp", path);
     } else memory = state;
   };
-  const visible = mac => {
-    const online = now() - mac.received_at < 60 && now() - mac.updated_at < 60;
-    const link = state.links[mac.publisher];
-    const { payout: _legacyPayout, operator: _legacyOperator, ...heartbeat } = mac;
-    return { ...heartbeat, operator: link.link.operator, kid: link.link.kid, link, capacity: "reported", online, status: online ? "online" : "offline" };
-  };
+  const visible = mac => visibleMac(state, mac, now());
   const url = new URL(req.url), action = url.pathname.split("/").at(-1);
   if (req.method === "GET") {
     if (action === "ownership") return reply(ownershipView(state, domain, url));

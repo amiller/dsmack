@@ -107,12 +107,14 @@ export class GuestSession {
       parameters: tool.inputSchema,
       execute: async (_id, args, signal, onUpdate) => {
         const client = await this.ensure(signal);
+        performance.mark("dsmack:tool:start", { detail: tool.name });
         const result = await client.callTool({ name: tool.name, arguments: args }, {
           signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
           onprogress: p => {
             if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress } });
           },
         });
+        performance.mark("dsmack:tool:end", { detail: tool.name });
         this.lastActivity = Date.now();
         await this.status();
         return { content: result.content, isError: !!result.isError, details: result._meta?.["dsmack/piDetails"] || result.structuredContent || {} };
@@ -141,30 +143,34 @@ export class GuestSession {
     return this.opening;
   }
   async open(signal) {
+    performance.mark("dsmack:guest:start");
     this.changed({ state: "verifying" });
     const deadline = Date.now() + 90000, exclude = new Set();
-    let verified = await this.discover({ wait: true, deadline, exclude, signal });
     const peer = await createLibp2p({
       addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
       connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
     });
     this.peer = peer;
-    for (;;) {
-      signal?.throwIfAborted();
-      this.node = verified;
-      try {
+    const verified = await this.discover({ wait: true, deadline, exclude, signal,
+      claim: async selected => {
+        // Claim capacity before expensive verification to avoid four browsers
+        // all attesting the first guest. Only verified guests receive MCP/data.
+        performance.mark("dsmack:grant:start", { detail: selected.relay_peer });
         this.lease = await this.api("/agent/open", await walletBody(this.credit, "agent-open", {
-          conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: verified.registration.relay_peer,
+          conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: selected.relay_peer,
         }), { signal });
-        break;
-      } catch (e) {
-        if (e.code !== "GUEST_BUSY" || Date.now() >= deadline) throw e;
-        exclude.add(verified.registration.relay_peer);
-        this.changed({ state: "verifying", error: "That guest was claimed by another conversation. Finding another approved guest…" });
-        verified = await this.discover({ wait: true, deadline, exclude, signal });
-      }
-    }
+        performance.mark("dsmack:grant:end", { detail: this.lease.sessionId });
+        return async () => {
+          const result = await this.api("/agent/end", await walletBody(this.credit, "agent-end", { sessionId: this.lease.sessionId }));
+          require(!result.active, "Unverified guest grant could not be released.");
+          if (result.credit) this.credit.chatCredit = result.credit;
+          this.lease = null;
+        };
+      },
+    });
+    this.node = verified;
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
+    performance.mark("dsmack:tunnels:start");
     const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
     require(response.ok, "Guest relay discovery failed: HTTP " + response.status);
     const measured = JSON.parse(new TextDecoder().decode(verified.policy.manifest));
@@ -173,7 +179,9 @@ export class GuestSession {
       t.relayPeer === relayPeer && (!t.guestPeer || t.guestPeer === verified.registration.relay_peer) &&
       t.expiresAt * 1000 > Date.now()
     ).map(t => ({ ...t, guestPeer: verified.registration.relay_peer }));
+    performance.mark("dsmack:tunnels:end");
     require(entries.length, "No live browser relay advertises the verified guest.");
+    performance.mark("dsmack:dial:start");
     let connection, failure;
     for (const entry of entries) {
       try { connection = await connecting(20000, signal, scoped => peer.dial(multiaddr(address(entry)), { signal: scoped })); break; }
@@ -181,6 +189,8 @@ export class GuestSession {
     }
     if (!connection) throw failure;
     require(connection.remotePeer.toString() === verified.registration.relay_peer, "Noise peer differs from attested guest.");
+    performance.mark("dsmack:dial:end");
+    performance.mark("dsmack:mcp:start");
     const stream = await connecting(30000, signal, scoped => connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: scoped }));
     stream.inactivityTimeout = Math.max(330000, this.lease.seconds * 1000 + 15000);
     const admissionTimer = setTimeout(() => stream.abort(new Error("Guest session admission timed out.")), 30000);
@@ -203,6 +213,7 @@ export class GuestSession {
     const env = await client.readResource({ uri: "dsmack://environment" });
     this.environment = JSON.parse(env.contents[0].text);
     this.client = client;
+    performance.mark("dsmack:mcp:ready");
     for (const [path, content] of this.repository()) {
       const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
       require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));

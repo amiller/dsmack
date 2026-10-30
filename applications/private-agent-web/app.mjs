@@ -103,7 +103,8 @@ async function api(path, body, opts = {}) {
       ? [e?.code, e?.message].filter(Boolean).join(": ")
       : e) ||
       `Broker ${path}: HTTP ${response.status}`;
-    throw Object.assign(new Error(message), { code, status: response.status });
+    throw Object.assign(new Error(message), { code, status: response.status,
+      retryAfterSeconds: typeof e === "object" ? e?.retryAfterSeconds : undefined });
   }
   return opts.stream ? response : response.json();
 }
@@ -503,63 +504,93 @@ function loadPolicy(raw) {
   $("node-status").textContent =
     "Approved sandbox policy included. A guest will be verified before tools execute.";
 }
-async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal } = {}) {
+async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim } = {}) {
   await credit.checkBroker(api);
-  require(
-    policy,
-    "The bundled sandbox policy could not load. Refresh the page before sending a job.",
-  );
-  const manifestHash = sandbox.hex(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)),
-  );
-  let selected;
-  do {
+  require(policy, "The bundled sandbox policy could not load. Refresh the page before sending a job.");
+  const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
+  const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
+    version: String(workspace.version), hash: workspace.hash }) : "";
+  let lastRefusal;
+  const mark = (stage, detail) => performance.mark("dsmack:" + stage, { detail });
+  const pause = milliseconds => new Promise((resolve, reject) => {
+    const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", aborted); resolve(); }, milliseconds);
+    if (signal?.aborted) aborted();
+    else signal?.addEventListener("abort", aborted, { once: true });
+  });
+  for (;;) {
     signal?.throwIfAborted();
-    const nodes = await api("/nodes", undefined, { signal });
-    selected = nodes.filter((entry) =>
-      entry.kind === "compute" &&
+    mark("discovery:start");
+    let nodes;
+    try { nodes = await api("/nodes" + query, undefined, { signal }); }
+    catch (e) {
+      mark("discovery:end", { error: e.code || e.message });
+      if (e.code !== "FLEET_BUSY") throw e;
+      const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 15));
+      $("node-status").textContent = `Busy, retry in ${retry} seconds.`;
+      if (!wait || Date.now() + retry * 1000 > deadline) throw e;
+      await pause(retry * 1000);
+      continue;
+    }
+    mark("discovery:end", { candidates: nodes.length });
+    // Keep the broker's order. Placement hints never replace these local pins.
+    const candidates = nodes.filter(entry => entry.kind === "compute" &&
       entry.available !== false && !exclude.has(entry.relay_peer) &&
-      entry.manifest_sha256 === manifestHash &&
-      entry.cdhash === policy.cdhash &&
-      Number(entry.admit_until) * 1000 >= Date.now() + 30000
-    )
-      .sort((a, b) => b.admit_until - a.admit_until)[0];
-    if (selected || Date.now() >= deadline) break;
-    $("node-status").textContent = "Waiting for an approved guest to become available…";
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  } while (true);
-  require(
-    selected,
-    "No approved guest is available right now. Please try again shortly.",
-  );
-  $("node-status").textContent =
-    "Checking the sandbox's Apple attestation, approved build and bound keys…";
-  const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
-  const registration = await api(
-    "/sandbox/nodes/" + encodeURIComponent(selected.relay_peer) +
-      "/attestation?challenge=" + challenge,
-    undefined, { signal },
-  );
-  const resolved = { ...policy, challenge };
-  let checked;
-  try {
-    checked = await sandbox.verifyNode(registration, resolved);
-  } catch (e) {
-    throw new Error(
-      "Node attestation refused: " + e.message +
-        ". No repository or task was sent.",
-    );
+      entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
+      Number(entry.admit_until) * 1000 >= Date.now() + 30000);
+    for (const selected of candidates) {
+      signal?.throwIfAborted();
+      $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
+      const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
+      const peer = selected.relay_peer;
+      let release;
+      if (claim) {
+        try { release = await claim(selected); }
+        catch (e) {
+          if (!["GUEST_BUSY", "NODE_NOT_LIVE"].includes(e.code)) throw e;
+          exclude.add(peer);
+          mark("grant:unavailable", { peer, error: e.code });
+          continue;
+        }
+      }
+      mark("attestation:start", { peer });
+      try {
+        const registration = await api("/sandbox/nodes/" + encodeURIComponent(peer) +
+          "/attestation?challenge=" + challenge, undefined, { signal });
+        mark("attestation:response", { peer });
+        require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
+        const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
+        require(!registration.payments || registration.payments.challenge === challenge,
+          "Node challenge mismatch. Stale attestation refused.");
+        require(Number(registration.admit_until) * 1000 >= Date.now() + 30000 &&
+          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + 30000),
+          "Guest is too close to drain. Trying another approved guest.");
+        mark("attestation:verified", { peer });
+        // The attestation endpoint omits scheduler hints; retain them for sealed
+        // workspace placement without treating them as verified evidence.
+        checked.placement = selected.scheduler;
+        node = checked;
+        $("node-status").textContent = "Node verified · Apple enrollment (" +
+          (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
+          "), approved build, compose, image, broker and bound keys";
+        $("node-evidence").textContent = JSON.stringify(registration, null, 2);
+        return checked;
+      } catch (e) {
+        // No MCP stream or private data exists yet. Revoke this unused grant
+        // before trying another guest so failed attestations cannot hold credit.
+        await release?.();
+        if (signal?.aborted) throw e;
+        mark("attestation:refused", { peer, error: e.message });
+        exclude.add(peer);
+        lastRefusal = new Error("Node attestation refused: " + e.message + ". No repository or task was sent.");
+      }
+    }
+    if (lastRefusal) throw lastRefusal;
+    require(wait && Date.now() + 2000 <= deadline,
+      "No approved guest is available right now. Please try again shortly.");
+    $("node-status").textContent = "Waiting for an approved guest; retry in 2 seconds…";
+    await pause(2000);
   }
-  require(
-    !registration.payments || registration.payments.challenge === challenge,
-    "Node challenge mismatch. Stale attestation refused.",
-  );
-  node = checked;
-  $("node-status").textContent = "Node verified · Apple enrollment (" +
-    (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
-    "), approved build, compose, image, broker and bound keys";
-  $("node-evidence").textContent = JSON.stringify(registration, null, 2);
-  return checked;
 }
 function measuredEnvironment() {
   if (!policy) return {};

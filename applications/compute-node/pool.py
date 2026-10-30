@@ -280,7 +280,7 @@ class Pool:
         raw = b''
         status = None
         try:
-            with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
+            with urlopen(self.args.broker.rstrip('/')+'/nodes?all=1', timeout=20) as response:
                 status = response.status
                 raw = response.read((1 << 20) + 1)
             if len(raw) > 1 << 20:

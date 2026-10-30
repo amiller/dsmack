@@ -55,3 +55,35 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```
+
+## Local IPFS serving
+
+`config.json` contains explicit HTTPS broker, RPC and tunnel-index URLs and the
+Base Sepolia registry address. Assets stay relative to the CID root. CSP and
+referrer controls ship in the HTML as well as the Deno response.
+
+Build on the Linux builder, then use an isolated Kubo repository with
+`--offline`, empty `Bootstrap` and `Addresses.Swarm`, and a loopback gateway.
+Add the static directory with `ipfs --offline add --cid-version=1 -Qr dist` and
+export its CAR with `ipfs --offline dag export CID`. Set
+`Gateway.PublicGateways` for `localhost` and `alt.localhost` with paths
+`["/ipfs","/ipns"]` and `UseSubdomains:true`; run `ipfs --offline daemon`.
+Add each printed CID origin to the broker's exact `browser_origins` allowlist.
+
+```sh
+PAGE_URL=http://CID.ipfs.localhost:18091/ \
+ALT_PAGE_URL=http://CID.ipfs.alt.localhost:18091/ \
+EVIDENCE=/data/private-agent-ipfs npm run test:ipfs
+```
+
+The probe creates a wallet, chats, applies a verified sandbox patch and checks
+same-origin persistence and isolation on the second gateway origin. Stop the
+owned Kubo process afterwards. Offline imports and local recursive pins retain
+blocks locally; public announcement and remote pinning are separate operations.
+
+Wallet, buyer identity and purchase storage belong to the browser origin. A new
+CID or gateway origin has separate storage; connecting an external wallet also
+needs permission for that origin. Shared `/ipfs/` and `/ipns/` path gateways are
+refused before wallet storage opens. For updates with one stable wallet origin,
+keep the same DNSLink/IPNS name and gateway. Wallet recovery/export is separate
+from static hosting.

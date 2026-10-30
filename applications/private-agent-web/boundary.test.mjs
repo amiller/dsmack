@@ -28,7 +28,12 @@ const canonical = (o) =>
   JSON.stringify(
     Object.fromEntries(Object.keys(o).sort().map((key) => [key, o[key]])),
   );
-const publicHeaders = { "content-type": "application/json" };
+const publicHeaders = {
+  "content-type": "application/json",
+  "access-control-allow-origin": new URL(base).origin,
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
 async function backend(page, kind) {
   const cfg = await (await page.request.get(new URL("config.json", base).href))
     .json();
@@ -36,6 +41,7 @@ async function backend(page, kind) {
   await page.route("**/relay-broker/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/relay-broker", "");
+    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: publicHeaders});
     const body = req.method() === "POST" ? req.postDataJSON() : undefined;
     calls.push({ path, method: req.method(), body });
     const respond = (value, status = 200) =>

@@ -15,45 +15,56 @@ publisher and operator; `kid` is the install's label. The response reports
 
 ## Add a Mac
 
-Use the repository's Python environment (`eth-account` in `requirements.txt`),
-and put the CLI on `PATH`:
+Use the installed `dsmack` CLI and Python environment with `eth-account`. On the
+Mac, `PUBLISHER_KEY` is its existing publisher-key path and `KID` is its existing
+`0x`-prefixed 32-byte install label. Create the provisioner and configuration:
 
 ```sh
-export PATH="$PWD/applications/mac-ownership:$PATH"
+: "${PUBLISHER_KEY:?existing installed publisher-key path}" "${KID:?existing installed kid}"
+export PUBLISHER_KEY KID
+python3 - <<'PYTHON'
+import json, os
+from pathlib import Path
+from eth_account import Account
+os.umask(0o077)
+root = Path.home() / '.dsmack'
+root.mkdir(mode=0o700, exist_ok=True)
+key = root / 'provisioner.key'
+if not key.exists():
+    key.write_text('0x' + Account.create().key.hex() + '\n')
+key.chmod(0o600)
+address = Account.from_key(key.read_text().strip()).address
+(root / 'provisioner.address').write_text(address + '\n')
+(root / 'mac-ownership.json').write_text(json.dumps({
+    'broker': 'https://pod.dstack.soc1024.com/relay-broker',
+    'publisher_key': str(Path(os.environ['PUBLISHER_KEY']).expanduser().resolve()),
+    'kid': os.environ['KID']}))
+print(address)
+PYTHON
 ```
 
-The provisioning agent writes `~/.dsmack/mac-ownership.json` with `broker`,
-`publisher_key` (the existing Mac publisher key path), and `kid` (its `0x`-prefixed
-32-byte install label). The provisioner key stays on that Mac.
-
-Once per operator, sign with a Foundry keystore and its password file:
+On the operator's wallet host, authorize once and send the public authorization
+to the Mac (`mini-mesh` in this example), then link it:
 
 ```sh
+PROVISIONER_ADDRESS=$(ssh mini-mesh 'cat ~/.dsmack/provisioner.address')
 dsmack authorize --operator-keystore ~/.foundry/keystores/operator --password-file ~/.dsmack/operator-password --provisioner "$PROVISIONER_ADDRESS" --out provisioning.json
+rsync --bwlimit=20000 provisioning.json mini-mesh:.dsmack/provisioning.json
+ssh mini-mesh '~/.local/bin/dsmack link --authorization ~/.dsmack/provisioning.json --provisioner-key ~/.dsmack/provisioner.key'
 ```
 
-A hardware wallet can sign through `cast wallet` instead: replace
-`--operator-keystore ... --password-file ...` with `--ledger` or `--trezor`.
-`--derivation-path` selects its wallet path. The CLI never reads terminal input;
-the hardware wallet itself confirms the signature.
-
-Copy the public `provisioning.json` to the Mac, then run:
-
-```sh
-dsmack link --authorization provisioning.json --provisioner-key ~/.dsmack/provisioner.key
-```
-
-Repeated linking with the same authorization returns the existing link. To
-re-link after a sale, authorize the new operator and run the same link command
-with that authorization; the Mac chooses a newer nonce automatically.
+Repeated linking returns the existing link. A new operator's authorization
+re-links with a newer Mac nonce. Revoke the provisioner from the wallet host;
+unlink from the Mac:
 
 ```sh
 dsmack revoke-provisioner --operator-keystore ~/.foundry/keystores/operator --password-file ~/.dsmack/operator-password --provisioner "$PROVISIONER_ADDRESS"
-dsmack unlink
+ssh mini-mesh '~/.local/bin/dsmack unlink'
 ```
 
-`--broker`, `--publisher-key`, `--kid`, `--nonce`, and `--out` allow explicit
-scripted inputs. `--config` selects a different Mac configuration file.
-`DSMACK_KEYSTORE_PASSWORD_FILE` supplies the keystore password file when the flag
-is omitted. Files contain signatures and addresses; secret keys and passwords
-are never printed.
+For hardware signing through `cast wallet`, replace the keystore and password
+flags with `--ledger` or `--trezor`; `--derivation-path` selects its wallet path.
+After revocation, generate and authorize a new provisioner key. `--broker`,
+`--publisher-key`, `--kid`, `--nonce`, `--out`, and `--config` select explicit
+script inputs. `DSMACK_KEYSTORE_PASSWORD_FILE` supplies the password-file path
+when its flag is omitted. Keys and passwords are never printed.

@@ -32,6 +32,8 @@ Deno.test("shared Deno fetches node attestations over Noise and a circuit relay"
     await guest.handle("/dsmack/attest/1", async (stream) => { stream.send(enc.encode('{"attestation":"public-proof"}')); await stream.close(); }, { runOnLimitedConnection: true });
     await guest.handle("/dsmack/payments-attest/1", async (stream) => {
       const s = byteStream(stream); const q = await readFrame(s);
+      if (q.challenge === "cd".repeat(32)) { await stream.close(); return; }
+      if (q.challenge === "ef".repeat(32)) { stream.send(enc.encode("{")); await stream.close(); return; }
       stream.send(enc.encode(JSON.stringify({ attestation: "fresh-public-proof", challenge: q.challenge }))); await stream.close();
     }, { runOnLimitedConnection: true });
     forwarder = await createDenoForwarder();
@@ -42,6 +44,10 @@ Deno.test("shared Deno fetches node attestations over Noise and a circuit relay"
     // Deno's successful HTTP response can abort its Request signal afterwards.
     discoveryRequest.abort(new Error("successful discovery HTTP response ended"));
     assert.deepEqual(await forwarder.forward("attestation", { target, challenge: "ab".repeat(32) }), { attestation: "fresh-public-proof", challenge: "ab".repeat(32) });
+    await assert.rejects(forwarder.forward("attestation", { target, challenge: "cd".repeat(32) }), error =>
+      error.stage === "node_attestation" && error.cause?.code === "EMPTY_ATTESTATION_RESPONSE");
+    await assert.rejects(forwarder.forward("attestation", { target, challenge: "ef".repeat(32) }), error =>
+      error.stage === "node_attestation" && error.cause instanceof SyntaxError && !error.cause.code);
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
 });
 

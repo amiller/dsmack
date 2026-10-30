@@ -55,6 +55,14 @@ export class ForwardError extends Error {
   }
 }
 
+class EmptyAttestationResponseError extends Error {
+  constructor() {
+    super("guest closed without an attestation response");
+    this.name = "EmptyAttestationResponseError";
+    this.code = "EMPTY_ATTESTATION_RESPONSE";
+  }
+}
+
 class Reader {
   constructor(stream) { this.iterator = stream[Symbol.asyncIterator](); this.chunk = new Uint8Array(); this.offset = 0; }
   async pull() {
@@ -84,6 +92,7 @@ class Reader {
       if (length > ATTESTATION_LIMIT) throw new Error("attestation size");
       parts.push(part); this.offset = this.chunk.length;
     }
+    if (length === 0) throw new EmptyAttestationResponseError();
     const raw = new Uint8Array(length); let offset = 0;
     for (const part of parts) { raw.set(part, offset); offset += part.length; }
     return JSON.parse(decoder.decode(raw));

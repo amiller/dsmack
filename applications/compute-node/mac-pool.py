@@ -66,8 +66,8 @@ def main():
             except (OSError,http.client.HTTPException,ValueError,subprocess.SubprocessError) as error:result={'attempt':attempt,'host':host,'error':str(error)}
             with path.open('a') as log:log.write(json.dumps(result)+'\n')
             print(json.dumps(result),flush=True)
-            if result.get('status')=='ready':return address
             if stopping:raise RuntimeError('stopped during public tunnel readiness')
+            if result.get('status')=='ready':return address
             time.sleep(5)
         raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
     def publish(entries,chain):
@@ -89,6 +89,7 @@ def main():
         hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
         published=True;publish([hint],True);last_http=last_chain=time.monotonic()
+        if stopping:return
         pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90'],'pool.log')
         draining=False
         while pool.poll() is None:

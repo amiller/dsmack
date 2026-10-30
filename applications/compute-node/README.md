@@ -188,3 +188,8 @@ The relay allows eight reservations and four circuits per peer, with a two-minut
 Lease renewal logs its stage, HTTP status and bounded response body. Transient
 HTTP/network failures retry on the next 25-second tick, up to three consecutive
 failures; attestation refusals stop the node. Admitted jobs are never resubmitted.
+
+The launcher queries public A records with `dig` and gives the CONNECT helper
+per-process bindings, retaining hostname TLS verification. This avoids stale
+Mac resolver cache entries without changing resolver settings. The relay permits
+90 seconds of WAN write backpressure while keeping its circuit caps.

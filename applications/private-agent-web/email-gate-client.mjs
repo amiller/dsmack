@@ -1,5 +1,5 @@
 import {verify} from '@phala/dcap-qvl';
-import {bytes,random,ephemeral,seal,open,quoteBinding} from './email-gate-crypto.mjs';
+import {bytes,random,ephemeral,seal,open,quoteBinding,emailRecoveryLabel,emailRecoveryNonce} from './email-gate-crypto.mjs';
 const hex=(value)=>Array.from(new Uint8Array(value),b=>b.toString(16).padStart(2,'0')).join('');
 const unhex=(value)=>{if(!/^(?:[0-9a-f]{2})*$/i.test(value))throw Error('Invalid attestation hex');return Uint8Array.from(value.match(/../g)||[],x=>parseInt(x,16));};
 const cat=(...parts)=>new Uint8Array(parts.flatMap(p=>Array.from(p)));
@@ -36,13 +36,50 @@ export async function verifyGateAttestation(attestation,nonce,policy) {
   return {publicKey:attestation.publicKey,status:result.status};
 }
 export function createEmailGate({base='',policy}) {
-  const api=async(path,body)=>{
-    const response=await fetch(base+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store'});
+  const api=async(path,body,{signal}={})=>{
+    const response=await fetch(base+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store',signal});
     const result=await response.json();if(!response.ok)throw Error(result.error||'Email recovery failed');return result;
   };
   let verified;
   return {
     async verify(){const nonce=random();verified=await verifyGateAttestation(await api('/continuity/attestation?nonce='+nonce),nonce,policy);return verified;},
+    async requestDkim(email,purpose='recover') {
+      email=String(email).trim().toLowerCase();
+      require(email.length<=254&&/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email),'Enter an email address');
+      require(['enroll','recover'].includes(purpose),'Unknown email operation');
+      await this.verify();
+      const {receiverAddress}=await api('/continuity/email/config');
+      require(typeof receiverAddress==='string'&&/^[^\s@?&#]+@[^\s@?&#]+\.[^\s@?&#]+$/.test(receiverAddress),'The recovery receiver is not configured');
+      const pair=await ephemeral(),userId=email,ts=Date.now();
+      const nonce=await emailRecoveryNonce(pair.publicKey,userId,ts);
+      return {...pair,email,userId,ts,nonce,purpose,gatePublicKey:verified.publicKey,
+        mailto:'mailto:'+receiverAddress+'?subject='+encodeURIComponent('dsmack-recover '+nonce)};
+    },
+    async waitDkim(context,{signal,onWaiting=()=>{}}={}) {
+      require(context?.gatePublicKey,'Verify the email gate before sending recovery email');
+      const expires=Date.now()+15*60_000;
+      while(Date.now()<expires) {
+        if(signal?.aborted)throw new DOMException('Email recovery cancelled','AbortError');
+        const result=await api('/email-recovery/headers/'+context.nonce,undefined,{signal});
+        if(result.headers)return result.headers;
+        onWaiting();
+        await new Promise((resolve,reject)=>{
+          const abort=()=>{clearTimeout(timer);reject(new DOMException('Email recovery cancelled','AbortError'));};
+          const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},2000);
+          signal?.addEventListener('abort',abort,{once:true});
+        });
+      }
+      throw Error('Recovery email expired. Send a new recovery email.');
+    },
+    async confirmDkim(context,headers,bundle) {
+      require(context?.gatePublicKey,'Verify the email gate before sending recovery email');
+      const label=emailRecoveryLabel(context.email,context.userId);
+      const sealed=context.purpose==='enroll'?await seal(context.privateKey,context.gatePublicKey,bundle,label+'|enroll|'+context.nonce):undefined;
+      const result=await api('/continuity/email/dkim',{
+        purpose:context.purpose,email:context.email,userId:context.userId,ts:context.ts,
+        publicKey:context.publicKey,nonce:context.nonce,headers,sealed});
+      return context.purpose==='enroll'?result:await open(context.privateKey,context.gatePublicKey,result.sealed,label+'|recover|'+context.nonce);
+    },
     async request(email,purpose='recover') {
       await this.verify();
       const pair=await ephemeral();

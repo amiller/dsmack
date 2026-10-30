@@ -45,7 +45,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
                'volumes':['artifacts:/workspace/artifacts:rw','/var/run/dstack.sock:/var/run/dstack.sock:ro']}
     if not 1 <= seconds <= 3600:
         raise ValueError('compute lifetime must be 1..3600 seconds')
-    admit_seconds = max(1, seconds - 270) if admit_seconds is None else admit_seconds
+    admit_seconds = max(1, seconds - 480) if admit_seconds is None else admit_seconds
     if not 1 <= admit_seconds < seconds:
         raise ValueError('admission cutoff must precede compute lifetime')
     service['environment']['ADMIT_SECONDS'] = str(admit_seconds)

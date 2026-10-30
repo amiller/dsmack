@@ -472,7 +472,7 @@ def main():
     parser.add_argument('--debugfs', type=Path, default=Path('/opt/homebrew/opt/e2fsprogs/sbin/debugfs'),
                         help='read-only result diagnostic extractor')
     parser.add_argument('--seconds', type=int, default=3600)
-    parser.add_argument('--drain-seconds', type=int, default=270)
+    parser.add_argument('--drain-seconds', type=int, default=480)
     parser.add_argument('--replace-after', type=int, default=None)
     parser.add_argument('--readiness-timeout', type=int, default=90)
     parser.add_argument('--cycles', type=int, default=0, help='0 rotates continuously')

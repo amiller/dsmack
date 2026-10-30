@@ -34,7 +34,7 @@ class MacWorkloadTests(unittest.TestCase):
         measured = json.loads(self.generate(seconds=3600, tunnel_index=INDEX, payments=payments))
         node = json.loads(measured['docker_compose_file'])['services']['node']
         self.assertEqual(node['command'][2], '3600')
-        self.assertEqual(node['environment']['ADMIT_SECONDS'], '3330')
+        self.assertEqual(node['environment']['ADMIT_SECONDS'], '3120')
         self.assertEqual(json.loads(node['environment']['PAYMENTS_CONFIG'])['runSeconds'], 3600)
         self.assertEqual(measured['limits']['timeout_s'], 3600)
         with self.assertRaisesRegex(ValueError, '1..3600'):

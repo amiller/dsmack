@@ -60,7 +60,9 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
              outputs={'capture':['stderr'], 'artifacts':[
                  *[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts],
-                 {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'}]})
+                 {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'},
+                 {'name':'workspace-seal','path':'/workspace/artifacts/workspace-seal.bin'},
+                 {'name':'workspace-seal-meta','path':'/workspace/artifacts/workspace-seal.json'}]})
     m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
     return canonical(m)
 

@@ -20,6 +20,54 @@ def republish(publish,hint,chain):
         return False
 
 
+def guest_entries(snapshot, hint, now=None):
+    """Read locally observed guest identities, retaining their fixed admission expiry."""
+    now = int(time.time()) if now is None else now
+    entries = {}
+    for slot in snapshot.get('slots', []):
+        registration = slot.get('attestation')
+        if not registration:
+            continue
+        expiry = min(registration['admit_until'], registration['payments']['runExpires'])
+        if expiry > now:
+            peer = registration['relay_peer']
+            entries[peer] = dict(url=hint['url'], relayPeer=hint['relayPeer'],
+                                 guestPeer=peer, expiresAt=expiry)
+    return [entries[peer] for peer in sorted(entries)]
+
+
+def publish_directory(publish, entries, previous, pending=False):
+    if entries == previous and not pending:
+        return previous
+    try:
+        publish(entries, True)
+        return entries
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+        print(json.dumps(dict(event='guest-directory-publication-failed',
+                              error=type(error).__name__, retrySeconds=60)), flush=True)
+        return previous
+
+
+def publish_chain(entries, pending_path, prepare, run):
+    """Reconcile one saved attempt before allocating any later transaction."""
+    if pending_path.exists():
+        out = Path(pending_path.read_text())
+        previous = json.loads((out/'entries.json').read_text())
+        if previous == entries or (out/'publish-transaction.json').exists():
+            run(out)
+            pending_path.unlink()
+            if previous == entries:
+                return
+        else:
+            pending_path.unlink()
+    out = prepare(entries)
+    temporary = pending_path.with_suffix('.tmp')
+    temporary.write_text(str(out.resolve()))
+    temporary.replace(pending_path)
+    run(out)
+    pending_path.unlink()
+
+
 def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_seconds=2):
     """Ride out broker promotion without restarting the owned Mac launcher."""
     started = time.monotonic()
@@ -60,6 +108,41 @@ def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_s
     raise RuntimeError('broker transport discovery unavailable after ' + str(budget_seconds) + ' seconds')
 
 
+def transport_group_running(pgid):
+    # A leader can exit before its Kubo/tunnel descendants. Zombies have already
+    # closed their descriptors and cannot retain the IPFS repository lock.
+    rows = subprocess.check_output(['ps', '-axo', 'pgid=,stat='], text=True)
+    return any(int(group) == pgid and not state.startswith('Z')
+               for group, state in (row.split()[:2] for row in rows.splitlines() if row.strip()))
+
+
+def stop_transports(processes, grace_seconds=60):
+    """Stop only setsid transport groups spawned by this launcher, never VMs."""
+    groups = [proc.pid for proc in processes]
+    for proc in reversed(processes):
+        if proc.poll() is None:
+            proc.terminate()  # Let pin-mac cancel publication and stop its children.
+    deadline = time.monotonic() + grace_seconds
+    while any(transport_group_running(group) for group in groups) and time.monotonic() < deadline:
+        for proc in processes:
+            proc.poll()
+        time.sleep(.1)
+    for group in groups:
+        if transport_group_running(group):
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    for proc in processes:
+        proc.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while any(transport_group_running(group) for group in groups) and time.monotonic() < deadline:
+        time.sleep(.1)
+    if any(transport_group_running(group) for group in groups):
+        raise RuntimeError('owned transport descendants still active; inspect exact process groups')
+    return groups
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
@@ -82,15 +165,20 @@ def main():
     while True:
         try:preflight(a.state,[]);break
         except MacOccupied:print('waiting for the active Mac lane',flush=True);time.sleep(10)
-    stopping=False;children=[];logs=[];pool=None;published=False;failure=None
+    stopping=False;children=[];transports=[];logs=[];pool=None;published=False;failure=None;published_entries=[]
     def stop(*_):
         nonlocal stopping
         stopping=True
+        if pool and pool.poll() is None:
+            try:pool.send_signal(signal.SIGTERM)
+            except ProcessLookupError:pass
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
-    def start(command,name):
+    def start(command,name,transport=True):
         log=(a.state/name).open('w');logs.append(log)
-        proc=subprocess.Popen([str(x) for x in command],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
-        children.append(proc);return proc
+        proc=subprocess.Popen([str(x) for x in command],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=transport)
+        children.append(proc)
+        if transport:transports.append(proc)
+        return proc
     def ready(path,pattern,seconds):
         deadline=time.monotonic()+seconds
         while not stopping and time.monotonic()<deadline:
@@ -128,11 +216,18 @@ def main():
             if result.get('status')=='ready':return address
             time.sleep(5)
         raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
-    def publish(entries,chain):
-        out=a.state/('publication-'+str(time.time_ns()));out.mkdir();path=out/'entries.json';path.write_text(json.dumps(entries))
-        cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','publish' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',path,'--evidence',out]
+    pending_path=a.state/'chain-pending.txt'
+    def prepare(entries):
+        out=a.state/('publication-'+str(time.time_ns()));out.mkdir()
+        (out/'entries.json').write_text(json.dumps(entries))
+        return out
+    def run_publication(out,chain):
+        cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',out/'entries.json','--evidence',out]
         if chain:cmd+=['--rpc',a.publication_rpc]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
+    def publish(entries,chain):
+        if chain:publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
+        else:run_publication(prepare(entries),False)
     try:
         if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
         broker_peer=discover_transport(a.broker,lambda:stopping)
@@ -147,9 +242,10 @@ def main():
         start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18484','--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','960','--resolve',host+'='+tunnel_address,'--resolve',broker_host+'='+broker_address],'proxy.log')
         hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
-        published=True;publish([hint],True);last_http=last_chain=time.monotonic()
+        published=True;republish(publish,hint,False);last_http=time.monotonic()
+        last_chain_attempt=0;published_entries=[]
         if stopping:return
-        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log')
+        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log',transport=False)
         draining=False
         while pool.poll() is None:
             for proc in children:
@@ -158,11 +254,15 @@ def main():
             if stopping and not draining:
                 pool.send_signal(signal.SIGTERM);draining=True;print('draining warm guests',flush=True)
             now=time.monotonic()
+            snapshot_path=a.state/'guests/directory.json'
+            snapshot=json.loads(snapshot_path.read_text()) if snapshot_path.exists() else {}
+            entries=guest_entries(snapshot,hint)
+            if (entries!=published_entries or pending_path.exists()) and now-last_chain_attempt>=60:
+                last_chain_attempt=now
+                published_entries=publish_directory(publish,entries,published_entries,pending_path.exists())
             if now-last_http>=60:
                 hint['expiresAt']=int(time.time())+3300
-                chain=now-last_chain>=1200
-                updated=republish(publish,hint,chain);last_http=time.monotonic()
-                if updated and chain:last_chain=last_http
+                republish(publish,hint,False);last_http=time.monotonic()
             time.sleep(2)
         if pool.returncode:raise RuntimeError('warm pool failed; inspect pool.log')
         if failure:raise RuntimeError(failure)
@@ -172,14 +272,14 @@ def main():
             try:pool.wait(timeout=1000)
             except subprocess.TimeoutExpired:raise RuntimeError('warm guests still active; owned transport retained')
         try:
-            if published:publish([],True)
+            if published:
+                publish_directory(publish,[],published_entries,pending_path.exists())
+                publish([],False)
         finally:
-            for proc in reversed(children):
-                if proc.poll() is None:proc.terminate()
-            for proc in children:
-                try:proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:proc.kill();proc.wait()
+            groups=stop_transports(transports)
             for log in logs:log.close()
-            (a.state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),ownedChildrenStopped=all(c.poll() is not None for c in children),pids=[c.pid for c in children])))
+            (a.state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),
+                ownedChildrenStopped=all(c.poll() is not None for c in children),
+                ownedTransportGroupsStopped=groups,pids=[c.pid for c in children])))
 
 if __name__=='__main__':main()

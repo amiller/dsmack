@@ -442,8 +442,12 @@ class Pool:
         self.event('capacity', config=self.config, hardware=self.hardware)
         while True:
             self.tick()
+            snapshot = self.snapshot()
+            temporary = self.args.state/'directory.tmp'
+            temporary.write_text(json.dumps(snapshot))
+            temporary.replace(self.args.state/'directory.json')
             if self.publisher:
-                record = self.publisher.tick(self.snapshot())
+                record = self.publisher.tick(snapshot)
                 if record:
                     name = record.pop('event')
                     if name == 'heartbeat_error':

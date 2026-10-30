@@ -250,7 +250,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
       catch (e) { if (e instanceof Error && "status" in e) return finish(Response.json({ error: e.message }, { status: Number(e.status) })); throw e; }
     } else if (path.startsWith("/agent/") && req.method === "POST") {
       if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
-      const sessions = new AgentSessions(b), request = await body(req);
+      const sessions = new AgentSessions(b, () => readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now())), request = await body(req);
       const action = path.slice("/agent/".length);
       if (action === "open") response = Response.json(await sessions.open(request));
       else if (action === "status") response = Response.json(await sessions.status(request));
@@ -319,9 +319,11 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/nodes") {
       const sessions = new AgentSessions(b), url = new URL(req.url);
       const nodes = b.live().filter((r) => r.kind === "compute");
+      const currentFleet = await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now());
       if (url.searchParams.get("all") === "1") {
-        // Operator pool discovery must observe busy and not-yet-heartbeating guests.
-        response = Response.json(nodes.map(node => ({ ...node, available: sessions.available(node) })));
+        // Preserve every peer for operator readiness and retirement observation.
+        response = Response.json(rankNodes(nodes, currentFleet,
+          (node, placement) => sessions.available(node, placement), { now: b.now() }));
       } else {
         const workspaceId = url.searchParams.get("workspaceId"), version = Number(url.searchParams.get("version"));
         const hash = url.searchParams.get("hash");
@@ -329,8 +331,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
           /^[0-9a-f]{64}$/.test(hash ?? "")
           ? await (b as Broker & {workspaces?: {snapshotOwner?: (ref: {workspaceId: string; version: number; hash: string | null}) => Promise<string | undefined>}})
             .workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
-        const ranked = rankNodes(nodes, await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now()),
-          node => sessions.available(node), { now: b.now(), snapshotOwner });
+        const ranked = rankNodes(nodes, currentFleet,
+          (node, placement) => sessions.available(node, placement), { now: b.now(), snapshotOwner });
         if (ranked.some(node => node.available)) response = Response.json(ranked);
         else {
           const retryAfterSeconds = busyRetrySeconds(nodes, b.payments?.state.agentSessions, b.now());

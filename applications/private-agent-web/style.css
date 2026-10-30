@@ -39,7 +39,6 @@ button.secondary, button.link { color: var(--page-accent); background: transpare
 #chat-host code-block, #chat-host console-block { color: var(--ink); background: var(--page-card); }
 :root.dark #alert { color: #ffd0bc; background: #422c24; border-color: #c78669; }
 
-#continuity-panel h3{margin-top:22px}#continuity-panel button{margin:4px 0}#link-qr{max-width:100%;height:auto;margin-top:12px}#link-code{font-size:28px;letter-spacing:.15em;font-weight:700}#link-qr-text{font-size:10px;min-height:65px}#link-camera{width:100%}#continuity-panel textarea{resize:vertical}#continuity-status{font-size:12px;overflow-wrap:anywhere}@media(max-width:620px){.sidebar section:has(#continuity-panel){grid-column:1/-1}}
 
 #send-recovery-email:not([hidden]){display:inline-block;border:1px solid var(--page-accent);background:var(--page-accent);color:var(--page-card);border-radius:7px;padding:10px 14px;font-size:12px;font-weight:600;text-decoration:none;margin:8px 0}#send-recovery-email:focus-visible{outline:2px solid #6ba58f;outline-offset:2px}
 

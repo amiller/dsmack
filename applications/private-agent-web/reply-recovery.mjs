@@ -5,13 +5,13 @@ export function replyFailure(error, { partial = false, online = globalThis.navig
   const code = error?.code || detail.match(/^([A-Z_]+):/)?.[1];
   const interrupted = !!partial;
   let category, message, retryable = true;
-  if (/CREDIT_EXHAUSTED|ARTIFACT_BUDGET_EXHAUSTED/.test(code || detail)) {
+  if (/CREDIT_EXHAUSTED|(?:ARTIFACT_)?BUDGET_EXHAUSTED/.test(code || detail)) {
     category = "credit";
-    message = code === "ARTIFACT_BUDGET_EXHAUSTED"
+    message = /^(?:ARTIFACT_)?BUDGET_EXHAUSTED$/.test(code || "")
       ? "ARTIFACT_BUDGET_EXHAUSTED: Artifact credit used up. Increase its allowed model budget before trying again."
       : "CREDIT_EXHAUSTED: Chat credit used up. Check your chat credit before trying again.";
     retryable = false;
-  } else if (/USAGE_PENDING|Usage is unresolved/.test(code || detail)) {
+  } else if (/USAGE_PENDING|REQUEST_IN_FLIGHT|Usage is unresolved/.test(code || detail)) {
     category = "credit";
     message = "USAGE_PENDING: Chat credit is waiting for NEAR AI's metered usage. Use Reconcile provider usage, then Retry; another request cannot start until it settles.";
   } else if (/CREDIT_|ARTIFACT_BUDGET/.test(code || "")) {

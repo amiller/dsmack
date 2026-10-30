@@ -14,6 +14,8 @@ test('offline, broker restart, provider and credit failures identify an action',
   assert.equal(provider.category, 'provider');assert.match(provider.message, /NEAR AI.*Retry/);
   const credit = replyFailure(Error('CREDIT_EXHAUSTED: insufficient'));
   assert.equal(credit.category, 'credit');assert.equal(credit.retryable, false);assert.match(credit.message,/Chat credit used up/);
+  assert.equal(replyFailure(Error('BUDGET_EXHAUSTED: cap')).category, 'credit');
+  assert.equal(replyFailure(Error('REQUEST_IN_FLIGHT: pending')).category, 'credit');
   const pending = replyFailure(Error('USAGE_PENDING: unknown'));
   assert.equal(pending.category, 'credit');assert.match(pending.message, /Reconcile provider usage.*cannot start until it settles/);
 });

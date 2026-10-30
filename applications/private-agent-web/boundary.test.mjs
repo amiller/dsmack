@@ -28,6 +28,11 @@ const canonical = (o) =>
   JSON.stringify(
     Object.fromEntries(Object.keys(o).sort().map((key) => [key, o[key]])),
   );
+let partialCredit;
+const reservation = (body) => BigInt(
+  Buffer.byteLength(JSON.stringify(body)) + 256 +
+    64 * body.messages.length + body.max_tokens,
+) * 1500n;
 const publicHeaders = {
   "content-type": "application/json",
   "access-control-allow-origin": new URL(base).origin,
@@ -68,7 +73,7 @@ async function backend(page, kind) {
         mode: "broker-e2ee",
         provider: "near",
         model,
-        starterCreditNanoUsd: "10000000",
+        starterCreditNanoUsd: "250000000",
         maxOutputTokens: 512,
         maxNanoUsdPerToken: "1500",
         maxRequestBytes: 32768,
@@ -86,9 +91,9 @@ async function backend(page, kind) {
       wallet: body?.wallet?.toLowerCase(),
       model,
       mode: "broker-e2ee",
-      grantedNanoUsd: "10000000",
+      grantedNanoUsd: "250000000",
       spentNanoUsd: "0",
-      remainingNanoUsd: kind === "insufficient" ? "1" : "10000000",
+      remainingNanoUsd: kind === "insufficient" ? "1" : kind === "partial" ? partialCredit : "250000000",
       reservedNanoUsd: "0",
       usedTokens: "0",
       pendingInferenceId: null,
@@ -206,6 +211,7 @@ try {
     assert(calls.some((r) => r.path === "/inference/credit"));
     const chat = calls.find((r) => r.path === "/inference/chat");
     assert(chat && !JSON.stringify(chat.body).includes(marker));
+    partialCredit = (reservation(chat.body.body) - 200n * 1500n).toString();
     assert.equal(await page.locator("#wallet-tools").isVisible(), true);
   });
   await run(
@@ -241,7 +247,7 @@ try {
       await page.locator("#connect").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       assert.equal(await page.locator("#wallet").textContent(), wallet.address);
       const methods = await page.evaluate(() => window.fixtureWalletMethods);
@@ -257,7 +263,7 @@ try {
       await page.locator("#burner").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const wallet = (await page.locator("#wallet").textContent())
         .toLowerCase();
@@ -305,7 +311,7 @@ try {
         await page.locator("#burner").click();
         await page.waitForFunction(() =>
           document.querySelector("#chat-credit").textContent ===
-            "Chat credit $0.010000"
+            "Chat credit $0.250000"
         );
         await send(
           page,
@@ -322,11 +328,23 @@ try {
       },
     );
   }
+  await run("remaining-credit-reduces-encrypted-output-limit", "partial", async (page, calls) => {
+    await send(page, "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED");
+    await alert(page, "SYNTHETIC_STOP");
+    const chat = calls.find((r) => r.path === "/inference/chat");
+    assert(chat, "Affordable encrypted request was refused");
+    const body = chat.body.body, available = BigInt(partialCredit);
+    assert(body.max_tokens >= 64 && body.max_tokens < 512);
+    assert(reservation(body) <= available, "Encrypted reservation exceeds remaining credit");
+    assert(reservation({ ...body, max_tokens: body.max_tokens + 1 }) > available,
+      "Output limit leaves an affordable token unused");
+    assert(!JSON.stringify(chat.body).includes("FIRST_VISIT_PROMPT_STAYS_ENCRYPTED"));
+  });
   await run("insufficient-reservation-refused-before-chat", "insufficient", async (page, calls) => {
     await page.locator("#burner").click();
     await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd === "1");
     await send(page, "Private text must stay here when the token reservation exceeds credit.");
-    await alert(page, "CREDIT_EXHAUSTED.*reservation");
+    await alert(page, "CREDIT_EXHAUSTED: Chat credit used up\\.");
     assert(calls.some((r) => r.path === "/inference/prepare"));
     assert(!calls.some((r) => r.path === "/inference/chat"), "Underfunded prompt left the browser");
   });
@@ -337,14 +355,14 @@ try {
       await page.locator("#burner").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const wallet = await page.locator("#wallet").textContent();
       await ready(page);
       assert.equal(await page.locator("#wallet").textContent(), wallet);
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const marker = "W1_BROWSER_ONLY_PROMPT_9b5cb2d3";
       await send(page, marker);

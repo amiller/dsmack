@@ -1,6 +1,6 @@
 {
   "model": "deepseek-ai/DeepSeek-V4.1-Flash-1017",
-  "starterCreditNanoUsd": "10000000",
+  "starterCreditNanoUsd": "250000000",
   "maxNanoUsdPerToken": "1500",
   "maxOutputTokens": 512,
   "gatewayComposeHashes": [],

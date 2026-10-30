@@ -31,7 +31,7 @@ export class Inference {
     Object.assign(this, {
       payments,
       cfg: {
-        starterCreditNanoUsd: "10000000",
+        starterCreditNanoUsd: "250000000",
         maxNanoUsdPerToken: "1500",
         maxOutputTokens: 512,
         ...cfg,
@@ -76,7 +76,28 @@ export class Inference {
   status() {
     return this.quote();
   }
-  recover() {
+  async recover() {
+    await this.payments.serial(async () => {
+      const state = this.payments.state;
+      const starter = BigInt(this.cfg.starterCreditNanoUsd);
+      const accounts = { ...state.inferenceCredit };
+      let changed = false;
+      for (const [wallet, account] of Object.entries(accounts)) {
+        const granted = BigInt(account.grantedNanoUsd);
+        if (granted >= starter) continue;
+        accounts[wallet] = {
+          ...account,
+          grantedNanoUsd: String(starter),
+          starterTopUps: [...(account.starterTopUps ?? []), {
+            amountNanoUsd: String(starter - granted),
+            grantedNanoUsd: String(starter),
+            grantedAt: this.now(),
+          }],
+        };
+        changed = true;
+      }
+      if (changed) await this.save({ ...state, inferenceCredit: accounts });
+    });
     // A persisted dispatch without a billing ID is ambiguous. Keep its credit
     // reserved: restarting must never send another request on its behalf.
     return {

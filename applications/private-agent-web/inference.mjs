@@ -78,7 +78,7 @@ export function brokerStream(
         );
         require(
           BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
-          "CREDIT_EXHAUSTED: Starter chat credit is exhausted.",
+          "CREDIT_EXHAUSTED: Chat credit used up.",
         );
         const messages = context.messages.filter((m) =>
           m.role === "user" || m.role === "assistant"
@@ -115,33 +115,47 @@ export function brokerStream(
           "Provider preparation has no session ID.",
         );
         evidence(checked);
-        const request = new Request(
-          new URL("/v1/chat/completions", window.location.origin),
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({
-              model: model.id,
-              messages,
-              max_tokens: q.maxOutputTokens,
-              stream: true,
-              stream_options: { include_usage: true },
-            }),
-          },
-        );
-        const prepared = await prepareE2eeChatRequest({
-          request,
-          modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
-        });
-        const body = await prepared.request.json();
-        const reservation = BigInt(
+        const remaining = BigInt(session.remainingNanoUsd);
+        const rate = BigInt(q.maxNanoUsdPerToken);
+        const reservation = (body) => BigInt(
           new TextEncoder().encode(JSON.stringify(body)).length + 256 +
             64 * body.messages.length + body.max_tokens,
-        ) * BigInt(q.maxNanoUsdPerToken);
-        require(
-          BigInt(session.remainingNanoUsd) >= reservation,
-          "CREDIT_EXHAUSTED: Available chat credit cannot cover this request's token reservation.",
-        );
+        ) * rate;
+        let maxTokens = q.maxOutputTokens, prepared, body;
+        for (;;) {
+          const request = new Request(
+            new URL("/v1/chat/completions", window.location.origin),
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify({
+                model: model.id,
+                messages,
+                max_tokens: maxTokens,
+                stream: true,
+                stream_options: { include_usage: true },
+              }),
+            },
+          );
+          prepared = await prepareE2eeChatRequest({
+            request,
+            modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
+          });
+          body = await prepared.request.json();
+          if (reservation(body) <= remaining) break;
+          // Include the serialized token limit itself in the broker's byte cost.
+          // Re-encrypt the chosen limit and check the actual wire body again.
+          let low = 64, high = maxTokens - 1, affordable = 0;
+          while (low <= high) {
+            const candidate = Math.floor((low + high) / 2);
+            if (reservation({ ...body, max_tokens: candidate }) <= remaining) {
+              affordable = candidate;
+              low = candidate + 1;
+            } else high = candidate - 1;
+          }
+          require(affordable >= 64, "CREDIT_EXHAUSTED: Chat credit used up.");
+          maxTokens = affordable;
+        }
         const headers = Object.fromEntries(prepared.request.headers);
         const signed = await walletBody(credit, "chat", {
           sessionId: session.sessionId,

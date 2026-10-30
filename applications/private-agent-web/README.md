@@ -1,7 +1,7 @@
 # Private agent web
 
 A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
-nodes. Create or connect an Ethereum wallet to receive $0.010000 starter chat
+nodes. Create or connect an Ethereum wallet to receive $0.250000 starter chat
 credit and a first sandbox job of up to 180 seconds. Sending a first message or
 job also creates a browser wallet automatically. The wallet signs credit and job
 actions; starter use needs no ETH purchase. Existing Base Sepolia escrow purchases can

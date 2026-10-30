@@ -174,12 +174,12 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
   const tampered = { ...claim, wallet: Wallet.createRandom().address };
   await assert.rejects(f.inference.credit(tampered), code("BUYER_SIGNATURE"));
   const granted = await f.inference.credit(claim);
-  assert.equal(granted.grantedNanoUsd, "10000000");
-  assert.equal(granted.remainingNanoUsd, "10000000");
+  assert.equal(granted.grantedNanoUsd, "250000000");
+  assert.equal(granted.remainingNanoUsd, "250000000");
   await assert.rejects(f.inference.credit(claim), code("REQUEST_REPLAY"));
-  assert.equal((await f.credit()).grantedNanoUsd, "10000000");
+  assert.equal((await f.credit()).grantedNanoUsd, "250000000");
   const second = Wallet.createRandom();
-  assert.equal((await f.credit(second)).grantedNanoUsd, "10000000");
+  assert.equal((await f.credit(second)).grantedNanoUsd, "250000000");
   const old = await f.signed("usage");
   f.advance(121);
   await assert.rejects(f.inference.usage(old), code("REQUEST_EXPIRED"));
@@ -199,7 +199,7 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
   assert.equal(
     (await restarted.credit(await f.signed("credit", { issuedAt: 2000000000 })))
       .grantedNanoUsd,
-    "10000000",
+    "250000000",
   );
   assert.equal(f.calls(), 0);
 });
@@ -282,13 +282,13 @@ test("budget reservation excludes concurrent requests and provider cost charges 
   for (const u of usages) {
     assert.equal(u.spentNanoUsd, "300");
     assert.equal(u.usedTokens, "8");
-    assert.equal(u.remainingNanoUsd, "9999700");
+    assert.equal(u.remainingNanoUsd, "249999700");
   }
   assert.equal(
     (await f.inference.usage(await f.signed("usage"))).spentNanoUsd,
     "300",
   );
-  assert.equal(f.inference.recover().pendingRequests, 0);
+  assert.equal((await f.inference.recover()).pendingRequests, 0);
 });
 
 test("insufficient credit and untrusted provider costs cannot start or overdraw requests", async () => {
@@ -342,7 +342,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
     provider: f.provider,
     now: () => 2000000000,
   });
-  assert.equal(restarted.recover().pendingRequests, 1);
+  assert.equal((await restarted.recover()).pendingRequests, 1);
   await assert.rejects(
     restarted.usage(await f.signed("usage")),
     code("USAGE_PENDING"),
@@ -465,4 +465,120 @@ test("prepared sessions are wallet-bound and expire before any paid call", async
     code("ATTESTATION_INVALID"),
   );
   assert.equal(f.calls(), 0);
+});
+
+test("startup tops up every old account once while preserving spend and pending requests", async () => {
+  const wallet = Wallet.createRandom(), inactive = Wallet.createRandom();
+  const activeKey = wallet.address.toLowerCase(),
+    inactiveKey = inactive.address.toLowerCase();
+  const account = {
+    grantedNanoUsd: "10000000",
+    spentNanoUsd: "9000000",
+    usedTokens: "1234",
+    pending: "pending-request",
+    nonces: { ["ab".repeat(16)]: 2000000000 },
+  };
+  const pending = {
+    wallet: activeKey,
+    status: "sent",
+    reservedNanoUsd: "500000",
+    inferenceId: null,
+    createdAt: 1999999999,
+  };
+  const history = { status: "charged", costNanoUsd: "9000000" };
+  const f = fixture({
+    state: {
+      grants: { existing: { retained: true } },
+      receipts: {},
+      inferenceCredit: {
+        [activeKey]: account,
+        [inactiveKey]: { ...account, pending: null },
+        alreadyAbove: { ...account, grantedNanoUsd: "300000000" },
+      },
+      inferenceRequests: { "pending-request": pending, old: history },
+    },
+  });
+  let finishSave, saving;
+  const gate = new Promise((resolve) => finishSave = resolve),
+    started = new Promise((resolve) => saving = resolve);
+  const save = f.payments.save;
+  f.payments.save = async (next) => {
+    saving();
+    await gate;
+    await save(next);
+  };
+  const recovery = f.inference.recover();
+  await started;
+  assert.equal(
+    f.payments.state.inferenceCredit[activeKey].grantedNanoUsd,
+    "10000000",
+  );
+  const claim = f.inference.credit(await f.signed("credit", {}, wallet));
+  finishSave();
+  assert.equal((await recovery).pendingRequests, 1);
+  assert.equal((await claim).remainingNanoUsd, "240500000");
+  for (const key of [activeKey, inactiveKey]) {
+    const migrated = f.saved().inferenceCredit[key];
+    assert.equal(migrated.grantedNanoUsd, "250000000");
+    assert.equal(migrated.spentNanoUsd, account.spentNanoUsd);
+    assert.equal(migrated.usedTokens, account.usedTokens);
+    assert.equal(migrated.pending, key === activeKey ? account.pending : null);
+    assert.equal(migrated.nonces["ab".repeat(16)], 2000000000);
+    assert.deepEqual(migrated.starterTopUps, [{
+      amountNanoUsd: "240000000",
+      grantedNanoUsd: "250000000",
+      grantedAt: 2000000000,
+    }]);
+  }
+  assert.deepEqual(f.saved().inferenceRequests, {
+    "pending-request": pending,
+    old: history,
+  });
+  assert.deepEqual(f.saved().grants, { existing: { retained: true } });
+  assert.equal(
+    f.saved().inferenceCredit.alreadyAbove.grantedNanoUsd,
+    "300000000",
+  );
+  assert.equal(f.saved().inferenceCredit.alreadyAbove.starterTopUps, undefined);
+  const restarted = fixture({ state: f.saved() });
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 0);
+  const repeated = await restarted.inference.credit(
+    await restarted.signed("credit", {}, wallet),
+  );
+  assert.equal(repeated.grantedNanoUsd, "250000000");
+  assert.equal(
+    restarted.saved().inferenceCredit[activeKey].starterTopUps.length,
+    1,
+  );
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 1);
+});
+
+test("failed startup top-up persistence leaves the original grant available for retry", async () => {
+  const original = {
+    grantedNanoUsd: "10000000",
+    spentNanoUsd: "100",
+    usedTokens: "3",
+    pending: null,
+    nonces: {},
+  };
+  const f = fixture({
+    state: { inferenceCredit: { wallet: original } },
+    cfg: { starterCreditNanoUsd: "500000000" },
+  });
+  const save = f.payments.save;
+  f.payments.save = async () => {
+    throw new Error("disk write failed");
+  };
+  await assert.rejects(f.inference.recover(), /disk write failed/);
+  assert.deepEqual(f.payments.state.inferenceCredit.wallet, original);
+  f.payments.save = save;
+  await f.inference.recover();
+  assert.equal(f.saved().inferenceCredit.wallet.grantedNanoUsd, "500000000");
+  assert.equal(f.saved().inferenceCredit.wallet.starterTopUps.length, 1);
+  assert.equal(
+    f.saved().inferenceCredit.wallet.starterTopUps[0].amountNanoUsd,
+    "490000000",
+  );
 });

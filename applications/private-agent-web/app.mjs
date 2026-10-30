@@ -175,7 +175,7 @@ function renderChatCredit() {
     ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
       c.pendingInferenceId ? " · Usage pending" : ""
     }`
-    : "Receive $0.010000 chat credit and a first sandbox job. No testnet ETH needed.";
+    : "Receive $0.250000 chat credit and a first sandbox job. No testnet ETH needed.";
 }
 async function claimChatCredit() {
   require(
@@ -338,7 +338,7 @@ function initChat() {
       );
       require(
         BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
-        "CREDIT_EXHAUSTED: Starter chat credit is exhausted.",
+        "CREDIT_EXHAUSTED: Chat credit used up.",
       );
       await agent.prompt(text);
       if (agent.state.errorMessage) error(new Error(agent.state.errorMessage));

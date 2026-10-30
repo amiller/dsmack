@@ -15,6 +15,22 @@ import {
 import { Quorum } from "./quorum.mjs";
 import { Payments } from "../relay-broker/payments.mjs";
 import { grantBytes } from "../relay-broker/grants.mjs";
+import { linkedOperator } from "./mac-operator.mjs";
+import { ownershipDomain, ownershipTypes } from "../relay-broker/ownership.mjs";
+
+test("escrow registration refuses a broker that changes the linked operator", async () => {
+  const publisher = Wallet.createRandom(), operator = Wallet.createRandom();
+  const escrow = "0x" + "12".repeat(20), kid = "0x" + "34".repeat(32);
+  const domain = ownershipDomain(escrow);
+  const link = { kid, publisher: publisher.address, operator: operator.address, nonce: "0" };
+  const record = { link,
+    publisherSignature: await publisher.signTypedData(domain, { MacLink: ownershipTypes.MacLink }, link),
+    operatorSignature: await operator.signTypedData(domain, { MacLink: ownershipTypes.MacLink }, link) };
+  const response = { domain, links: [record] };
+  assert.equal(linkedOperator(response, escrow, publisher.address, kid), operator.address.toLowerCase());
+  assert.throws(() => linkedOperator({ ...response, links: [{ ...record,
+    link: { ...link, operator: Wallet.createRandom().address } }] }, escrow, publisher.address, kid), /signature/);
+});
 
 const now = 2000000000,
   zero = "0x" + "00".repeat(32),

@@ -210,7 +210,7 @@ export default async function handler(req: Request, ctx: Context) {
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
-  if(path==="/fleet")return await fleet(req,b.cfg.fleet_publishers,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
@@ -338,7 +338,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         const hash = url.searchParams.get("hash");
         const snapshotOwner = workspaceId && workspaceId.length <= 128 && Number.isSafeInteger(version) && version > 0 &&
           /^[0-9a-f]{64}$/.test(hash ?? "")
-          ? await b.workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
+          ? await (b as Broker & {workspaces?: {snapshotOwner?: (ref: {workspaceId: string; version: number; hash: string | null}) => Promise<string | undefined>}})
+            .workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
         const ranked = rankNodes(nodes, await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now()),
           node => sessions.available(node), { now: b.now(), snapshotOwner });
         if (ranked.some(node => node.available)) response = Response.json(ranked);

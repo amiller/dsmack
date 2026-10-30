@@ -99,12 +99,34 @@ The deployment manifest contains the operator hash and ciphertext envelope.
   `GET /sandbox/nodes/PEER/attestation?challenge=HEX`.
 - `/sandbox/p2p/*`: bounded HTTPS backhaul to the native libp2p transport.
 - `GET/POST /tunnels`: discover and publish expiring browser tunnel hints.
-- `GET /fleet`: signed Mac capacity, slots and errors, optionally filtered by
-  `?payout=ADDRESS`. A Mac becomes offline after 60 seconds without a heartbeat.
-  `POST /fleet` accepts EIP-191 messages signed by the Mac's tunnel publisher key
-  over `dsmack-fleet/1\n` and the recursively sorted JSON payload. Configure
-  `fleet_publishers` as a map from lowercase publisher addresses to lowercase
-  payout addresses before starting the Mac pool.
+- `GET /fleet`: signed Mac capacity, slots and errors, filtered with
+  `?operator=ADDRESS`. Operators come from signed ownership links; capacity is
+  labeled `reported`. A Mac becomes offline after 60 seconds without a heartbeat.
+  `POST /fleet` accepts EIP-191 messages signed by the Mac publisher key over
+  `dsmack-fleet/1\n` and the recursively sorted JSON payload. Heartbeats contain
+  neither `operator` nor `payout`.
+- `GET /fleet/ownership`: EIP-712 domain, active links, provisioner revocations
+  and nonce highwaters. Filter links with `?publisher=ADDRESS&kid=BYTES32`.
+- `POST /fleet/link`: `{link, publisherSignature, operatorSignature}` or
+  `{link, publisherSignature, authorization: {authorization, signature},
+  provisionerSignature}`. `link` is `MacLink(bytes32 kid,address publisher,
+  address operator,uint64 nonce)`. The operator signs either the link or
+  `ProvisioningAuthorization(address operator,address provisioner,uint64 nonce)`;
+  its provisioner then signs the same MacLink as the publisher. A higher Mac
+  nonce supersedes the previous publisher link; an exact replay is idempotent.
+- `POST /fleet/revoke-provisioner`: `{revocation,signature}`, operator-signed
+  `ProvisionerRevocation(address operator,address provisioner,uint64 nonce)`.
+  Revocation permanently retires that provisioner for the operator. Existing Mac
+  links remain active; authorize a fresh provisioner key to add more Macs.
+- `POST /fleet/unlink`: `{unlink,publisherSignature}`, Mac-signed
+  `MacUnlink(bytes32 kid,address publisher,address operator,uint64 nonce)`.
+  The higher nonce is retained after removal to refuse stale links.
+
+Ownership uses domain `DsmackMacOwnership`, version `1`, chain ID `84532`, and
+`payments.escrow` as the verifying contract. Nonces are uint64 decimal strings.
+Links, revocations and heartbeat records persist atomically in `fleet.json`.
+The CLI is documented under [Add a Mac](../mac-ownership/README.md#add-a-mac).
+
 
 See [the compute protocol](../compute-node/PROTOCOL.md) for admission and wire
 formats. `verify-grant.py` independently verifies an HTTP grant with Python

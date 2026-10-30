@@ -1,5 +1,6 @@
 import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
+import { fleet } from "./fleet.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, InferenceError } from "./inference.mjs";
@@ -208,6 +209,7 @@ export default async function handler(req: Request, ctx: Context) {
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
+  if(path==="/fleet")return await fleet(req,b.cfg.fleet_publishers,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
@@ -325,7 +327,9 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/relays") {
       response = Response.json(b.live().filter((r) => r.kind === "relay"));
     } else if (req.method === "GET" && path === "/nodes") {
-      response = Response.json(b.live().filter((r) => r.kind === "compute"));
+      const sessions = new AgentSessions(b);
+      response = Response.json(b.live().filter((r) => r.kind === "compute")
+        .map(node => ({ ...node, available: sessions.available(node) })));
     } else if (req.method === "GET" && path === "/") {
       response = new Response(page(b), {
         headers: { "content-type": "text/html; charset=utf-8" },

@@ -12,6 +12,10 @@ const id = (value) => typeof value === "string" && /^[0-9a-f]{32}$/.test(value);
 // calls. Only the receipt key bound by the guest attestation can charge usage.
 export class AgentSessions {
   constructor(broker) { this.b = broker; }
+  available(node) {
+    return !node.telemetry?.busy && !Object.values(this.b.payments?.state.agentSessions ?? {})
+      .some(s => s.node.relay_peer === node.relay_peer && !s.final && s.grant.expires_at > this.b.now());
+  }
   async save(fields) {
     const p = this.b.payments, next = { ...p.state, ...fields };
     await p.save(next); p.state = next;
@@ -44,7 +48,7 @@ export class AgentSessions {
       need(!existing.some((s) => s.wallet === wallet && !s.final && s.grant.expires_at > b.now()), "SESSION_ACTIVE", "end the wallet's held guest first", 409);
       const node = b.live().find((n) => n.kind === "compute" && n.relay_peer === r.node_peer);
       need(node?.receipt_key && /^[0-9a-f]{64}$/.test(node.receipt_key), "NODE_NOT_LIVE", "attested guest is unavailable", 404);
-      need(!existing.some((s) => s.node.relay_peer === node.relay_peer && !s.final && s.grant.expires_at > b.now()), "GUEST_BUSY", "guest is held by another conversation", 409);
+      need(this.available(node), "GUEST_BUSY", "guest is held by another conversation", 409);
       const rate = BigInt(b.cfg.agent?.nanoUsdPerSecond ?? "10000");
       need(rate > 0n, "BAD_CONFIG", "guest second price must be positive", 503);
       const available = BigInt(b.inference.summary(wallet).remainingNanoUsd);

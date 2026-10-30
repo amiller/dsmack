@@ -75,6 +75,9 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	if readFrame(stream, 4096, &response) != nil || response["error"] != "grant" {
 		t.Fatal("foreign Noise identity admitted", response)
 	}
+	if n.telemetry()["last_error"] != "grant" || n.telemetry()["jobs_served"] != 0 {
+		t.Fatal("refused session must report its error without counting as served")
+	}
 	stream.Close()
 	socket := filepath.Join(t.TempDir(), "mcp.sock")
 	t.Setenv("AGENT_MCP_SOCKET", socket)
@@ -108,6 +111,15 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	if readFrame(stream, 4096, &response) != nil || response["status"] != "ready" {
 		t.Fatal(response)
 	}
+	status := n.telemetry()
+	if status["busy"] != true || status["jobs_served"] != 1 {
+		t.Fatal("active MCP session missing from slot telemetry", status)
+	}
+	signature, _ := hex.DecodeString(status["signature"].(string))
+	delete(status, "signature")
+	if !ed25519.Verify(receiptPub, append([]byte("dsmack-node-status/1\n"), canon(status)...), signature) {
+		t.Fatal("slot telemetry did not use the attested receipt key")
+	}
 	request := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
 	stream.Write([]byte(request))
 	if got := <-received; got != request {
@@ -121,6 +133,9 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	case <-retired:
 	case <-ctx.Done():
 		t.Fatal("idle guest was not released")
+	}
+	if status := n.telemetry(); status["busy"] != false || status["jobs_served"] != 1 {
+		t.Fatal("retired MCP session telemetry", status)
 	}
 	mu.Lock()
 	defer mu.Unlock()

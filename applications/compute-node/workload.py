@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Pack a compute OCI layout into a v0.2 workload with an explicit direct-IP or Mac hostname-gateway route.
 
-workload.py REPO BASE STARTER OCI_DIR DIGEST BINARY RELAY BROKER BROKER_KEY CDHASH PROXY OUT [SECONDS [PAYMENTS_JSON [PROVIDER_JSON [TUNNEL_INDEX]]]]
+workload.py REPO BASE STARTER OCI_DIR DIGEST BINARY RELAY BROKER BROKER_KEY CDHASH PROXY OUT [SECONDS [PAYMENTS_JSON [PROVIDER_JSON [TUNNEL_INDEX [OPERATOR_JSON]]]]]
 """
 import hashlib
 import ipaddress
@@ -16,7 +16,7 @@ NAME = 'compute-node-v1'
 def canonical(v):
     return json.dumps(v, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
 
-def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy, payments=None, provider=None, admit_seconds=None, *, tunnel_index=None):
+def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy, payments=None, provider=None, admit_seconds=None, *, tunnel_index=None, guest=None):
     parts = relay.strip('/').split('/')
     mac = len(parts) == 7 and parts[:6] == ['ip4','127.0.0.1','tcp','18082','ws','p2p'] and bool(parts[6])
     if not mac:
@@ -50,7 +50,11 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
         broker_ip = socket.gethostbyname(url.hostname)
         environment = {'HTTPS_PROXY':proxy,'BROKER_IP':broker_ip}
         egress = [proxy_endpoint,endpoint(host,port),endpoint(broker_ip,url.port or (443 if url.scheme=='https' else 80))]
+    guest = guest or {'mem_mib': 4096, 'vcpus': 1}
+    if any(type(guest.get(k)) is not int or guest[k] < 1 for k in ('mem_mib', 'vcpus')):
+        raise ValueError('guest mem_mib and vcpus must be positive integers')
     m = json.loads(starter.read_bytes())
+    m['base_vm'].update(memory_mb=guest['mem_mib'], vcpus=guest['vcpus'])
     service = {'image':'127.0.0.1:5005/compute-node@'+digest, 'entrypoint':['/usr/local/bin/dsmack-compute'],
                'command':['serve',relay,str(seconds),broker,key,cdhash,'/opt/compute-node/agent-mcp.mjs'],
                'environment':environment | {'AGENT_MCP_SOCKET':'/run/dsmack/agent-mcp.sock',
@@ -98,9 +102,10 @@ if __name__ == '__main__':
     payments = json.loads(Path(sys.argv[14]).read_bytes()) if len(sys.argv)>14 else None
     provider = json.loads(Path(sys.argv[15]).read_bytes()) if len(sys.argv)>15 else None
     tunnel_index = sys.argv[16] if len(sys.argv)>16 else None
+    guest = json.loads(Path(sys.argv[17]).read_bytes())['guest'] if len(sys.argv)>17 else None
     sys.path.insert(0,str(repo/'dstack-compat'))
     import canary_workload
     output=Path(out);output.mkdir()
-    raw=manifest(starter,digest,Path(binary),relay,broker,key,cdhash,seconds,proxy,payments,provider,tunnel_index=tunnel_index)
+    raw=manifest(starter,digest,Path(binary),relay,broker,key,cdhash,seconds,proxy,payments,provider,tunnel_index=tunnel_index,guest=guest)
     (output/'compose-manifest.json').write_bytes(raw)
     canary_workload.pack(repo,base,oci,output/'disk',NAME,raw)

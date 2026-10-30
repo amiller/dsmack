@@ -99,6 +99,12 @@ The deployment manifest contains the operator hash and ciphertext envelope.
   `GET /sandbox/nodes/PEER/attestation?challenge=HEX`.
 - `/sandbox/p2p/*`: bounded HTTPS backhaul to the native libp2p transport.
 - `GET/POST /tunnels`: discover and publish expiring browser tunnel hints.
+- `GET /fleet`: signed Mac capacity, slots and errors, optionally filtered by
+  `?payout=ADDRESS`. A Mac becomes offline after 60 seconds without a heartbeat.
+  `POST /fleet` accepts EIP-191 messages signed by the Mac's tunnel publisher key
+  over `dsmack-fleet/1\n` and the recursively sorted JSON payload. Configure
+  `fleet_publishers` as a map from lowercase publisher addresses to lowercase
+  payout addresses before starting the Mac pool.
 
 See [the compute protocol](../compute-node/PROTOCOL.md) for admission and wire
 formats. `verify-grant.py` independently verifies an HTTP grant with Python

@@ -502,7 +502,7 @@ function loadPolicy(raw) {
   $("node-status").textContent =
     "Approved sandbox policy included. A guest will be verified before tools execute.";
 }
-async function discover({ wait = false } = {}) {
+async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal } = {}) {
   await credit.checkBroker(api);
   require(
     policy,
@@ -511,12 +511,13 @@ async function discover({ wait = false } = {}) {
   const manifestHash = sandbox.hex(
     new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)),
   );
-  const deadline = Date.now() + (wait ? 90000 : 0);
   let selected;
   do {
-    const nodes = await api("/nodes");
+    signal?.throwIfAborted();
+    const nodes = await api("/nodes", undefined, { signal });
     selected = nodes.filter((entry) =>
       entry.kind === "compute" &&
+      entry.available !== false && !exclude.has(entry.relay_peer) &&
       entry.manifest_sha256 === manifestHash &&
       entry.cdhash === policy.cdhash &&
       Number(entry.admit_until) * 1000 >= Date.now() + 30000
@@ -536,6 +537,7 @@ async function discover({ wait = false } = {}) {
   const registration = await api(
     "/sandbox/nodes/" + encodeURIComponent(selected.relay_peer) +
       "/attestation?challenge=" + challenge,
+    undefined, { signal },
   );
   const resolved = { ...policy, challenge };
   let checked;

@@ -32,6 +32,14 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(env['ADMIT_SECONDS'], '570')
         self.assertTrue({'egress-checks','gateway-log'}.issubset({a['name'] for a in measured['outputs']['artifacts']}))
 
+    def test_requested_guest_size_changes_measured_manifest(self):
+        default = self.generate(tunnel_index=INDEX)
+        large = self.generate(tunnel_index=INDEX, guest={'mem_mib': 8192, 'vcpus': 2})
+        self.assertNotEqual(default, large)
+        manifest = json.loads(large)
+        self.assertEqual(manifest['base_vm']['memory_mb'], 8192)
+        self.assertEqual(manifest['base_vm']['vcpus'], 2)
+
     def test_mac_mode_requires_its_explicit_https_index(self):
         with self.assertRaisesRegex(ValueError, 'HTTPS broker and tunnel index'):
             self.generate()

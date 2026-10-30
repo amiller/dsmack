@@ -6,6 +6,7 @@ import gzip
 import hashlib
 import json
 import os
+import socket
 from pathlib import Path
 from http.client import HTTPException
 import runpy
@@ -29,6 +30,46 @@ class MacOccupied(RuntimeError):
 
 class BrokerUnavailable(RuntimeError):
     pass
+
+
+def hardware():
+    def sysctl(name):
+        return subprocess.check_output(['sysctl', '-n', name], text=True).strip()
+    return {'name': socket.gethostname(), 'model': sysctl('hw.model'),
+            'chip': sysctl('machdep.cpu.brand_string'), 'mem_bytes': int(sysctl('hw.memsize')),
+            'cores': int(sysctl('hw.ncpu'))}
+
+
+def operator_config(path, host):
+    config = json.loads(path.read_bytes())
+    fields = [('max_guests', config.get('max_guests'), 1),
+              ('guest.mem_mib', config.get('guest', {}).get('mem_mib'), 1),
+              ('guest.vcpus', config.get('guest', {}).get('vcpus'), 1),
+              ('reserve.mem_gb', config.get('reserve', {}).get('mem_gb'), 0),
+              ('reserve.cores', config.get('reserve', {}).get('cores'), 0)]
+    for name, value, minimum in fields:
+        if type(value) is not int or value < minimum:
+            raise ValueError(f'operator {name} must be an integer >= {minimum}')
+    guests, size, reserve = config['max_guests'], config['guest'], config['reserve']
+    wanted_mem = guests * size['mem_mib']
+    total_mem = host['mem_bytes'] // (1 << 20)
+    reserve_mem = reserve['mem_gb'] * 1024
+    wanted_cores = guests * size['vcpus']
+    if wanted_mem > total_mem-reserve_mem or wanted_cores > host['cores']-reserve['cores']:
+        raise ValueError(f"operator capacity refused: {guests} guests × {size['mem_mib']} MiB = {wanted_mem} MiB; "
+                         f"physical {total_mem} MiB - reserve {reserve_mem} MiB = {total_mem-reserve_mem} MiB available; "
+                         f"{guests} × {size['vcpus']} vCPUs = {wanted_cores}; "
+                         f"physical {host['cores']} cores - reserve {reserve['cores']} = {host['cores']-reserve['cores']} available")
+    return config
+
+
+def measured_size(manifest, config):
+    size = config['guest']
+    profile = f"mini-{size['mem_mib']}-{size['vcpus']}"
+    if (manifest['base_vm'].get('memory_mb') != size['mem_mib']
+            or manifest['base_vm'].get('vcpus') != size['vcpus']):
+        raise ValueError(f'operator guest size {size} differs from measured resource profile {profile}; repack and register its node class')
+    return profile
 
 
 def sha(path):
@@ -102,8 +143,10 @@ def guest_result(run, debugfs):
         outputs = json.loads(raw)['outputs']
         captured = {}
         declarations = [('stderr', outputs.get('stderr'), 'outputs/streams/stderr', 'guest-stderr.log')]
-        declarations += [('gateway-log', item, 'outputs/artifacts/gateway-log', 'gateway-log.jsonl')
-                         for item in outputs.get('artifacts', []) if item['name'] == 'gateway-log']
+        exports = {'gateway-log': 'gateway-log.jsonl', 'agent-receipts': 'agent-receipts.jsonl',
+                   'tool-server-log': 'tool-server.log'}
+        declarations += [(item['name'], item, 'outputs/artifacts/'+item['name'], exports[item['name']])
+                         for item in outputs.get('artifacts', []) if item['name'] in exports]
         for name, declared, source, target in declarations:
             if declared is None or name in outputs.get('missing', []):
                 continue
@@ -197,15 +240,35 @@ class Pool:
         self.active = []
         self.launched = 0
         self.stopping = False
-        self.failure = None
-        self.consecutive_failures = 0
-        self.last_error = None
-        self.retry_pending = False
+        self.hardware = hardware()
+        self.config = operator_config(args.operator, self.hardware)
+        self.slots = [{'slot_id': i, 'consecutive_failures': 0, 'last_error': None,
+                       'retry_pending': False, 'stopped': False, 'jobs_served': 0}
+                      for i in range(self.config['max_guests'])]
+        self.errors_file = args.operator.parent/'operator-errors.json'
+        try:
+            self.errors = json.loads(self.errors_file.read_bytes())[-10:]
+        except FileNotFoundError:
+            self.errors = []
         self.last_broker_error = None
+        self.last_status_poll = 0
         self.manifest = args.workload/'compose-manifest.json'
         self.measurement = sha(self.manifest)
-        self.image = json.loads(self.manifest.read_bytes())['base_vm']['os_image_hash']
+        manifest = json.loads(self.manifest.read_bytes())
+        self.profile = measured_size(manifest, self.config)
+        self.image = manifest['base_vm']['os_image_hash']
+        self.payments = json.loads(json.loads(manifest['docker_compose_file'])['services']['node']['environment']['PAYMENTS_CONFIG'])
+        self.publisher = None
+        if args.publisher_key:
+            from heartbeat import Publisher
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
         self.started = time.monotonic()
+
+    def remember_error(self, record):
+        self.errors = (self.errors + [record])[-10:]
+        temporary = self.errors_file.with_suffix('.tmp')
+        temporary.write_text(json.dumps(self.errors, ensure_ascii=False))
+        temporary.replace(self.errors_file)
 
     def event(self, name, **fields):
         record = {'event': name, 'elapsed_seconds': round(time.monotonic()-self.started, 3), **fields}
@@ -241,7 +304,7 @@ class Pool:
             self.event('broker_unavailable', **details)
             return None
 
-    def launch(self):
+    def launch(self, slot):
         check = preflight(self.args.state, self.active)
         nodes = self.nodes()
         if nodes is None:
@@ -254,18 +317,33 @@ class Pool:
         (run/'preflight.json').write_text(json.dumps(check))
         log = (run/'host-run.log').open('wb')
         proc = subprocess.Popen([sys.executable, str(HERE/'pool_mac_run.py'), str(self.args.runner), str(run),
-                                 str(self.args.seconds)], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
+                                 str(self.args.seconds), self.profile], stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT)
         log.close()
         self.launched += 1
-        node = {'process': proc, 'path': run, 'started': time.monotonic(), 'node': None, 'previous': baseline,
+        node = {'slot_id': slot['slot_id'], 'started_at': int(time.time()), 'process': proc, 'path': run, 'started': time.monotonic(), 'node': None, 'previous': baseline,
                 'admit_seconds': self.args.seconds-self.args.drain_seconds, 'readiness_deadline': time.monotonic()+self.args.readiness_timeout}
         self.active.append(node)
-        self.retry_pending = False
-        self.event('launch', run=str(run), driver_pid=proc.pid)
+        slot['retry_pending'] = False
+        self.event('launch', slot_id=slot['slot_id'], run=str(run), driver_pid=proc.pid)
 
     def tick(self):
         now = time.monotonic()
+        if any(n['node'] for n in self.active) and now-self.last_status_poll >= 15:
+            current = self.nodes()
+            self.last_status_poll = now
+            if current is not None:
+                by_peer = {n['relay_peer']: n for n in current}
+                for node in self.active:
+                    if node['node'] and node['node']['relay_peer'] in by_peer:
+                        latest = by_peer[node['node']['relay_peer']]
+                        error = latest.get('telemetry', {}).get('last_error')
+                        if error and error != node['node'].get('telemetry', {}).get('last_error'):
+                            slot = self.slots[node['slot_id']]
+                            slot['last_error'] = {'stage': 'guest_job', 'error': error}
+                            self.remember_error({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
+                        node['node'] = latest
         for node in self.active[:]:
+            slot = self.slots[node['slot_id']]
             proc = node['process']
             if proc.poll() is not None:
                 result = guest_result(node['path'], self.args.debugfs)
@@ -277,23 +355,25 @@ class Pool:
                           or not guest_closed(node['path']) or not (outputs.get('status') == 'completed' or normal_timeout))
                 cleanup = preserve_and_retire(node['path'], self.args.repo)
                 if failed:
-                    self.consecutive_failures += 1
-                    self.retry_pending = True
+                    slot['consecutive_failures'] += 1
+                    slot['retry_pending'] = True
                     actual_error = result.get('error')
                     if not actual_error or actual_error.get('stage') == 'result_extraction':
                         actual_error = node.get('readiness_error') or actual_error
-                    self.last_error = actual_error or {
+                    slot['last_error'] = actual_error or {
                         'stage': 'guest_completion', 'error': 'guest exited without broker readiness and successful result closure',
                         'exit_code': result.get('outputs', {}).get('exit_code'), 'driver_exit_code': proc.returncode}
-                    (node['path']/'evidence/guest-error.json').write_text(json.dumps(self.last_error)+'\n')
-                    self.event('guest_failed', run=str(node['path']), consecutive_failures=self.consecutive_failures,
-                               last_error=self.last_error, **cleanup)
-                    if self.consecutive_failures >= 3:
-                        self.stopping = True
-                        self.failure = 'three consecutive guest failures; last error: '+json.dumps(self.last_error)
-                        self.event('failure_limit', consecutive_failures=self.consecutive_failures, last_error=self.last_error)
+                    (node['path']/'evidence/guest-error.json').write_text(json.dumps(slot['last_error'])+'\n')
+                    self.remember_error({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
+                    self.event('guest_failed', slot_id=slot['slot_id'], run=str(node['path']), consecutive_failures=slot['consecutive_failures'],
+                               last_error=slot['last_error'], **cleanup)
+                    if slot['consecutive_failures'] >= 3:
+                        slot['stopped'] = True
+                        self.event('failure_limit', slot_id=slot['slot_id'], consecutive_failures=slot['consecutive_failures'], last_error=slot['last_error'])
                 else:
-                    self.event('retired', run=str(node['path']), last_error=result.get('error'), **cleanup)
+                    slot['consecutive_failures'] = 0
+                    self.event('retired', slot_id=slot['slot_id'], run=str(node['path']), last_error=result.get('error'), **cleanup)
+                slot['jobs_served'] += (node['node'] or {}).get('telemetry', {}).get('jobs_served', 0)
                 self.active.remove(node)
                 continue
             if node['node'] is None and not self.stopping:
@@ -302,41 +382,84 @@ class Pool:
                     node['readiness_error'] = self.last_broker_error
                     node['readiness_deadline'] = now + self.args.readiness_timeout
                     continue
-                found = ready_node(nodes, node['previous'], self.measurement, self.image)
+                claimed = {n['node']['relay_peer'] for n in self.active if n['node']}
+                found = ready_node(nodes, node['previous'] | claimed, self.measurement, self.image)
                 if found:
                     node['node'] = found
                     node.pop('readiness_failed', None)
                     node.pop('readiness_error', None)
-                    self.consecutive_failures = 0
-                    self.event('ready', run=str(node['path']), relay_peer=found['relay_peer'],
+                    self.event('ready', slot_id=slot['slot_id'], run=str(node['path']), relay_peer=found['relay_peer'],
                                attestation=found['attestation'], broker_binding=found.get('payments'))
                 elif now >= node['readiness_deadline'] and not node.get('readiness_failed'):
                     node['readiness_failed'] = True
-                    self.event('readiness_timeout', run=str(node['path']),
+                    self.event('readiness_timeout', slot_id=slot['slot_id'], run=str(node['path']),
                                error='new node did not attest at broker; waiting for this owned guest to finish')
         if not self.stopping and (not self.args.cycles or self.launched < self.args.cycles):
-            # At most one replacement boots alongside one serving/draining node.
-            if len(self.active) < 2 and not any(n['node'] is None for n in self.active) and (self.retry_pending or should_replace(self.active, now, self.args.replace_after)):
-                try:
-                    self.launch()
-                except MacOccupied:
-                    self.event('waiting_for_other_lane')
-                except BrokerUnavailable:
-                    self.event('waiting_for_broker')
+            for slot in self.slots:
+                active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
+                # Resolve one boot's broker identity before launching another, so
+                # identically measured guests cannot be assigned to the wrong slot.
+                if any(n['node'] is None and not n.get('readiness_failed') for n in self.active):
+                    break
+                if (not slot['stopped'] and len(active) < 2 and not any(n['node'] is None for n in active)
+                        and (slot['retry_pending'] or should_replace(active, now, self.args.replace_after))):
+                    try:
+                        self.launch(slot)
+                    except MacOccupied:
+                        self.event('waiting_for_other_lane', slot_id=slot['slot_id'])
+                    except BrokerUnavailable:
+                        self.event('waiting_for_broker', slot_id=slot['slot_id'])
+                    break
+
+    def snapshot(self):
+        now = time.monotonic()
+        slots = []
+        for slot in self.slots:
+            active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
+            for node in active or [None]:
+                registered = node['node'] if node else None
+                state = 'failed' if slot['stopped'] else 'launching'
+                if node:
+                    if node.get('readiness_failed'):
+                        state = 'failed'
+                    elif registered:
+                        state = ('draining' if now >= node['started'] + node['admit_seconds']
+                                 else 'busy' if registered.get('telemetry', {}).get('busy') else 'ready')
+                    elif (node['path']/'out/console-v3.log').exists():
+                        state = 'attesting'
+                slots.append({'slot_id': slot['slot_id'], 'state': state,
+                              'relay_peer': registered['relay_peer'] if registered else None,
+                              'run_id': (registered.get('payments', {}).get('runId') or registered.get('attestation', {}).get('run')) if registered else None,
+                              'node_id': self.payments['node'],
+                              'started_at': node['started_at'] if node else None,
+                              'jobs_served': slot['jobs_served'] + sum((n['node'] or {}).get('telemetry', {}).get('jobs_served', 0) for n in active),
+                              'last_error': json.dumps(slot['last_error'], ensure_ascii=False) if slot['last_error'] else None,
+                              'attestation': registered})
+        return {'classes': [self.payments['node']], 'config': self.config, 'hardware': self.hardware, 'slots': slots, 'errors': self.errors}
 
     def run(self):
         self.args.state.mkdir(parents=True, mode=0o700, exist_ok=True)
+        self.event('capacity', config=self.config, hardware=self.hardware)
         while True:
             self.tick()
-            if not self.active and (self.stopping or (self.args.cycles and self.launched >= self.args.cycles)):
+            if self.publisher:
+                record = self.publisher.tick(self.snapshot())
+                if record:
+                    name = record.pop('event')
+                    if name == 'heartbeat_error':
+                        self.remember_error({'at': int(time.time()), 'slot_id': None, 'stage': 'heartbeat', **record})
+                    self.event(name, **record)
+            if not self.active and (self.stopping or all(s['stopped'] for s in self.slots) or (self.args.cycles and self.launched >= self.args.cycles)):
                 break
             time.sleep(2)
-        if self.failure:
-            raise RuntimeError(self.failure)
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--operator', type=Path, default=Path.home()/'.dsmack/operator.json')
+    parser.add_argument('--publisher-key', type=Path)
+    parser.add_argument('--publisher-address')
+    parser.add_argument('--pool-version', help='source commit used by this staged pool')
     parser.add_argument('--runner', required=True, type=Path)
     parser.add_argument('--workload', required=True, type=Path)
     parser.add_argument('--state', required=True, type=Path)
@@ -350,6 +473,10 @@ def main():
     parser.add_argument('--readiness-timeout', type=int, default=90)
     parser.add_argument('--cycles', type=int, default=0, help='0 rotates continuously')
     args = parser.parse_args()
+    if bool(args.publisher_key) != bool(args.publisher_address):
+        parser.error('--publisher-key and --publisher-address are required together')
+    if args.publisher_key and not args.pool_version:
+        parser.error('--pool-version is required for published heartbeats')
     if (not 1 <= args.seconds <= 840 or not 1 <= args.drain_seconds < args.seconds
             or not 1 <= args.replace_after < args.seconds
             or max(args.replace_after, args.seconds-args.replace_after) + args.readiness_timeout >= args.seconds-args.drain_seconds):

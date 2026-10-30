@@ -140,6 +140,14 @@ func brokerClient(raw string) (*http.Client, error) {
 	return &http.Client{Timeout: 30 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
+// Draining guests retain their relay circuits while their fixed paid binding expires.
+func renewAdmission(until time.Time, renew func() error) error {
+	if !time.Now().Before(until) {
+		return nil
+	}
+	return renew()
+}
+
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (serveErr error) {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("agent bootstrap requires root")
@@ -334,7 +342,12 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	renew := func() error {
 		var out map[string]any
-		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", registration, &out)
+		snapshot := map[string]any{}
+		for k, v := range registration {
+			snapshot[k] = v
+		}
+		snapshot["telemetry"] = n.telemetry()
+		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 	}
 	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
 		return err
@@ -439,6 +452,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 				snapshot[k] = v
 			}
 			registrationMu.Unlock()
+			snapshot["telemetry"] = n.telemetry()
 			if err = os.WriteFile("/workspace/artifacts/registration", canon(snapshot), 0644); err != nil {
 				return err
 			}
@@ -446,6 +460,8 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 		}
 	}
+	register := renew
+	renew = func() error { return renewAdmission(n.admissionUntil, register) }
 	// Paid runs expose their attested admission for the owner before registration.
 	// An unregistered run cannot receive a grant; retries permit owner admission.
 	if paid == nil {

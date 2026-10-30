@@ -29,7 +29,7 @@ async function fixture() {
   const key=wrongKey?(await crypto.subtle.generateKey("Ed25519",true,["sign","verify"])).privateKey:receiptKey.privateKey;
   return {...body,sig:hex(await crypto.subtle.sign("Ed25519",key,new TextEncoder().encode(canonical(body))))};
  }
- return {sessions,inference,payments,signed,open,receipt,other,advance:(s)=>now+=s};
+ return {sessions,inference,payments,signed,open,receipt,other,wallet,broker,node,advance:(s)=>now+=s};
 }
 
 test("guest seconds reserve and settle the same credit; untrusted reports cannot charge it",async()=>{
@@ -91,4 +91,27 @@ test("expired started session releases ownership and preserves unresolved credit
  assert.equal(status.usageUnresolved,false);
  assert.equal(status.credit.reservedNanoUsd,"0");
  assert.equal(status.credit.spentNanoUsd,"60000");
+});
+
+test("four payout guests advertise distinct availability and a fifth claim is busy",async()=>{
+ const f=await fixture();
+ const nodes=Array.from({length:4},(_,i)=>({...f.node,relay_peer:peer+"-slot-"+i,telemetry:{busy:false}}));
+ f.broker.live=()=>nodes;
+ const wallets=[f.wallet,Wallet.createRandom(),Wallet.createRandom(),Wallet.createRandom(),f.other];
+ for(const wallet of wallets.slice(1))await f.inference.credit(await f.signed("credit",{},wallet));
+ const held=[];
+ for(const [i,wallet] of wallets.slice(0,4).entries()){
+  const node=nodes.find(n=>f.sessions.available(n));
+  assert(node,"slot "+i+" should be available");
+  const session=await f.sessions.open(await f.signed("agent-open",{conversationId:"conversation-"+i,client_peer:peer,node_peer:node.relay_peer},wallet));
+  held.push(session.node.relay_peer);
+  assert.equal(f.sessions.available(node),false);
+ }
+ assert.equal(new Set(held).size,4);
+ assert.equal(nodes.filter(n=>f.sessions.available(n)).length,0);
+ await assert.rejects(f.sessions.open(await f.signed("agent-open",{conversationId:"fifth",client_peer:peer,node_peer:nodes[0].relay_peer},wallets[4])),e=>e.code==="GUEST_BUSY");
+ f.advance(1801);
+ assert.equal(f.sessions.available(nodes[0]),true);
+ nodes[0].telemetry.busy=true;
+ assert.equal(f.sessions.available(nodes[0]),false,"guest status remains authoritative after a lease expires");
 });

@@ -32,7 +32,10 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	defer s.Close()
 	s.SetDeadline(time.Now().Add(20 * time.Second))
 	var a admission
-	refuse := func(code string) { writeFrame(s, map[string]string{"status": "refused", "error": code}) }
+	refuse := func(code string, details ...string) {
+		n.recordError(strings.Join(append([]string{code}, details...), ": "))
+		writeFrame(s, map[string]string{"status": "refused", "error": code})
+	}
 	if readFrame(s, 4096, &a) != nil || a.ClientPeer != "" || a.Signature != "" || a.BundleSHA256 != "" {
 		refuse("grant")
 		return
@@ -55,6 +58,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		return
 	}
 	n.busy = true
+	n.jobsServed++
 	n.seen[a.JobID] = true
 	n.mu.Unlock()
 	// A conversation owns this whole guest. Retiring it prevents later owners
@@ -113,13 +117,18 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	}
 	defer func() {
 		if _, err := receipt(true); err != nil {
+			n.recordError("agent final receipt: " + err.Error())
 			fmt.Fprintln(os.Stderr, "agent final receipt:", err)
 		}
 	}()
 	// Persist trusted start before accepting any MCP call. Credit and ownership
 	// failures close the session before the Node tool server can execute a tool.
 	if stop, err := receipt(false); err != nil || stop {
-		refuse("metering")
+		detail := "broker requested stop"
+		if err != nil {
+			detail = err.Error()
+		}
+		refuse("metering", detail)
 		return
 	}
 	socket := os.Getenv("AGENT_MCP_SOCKET")
@@ -128,7 +137,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	}
 	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
 	if err != nil {
-		refuse("tool_server_unavailable")
+		refuse("tool_server_unavailable", err.Error())
 		return
 	}
 	defer conn.Close()
@@ -165,6 +174,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 				checkpoint = time.Now()
 				if stop, err := receipt(false); err != nil || stop {
 					if err != nil {
+						n.recordError("agent receipt checkpoint: " + err.Error())
 						fmt.Fprintln(os.Stderr, "agent receipt checkpoint:", err)
 					}
 					s.SetDeadline(time.Now())
@@ -187,6 +197,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 				Method string `json:"method"`
 			}
 			if json.Unmarshal(line, &message) != nil {
+				n.recordError("agent MCP invalid JSON")
 				break
 			}
 			if message.Method == "tools/call" {

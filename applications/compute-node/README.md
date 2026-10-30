@@ -81,18 +81,41 @@ hostname. Noise authenticates the relay PeerId measured in the compose.
 python3 -m unittest discover -s applications/compute-node -p 'test_*.py'
 ```
 
-## Mac-owned tunnel lifetime
+## Mac pool
 
-`mac-pool.py` starts the capped loopback WebSocket relay, its outbound broker
-backhaul, a Cloudflare quick tunnel, a two-host opaque CONNECT helper and the
-warm pool. It publishes the relay locator to the HTTP index and Base Sepolia
-with a publisher key generated and retained on the Mac. Locator transactions
-use one explicit public RPC (`--publication-rpc`, default PublicNode), verify
-chain 84532 and retain the transaction fee, gas and balance caps. Their hints
-remain untrusted; payment and attestation quorum verification is unchanged.
-No RPC fallback or transaction resubmission is performed. The HTTP index saves
-signed, expiring hints in its project data directory, preserving them across
-page redeploys. No service is installed.
+Write `~/.dsmack/operator.json` on the Mac:
+
+```json
+{"max_guests":4,"guest":{"mem_mib":4096,"vcpus":1},"reserve":{"mem_gb":16,"cores":4}}
+```
+
+The pool checks physical RAM and cores at startup and refuses a configuration
+whose guests exceed the capacity after the reserve, reporting the requested,
+physical, reserved and available numbers. Editing the file takes effect on
+restart; `--operator PATH` selects another configuration.
+
+Pack the matching guest size by supplying the operator file as the final
+argument after `TUNNEL_INDEX` to `workload.py`. The compose manifest and launch
+image's `resource_profiles` bind the memory and vCPU count. Each size uses its
+own escrow node class, compose measurement and price; register the packed class
+with `applications/payments/register-class.mjs` before starting the pool.
+
+Each configured slot rotates independently: a replacement starts after 450
+seconds, the old guest stops admitting at 570 seconds and exits at 840 seconds.
+Up to two generations per slot overlap during handover. Boot registration is
+serialized to associate each guest's broker identity with its owned VM. A failed
+guest is preserved, retired and replaced. Three consecutive failures stop only
+that slot; successful retirement resets its failure count. Other slots continue.
+The preflight requires 12 GiB free and waits while another lane owns a VM.
+
+The Mac posts signed fleet heartbeats every 15 seconds with the operator config,
+hardware, active and draining guests, errors and source commit. The publisher
+uses the existing Mac tunnel-discovery key. The broker's `/fleet` endpoint serves
+the latest status; the fleet page reads job and earnings events from the escrow.
+
+`mac-pool.py` starts the loopback libp2p relay, its broker backhaul, a Cloudflare
+quick tunnel, the allowlisted CONNECT proxy, and the guest pool. It publishes
+signed, expiring relay hints to the HTTP index and Base Sepolia.
 
 ```sh
 VENV/bin/python applications/compute-node/mac-pool.py \
@@ -100,28 +123,13 @@ VENV/bin/python applications/compute-node/mac-pool.py \
   --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
   --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
   --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
+  --pool-version SOURCE_COMMIT \
   --broker https://pod.dstack.soc1024.com/relay-broker \
   --index https://pod.dstack.soc1024.com/private-agent/tunnels
 ```
 
-Stop with `kill -TERM LAUNCHER_PID`. It stops rotation, drains guests, preserves
-their evidence and retires their temporary disks, clears both discovery sources,
-and stops its relay, tunnel and helper. Restart with a fresh short state path.
-The relay allows eight reservations and four circuits per peer, with a 35-minute,
-128-MiB-per-direction circuit budget; a verified model transcript is about
-3 MB after encryption/hex framing. The guest WebSocket gateway retains a
-32-MiB cumulative budget per direction and refunds unused reservations.
-
-Lease renewal logs its stage, HTTP status and bounded response body. Transient
-HTTP/network failures retry on the next 25-second tick, up to three consecutive
-failures; attestation refusals stop the node. Admitted calls are never resubmitted.
-
-Tunnel-index publication records every failing HTTP status and bounded response
-body, then retries transient errors up to three times, five seconds apart. These
-retries only repeat the HTTP publication; a completed chain write is never sent
-again.
-
-The launcher queries public A records with `dig` and gives the CONNECT helper
-per-process bindings, retaining hostname TLS verification. This avoids stale
-Mac resolver cache entries without changing resolver settings. The relay permits
-90 seconds of WAN write backpressure while keeping its circuit caps.
+Stop with `kill -TERM LAUNCHER_PID`. It drains owned guests, preserves logs,
+assertions, original result disks and signed receipts, retires temporary disks,
+clears its discovery hints, and stops its relay, tunnel and helper. Each
+`run-*/evidence/` directory retains the guest evidence and reclaimed-space record.
+No launchd or systemd service is installed.

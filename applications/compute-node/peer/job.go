@@ -186,7 +186,29 @@ type engine struct {
 	seen           map[string]bool
 	used           map[string]int64
 	busy           bool
+	jobsServed     int
+	lastError      string
 	attest         func([]byte) ([]byte, error)
+}
+
+func (n *engine) telemetry() map[string]any {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var lastError any
+	if n.lastError != "" {
+		lastError = n.lastError
+	}
+	status := map[string]any{"relay_peer": n.node, "updated_at": time.Now().Unix(),
+		"busy": n.busy, "jobs_served": n.jobsServed, "last_error": lastError}
+	message := append([]byte("dsmack-node-status/1\n"), canon(status)...)
+	status["signature"] = hex.EncodeToString(ed25519.Sign(n.signer, message))
+	return status
+}
+
+func (n *engine) recordError(message string) {
+	n.mu.Lock()
+	n.lastError = message
+	n.mu.Unlock()
 }
 
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
@@ -219,6 +241,7 @@ func (n *engine) reserve(a admission, client string) (terms, int64, string) {
 	}
 	n.seen[a.JobID] = true
 	n.busy = true
+	n.jobsServed++
 	return t, left, ""
 }
 func (n *engine) handle(s interface {
@@ -231,6 +254,11 @@ func (n *engine) handle(s interface {
 		if len(failure) == 1 {
 			frame["failure"] = failure[0]
 		}
+		message := code
+		if len(failure) == 1 {
+			message = string(canon(failure[0]))
+		}
+		n.recordError(message)
 		if paid != nil {
 			r, e := paid.finish()
 			frame["payment_receipt"] = r

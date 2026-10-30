@@ -10,6 +10,9 @@ PROFILES={
  'board-undo-testnet-1':('board',['undo-controls','history-api','history-limit','edit-delete-move','redo-branch','import-clears','shortcuts-reload']),
  'puzzle-deadlock-testnet-1':('puzzle',['deadlock-api','level-starts','corner-indices','non-dead-cases','corner-warning','undo-restart','second-level-warning']),
  'routes-segments-testnet-1':('routes',['segments-api','gap-distance','gap-elevation','default-stats','samples-unchanged','upload-segments','sample-switch']),
+ 'flight-wind-testnet-1':('flight',['wind-hud','wind-seeded','wind-display','wind-reload','ground-speed','tailwind-ground','no-wind-unchanged']),
+ 'flight-replay-testnet-1':('flight',['replay-api','run-roundtrip','run-url-safe','run-length','replay-fold','link-replay','keyboard-share']),
+ 'routes-time-testnet-1':('routes',['timing-api','timing-stops','timing-missing','format-duration','untimed-default','untimed-switch','timed-upload']),
 }
 TASK_SLUG='board-search-testnet-1'
 APP='board'
@@ -61,7 +64,7 @@ def serve(files):
    resources=set(ALLOWED)|{p for p in files if p=='apps/puzzle/levels.json'and APP=='puzzle' or p.startswith('apps/routes/samples/')and p.endswith('.gpx')and APP=='routes'}
    paths={'/apps/'+APP+'/':'apps/'+APP+'/index.html',**{'/'+p:p for p in resources}}
    # No URL decoding, traversal, directory listing, uploads or candidate-controlled server.
-   name=paths.get(self.path)
+   name=paths.get('/apps/flight/'if APP=='flight'and self.path.startswith('/apps/flight/?run=')else self.path)
    if name is None:self.send_error(404);return
    b=files[name];self.send_response(200)
    self.send_header('Content-Type','text/html; charset=utf-8'if name.endswith('.html')else'application/json'if name.endswith('.json')else'application/gpx+xml'if name.endswith('.gpx')else'text/javascript; charset=utf-8')

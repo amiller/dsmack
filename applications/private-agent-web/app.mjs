@@ -8,6 +8,7 @@ import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
 import { ArtifactState } from "./artifact-state.mjs";
 import { ArtifactModels } from "./artifact-models.mjs";
 import { createSessionPersistence } from "./artifact-persistence.mjs";
+import { sealArtifact, openArtifact, artifactLink, parseArtifactLink, sharedScope, viewerSessionId } from "./artifact-share.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
@@ -31,7 +32,7 @@ import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-p
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   guests = new Map();
-let keys, sync, continuity, cfg,
+let keys, sync, continuity, cfg, sharedLink, sharedBundle, activeArtifactView,
   credit,
   quote,
   policy,
@@ -204,6 +205,7 @@ async function claimChatCredit() {
   );
   credit.chatCredit = result;
   render();
+  if (sharedLink) activeArtifactView?.refreshSelectedBudget().catch(error);
   if (guest) await guest.restore();
 }
 async function ensureWallet() {
@@ -408,6 +410,7 @@ async function useSession(data) {
   renderGuest(guest.statusSnapshot || { state: "idle" });
   renderWorkspace(guest.workspaceStatus || { head: sessionRecord.dsmack.workspace });
   let artifacts, artifactAgent;
+  activeArtifactView = undefined;
   const artifactHost = $("artifacts-host");
   artifactHost.replaceChildren();
   artifactHost.hidden = true;
@@ -438,9 +441,17 @@ async function useSession(data) {
       changed: scope => artifacts?.refreshBudget(scope).catch(error),
     });
     artifacts = createArtifacts(undefined, { state: artifactState, models: artifactModels, credit,
-      scopeForFilename: filename => JSON.stringify([artifactSession.id, filename]), error,
+      scopeForFilename: filename => filename === "shared.html" && artifactSession.dsmack.sharedArtifactCid
+        ? sharedScope(artifactSession.dsmack.sharedArtifactCid) : JSON.stringify([artifactSession.id, filename]), error,
+      share: async html => {
+        const sealed = await sealArtifact(html);
+        const result = await api("/artifacts/share", await walletBody(credit, "artifact-share", { ciphertext: sealed.ciphertext }));
+        require(result.cid === sealed.cid && result.pinned === true, "The encrypted app was not pinned with its expected CID.");
+        return artifactLink(sealed);
+      },
     });
-    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.panel);
+    activeArtifactView = artifacts;
+    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.shareBar, artifacts.panel);
     artifactHost.hidden = true;
     const openArtifacts = () => {
       artifactHost.hidden = false; artifacts.panel.collapsed = false;
@@ -474,9 +485,12 @@ async function useSession(data) {
   artifactAgent = agent;
   if (artifacts) {
     artifacts.panel.agent = agent;
-    await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
-      message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
+    const imported = sharedBundle && sharedLink && currentSession.dsmack.sharedArtifactCid === sharedLink.cid
+      ? [{ role: "artifact", action: "create", filename: "shared.html", content: sharedBundle.html }] : [];
+    await artifacts.panel.reconstructFromMessages([...currentSession.messages.filter((message) =>
+      message.role !== "artifact" || /\.html$/i.test(message.filename || "")), ...imported]);
     $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
+    if (imported.length) { artifactHost.hidden = false; artifacts.panel.openArtifact("shared.html"); }
   }
   guest.record = { session: currentSession, agent };
   if (credit.signer) {
@@ -501,6 +515,19 @@ async function useSession(data) {
   });
   await saveCurrentChat();
   await storage.settings.set("chat.active", currentSession.id);
+}
+async function loadSharedViewer() {
+  if (!sharedLink || !keys.bundle || !credit.signer) return false;
+  if (!sharedBundle) {
+    const response = await api("/artifacts/share/" + encodeURIComponent(sharedLink.cid));
+    require(response.cid === sharedLink.cid, "The shared app response identifies a different CID.");
+    sharedBundle = await openArtifact({ ...response, key: sharedLink.key });
+  }
+  const id = viewerSessionId(credit.address, sharedLink.cid);
+  const saved = await storage.sessions.get(id);
+  await useSession(saved || { id, title: "Shared app", createdAt: new Date().toISOString(), messages: [],
+    dsmack: { evidence: [], wallet: credit.address.toLowerCase(), sharedArtifactCid: sharedLink.cid } });
+  return true;
 }
 async function initChat() {
   storage = createChatStorage();
@@ -543,7 +570,7 @@ async function initChat() {
   const active = await storage.settings.get("chat.active") || await storage.sessions.getLatestSessionId();
   const saved = active ? await storage.sessions.get(active) : null;
   const sameWallet = credit.address && (!saved?.dsmack?.wallet || saved.dsmack.wallet === credit.address.toLowerCase());
-  await useSession(sameWallet ? saved : null);
+  if (!await loadSharedViewer()) await useSession(sameWallet ? saved : null);
   await renderPersistence();
   action("new-chat", () => useSession());
   action("sessions", () => SessionListDialog.open(
@@ -863,7 +890,7 @@ async function checkSync() {
     await startupStep("sync-pull", () => checking.pull());
     // A recovered wallet may need to select its newest verified remote chat.
     const imported = await store("continuity.imported");
-    if (!chatBusy) {
+    if (!chatBusy && !sharedLink) {
       const remoteIds = new Set(Object.keys(checking.state?.sessions || {}));
       const all = await storage.sessions.getAllMetadata();
       const latest = all.filter(m => remoteIds.has(m.id)).sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0];
@@ -888,6 +915,7 @@ async function main() {
   const response = await startupStep("configuration", () => fetch("./config.json", { cache: "no-store" }));
   require(response.ok, "Page configuration could not load.");
   cfg = await response.json();
+  sharedLink = parseArtifactLink(window.location.href);
   for (const name of ["broker", "rpc"]) {
     require(/^https:\/\//.test(cfg[name]), `${name} must be an explicit HTTPS service address.`);
   }
@@ -914,7 +942,7 @@ async function main() {
     await credit.init();
     currentSession.dsmack.wallet = credit.address.toLowerCase();
     sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
-    await useSession(currentSession);
+    if (!await loadSharedViewer()) await useSession(currentSession);
     render();
     $("welcome").hidden = true;
     $("service").textContent = "Your wallet is ready. Checking your credit…";

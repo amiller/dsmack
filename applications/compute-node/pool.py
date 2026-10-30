@@ -42,6 +42,8 @@ def hardware():
 
 def operator_config(path, host):
     config = json.loads(path.read_bytes())
+    from heartbeat import operator_region
+    operator_region(path)
     fields = [('max_guests', config.get('max_guests'), 1),
               ('guest.mem_mib', config.get('guest', {}).get('mem_mib'), 1),
               ('guest.vcpus', config.get('guest', {}).get('vcpus'), 1),
@@ -261,7 +263,7 @@ class Pool:
         self.publisher = None
         if args.publisher_key:
             from heartbeat import Publisher
-            self.publisher = Publisher(args.publisher_key, args.publisher_address, args.broker, args.pool_version)
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, args.broker, args.pool_version, args.operator)
         self.started = time.monotonic()
 
     def remember_error(self, record):

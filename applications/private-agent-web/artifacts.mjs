@@ -53,7 +53,7 @@ SandboxIframe.prototype.disconnectedCallback = function() {
   disconnected.call(this);
 };
 
-export function createArtifacts(agent, { state, models, credit, scopeForFilename = filename => JSON.stringify(["preview", filename]), error = console.error } = {}) {
+export function createArtifacts(agent, { state, models, credit, share, scopeForFilename = filename => JSON.stringify(["preview", filename]), error = console.error } = {}) {
   const panel = new ArtifactsPanel();
   panel.agent = agent;
   panel.sandboxUrlProvider = () => `${ARTIFACT_ORIGIN}/loader.html`;
@@ -105,6 +105,7 @@ export function createArtifacts(agent, { state, models, credit, scopeForFilename
     if (refreshing && refreshingScope === scope) return refreshing;
     title.textContent = filename; status.textContent = "Checking app budget…";
     input.hidden = grant.hidden = true;
+    if (credit && !credit.chatCredit) return Promise.resolve();
     refreshingScope = scope;
     const operation = Promise.resolve().then(() => models?.refresh?.(scope)).then(() => refreshBudget(scope));
     refreshing = operation;
@@ -124,7 +125,35 @@ export function createArtifacts(agent, { state, models, credit, scopeForFilename
     finally { grant.disabled = false; }
   };
   const showArtifact = panel.showArtifact.bind(panel);
-  panel.showArtifact = filename => { showArtifact(filename); refreshSelectedBudget().catch(error); };
+  const shareBar = document.createElement("div");
+  shareBar.className = "artifact-share"; shareBar.hidden = !share;
+  const shareButton = document.createElement("button"), shareLink = document.createElement("input"), copy = document.createElement("button"), shareStatus = document.createElement("span");
+  shareButton.textContent = "Share app"; shareButton.dataset.artifactShare = "";
+  shareLink.readOnly = true; shareLink.hidden = true; shareLink.dataset.artifactShareLink = "";
+  shareLink.setAttribute("aria-label", "Encrypted app link");
+  copy.textContent = "Copy link"; copy.hidden = true;
+  shareStatus.textContent = "Share code only. Each viewer uses their own storage and credit.";
+  shareBar.append(shareButton, shareStatus, shareLink, copy);
+  let sharedContent;
+  shareButton.onclick = async () => {
+    const filename = panel._activeFilename, artifact = panel.artifacts.get(filename);
+    if (!artifact) return;
+    const content = artifact.content;
+    shareButton.disabled = true; shareStatus.textContent = "Encrypting and pinning app…";
+    try {
+      const link = await share(content);
+      if (panel._activeFilename !== filename || panel.artifacts.get(filename)?.content !== content) return;
+      sharedContent = content;
+      shareLink.value = link; shareLink.hidden = copy.hidden = false;
+      shareStatus.textContent = "Anyone with this link can open this code. Your stored app data is private.";
+    } catch (e) { shareStatus.textContent = e.message; }
+    finally { shareButton.disabled = false; }
+  };
+  copy.onclick = () => navigator.clipboard.writeText(shareLink.value).then(() => { copy.textContent = "Copied"; }).catch(() => { shareLink.focus(); shareLink.select(); });
+  panel.showArtifact = filename => {
+    if (filename !== panel._activeFilename || panel.artifacts.get(filename)?.content !== sharedContent) { shareLink.hidden = copy.hidden = true; shareLink.value = ""; }
+    showArtifact(filename); refreshSelectedBudget().catch(error);
+  };
   const original = panel.tool;
   const tool = {
     ...original,
@@ -134,5 +163,5 @@ export function createArtifacts(agent, { state, models, credit, scopeForFilename
       return original.execute(...args);
     },
   };
-  return { panel, tool, budgetBar, refreshBudget, refreshSelectedBudget };
+  return { panel, tool, budgetBar, shareBar, refreshBudget, refreshSelectedBudget };
 }

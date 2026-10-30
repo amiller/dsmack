@@ -80,6 +80,14 @@ async function handle(req, escrow, path, now) {
     if (!state.links[body.publisher]) return reply({ error: "Mac ownership link required" }, 403);
     need(verifyMessage("dsmack-fleet/1\n" + canonicalFleet(unsigned), signature).toLowerCase() === body.publisher, "publisher signature");
     need(Number.isSafeInteger(body.updated_at) && Math.abs(now() - body.updated_at) <= 30, "heartbeat timestamp");
+    if (body.region !== undefined) {
+      const region = body.region;
+      need(region && typeof region === "object" && !Array.isArray(region) &&
+        Object.keys(region).every(key => ["name", "lat", "lon"].includes(key)) &&
+        typeof region.name === "string" && region.name.trim().length > 0 && region.name.length <= 100 &&
+        Number.isInteger(region.lat) && Math.abs(region.lat) <= 90 &&
+        Number.isInteger(region.lon) && Math.abs(region.lon) <= 180, "coarse region: name and whole-degree lat/lon required");
+    }
     need(body.config && Number.isSafeInteger(body.config.max_guests) && body.config.max_guests > 0,
       "capacity config");
     need(body.hardware && typeof body.hardware.name === "string" && body.hardware.name.length <= 256, "Mac hardware");

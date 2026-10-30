@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 import { ArtifactState } from './artifact-state.mjs';
+import { ArtifactBridge } from './artifact-bridge.mjs';
 globalThis.crypto ??= webcrypto;
 const dataKey = Buffer.from(crypto.getRandomValues(new Uint8Array(32))).toString('base64url');
 const scope = JSON.stringify(['conversation-a', 'todo.html']);
@@ -67,4 +68,33 @@ test('propagates persistence failure without poisoning later updates', async () 
   await assert.rejects(state.put(scope, 'lost', 1), /disk unavailable/);
   await state.put(scope, 'saved', 2);
   assert.deepEqual(await state.list(scope), ['saved']);
+});
+
+test('aggregate values quota refuses a write before saving and valid overwrites still work', async () => {
+  const records = new Map(), state = storage(records), value = 'x'.repeat(200 * 1024);
+  await state.put(scope, 'first', value);
+  await state.put(scope, 'second', value);
+  const before = records.get(scope);
+  await assert.rejects(state.put(scope, 'third', value), error => error.code === 'INVALID_ARGS');
+  assert.equal(records.get(scope), before, 'quota failure must not save a new envelope');
+  assert.equal(await state.get(scope, 'third'), undefined);
+  assert.equal(await state.get(scope, 'first'), value);
+  await state.put(scope, 'first', 'small');
+  await state.put(scope, 'third', value);
+  assert.equal(await state.get(scope, 'first'), 'small');
+  assert.equal(await state.get(scope, 'third'), value);
+});
+
+test('per-value storage limit counts UTF-8 bytes rather than JavaScript characters', async () => {
+  const state = storage(), bridge = new ArtifactBridge({ scope, state });
+  const put = async value => {
+    let response;
+    await bridge.handleMessage({ type: 'dsmack-request', version: 1, requestId: 'unicode',
+      method: 'storage.put', params: { key: 'unicode', value } }, result => { response = result; });
+    return response;
+  };
+  const fits = '界'.repeat(Math.floor((256 * 1024 - 2) / 3));
+  assert.equal((await put(fits)).ok, true);
+  assert.equal((await put(fits + '界')).error.code, 'INVALID_ARGS');
+  assert.equal(await state.get(scope, 'unicode'), fits);
 });

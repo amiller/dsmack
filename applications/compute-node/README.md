@@ -86,6 +86,11 @@ Write `~/.dsmack/operator.json` on the Mac:
 {"max_guests":4,"guest":{"mem_mib":4096,"vcpus":1},"reserve":{"mem_gb":16,"cores":4}}
 ```
 
+Optionally add `"region":{"name":"Michigan, US","lat":42,"lon":-84}` to
+publish a coarse location on the network map. Coordinates must be whole degrees.
+The publisher rereads this field for each signed heartbeat; remove it to opt out.
+No IP geolocation is used.
+
 The pool checks physical RAM and cores at startup and refuses a configuration
 whose guests exceed the capacity after the reserve, reporting the requested,
 physical, reserved and available numbers. Editing the file takes effect on
@@ -150,3 +155,23 @@ spools chunks to disk, checks the ciphertext hash, and pins the encrypted archiv
 on IPFS. Reads use the local cache or fetch and verify the CID through Kubo.
 Unused snapshots and incomplete uploads expire after 30 days. Retention removes
 only this store's files and recursive pins it created.
+
+## Encrypted artifact pins
+
+`artifact-store.py` serves broker-signed `raw-put` and `raw-get` requests on
+loopback using the existing Kubo API. It stores up to 64 MiB across 4096 permanent
+artifact pins, with a 512 KiB limit per encrypted block. Its state directory holds
+the published CID records; Kubo holds the ciphertext.
+
+Use the operator Python environment containing `eth-account`:
+
+```sh
+VENV/bin/python applications/compute-node/artifact-store.py \
+  --state ARTIFACT_PIN_STATE --broker-signer BROKER_PAYMENT_SIGNER \
+  --ipfs-api http://127.0.0.1:15092 --port 15094
+```
+
+Route the broker's `artifactShares.store` URL to port 15094 through the operator's
+HTTPS tunnel. The signer is the address returned by the broker's `/payments/key`.
+Stop the helper with `kill -TERM PID`; its pins and CID records remain available
+when it restarts.

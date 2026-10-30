@@ -17,7 +17,7 @@ def tree(raw,dest):
 def run(inputs,state,art):
  need(not any(state.iterdir())and not any(art.iterdir()),'fresh state/output required')
  request=json.loads((inputs/'request.json').read_bytes());profile=json.loads((inputs/'base-files.json').read_bytes())['task_slug']
- need(profile in ('board-undo-testnet-1','puzzle-deadlock-testnet-1','routes-segments-testnet-1'),'new deterministic task profile required')
+ need(profile in ('board-undo-testnet-1','puzzle-deadlock-testnet-1','routes-segments-testnet-1','flight-wind-testnet-1','flight-replay-testnet-1','routes-time-testnet-1'),'new deterministic task profile required')
  base=state/'base';candidate=state/'candidate'
  base_hash=tree((inputs/'base.json').read_bytes(),base);candidate_hash=tree((inputs/'candidate.json').read_bytes(),candidate)
  need(base_hash==request['base_tree_sha256']and candidate_hash==request['candidate_tree_sha256'],'input tree binding')

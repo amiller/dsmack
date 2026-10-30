@@ -244,11 +244,14 @@ try {
   await run("first-visit-requires-choice", "valid", async (page, calls) => {
     assert.doesNotMatch(await page.locator("#wallet").textContent(), /^0x/i);
     assert(await page.locator("#start-fresh").isVisible());
+    assert.equal(await page.locator("#artifacts-host artifacts-panel").count(), 0,
+      "Artifact state and providers wait for the viewer's data key");
     await page.locator("#used-before").click();
     assert(await page.locator("#continuity-panel").isVisible());
     assert(await page.locator("#enroll-email").isDisabled());
     await page.locator("#use-another-device").click();
     await page.locator("#start-fresh").click();
+    await page.waitForFunction(() => document.querySelector("#artifacts-host artifacts-panel"));
     await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== "");
     await page.waitForFunction(() => document.querySelector("#sync-status").textContent === "Chats checked and synced.");
     assert(!calls.some(r => r.path === "/sync/blob" || r.path === "/sync/commit"), "An empty wallet must not publish system-only chats");

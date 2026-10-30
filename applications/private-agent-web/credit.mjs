@@ -9,7 +9,7 @@ import {
   Wallet,
 } from "ethers";
 import { abi, domain, NodeBinding, Receipt } from "../payments/schema.mjs";
-import { canonical, hex, peerBytes } from "@sandbox";
+import { hex, peerBytes } from "@sandbox";
 export { formatEther };
 export const require = (ok, message) => {
   if (!ok) throw new Error(message);

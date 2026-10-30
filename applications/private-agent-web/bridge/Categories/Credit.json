@@ -1,0 +1,11 @@
+{
+  "methods": [
+    {
+      "name": "credit.balance",
+      "introducedVersion": 1,
+      "parameters": {},
+      "returns": "{wallet: string | null, remainingNanoUsd: string, spentNanoUsd: string, pending: boolean}"
+    }
+  ],
+  "events": []
+}

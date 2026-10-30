@@ -628,3 +628,59 @@ test("model dispatch cannot spend credit already reserved by a held guest", asyn
   await assert.rejects(f.inference.chat(await f.signed("chat", await f.encrypted(session))), code("CREDIT_EXHAUSTED"));
   assert.equal(f.calls(), 0);
 });
+
+const artifactId = 'a1'.repeat(32);
+async function artifactPrepare(f) {
+  return f.inference.prepare(await f.signed('prepare', { attestationNonce: 'cd'.repeat(32), artifactId }));
+}
+async function artifactGrant(f, limitNanoUsd) {
+  return f.inference.artifactBudget(await f.signed('artifact-budget', { artifactId, limitNanoUsd }));
+}
+test('artifact grants persist spent charges across regrant and restart without counting guest charges', async () => {
+  const f = fixture(); await f.credit();
+  await assert.rejects(artifactPrepare(f), code('BUDGET_EXHAUSTED'));
+  await artifactGrant(f, '20000000');
+  const session = await artifactPrepare(f);
+  const response = await f.inference.chat(await f.signed('chat', await f.encrypted(session)));
+  await response.text();
+  const wallet = f.wallet.address.toLowerCase();
+  const held = f.inference.summary(wallet).artifactBudgets[artifactId];
+  assert(BigInt(held.reservedNanoUsd) > 0n);
+  await assert.rejects(artifactGrant(f, '0'), code('BUDGET_ALREADY_SET'));
+  const usage = await f.inference.usage(await f.signed('usage'));
+  assert.equal(usage.artifactBudgets[artifactId].spentNanoUsd, '300');
+  assert.equal(usage.artifactBudgets[artifactId].lastSessionId, session.sessionId);
+  assert.equal(usage.artifactBudgets[artifactId].lastCostNanoUsd, '300');
+  assert.equal(usage.artifactBudgets[artifactId].reservedNanoUsd, '0');
+  await f.inference.usage(await f.signed('usage'));
+  assert.equal((await artifactGrant(f, '20000000')).artifactBudgets[artifactId].spentNanoUsd, '300');
+  // Guest charges share wallet credit but must not consume model-only meters.
+  f.payments.state.inferenceCredit[wallet].spentNanoUsd = '900';
+  const restored = fixture({ state: structuredClone(f.payments.state) });
+  const summary = await restored.inference.credit(await restored.signed('credit', {}, f.wallet));
+  assert.equal(summary.spentNanoUsd, '900');
+  assert.equal(summary.modelSpentNanoUsd, '300');
+  assert.equal(summary.artifactBudgets[artifactId].spentNanoUsd, '300');
+  await assert.rejects(restored.inference.artifactBudget(await restored.signed('artifact-budget', { artifactId, limitNanoUsd: '300' }, f.wallet)), code('BUDGET_ALREADY_SET'));
+  assert.equal(restored.inference.summary(wallet).artifactBudgets[artifactId].limitNanoUsd, '20000000');
+  assert.equal(f.calls(), 1);assert.equal(restored.calls(), 0);
+});
+
+test('artifact reserve enforces its cap independently of wallet credit', async () => {
+  const f = fixture();await f.credit();await artifactGrant(f, '1');
+  const session = await artifactPrepare(f);
+  await assert.rejects(f.inference.chat(await f.signed('chat', await f.encrypted(session))), code('BUDGET_EXHAUSTED'));
+  assert.equal(f.calls(), 0);assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, '0');
+});
+
+test('settled artifact cost exhausts its grant before another provider request', async () => {
+  const f = fixture();await f.credit();
+  const legacy = await f.prepare(), request = await f.encrypted(legacy);
+  const maximum = f.inference.encryptedRequest(request, f.inference.sessions.get(legacy.sessionId));
+  await artifactGrant(f, String(maximum));f.cost(String(maximum));
+  const session = await artifactPrepare(f);
+  const response = await f.inference.chat(await f.signed('chat', await f.encrypted(session)));
+  await response.text();await f.inference.usage(await f.signed('usage'));
+  await assert.rejects(artifactPrepare(f), code('BUDGET_EXHAUSTED'));
+  assert.equal(f.calls(), 1);
+});

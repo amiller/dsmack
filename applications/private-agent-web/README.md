@@ -87,3 +87,15 @@ needs permission for that origin. Shared `/ipfs/` and `/ipns/` path gateways are
 refused before wallet storage opens. For updates with one stable wallet origin,
 keep the same DNSLink/IPNS name and gateway. Wallet recovery/export is separate
 from static hosting.
+
+For a public release, recursively pin on an existing publicly reachable non-zed
+Kubo host with persistent storage, plus an independent peer. This needs no new
+pinning account; gateway caching alone does not retain a release. Public pinning
+requires Andrew’s separate approval. DNSLink on an already-owned domain is the
+simplest stable friends link: update one TXT record, with no per-release protocol
+fee, and configure a compatible HTTPS gateway. IPNS has no protocol fee either,
+but needs regular republication (Kubo defaults to four hours; DHT records expire
+after 48 hours). Keep the final gateway hostname stable for wallet storage.
+See [persistence](https://docs.ipfs.tech/concepts/persistence/),
+[DNSLink](https://docs.ipfs.tech/concepts/dnslink/) and
+[IPNS](https://docs.ipfs.tech/concepts/ipns/).

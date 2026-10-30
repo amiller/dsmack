@@ -88,7 +88,7 @@ func relayMain(listen, keyFile string, backhaul ...string) {
 	must(err)
 	fmt.Printf("relay %s/p2p/%s\n", listen, h.ID())
 	if len(backhaul) == 2 {
-		must(maintainBackhaul(context.Background(), h, backhaul[0], backhaul[1]))
+		must(MaintainBackhaul(context.Background(), h, backhaul[0], backhaul[1]))
 	}
 	select {}
 }

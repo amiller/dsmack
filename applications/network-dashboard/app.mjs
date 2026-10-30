@@ -1,4 +1,5 @@
 import { NetworkChain } from "./chain.mjs";
+import publicConfig from "./config.json" with { type: "json" };
 
 const $ = id => document.getElementById(id);
 const node = (tag, text, cls) => { const n = document.createElement(tag); if (text != null) n.textContent = text; if (cls) n.className = cls; return n; };
@@ -22,9 +23,10 @@ const land = [
 ];
 for (const polygon of land) $("continents").append(svg("polygon", { points: polygon.map(point).join(" "), class: "continent" }));
 
-let config, chain, refreshing = false, chainRefreshing = false, network, history, chainResult, chainReadAt = 0;
-window.__networkDashboard = Object.freeze({ network: null, history: null, chain: null });
-function snapshot() { window.__networkDashboard = Object.freeze({ network, history, chain: chainResult }); }
+const config = publicConfig;
+let chain, refreshing = false, chainRefreshing = false, network, history, chainResult, chainReadAt = 0;
+window.__networkDashboard = Object.freeze({ config, network: null, history: null, chain: null });
+function snapshot() { window.__networkDashboard = Object.freeze({ config, network, history, chain: chainResult }); }
 function callout(mac) {
   const box = $("map-callout"); box.replaceChildren();
   box.append(node("b", mac.region.name), node("span", `${mac.online ? "Online" : "Offline"} · ${mac.slots} guest slots · ${mac.busy} busy${mac.online ? ` · ${mac.ready} ready` : ""}`));
@@ -126,7 +128,6 @@ $("theme").onclick = () => { theme = themes[(themes.indexOf(theme) + 1) % themes
 $("refresh").onclick = () => { refresh(); readChain(); };
 window.addEventListener("resize", drawHistory);
 try {
-  const response = await fetch("./config.json"); if (!response.ok) throw Error("Cannot read the dashboard configuration"); config = await response.json();
   chain = new NetworkChain(config); $("agent-link").href = config.agent; $("network-data").href = config.broker + "/network";
   $("escrow").href = `https://sepolia.basescan.org/address/${config.escrow}`;
   document.documentElement.dataset.ready = "true";

@@ -261,7 +261,7 @@ class Pool:
         self.publisher = None
         if args.publisher_key:
             from heartbeat import Publisher
-            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, args.broker, args.pool_version)
         self.started = time.monotonic()
 
     def remember_error(self, record):

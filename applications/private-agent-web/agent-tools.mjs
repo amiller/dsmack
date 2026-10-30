@@ -155,7 +155,12 @@ export class GuestSession {
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
     const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
     require(response.ok, "Guest relay discovery failed: HTTP " + response.status);
-    const entries = (await response.json()).map(tunnel).filter(t => t.guestPeer === verified.registration.relay_peer && t.expiresAt * 1000 > Date.now());
+    const measured = JSON.parse(new TextDecoder().decode(verified.policy.manifest));
+    const relayPeer = JSON.parse(measured.docker_compose_file).services.node.command[1].split("/").at(-1);
+    const entries = (await response.json()).map(tunnel).filter(t =>
+      t.relayPeer === relayPeer && (!t.guestPeer || t.guestPeer === verified.registration.relay_peer) &&
+      t.expiresAt * 1000 > Date.now()
+    ).map(t => ({ ...t, guestPeer: verified.registration.relay_peer }));
     require(entries.length, "No live browser relay advertises the verified guest.");
     let connection, failure;
     for (const entry of entries) {

@@ -69,7 +69,11 @@ export class AgentSessions {
       let s = b.payments.state.agentSessions?.[r.sessionId];
       need(s?.wallet === wallet, "SESSION_OWNER", "session belongs to another wallet", 403);
       if (end && !s.final) {
-        s = { ...s, endRequested: true };
+        // Execution cannot start before its trusted receipt is accepted. Close
+        // an unadmitted grant now; any later start receipt will be refused.
+        s = { ...s, endRequested: true, ...(!s.receiptSeen
+          ? { final: true, reservedNanoUsd: "0", closedReason: "unused-grant-ended" }
+          : {}) };
         await this.save({ agentSessions: { ...b.payments.state.agentSessions, [r.sessionId]: s } });
       }
       return this.view(s);

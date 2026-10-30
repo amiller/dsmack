@@ -14,7 +14,6 @@ import { getProviderEnvKey, getSigningKey } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
 import { sandbox } from "./sandbox.mjs";
 import { AgentSessions } from "./agent.mjs";
-import { SandboxInference } from "./sandbox-inference.mjs";
 
 type Context = { env: Record<string, string>; dataDir: string };
 async function load(ctx: Context) {
@@ -258,18 +257,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
       else if (action === "end") response = Response.json(await sessions.status(request, true));
       else if (action === "receipt") response = Response.json(await sessions.receipt(request));
       else response = new Response("not found", { status: 404 });
-    } else if (path === "/sandbox/starter-grant" && req.method === "POST") {
-      response = Response.json(await new SandboxInference(b).starterGrant(await body(req)));
-    } else if (path === "/sandbox/capability" && req.method === "POST") {
-      response = Response.json(
-        await new SandboxInference(b).mint(await body(req)),
-      );
-    } else if (path === "/sandbox/inference" && req.method === "POST") {
-      response = Response.json(
-        await new SandboxInference(b).complete(req, await body(req, 1 << 20)),
-      );
     } else if (path.startsWith("/sandbox/")) {
-      response = await sandbox(req, b, body);
+      response = await sandbox(req, b);
     } else if (path.startsWith("/inference/")) {
       if (!b.inference) {
         throw new InferenceError(

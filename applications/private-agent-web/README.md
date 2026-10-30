@@ -91,12 +91,6 @@ the broker's `browser_origins`. Wallet and conversation storage belongs to that
 origin. Shared `/ipfs/` and `/ipns/` path gateways are rejected to isolate wallets.
 A stable DNSLink/IPNS gateway origin preserves browser storage across releases.
 
-```sh
-PAGE_URL=http://CID.ipfs.localhost:18091/ \
-ALT_PAGE_URL=http://CID.ipfs.alt.localhost:18091/ \
-EVIDENCE=/absolute/path/to/local-data/ipfs npm run test:ipfs
-```
-
 ## Public IPFS pin on the Mac
 
 Add `--ipfs-bin /absolute/path/to/ipfs --ipfs-car /absolute/path/to/page.car
@@ -108,8 +102,4 @@ in the retained state directory; `published.json` records the CID, name and
 provider address. Kubo republishes IPNS while running. `kill -TERM LAUNCHER_PID`
 drains the guests and stops both the compute and IPFS transports, retaining the
 pin and key for the next launch. Never move the IPNS signing key between hosts.
-
-Run the public gateway journey in a fresh browser with
-`PUBLIC_GATEWAY=1 node ipfs-check.mjs https://NAME.ipns.GATEWAY/ EVIDENCE`.
-Use the final subdomain gateway origin in the broker allowlist. The probe creates
-a wallet, reloads it, chats and executes tools and downloads a workspace patch without manual settings.
+Use the final subdomain gateway origin in the broker allowlist.

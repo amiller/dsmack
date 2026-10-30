@@ -46,6 +46,14 @@ test("head reads wait for a pending anchor transaction instead of observing its 
  await new Promise(r=>setTimeout(r,10));assert.equal(observed,false);
  release();await committed;assert.equal((await read).head.counter,1);
 });
+test("a reverted anchor commit restores the previous broker head",async()=>{
+ const f=await fixture(),ciphertext=encode(crypto.getRandomValues(new Uint8Array(64))),blob=await f.broker.call("blob",await f.request("blob",{ciphertext}));
+ f.setReceipt(async()=>{f.chainState.delete(f.wallet.address.toLowerCase());throw Object.assign(new Error("sync anchor transaction reverted"),{status:503});});
+ await assert.rejects(f.broker.call("commit",await f.request("commit",{previous:0,cid:blob.cid})),/reverted/);
+ assert.deepEqual(await f.broker.call("head",await f.request("head")),{head:null});
+ f.setReceipt(async()=>({status:1}));
+ assert.equal((await f.broker.call("commit",await f.request("commit",{previous:0,cid:blob.cid}))).head.counter,1);
+});
 
 test("anchor receipt polling awaits rate-limit recovery without block subscriptions and reports exhausted RPC errors", async()=>{
  const hash="0x"+"55".repeat(32),calls=[],delays=[];let attempt=0;

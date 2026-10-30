@@ -1,4 +1,4 @@
-import { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { require, walletBody } from "./credit.mjs";
 import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
@@ -38,11 +38,10 @@ export async function* sse(body) {
   }
 }
 export function brokerStream(
-  { credit, api, cfg, quote, evidence, usage, error },
+  { credit, api, cfg, quote, evidence, usage, error, startedAt },
 ) {
-  let conversationStarted;
+  const conversationStarted = new Date(startedAt);
   return (model, context, options = {}) => {
-    conversationStarted ??= new Date();
     const stream = new AssistantMessageEventStream();
     const answer = {
       role: "assistant",
@@ -113,7 +112,7 @@ export function brokerStream(
           /^[0-9a-f]{32}$/.test(session.sessionId),
           "Provider preparation has no session ID.",
         );
-        evidence(checked);
+        await evidence(checked);
         const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const date = new Intl.DateTimeFormat(undefined, {
           dateStyle: "full",
@@ -200,6 +199,11 @@ export function brokerStream(
             !chunk.model || chunk.model === model.id,
             "Provider completion model differs from its attestation.",
           );
+          if (chunk.usage) {
+            answer.usage.input = chunk.usage.prompt_tokens;
+            answer.usage.output = chunk.usage.completion_tokens;
+            answer.usage.totalTokens = chunk.usage.total_tokens;
+          }
           const delta = chunk.choices?.[0]?.delta?.content;
           if (typeof delta === "string" && delta) {
             if (!answer.content[0].text) {
@@ -229,7 +233,9 @@ export function brokerStream(
           partial: answer,
         });
         try {
-          await usage();
+          const charged = await usage();
+          answer.usage.totalTokens = Number(BigInt(charged.usedTokens) - BigInt(session.usedTokens));
+          answer.usage.cost.total = Number(BigInt(charged.spentNanoUsd) - BigInt(session.spentNanoUsd)) / 1e9;
         } catch (e) {
           error(e);
         }

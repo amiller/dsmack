@@ -1,6 +1,6 @@
 # Private agent web
 
-A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
+A browser app using Pi’s AgentInterface, session storage and dialogs for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
 nodes. Create or connect an Ethereum wallet to receive $0.250000 starter chat
 credit and a first sandbox job of up to 180 seconds. Sending a first message or
 job also creates a browser wallet automatically. The wallet signs credit and job
@@ -13,8 +13,10 @@ to the model with the NEAR SDK. It decrypts streamed answers in the tab and show
 provider-reported tokens, nanoUSD charges and remaining chat credit. The broker
 forwards ciphertext and meters requests with its provider key.
 
-Browser wallets and sandbox buyer keys stay in IndexedDB. Conversation text,
-repository input and sandbox credentials stay in tab memory. An injected wallet
+Browser wallets and sandbox buyer keys stay in IndexedDB. Chat sessions and their attestation evidence are saved in this browser using Pi’s
+IndexedDB session store. Use Saved chats to reopen a conversation and New chat to
+start another. Keep chats on this device requests persistent browser storage.
+Repository input and sandbox credentials stay in tab memory. An injected wallet
 can sign chat actions and pay for sandbox seconds.
 
 Build on a development host with Node 24 or newer:

@@ -8,14 +8,15 @@
     "test:ipfs": "node ipfs-check.mjs"
   },
   "dependencies": {
-    "@mariozechner/pi-web-ui": "0.73.1",
-    "@mariozechner/pi-ai": "0.73.1",
-    "@mariozechner/pi-agent-core": "0.73.1",
     "ethers": "6.17.0",
     "@opentelemetry/api": "1.9.0",
     "@mariozechner/mini-lit": "0.2.1",
     "@nearai/inference-sdk": "0.2.0",
-    "diff": "8.0.4"
+    "diff": "8.0.4",
+    "@earendil-works/pi-web-ui": "0.75.3",
+    "@earendil-works/pi-agent-core": "0.75.3",
+    "@earendil-works/pi-ai": "0.75.3",
+    "process": "0.11.10"
   },
   "devDependencies": {
     "esbuild": "0.25.12",

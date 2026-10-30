@@ -1,9 +1,9 @@
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
-import "@pi-components/components/MessageList.js";
-import "@pi-components/components/Messages.js";
-import "@pi-components/components/MessageEditor.js";
-import "@pi-components/components/StreamingMessageContainer.js";
-import { Agent } from "@mariozechner/pi-agent-core";
+import { AgentInterface } from "@pi-components/components/AgentInterface.js";
+import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
+import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
+import { Agent } from "@earendil-works/pi-agent-core";
+import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import {
   Credit,
   formatEther,
@@ -30,6 +30,12 @@ let cfg,
   repoFiles,
   patch,
   agent,
+  chat,
+  storage,
+  currentSession,
+  unsubscribeChat,
+  lastSave = Promise.resolve(),
+  chatBusy = false,
   starterSandboxUsed = false,
   starterSandboxStatus = "available";
 function error(e) {
@@ -268,7 +274,7 @@ async function usage() {
     }
   }
 }
-function addEvidence(e) {
+function renderEvidence(e) {
   const item = document.createElement("div");
   item.className = "evidence-item";
   const p = document.createElement("p");
@@ -282,7 +288,7 @@ function addEvidence(e) {
 }
 function setModel() {
   if (!agent) return;
-  agent.state.model = {
+  agent.state.model = (!quote && currentSession?.model) || {
     id: quote?.model || "unavailable",
     name: quote?.model || "NEAR TEE model",
     api: "dsmack-inference",
@@ -294,83 +300,137 @@ function setModel() {
     contextWindow: quote?.contextWindow || 1048576,
     maxTokens: quote?.maxOutputTokens || 512,
   };
-  $("model").textContent = quote?.model || "NEAR TEE model · unavailable";
-  const editor = document.querySelector("message-editor");
-  editor.currentModel = agent.state.model;
+  $("model").textContent = agent.state.model.id === "unavailable"
+    ? "NEAR TEE model · unavailable" : agent.state.model.id;
+  chat?.requestUpdate();
 }
-function initChat() {
-  const list = document.querySelector("message-list"),
-    stream = document.querySelector("streaming-message-container"),
-    editor = document.querySelector("message-editor");
+async function saveCurrentChat() {
+  const session = currentSession;
+  chat.dataset.saved = "false";
+  $("chat-status").textContent = "Saving chat…";
+  const task = saveChat(storage, session, agent);
+  lastSave = task;
+  try {
+    const data = await task;
+    if (currentSession === session) {
+      $("session-title").textContent = data.title;
+      $("chat-status").textContent = "Saved in this browser";
+      chat.dataset.saved = "true";
+    }
+  } catch (e) {
+    $("chat-status").textContent = "Chat could not be saved";
+    error(e);
+    throw e;
+  }
+}
+async function addEvidence(e) {
+  currentSession.dsmack.evidence.push(e);
+  renderEvidence(e);
+  await saveCurrentChat();
+}
+function setChatBusy(busy) {
+  chatBusy = busy;
+  $("new-chat").disabled = busy;
+  $("sessions").disabled = busy;
+}
+async function renderPersistence() {
+  const persisted = await navigator.storage?.persisted?.();
+  $("storage-status").textContent = persisted
+    ? "Persistent storage enabled" : "Standard browser storage";
+}
+async function useSession(data) {
+  if (agent) await agent.waitForIdle();
+  await lastSave;
+  unsubscribeChat?.();
+  currentSession = data || {
+    id: crypto.randomUUID(), title: "New chat", createdAt: new Date().toISOString(),
+    messages: [], dsmack: { evidence: [] },
+  };
   agent = new Agent({
     initialState: {
-      systemPrompt:
-        "You are the dsmack private agent, a coding assistant in a web page. Messages are encrypted in the user's browser to the model's TEE; the broker forwards ciphertext and meters usage.\n\nIn this chat you have no tools: no commands, browsing, file access or memory between chats. Say so rather than guess.",
+      systemPrompt: "You are the dsmack private agent, a coding assistant in a web page. Messages are encrypted in the user's browser to the model's TEE; the broker forwards ciphertext and meters usage.\n\nIn this chat you have no tools: no commands, browsing, file access or memory between chats. Say so rather than guess.",
+      messages: currentSession.messages,
+      thinkingLevel: "off",
       tools: [],
     },
     getApiKey: () => undefined,
     streamFn: brokerStream({
-      credit,
-      api,
-      cfg,
-      quote: () => quote,
-      evidence: addEvidence,
-      usage,
-      error,
+      credit, api, cfg, quote: () => quote, evidence: addEvidence, usage, error,
+      startedAt: currentSession.createdAt,
     }),
   });
   setModel();
-  editor.showAttachmentButton = false;
-  editor.showModelSelector = false;
-  editor.showThinkingSelector = false;
-  editor.thinkingLevel = "off";
-  editor.onSend = async (text) => {
+  $("attestations").replaceChildren();
+  for (const e of currentSession.dsmack.evidence) renderEvidence(e);
+  chat.session = agent;
+  chat.dataset.sessionId = currentSession.id;
+  if (!chat.isConnected) $("chat-host").append(chat);
+  await chat.updateComplete;
+  unsubscribeChat = agent.subscribe((event) => {
+    // Pi's message list observes array references; the agent appends in place.
+    if (event.type === "message_end") {
+      agent.state.messages = [...agent.state.messages];
+      chat.requestUpdate();
+    }
+    if (event.type === "message_end" || event.type === "agent_end") return saveCurrentChat();
+  });
+  await saveCurrentChat();
+  await storage.settings.set("chat.active", currentSession.id);
+}
+async function initChat() {
+  storage = createChatStorage();
+  chat = new AgentInterface();
+  chat.id = "chat";
+  chat.enableAttachments = false;
+  chat.enableModelSelector = false;
+  chat.enableThinkingSelector = false;
+  // The broker authenticates the wallet and holds the provider key in its CVM.
+  chat.onApiKeyRequired = async () => true;
+  chat.onBeforeSend = async () => {
     clearError();
-    try {
-      await credit.checkBroker(api);
-      require(
-        quote?.configured,
-        "Private inference is not configured on this broker.",
-      );
-      await ensureWallet();
-      require(
-        !credit.chatCredit.pendingInferenceId,
-        "Usage is unresolved. Reconcile provider usage before sending another message.",
-      );
-      require(
-        BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
-        "CREDIT_EXHAUSTED: Chat credit used up.",
-      );
-      await agent.prompt(text);
-      if (agent.state.errorMessage) error(new Error(agent.state.errorMessage));
-    } catch (e) {
-      error(e);
+    await credit.checkBroker(api);
+    require(quote?.configured, "Private inference is not configured on this broker.");
+    await ensureWallet();
+    require(!credit.chatCredit.pendingInferenceId,
+      "Usage is unresolved. Reconcile provider usage before sending another message.");
+    require(BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
+      "CREDIT_EXHAUSTED: Chat credit used up.");
+    if (!await storage.settings.get("chat.persistenceRequested")) {
+      await storage.requestPersistence();
+      await storage.settings.set("chat.persistenceRequested", true);
+      await renderPersistence();
     }
   };
-  editor.onAbort = () => agent.abort();
-  agent.subscribe((event) => {
-    const running = event.type !== "agent_end" && agent.state.isStreaming;
-    editor.isStreaming = running;
-    list.messages = agent.state.messages;
-    list.tools = [];
-    list.pendingToolCalls = new Set();
-    list.isStreaming = running;
-    stream.isStreaming = running;
-    stream.hidden = !running;
-    $("chat-empty").hidden = agent.state.messages.length > 0;
-    if (event.type === "message_start" && event.message.role === "user") {
-      const sent = event.message.content.filter((part) => part.type === "text")
-        .map((part) => part.text).join("");
-      // MessageEditor.value is its public reactive composer API. Preserve a
-      // newer draft if it changed while wallet/credit checks were pending.
-      if (editor.value === sent) editor.value = "";
+  const sendMessage = chat.sendMessage.bind(chat);
+  chat.sendMessage = async (...args) => {
+    if (chatBusy) return;
+    setChatBusy(true);
+    try { await sendMessage(...args); } catch (e) { error(e); }
+    finally {
+      setChatBusy(false);
+      // The agent becomes idle after its final event listeners have settled.
+      chat.requestUpdate();
     }
-    if (event.type === "message_update") stream.setMessage(event.message);
-    if (event.type === "message_end" || event.type === "agent_end") {
-      stream.setMessage(null, true);
-    }
+  };
+  chat.onCostClick = () => usage().catch(error);
+  const active = await storage.settings.get("chat.active");
+  await useSession(active ? await storage.sessions.get(active) : null);
+  await renderPersistence();
+  action("new-chat", () => useSession());
+  action("sessions", () => SessionListDialog.open(
+    (id) => (async () => {
+      const data = await storage.sessions.get(id);
+      require(data, "This saved chat has been deleted.");
+      await useSession(data);
+    })().catch(error),
+    (id) => { if (id === currentSession.id) useSession().catch(error); },
+  ));
+  action("save-storage", async () => {
+    await PersistentStorageDialog.request();
+    await renderPersistence();
   });
 }
+
 function loadPolicy(raw) {
   require(
     raw && typeof raw.manifest === "string" && raw.enrollment,
@@ -745,7 +805,7 @@ async function main() {
     await store("client", client);
   }
   credit = await new Credit(cfg, client, render).init();
-  initChat();
+  await initChat();
   render();
   action("burner", async () => {
     await credit.burner();

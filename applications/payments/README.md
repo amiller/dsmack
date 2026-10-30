@@ -59,8 +59,9 @@ The measured guest `PAYMENTS_CONFIG` contains `node`, `escrow`, `operator`,
 binds it in its attestation. Set the workload/session lifetime below 900 seconds. Publish the
 class's compose and image hashes on chain before buying; wait for finalized
 registration before offering that class. Run `register-class.mjs CONFIG FUNDING_KEY
-MANIFEST` after the deployment is finalized to pin the broker and register the
-measured compute class.
+MANIFEST BROKER PUBLISHER` after linking the Mac to register the measured class.
+The agent funding wallet registers it on testnet; its operator comes from the
+signed Mac link and must match the packed guest. A new operator needs a new class.
 
 `GET /payments/classes` exposes prices before a VM exists. `/payments/nodes`
 lists live attested runs. `/payments/confirm` records the finalized Purchase event and immutable allowance

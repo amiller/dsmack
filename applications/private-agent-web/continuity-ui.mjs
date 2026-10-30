@@ -4,7 +4,7 @@ import { createEmailGate } from "./email-gate-client.mjs";
 
 export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   const $ = (id) => document.getElementById(id);
-  let receiver, emailRequest, emailPurpose;
+  let receiver, emailRequest, emailPurpose, dkimRequest, dkimPoll;
   const status = (text) => { $("continuity-status").textContent = text; };
   const onCode = (code) => { $("continuity-panel").hidden = false; $("link-code").textContent = code; };
   const confirm = async (code) => {
@@ -36,14 +36,51 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     location.reload();
   });
   const emailGate = createEmailGate({ base: "", policy: cfg.emailGate });
+  const requestDkim = async (purpose) => {
+    dkimPoll?.abort();
+    dkimPoll = undefined;
+    dkimRequest = undefined;
+    $("send-recovery-email").hidden = true;
+    status("Verifying the recovery gate’s attestation…");
+    if (purpose === "enroll") await beforeExport();
+    dkimRequest = await emailGate.requestDkim($("recovery-email").value, purpose);
+    $("send-recovery-email").href = dkimRequest.mailto;
+    $("send-recovery-email").hidden = false;
+    status("Send the prepared message from " + dkimRequest.email + ". This page will wait for it.");
+  };
+  bind("enroll-email", () => requestDkim("enroll"));
+  bind("request-email", () => requestDkim("recover"));
+  $("send-recovery-email").onclick = () => {
+    if (!dkimRequest || dkimPoll) return;
+    const request = dkimRequest;
+    dkimPoll = new AbortController();
+    const poll = dkimPoll;
+    status("Waiting for your recovery email…");
+    (async () => {
+      const headers = await emailGate.waitDkim(request, { signal: poll.signal });
+      status("Checking your email signature in the attested gate…");
+      const result = await emailGate.confirmDkim(request, headers,
+        request.purpose === "enroll" ? keys.bundle : undefined);
+      if (request.purpose === "enroll") {
+        dkimRequest = undefined;
+        $("send-recovery-email").hidden = true;
+        status("Recovery email added. Use Recover with email on another device.");
+      } else {
+        await imported(result);
+        location.reload();
+      }
+    })().catch((e) => {
+      if (e.name !== "AbortError") { status(e.message); error(e); }
+    }).finally(() => { if (dkimPoll === poll) dkimPoll = undefined; });
+  };
   const requestEmail = async (purpose) => {
     emailPurpose = purpose;
     status("Verifying the recovery gate’s attestation…");
     emailRequest = await emailGate.request($("recovery-email").value.trim(), purpose);
     status("Enter the email code sent to your address.");
   };
-  bind("enroll-email", () => requestEmail("enroll"));
-  bind("request-email", () => requestEmail("recover"));
+  bind("enroll-email-smtp", () => requestEmail("enroll"));
+  bind("request-email-smtp", () => requestEmail("recover"));
   bind("confirm-email", async () => {
     if (!emailRequest) throw Error("Request an email code first.");
     const result = await emailGate.confirm(emailRequest, $("recovery-code").value.trim(),
@@ -96,6 +133,6 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   });
   serveOriginMigration({ getBundle: async () => { await beforeExport(); return keys.bundle; }, confirm, onCode, onStatus: status,
     allowedOrigin: "https://private-agent.dstack.soc1024.com" }).catch((e) => { status(e.message); error(e); });
-  window.addEventListener("pagehide", () => receiver?.close(), { once: true });
+  window.addEventListener("pagehide", () => { receiver?.close(); dkimPoll?.abort(); }, { once: true });
   return { bind, status };
 }

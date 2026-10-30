@@ -1,5 +1,7 @@
 import { tunnelIndex } from "../relay-broker/tunnel-index.mjs";
 import { emailGate } from "./email-gate-runtime.mjs";
+import { HeaderReceiver } from "./email-receiver/receiver.mjs";
+const emailHeaders = new HeaderReceiver();
 const root = new URL("./dist/", import.meta.url);
 const types: Record<string, string> = {
   html: "text/html; charset=utf-8",
@@ -23,6 +25,8 @@ const security = {
 
 // The shared webhost router strips /private-agent before invoking this handler.
 export default async function handler(req: Request,ctx?: {env:Record<string,string>;dataDir?:string}) {
+  if(new URL(req.url).pathname.startsWith("/email-recovery/"))return await emailHeaders.handle(req);
+  if(new URL(req.url).pathname==="/continuity/email/config")return Response.json({receiverAddress:ctx?.env.EMAIL_RECOVERY_ADDRESS||""},{headers:{"cache-control":"no-store"}});
   if(new URL(req.url).pathname.startsWith("/continuity/"))return await emailGate(req,ctx);
   if(new URL(req.url).pathname==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   if (req.method !== "GET" && req.method !== "HEAD") {

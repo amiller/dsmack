@@ -41,12 +41,20 @@ checks the contract code, on-chain head, signature and ciphertext CID before
 loading remote sessions. Refresh loads changes made on another device.
 
 Email recovery verifies the gate's Intel TDX quote and approved boot measurements
-in the browser before sending keys sealed to its quoted ECDH key. A verified
-email code enrolls or recovers a copy; recovered keys are sealed to the browser's
-fresh ECDH key. The gate limits code attempts and sends. Configure SMTP_HOST,
-SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM through the project's
-private environment. SMTP_TLS defaults to true and uses implicit TLS; use port 465
-for a provider supporting that transport.
+in the browser before sending keys sealed to its quoted ECDH key. Enter your
+address and send the prepared recovery email from that account. The page polls
+for its headers; the gate verifies the DKIM signature and browser-bound subject
+nonce, then stores or releases the labelled encrypted recovery wrap. Passkeys
+remain the primary recovery path.
+
+Set EMAIL_RECOVERY_ADDRESS in the project's private deployment environment and
+connect an inbound forwarder to POST unchanged raw messages to
+`https://private-agent.dstack.soc1024.com/email-recovery/inbound` with Content-Type
+`message/rfc822`. The receiver keeps headers for fifteen minutes. The
+[email receiver](email-receiver/README.md) also includes a local SMTP path.
+The email-code path remains available under Email code. Configure SMTP_HOST,
+SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM for code delivery;
+SMTP_TLS defaults to implicit TLS on port 465.
 
 Build on a development host with Node 24 or newer:
 

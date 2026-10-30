@@ -1,8 +1,9 @@
-import {bytes,b64,unb64,digest,random,seal,open,quoteBinding} from './email-gate-crypto.mjs';
+import {verifyDkimRecovery} from './dkim-verifier.mjs';
+import {bytes,b64,unb64,digest,random,seal,open,quoteBinding,emailRecoveryLabel} from './email-gate-crypto.mjs';
 const fail=(status,message)=>{throw Object.assign(new Error(message),{status});};
 const json=(value,status=200)=>new Response(JSON.stringify(value),{status,headers:{'content-type':'application/json','cache-control':'no-store'}});
 export class EmailGate {
-  constructor({load,save,sendEmail,quote,now=()=>Date.now()}) {Object.assign(this,{load,save,sendEmail,quote,now});this.serial=Promise.resolve();}
+  constructor({load,save,sendEmail,quote,verifyDkim=verifyDkimRecovery,now=()=>Date.now()}) {Object.assign(this,{load,save,sendEmail,quote,verifyDkim,now});this.serial=Promise.resolve();}
   async initialize() {
     this.state=await this.load();
     if(!this.state){
@@ -14,11 +15,11 @@ export class EmailGate {
     this.storageKey=await crypto.subtle.importKey('raw',unb64(this.state.storageKey),'AES-GCM',false,['encrypt','decrypt']);
     return this;
   }
-  async atRest(value) {
+  async atRest(value,label='dsmack-email-storage/1') {
     const iv=crypto.getRandomValues(new Uint8Array(12));
-    return {iv:b64(iv),ciphertext:b64(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:bytes('dsmack-email-storage/1')},this.storageKey,bytes(value)))};
+    return {iv:b64(iv),ciphertext:b64(await crypto.subtle.encrypt({name:'AES-GCM',iv,additionalData:bytes(label)},this.storageKey,bytes(value)))};
   }
-  async fromRest(value) {return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(value.iv),additionalData:bytes('dsmack-email-storage/1')},this.storageKey,unb64(value.ciphertext))));}
+  async fromRest(value,label='dsmack-email-storage/1') {return JSON.parse(new TextDecoder().decode(await crypto.subtle.decrypt({name:'AES-GCM',iv:unb64(value.iv),additionalData:bytes(label)},this.storageKey,unb64(value.ciphertext))));}
   handle(req) {
     const task=this.serial.then(()=>this.route(req));
     this.serial=task.catch(()=>{});
@@ -32,10 +33,27 @@ export class EmailGate {
       return json({v:1,nonce,publicKey:this.state.publicKey,...await this.quote(await quoteBinding(nonce,this.state.publicKey))});
     }
     if(req.method!=='POST')return json({error:'Not found'},404);
-    if(Number(req.headers.get('content-length')||0)>16384)fail(413,'Request too large');
-    const raw=await req.text();if(raw.length>16384)fail(413,'Request too large');
+    if(Number(req.headers.get('content-length')||0)>65536)fail(413,'Request too large');
+    const raw=await req.text();if(raw.length>65536)fail(413,'Request too large');
     let body;try{body=JSON.parse(raw);}catch{fail(400,'Invalid JSON');}
     if(!body||typeof body!=='object'||Array.isArray(body))fail(400,'Expected a JSON object');
+    if(path==='/continuity/email/dkim') {
+      if(!['enroll','recover'].includes(body.purpose))fail(400,'Unknown email operation');
+      const email=String(body.email||'').trim().toLowerCase();
+      let proof;try{proof=await this.verifyDkim({...body,email},{now:this.now()});}catch(error){fail(403,error.message);}
+      const label=emailRecoveryLabel(email,body.userId),account=await digest(label);
+      this.state.dkimAccounts??={};
+      if(body.purpose==='enroll') {
+        if(this.state.dkimAccounts[account])fail(409,'This email already has recovery keys; recover them instead');
+        let bundle;try{bundle=await open(this.privateKey,body.publicKey,body.sealed,label+'|enroll|'+proof.nonce);}catch{fail(400,'Invalid sealed recovery keys');}
+        if(bundle?.v!==1||!/^[A-Za-z0-9_-]{43}$/.test(bundle.dk||'')||!/^0x[0-9a-fA-F]{64}$/.test(bundle.walletKey||''))fail(400,'Invalid recovery keys');
+        this.state.dkimAccounts[account]=await this.atRest(bundle,label);
+        await this.save(this.state);
+        return json({enrolled:true});
+      }
+      const stored=this.state.dkimAccounts[account];if(!stored)fail(404,'No recovery keys are enrolled for this email');
+      return json({sealed:await seal(this.privateKey,body.publicKey,await this.fromRest(stored,label),label+'|recover|'+proof.nonce)});
+    }
     if(path==='/continuity/email/request') {
       const email=String(body.email||'').trim().toLowerCase();
       if(email.length>254||! /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email))fail(400,'Enter an email address');

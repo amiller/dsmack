@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deploy the built private-agent page to dstack-webhost's shared Deno runtime."""
 import argparse
+import fcntl
 import io
 import json
 import os
@@ -70,12 +71,12 @@ def main():
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--url", default="https://pod.dstack.soc1024.com")
     parser.add_argument("--operator-token-sha256")
-    parser.add_argument("--smtp-env", type=Path, help="Private JSON file containing SMTP configuration")
+    parser.add_argument("--smtp-env", type=Path, help="Private JSON file containing SMTP and email receiver configuration")
     args = parser.parse_args()
     if args.operator_token_sha256 and not re.fullmatch(r"[0-9a-f]{64}",args.operator_token_sha256):
         raise ValueError("operator token SHA256 must be lowercase hex")
     smtp_env = json.loads(args.smtp_env.read_text()) if args.smtp_env else {}
-    if not isinstance(smtp_env, dict) or set(smtp_env) - {"SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD"}:
+    if not isinstance(smtp_env, dict) or set(smtp_env) - {"SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_RECOVERY_ADDRESS"}:
         raise ValueError("SMTP configuration contains unsupported keys")
     if any(not isinstance(value, str) for value in smtp_env.values()):
         raise ValueError("SMTP configuration values must be strings")
@@ -145,6 +146,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        # Shared Deno reloads affect both projects. Hold one upload/promote
+        # transaction at a time so another project cannot remove its key socket.
+        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a") as deployment_lock:
+            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
+            main()
     except (OSError, ValueError, RuntimeError, URLError) as error:
         raise SystemExit(str(error)) from None

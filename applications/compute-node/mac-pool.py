@@ -4,6 +4,7 @@ import argparse,json,signal,subprocess,sys,time,re,socket,ssl,http.client,base64
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 from pool import preflight,MacOccupied,hardware,operator_config,measured_size
 
 ROOT=Path(__file__).resolve().parents[2]
@@ -17,6 +18,46 @@ def republish(publish,hint,chain):
         print(json.dumps(dict(event='periodic-publication-failed',error=type(error).__name__,
                               chain=chain,retrySeconds=60)),flush=True)
         return False
+
+
+def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_seconds=2):
+    """Ride out broker promotion without restarting the owned Mac launcher."""
+    started = time.monotonic()
+    deadline = started + budget_seconds
+    attempt = 0
+    while not stopped():
+        remaining = deadline - time.monotonic()
+        if remaining <= 0:
+            break
+        attempt += 1
+        status = None
+        try:
+            with urlopen(broker.rstrip('/') + '/sandbox/transport', timeout=min(5, remaining)) as response:
+                peer = json.load(response)['peer_id']
+            if not isinstance(peer, str) or not re.fullmatch(r'12D3KooW[1-9A-HJ-NP-Za-km-z]{44}', peer):
+                raise ValueError('broker transport returned an invalid Ed25519 peer ID')
+            if stopped():
+                break
+            return peer
+        except HTTPError as error:
+            status = error.code
+            error.close()
+            if status not in (408, 429) and not 500 <= status <= 599:
+                raise RuntimeError('broker transport discovery HTTP ' + str(status)) from None
+            failure = type(error).__name__
+        except (URLError, OSError, http.client.HTTPException) as error:
+            failure = type(error).__name__
+        remaining = deadline - time.monotonic()
+        if stopped() or remaining <= 0:
+            break
+        delay = min(retry_seconds, remaining)
+        print(json.dumps(dict(event='broker-transport-retry', attempt=attempt, error=failure,
+                              status=status, elapsedSeconds=round(time.monotonic()-started, 3),
+                              retrySeconds=delay)), flush=True)
+        time.sleep(delay)
+    if stopped():
+        raise RuntimeError('stopped during broker transport discovery')
+    raise RuntimeError('broker transport discovery unavailable after ' + str(budget_seconds) + ' seconds')
 
 
 def main():
@@ -94,7 +135,7 @@ def main():
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     try:
         if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
-        with urlopen(a.broker.rstrip('/')+'/sandbox/transport',timeout=30) as response:broker_peer=json.load(response)['peer_id']
+        broker_peer=discover_transport(a.broker,lambda:stopping)
         start([a.relay,a.relay_key,a.broker.rstrip('/')+'/sandbox/p2p',broker_peer],'relay.log')
         relay=ready(a.state/'relay.log',r'relay_peer=(12D3KooW\S+)',30)
         if relay!=expected_peer:raise ValueError('relay key does not match the measured compose')

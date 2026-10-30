@@ -1,6 +1,7 @@
 import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
-import { fleet } from "./fleet.mjs";
+import { fleet, readFleet } from "./fleet.mjs";
+import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, InferenceError } from "./inference.mjs";
@@ -208,7 +209,7 @@ export default async function handler(req: Request, ctx: Context) {
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
-  if(path==="/fleet")return await fleet(req,b.cfg.fleet_publishers,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
@@ -316,9 +317,27 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/relays") {
       response = Response.json(b.live().filter((r) => r.kind === "relay"));
     } else if (req.method === "GET" && path === "/nodes") {
-      const sessions = new AgentSessions(b);
-      response = Response.json(b.live().filter((r) => r.kind === "compute")
-        .map(node => ({ ...node, available: sessions.available(node) })));
+      const sessions = new AgentSessions(b), url = new URL(req.url);
+      const nodes = b.live().filter((r) => r.kind === "compute");
+      if (url.searchParams.get("all") === "1") {
+        // Operator pool discovery must observe busy and not-yet-heartbeating guests.
+        response = Response.json(nodes.map(node => ({ ...node, available: sessions.available(node) })));
+      } else {
+        const workspaceId = url.searchParams.get("workspaceId"), version = Number(url.searchParams.get("version"));
+        const hash = url.searchParams.get("hash");
+        const snapshotOwner = workspaceId && workspaceId.length <= 128 && Number.isSafeInteger(version) && version > 0 &&
+          /^[0-9a-f]{64}$/.test(hash ?? "")
+          ? await (b as Broker & {workspaces?: {snapshotOwner?: (ref: {workspaceId: string; version: number; hash: string | null}) => Promise<string | undefined>}})
+            .workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
+        const ranked = rankNodes(nodes, await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now()),
+          node => sessions.available(node), { now: b.now(), snapshotOwner });
+        if (ranked.some(node => node.available)) response = Response.json(ranked);
+        else {
+          const retryAfterSeconds = busyRetrySeconds(nodes, b.payments?.state.agentSessions, b.now());
+          response = Response.json({ error: { code: "FLEET_BUSY", message: `busy, retry in ${retryAfterSeconds} seconds`, retryAfterSeconds } },
+            { status: 503, headers: { "retry-after": String(retryAfterSeconds) } });
+        }
+      }
     } else if (req.method === "GET" && path === "/") {
       response = new Response(page(b), {
         headers: { "content-type": "text/html; charset=utf-8" },

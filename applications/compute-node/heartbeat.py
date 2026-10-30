@@ -7,12 +7,11 @@ from urllib.request import Request, urlopen
 
 
 class Publisher:
-    def __init__(self, key_path, publisher_address, payout, broker, version):
+    def __init__(self, key_path, publisher_address, broker, version):
         from eth_account import Account
         self.account = Account.from_key(key_path.read_text().strip())
         if self.account.address.lower() != publisher_address.lower():
             raise ValueError('heartbeat publisher key/address mismatch')
-        self.payout = payout.lower()
         self.url = broker.rstrip('/') + '/fleet'
         self.version = version
         self.next_at = 0
@@ -30,7 +29,7 @@ class Publisher:
             if isinstance(value, list):
                 return [numbers(v) for v in value]
             return value
-        body = {**numbers(snapshot), 'publisher': self.account.address.lower(), 'payout': self.payout,
+        body = {**numbers(snapshot), 'publisher': self.account.address.lower(),
                 'updated_at': int(time.time()), 'version': self.version}
         message = 'dsmack-fleet/1\n' + json.dumps(body, sort_keys=True, separators=(',', ':'), ensure_ascii=False)
         body['signature'] = '0x' + self.account.sign_message(encode_defunct(text=message)).signature.hex()

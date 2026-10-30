@@ -19,7 +19,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -58,7 +60,7 @@ func TestWorkspaceBindOnlyDecryptsForAdmittedGuestStay(t *testing.T) {
 	key := fmt.Sprintf("%064x", 7)
 	binding := canon(map[string]any{"workspaceId": "conversation-1", "key": key, "head": nil})
 	sealed := workspaceEnvelope(t, secret, "stay-1/workspace", binding)
-	request := canon(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": workspaceTool, "arguments": map[string]any{"operation": "bind", "sealed": sealed}}})
+	request := canon(map[string]any{"jsonrpc": "2.0", "id": 1, "method": "tools/call", "params": map[string]any{"name": workspaceTool, "_meta": workspaceMCPMeta(), "arguments": map[string]any{"operation": "bind", "sealed": sealed}}})
 	if bytes.Contains(request, []byte(key)) {
 		t.Fatal("workspace key appears on browser wire")
 	}
@@ -71,6 +73,15 @@ func TestWorkspaceBindOnlyDecryptsForAdmittedGuestStay(t *testing.T) {
 	}
 	if !bytes.Contains(forwarded, []byte(key)) || bytes.Contains(forwarded, []byte("sealed")) {
 		t.Fatal("private Unix request must contain only clear binding")
+	}
+	var privateRequest struct {
+		Params struct {
+			Meta map[string]any `json:"_meta"`
+		} `json:"params"`
+	}
+	json.Unmarshal(forwarded, &privateRequest)
+	if privateRequest.Params.Meta["io.modelcontextprotocol/protocolVersion"] != "2026-07-28" {
+		t.Fatal("bind discarded the SDK metadata envelope")
 	}
 	if w.id != "" {
 		t.Fatal("binding activated before Node acknowledgement")
@@ -142,7 +153,7 @@ func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 					}
 					var result any = map[string]any{}
 					mu.Lock()
-					if req.Method == "initialize" {
+					if req.Method == "server/discover" {
 						connections++
 					} else {
 						args := req.Params.Arguments
@@ -339,5 +350,167 @@ func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 	raw, err := os.ReadFile(filepath.Join(directory, "workspace-seal.json"))
 	if err != nil || string(raw) != "null" {
 		t.Fatal("committed fallback must be cleared", err, string(raw))
+	}
+}
+
+// The actual SDK enforces MCP2026 request metadata. Keep this integration at
+// that boundary: a sealed browser bind is rewritten, its stream disconnects,
+// then the guest opens a new internal stream and seals/reads/commits real files.
+func TestWorkspaceRealMCPBindsAndAutosavesAfterBrowserDisconnect(t *testing.T) {
+	module := os.Getenv("DSMACK_AGENT_MCP_MODULE")
+	if module == "" {
+		t.Skip("set DSMACK_AGENT_MCP_MODULE to the production agent-mcp.mjs with its existing Node dependencies")
+	}
+	directory := t.TempDir()
+	root := filepath.Join(directory, "workspace")
+	socket := filepath.Join(directory, "mcp.sock")
+	if err := os.MkdirAll(filepath.Join(root, "artifacts"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	logFile, err := os.Create(filepath.Join(directory, "node.log"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer logFile.Close()
+	script := `import {pathToFileURL} from 'node:url'; const {listen}=await import(pathToFileURL(process.argv[2]).href); const server=await listen({root:process.argv[3],socket:process.argv[4]}); process.on('SIGTERM',()=>server.close(()=>process.exit(0)));`
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Second)
+	defer cancel()
+	command := exec.CommandContext(ctx, "node", "--input-type=module", "-e", script, "workspace-fixture", module, root, socket)
+	command.Stdout = logFile
+	command.Stderr = logFile
+	if err = command.Start(); err != nil {
+		t.Fatal(err)
+	}
+	exited := make(chan struct{})
+	var processErr error
+	go func() { processErr = command.Wait(); close(exited) }()
+	defer func() {
+		command.Process.Kill()
+		select {
+		case <-exited:
+		case <-time.After(5 * time.Second):
+			t.Error("owned Node fixture did not stop")
+		}
+	}()
+	readyUntil := time.Now().Add(15 * time.Second)
+	for {
+		if _, err = os.Stat(socket); err == nil {
+			break
+		}
+		select {
+		case <-exited:
+			raw, _ := os.ReadFile(filepath.Join(directory, "node.log"))
+			t.Fatalf("actual Node SDK exited: %v %s", processErr, raw)
+		default:
+		}
+		if time.Now().After(readyUntil) {
+			raw, _ := os.ReadFile(filepath.Join(directory, "node.log"))
+			t.Fatalf("actual Node SDK readiness: %s", raw)
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	secret, _ := ecdh.P256().GenerateKey(rand.Reader)
+	_, signer, _ := ed25519.GenerateKey(rand.Reader)
+	n := &engine{secret: secret, signer: signer, node: "actual-sdk-guest", until: time.Now().Add(30 * time.Second), resultPath: filepath.Join(root, "artifacts", "last-result")}
+	browser, err := openWorkspaceMCP(socket, time.Now().Add(20*time.Second))
+	if err != nil {
+		t.Fatal("actual SDK discovery", err)
+	}
+	key := fmt.Sprintf("%064x", 71)
+	sealed := workspaceEnvelope(t, secret, "stay-real/workspace", canon(map[string]any{"workspaceId": "real-conversation", "key": key, "head": nil}))
+	w := &workspaceSession{}
+	request := canon(map[string]any{"jsonrpc": "2.0", "id": 50, "method": "tools/call", "params": map[string]any{"_meta": workspaceMCPMeta(), "name": workspaceTool, "arguments": map[string]any{"operation": "bind", "sealed": sealed}}})
+	forwarded, err := w.request(n, "stay-real", request)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err = browser.conn.Write(append(forwarded, '\n')); err != nil {
+		t.Fatal(err)
+	}
+	line, err := readWorkspaceLine(browser.reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	w.observe(line)
+	if w.id != "real-conversation" {
+		t.Fatalf("actual SDK rejected rewritten sealed bind: %s", line)
+	}
+	var bash struct {
+		IsError bool `json:"isError"`
+	}
+	if err = browser.rpc("tools/call", map[string]any{"name": "bash", "arguments": map[string]any{"command": "printf 'actual-sdk-survives\\n' > tracked.txt; git add tracked.txt; git -c user.name=Fixture -c user.email=fixture@dsmack.invalid commit -qm fixture", "timeout": 5}}, &bash); err != nil || bash.IsError {
+		t.Fatal("actual production bash", err, bash)
+	}
+	payload := make([]byte, 768<<10)
+	rand.Read(payload)
+	if err = os.WriteFile(filepath.Join(root, "untracked.bin"), payload, 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err = browser.conn.Close(); err != nil {
+		t.Fatal(err)
+	}
+	var uploaded []byte
+	var candidate map[string]any
+	var uploadMu sync.Mutex
+	chunks := 0
+	broker := httptest.NewServer(http.HandlerFunc(func(out http.ResponseWriter, r *http.Request) {
+		uploadMu.Lock()
+		defer uploadMu.Unlock()
+		var body map[string]any
+		json.NewDecoder(r.Body).Decode(&body)
+		sig, _ := hex.DecodeString(body["sig"].(string))
+		delete(body, "sig")
+		if !ed25519.Verify(signer.Public().(ed25519.PublicKey), canon(body), sig) {
+			t.Error("workspace upload signature")
+		}
+		switch r.URL.Path {
+		case "/workspaces/begin":
+			candidate = map[string]any{}
+			for _, k := range []string{"workspaceId", "version", "previousHash", "hash", "size"} {
+				candidate[k] = body[k]
+			}
+			json.NewEncoder(out).Encode(map[string]any{"uploadId": "actual-sdk-upload", "offset": 0})
+		case "/workspaces/chunk":
+			bytes, err := base64.StdEncoding.DecodeString(body["data"].(string))
+			if err != nil {
+				t.Error(err)
+			}
+			if int(body["offset"].(float64)) != len(uploaded) {
+				t.Error("ciphertext offset")
+			}
+			uploaded = append(uploaded, bytes...)
+			chunks++
+			json.NewEncoder(out).Encode(map[string]any{"offset": len(uploaded)})
+		case "/workspaces/commit":
+			candidate["cid"] = "b" + strings.Repeat("a", 30)
+			candidate["mac"] = "fixture-mac"
+			json.NewEncoder(out).Encode(map[string]any{"head": candidate})
+		default:
+			t.Error("unexpected route", r.URL.Path)
+			http.Error(out, "route", 404)
+		}
+	}))
+	defer broker.Close()
+	if err = w.save(n, socket, broker.URL, "stay-real", broker.Client()); err != nil {
+		raw, _ := os.ReadFile(filepath.Join(directory, "node.log"))
+		t.Fatalf("actual SDK autosave after disconnect: %v %s", err, raw)
+	}
+	uploadMu.Lock()
+	defer uploadMu.Unlock()
+	digest := sha256.Sum256(uploaded)
+	if chunks < 2 || hex.EncodeToString(digest[:]) != candidate["hash"] || len(uploaded) != int(candidate["size"].(float64)) {
+		t.Fatal("actual SDK chunk transfer", chunks, len(uploaded), candidate)
+	}
+	internal, err := openWorkspaceMCP(socket, time.Now().Add(10*time.Second))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer internal.conn.Close()
+	var next map[string]any
+	if err = internal.control(map[string]any{"operation": "seal"}, &next); err != nil {
+		t.Fatal(err)
+	}
+	if next["version"] != float64(2) || next["previousHash"] != candidate["hash"] {
+		t.Fatal("actual SDK commit did not advance the retained workspace", next)
 	}
 }

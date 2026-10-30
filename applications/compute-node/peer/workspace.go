@@ -149,7 +149,12 @@ func (w *workspaceSession) request(n *engine, grantID string, line []byte) ([]by
 	}
 	var message map[string]json.RawMessage
 	json.Unmarshal(line, &message)
-	message["params"] = canon(map[string]any{"name": workspaceTool, "arguments": map[string]any{"operation": "bind", "workspaceId": binding.WorkspaceID, "key": binding.Key, "head": binding.Head}})
+	// Preserve the SDK's MCP2026 metadata envelope and any progress token.
+	// Only replace sealed arguments with the private Unix binding.
+	var params map[string]json.RawMessage
+	json.Unmarshal(message["params"], &params)
+	params["arguments"] = canon(map[string]any{"operation": "bind", "workspaceId": binding.WorkspaceID, "key": binding.Key, "head": binding.Head})
+	message["params"] = canon(params)
 	w.mu.Lock()
 	if w.pending == nil {
 		w.pending = map[string]string{}
@@ -198,17 +203,28 @@ func openWorkspaceMCP(socket string, deadline time.Time) (*workspaceMCP, error) 
 	}
 	conn.SetDeadline(deadline)
 	c := &workspaceMCP{conn: conn, reader: bufio.NewReader(conn)}
-	if err = c.rpc("initialize", map[string]any{"protocolVersion": "2026-07-28", "capabilities": map[string]any{}, "clientInfo": map[string]string{"name": "dsmack-workspace-seal", "version": "1"}}, nil); err != nil {
-		conn.Close()
-		return nil, err
-	}
-	if _, err = conn.Write(append(canon(map[string]any{"jsonrpc": "2.0", "method": "notifications/initialized"}), '\n')); err != nil {
+	// MCP2026 has per-request envelopes and server/discover; initialize and
+	// notifications/initialized belong to the earlier protocol handshake.
+	if err = c.rpc("server/discover", map[string]any{}, nil); err != nil {
 		conn.Close()
 		return nil, err
 	}
 	return c, nil
 }
+func workspaceMCPMeta() map[string]any {
+	return map[string]any{
+		"io.modelcontextprotocol/protocolVersion":    "2026-07-28",
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+		"io.modelcontextprotocol/clientInfo":         map[string]string{"name": "dsmack-workspace-seal", "version": "1"},
+	}
+}
 func (c *workspaceMCP) rpc(method string, params any, out any) error {
+	// MCP2026 is self-describing on every request, including discovery.
+	fields, ok := params.(map[string]any)
+	if !ok {
+		return fmt.Errorf("workspace MCP request parameters")
+	}
+	fields["_meta"] = workspaceMCPMeta()
 	c.next++
 	id := c.next
 	if _, err := c.conn.Write(append(canon(map[string]any{"jsonrpc": "2.0", "id": id, "method": method, "params": params}), '\n')); err != nil {

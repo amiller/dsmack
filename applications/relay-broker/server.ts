@@ -377,9 +377,12 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     return finish(response);
   } catch (e) {
     if (e instanceof InferenceError || e instanceof NearError) {
+      const retryAfterSeconds = e instanceof InferenceError ? e.retryAfterSeconds : undefined;
       return finish(
-        Response.json({ error: { code: e.code, message: e.message } }, {
+        Response.json({ error: { code: e.code, message: e.message,
+          ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}) } }, {
           status: e.status,
+          ...(retryAfterSeconds !== undefined ? { headers: { "retry-after": String(retryAfterSeconds) } } : {}),
         }),
       );
     }

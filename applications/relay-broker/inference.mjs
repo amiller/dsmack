@@ -2,10 +2,11 @@ import { verifyMessage } from "../payments/schema.mjs";
 import { canonical } from "./grants.mjs";
 
 export class InferenceError extends Error {
-  constructor(code, message, status = 400) {
+  constructor(code, message, status = 400, retryAfterSeconds = undefined) {
     super(message);
     this.code = code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 const check = (ok, code, message, status = 400) => {

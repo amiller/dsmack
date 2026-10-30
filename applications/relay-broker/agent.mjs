@@ -57,6 +57,13 @@ export class AgentSessions {
     return await b.payments.serial(async () => {
       await this.releaseUnused();
       const existing = Object.values(b.payments.state.agentSessions ?? {});
+      // An expired stay can still be sealing its workspace before its final
+      // receipt. Its successor must restore that completed head, even when a
+      // different browser opens the conversation after the wall deadline.
+      if (existing.some(s => s.wallet === wallet && s.conversationId === r.conversationId &&
+        s.receiptSeen && !s.final && s.grant.expires_at <= b.now())) {
+        throw new InferenceError("SESSION_SAVING", "workspace is still being saved; retry in 5 seconds", 409, 5);
+      }
       need(!existing.some((s) => s.wallet === wallet && this.active(s)), "SESSION_ACTIVE", "end the wallet's held guest first", 409);
       const node = b.live().find((n) => n.kind === "compute" && n.relay_peer === r.node_peer);
       need(node?.receipt_key && /^[0-9a-f]{64}$/.test(node.receipt_key), "NODE_NOT_LIVE", "attested guest is unavailable", 404);

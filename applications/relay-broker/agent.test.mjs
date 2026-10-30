@@ -265,3 +265,35 @@ test("late original full-reservation receipts remain payable after rolling budge
  const credit=f.inference.summary(f.wallet.address.toLowerCase());
  assert.equal(credit.spentNanoUsd,"16000000");assert.equal(credit.reservedNanoUsd,"0");
 });
+
+
+test("a fresh browser cannot resume an expired conversation until its admitted guest saves and sends final",async()=>{
+ const {handleRequest}=await import("./server.ts");
+ const f=await fixture(),first=await f.open();
+ await f.sessions.receipt(await f.receipt(first.sessionId,5));
+ f.advance(1801);
+ const replacement={...f.node,relay_peer:peer+"-handover",admit_until:f.broker.now()+1800};
+ f.broker.live=()=>[replacement];
+ const dir=await Deno.makeTempDir();
+ const post=async conversationId=>handleRequest(new Request("https://broker.example/agent/open",{method:"POST",
+  headers:{"content-type":"application/json"},body:JSON.stringify(await f.signed("agent-open",{
+   conversationId,client_peer:peer,node_peer:replacement.relay_peer}))}),f.broker,{dataDir:dir,env:{}});
+ try {
+  const [mac]=await f.readFleet();
+  await Deno.writeTextFile(dir+"/fleet.json",JSON.stringify({heartbeats:{[mac.publisher]:mac},
+   links:{[mac.publisher]:{link:{operator:f.wallet.address,kid:"fixture"}}}}));
+  const blocked=await post("conversation"),error=(await blocked.json()).error;
+  assert.equal(blocked.status,409);assert.equal(error.code,"SESSION_SAVING");
+  assert.equal(error.retryAfterSeconds,5);assert.equal(blocked.headers.get("retry-after"),"5");
+  assert.equal(Object.keys(f.payments.state.agentSessions).length,1,"waiting cannot reserve a successor grant");
+  // A lost receipt from another conversation must not prevent all future work.
+  const other=await post("different-conversation");assert.equal(other.status,200);
+  const otherStay=await other.json();
+  await f.sessions.status(await f.signed("agent-end",{sessionId:otherStay.sessionId}),true);
+  await f.sessions.receipt(await f.receipt(first.sessionId,6,true,false,"drain"));
+  const resumed=await post("conversation");assert.equal(resumed.status,200);
+  const next=await resumed.json();assert.notEqual(next.sessionId,first.sessionId);
+  assert.equal(next.conversationId,"conversation");
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"60000");
+ } finally {await Deno.remove(dir,{recursive:true});}
+});

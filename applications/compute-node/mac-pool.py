@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Own a Mac quick tunnel, capped relay and CONNECT helper for the warm pool lifetime."""
-import argparse,json,signal,subprocess,sys,time,re
+import argparse,json,signal,subprocess,sys,time,re,socket,ssl,http.client,base64,hashlib,os
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -43,6 +43,25 @@ def main():
                 if m:return m[1]
             time.sleep(.5)
         raise RuntimeError('readiness timeout: '+str(path))
+    def public_ready(host):
+        path=a.state/'tunnel-readiness.jsonl'
+        for attempt in range(1,25):
+            try:
+                key=base64.b64encode(os.urandom(16)).decode()
+                with socket.create_connection((host,443),timeout=5) as raw:
+                    with ssl.create_default_context().wrap_socket(raw,server_hostname=host) as connection:
+                        connection.sendall(('GET / HTTP/1.1\r\nHost: '+host+'\r\nConnection: Upgrade\r\nUpgrade: websocket\r\nSec-WebSocket-Version: 13\r\nSec-WebSocket-Key: '+key+'\r\n\r\n').encode())
+                        response=http.client.HTTPResponse(connection);response.begin()
+                        expected=base64.b64encode(hashlib.sha1((key+'258EAFA5-E914-47DA-95CA-C5AB0DC85B11').encode()).digest()).decode()
+                        if response.status!=101 or response.getheader('Sec-WebSocket-Accept')!=expected:raise ValueError('public WebSocket upgrade HTTP '+str(response.status))
+                result={'attempt':attempt,'host':host,'status':'ready'}
+            except (OSError,http.client.HTTPException,ValueError) as error:result={'attempt':attempt,'host':host,'error':str(error)}
+            with path.open('a') as log:log.write(json.dumps(result)+'\n')
+            print(json.dumps(result),flush=True)
+            if result.get('status')=='ready':return
+            if stopping:raise RuntimeError('stopped during public tunnel readiness')
+            time.sleep(5)
+        raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
     def publish(entries,chain):
         out=a.state/('publication-'+str(time.time_ns()));out.mkdir();path=out/'entries.json';path.write_text(json.dumps(entries))
         cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','publish' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',path,'--evidence',out]
@@ -56,6 +75,7 @@ def main():
         start([a.cloudflared,'tunnel','--no-autoupdate','--url','http://127.0.0.1:4019'],'tunnel.log')
         host=ready(a.state/'tunnel.log',r'https://([a-z0-9-]+\.trycloudflare\.com)',90)
         ready(a.state/'tunnel.log',r'(Registered tunnel connection)',90)
+        public_ready(host)
         start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18484','--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','960'],'proxy.log')
         hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))

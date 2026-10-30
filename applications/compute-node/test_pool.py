@@ -1,5 +1,6 @@
 """Replacement readiness must not discard the serving warm node."""
 import hashlib
+import io
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -54,7 +55,7 @@ class PoolTests(unittest.TestCase):
         instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
                                         debugfs=Path('/debugfs'))
         instance.active = []; instance.stopping = False; instance.failure = None
-        instance.consecutive_failures = 0; instance.last_error = None; instance.retry_pending = False
+        instance.consecutive_failures = 0; instance.last_error = None; instance.retry_pending = False; instance.last_broker_error = None
         instance.measurement = 'compose'; instance.image = 'image'
         instance.event = Mock(); instance.launch = Mock()
         return instance
@@ -149,6 +150,7 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(result['error']['status'], 503)
             self.assertEqual(result['error']['body'], 'promotion\nretry')
             self.assertEqual(result['error']['stage'], 'broker lease renewal 3/3')
+            self.assertTrue(result['error']['terminal'])
             self.assertEqual((run/'out/guest-stderr.log').read_bytes(), stderr)
             self.assertEqual((run/'out/gateway-log.jsonl').read_bytes(), gateway)
 
@@ -163,7 +165,7 @@ class PoolTests(unittest.TestCase):
             with patch.object(pool, 'stopped_helper'), patch.object(pool.subprocess, 'run', side_effect=[
                     SimpleNamespace(stdout=raw, stderr=b'debugfs 1.47.0\n') for raw in responses]):
                 result = pool.guest_result(run, Path('/debugfs'))
-            self.assertEqual(result['error']['stage'], 'POST /relay-broker/nodes')
+            self.assertEqual(result['error']['stage'], 'broker_registration')
             self.assertEqual(result['error']['body'], 'bad attestation')
             self.assertEqual(result['error']['status'], 403)
             self.assertFalse((run/'out/guest-stderr.log').exists())
@@ -182,24 +184,90 @@ class PoolTests(unittest.TestCase):
             instance.tick()
         self.assertEqual(instance.active, [node])
         self.assertGreater(node['readiness_deadline'], time.monotonic())
-        instance.event.assert_called_once_with('broker_unavailable', error='HTTPError', status=500)
+        event = instance.event.call_args
+        self.assertEqual(event.args, ('broker_unavailable',))
+        self.assertEqual(event.kwargs['stage'], 'broker_readiness')
+        self.assertEqual(event.kwargs['status'], 500)
+        self.assertEqual(event.kwargs['body'], '')
         instance.launch.assert_not_called()
 
-    def test_fatal_broker_readiness_response_drains_before_returning_error(self):
+    def test_broker_404_does_not_stop_healthy_guest_and_is_counted_after_failed_guest_finishes(self):
         from urllib.error import HTTPError
         with tempfile.TemporaryDirectory() as tmp:
-            instance = object.__new__(pool.Pool)
-            instance.args = SimpleNamespace(state=Path(tmp), cycles=0)
-            instance.active = [object()]; instance.stopping = False; instance.failure = None
-            instance.event = Mock()
-            def tick():
-                if not instance.stopping:
-                    raise HTTPError('https://broker/nodes',404,'missing',None,None)
-                instance.active.clear()
-            instance.tick = tick
-            with patch.object(pool.time, 'sleep'):
-                with self.assertRaisesRegex(RuntimeError, 'broker readiness HTTP 404'):
-                    instance.run()
-            self.assertTrue(instance.stopping)
-            self.assertEqual(instance.active, [])
-            instance.event.assert_called_once_with('draining_after_error',error='broker readiness HTTP 404')
+            root = Path(tmp); instance = self.instance(root); instance.args.broker = 'https://broker'
+            now = pool.time.monotonic()
+            healthy = {'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+                       'started': now, 'admit_seconds': 570}
+            booting = self.failed_node(root/'booting'); booting.update(process=Mock(poll=Mock(return_value=None)),
+                previous=set(), started=now, admit_seconds=570, readiness_deadline=0)
+            instance.active = [healthy, booting]
+            error = HTTPError('https://broker/nodes', 404, 'missing', None, io.BytesIO(b'actual missing route'))
+            with patch.object(pool, 'urlopen', side_effect=error): instance.tick()
+            self.assertEqual(instance.active, [healthy, booting]); self.assertFalse(instance.stopping)
+            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(booting['readiness_error']['status'], 404)
+            self.assertEqual(booting['readiness_error']['body'], 'actual missing route')
+            booting['process'] = Mock(poll=Mock(return_value=0), returncode=0)
+            with patch.object(pool, 'guest_result', return_value={'outputs': {'status': 'failed'}}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
+            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertEqual(instance.last_error['status'], 404)
+            self.assertEqual(instance.last_error['stage'], 'broker_readiness')
+            self.assertEqual(instance.active, [healthy]); instance.launch.assert_called_once()
+
+    def test_broker_error_response_body_is_bounded_and_malformed_200_is_visible(self):
+        from urllib.error import HTTPError
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp)); instance.args.broker = 'https://broker'
+            error = HTTPError('https://broker/nodes', 503, 'promotion', None, io.BytesIO(b'x'*5000))
+            with patch.object(pool, 'urlopen', side_effect=error): self.assertIsNone(instance.nodes())
+            self.assertEqual(len(instance.last_broker_error['body']), 4096)
+            response = Mock(status=200); response.read.return_value = b'<html>wrong deployment</html>'
+            response.__enter__ = Mock(return_value=response); response.__exit__ = Mock(return_value=False)
+            with patch.object(pool, 'urlopen', return_value=response): self.assertIsNone(instance.nodes())
+            self.assertEqual(instance.last_broker_error['status'], 200)
+            self.assertEqual(instance.last_broker_error['body'], '<html>wrong deployment</html>')
+
+    def test_ready_guest_at_bounded_lifetime_is_retired_without_counting_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            node = self.failed_node(root/'normal'); node['node'] = {'relay_peer': 'was-ready'}
+            instance.active = [node]
+            result = {'outputs': {'status': 'cancelled', 'exit_code': None, 'cancel': {'reason': 'timeout'}}, 'error': None}
+            with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
+            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertFalse(instance.stopping)
+            self.assertEqual(instance.event.call_args.args, ('retired',))
+
+    def test_old_transient_renewal_error_does_not_fail_normal_bounded_retirement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            node = self.failed_node(root/'normal'); node['node'] = {'relay_peer': 'was-ready'}
+            instance.active = [node]
+            result = {'outputs': {'status': 'cancelled', 'cancel': {'reason': 'timeout'}},
+                      'error': {'stage': 'broker lease renewal 1/3', 'error': 'transient HTTP 503', 'terminal': False}}
+            with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
+            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.event.call_args.args, ('retired',))
+
+    def test_timeout_with_actual_guest_error_is_a_failure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            node = self.failed_node(root/'failed'); node['node'] = {'relay_peer': 'was-ready'}
+            instance.active = [node]
+            result = {'outputs': {'status': 'cancelled', 'cancel': {'reason': 'timeout'}},
+                      'error': {'stage': 'broker_registration', 'status': 403, 'body': 'refused', 'error': 'actual refusal'}}
+            with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
+            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertEqual(instance.last_error['body'], 'refused')
+
+    def test_uncertain_live_helper_blocks_extraction_and_retirement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); (root/'helper-stopped.json').write_text('{"pid":123}')
+            with patch.object(pool.os, 'kill'), patch.object(pool.subprocess, 'run') as read:
+                with self.assertRaisesRegex(RuntimeError, 'helper remains active'):
+                    pool.guest_result(root, Path('/debugfs'))
+                read.assert_not_called()

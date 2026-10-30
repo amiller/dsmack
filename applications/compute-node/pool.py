@@ -7,6 +7,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+from http.client import HTTPException
 import runpy
 import re
 import shlex
@@ -78,7 +79,8 @@ def error_details(message, stage, **fields):
     details = {'stage': stage, 'error': message, **fields}
     match = re.search(r'(POST [^ :]+): HTTP (\d+) body=("(?:[^"\\]|\\.)*")', message)
     if match:
-        details.update(stage=match[1] if stage in ('node_gateway_error', 'guest_stderr') else stage, status=int(match[2]),
+        request_stage = 'broker_registration' if match[1].endswith('/nodes') else match[1]
+        details.update(stage=request_stage if stage in ('node_gateway_error', 'guest_stderr') else stage, status=int(match[2]),
                        body=ast.literal_eval(match[3]))
     return details
 
@@ -116,12 +118,15 @@ def guest_result(run, debugfs):
                 continue
             record = json.loads(line)
             if record.get('error'):
-                last_error = error_details(record['error'], record.get('stage', record.get('event', 'guest_gateway')))
+                last_error = error_details(record['error'], record.get('stage', record.get('event', 'guest_gateway')),
+                                           terminal=record.get('event') == 'node_gateway_error')
         stderr = captured.get('stderr', '').strip()
         if stderr:
             # The terminal Go error follows any renewal attempts in stderr.
-            last_error = error_details(stderr.splitlines()[-1],
-                                       (last_error or {}).get('stage', 'guest_stderr'))
+            line = stderr.splitlines()[-1]
+            terminal = bool(re.match(r'^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d{2} ', line))
+            last_error = error_details(line, (last_error or {}).get('stage', 'guest_stderr'),
+                                       terminal=terminal or (last_error or {}).get('terminal', False))
         return {'outputs': outputs, 'error': last_error}
     except (OSError, ValueError, KeyError, RuntimeError, subprocess.SubprocessError) as error:
         return {'error': {'stage': 'result_extraction', 'error': str(error)}}
@@ -196,6 +201,7 @@ class Pool:
         self.consecutive_failures = 0
         self.last_error = None
         self.retry_pending = False
+        self.last_broker_error = None
         self.manifest = args.workload/'compose-manifest.json'
         self.measurement = sha(self.manifest)
         self.image = json.loads(self.manifest.read_bytes())['base_vm']['os_image_hash']
@@ -208,13 +214,31 @@ class Pool:
             log.write(json.dumps(record)+'\n')
 
     def nodes(self):
+        raw = b''
+        status = None
         try:
             with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
-                return json.load(response)
-        except (HTTPError, URLError, TimeoutError) as error:
-            if isinstance(error, HTTPError) and error.code < 500 and error.code not in (408, 429):
-                raise
-            self.event('broker_unavailable', error=type(error).__name__, status=getattr(error, 'code', None))
+                status = response.status
+                raw = response.read((1 << 20) + 1)
+            if len(raw) > 1 << 20:
+                raise ValueError('broker node index exceeds 1 MiB')
+            nodes = json.loads(raw)
+            if not isinstance(nodes, list):
+                raise ValueError('broker node index is not an array')
+            self.last_broker_error = None
+            return nodes
+        except (HTTPError, URLError, TimeoutError, HTTPException, ValueError) as error:
+            details = {'stage': 'broker_readiness', 'error': str(error), 'error_type': type(error).__name__,
+                       'status': getattr(error, 'code', status), 'body': raw[:4096].decode(errors='replace')}
+            if isinstance(error, HTTPError):
+                try:
+                    details['body'] = error.read(4096).decode(errors='replace')
+                except (OSError, TimeoutError, HTTPException) as read_error:
+                    details['body_read_error'] = str(read_error)
+                finally:
+                    error.close()
+            self.last_broker_error = details
+            self.event('broker_unavailable', **details)
             return None
 
     def launch(self):
@@ -245,13 +269,20 @@ class Pool:
             proc = node['process']
             if proc.poll() is not None:
                 result = guest_result(node['path'], self.args.debugfs)
+                outputs = result.get('outputs', {})
+                normal_timeout = (outputs.get('status') == 'cancelled'
+                                  and (outputs.get('cancel') or {}).get('reason') == 'timeout'
+                                  and (not result.get('error') or result['error'].get('terminal') is False))
                 failed = (proc.returncode != 0 or node['node'] is None or node.get('readiness_failed')
-                          or not guest_closed(node['path']) or result.get('outputs', {}).get('status') != 'completed')
+                          or not guest_closed(node['path']) or not (outputs.get('status') == 'completed' or normal_timeout))
                 cleanup = preserve_and_retire(node['path'], self.args.repo)
                 if failed:
                     self.consecutive_failures += 1
                     self.retry_pending = True
-                    self.last_error = result.get('error') or {
+                    actual_error = result.get('error')
+                    if not actual_error or actual_error.get('stage') == 'result_extraction':
+                        actual_error = node.get('readiness_error') or actual_error
+                    self.last_error = actual_error or {
                         'stage': 'guest_completion', 'error': 'guest exited without broker readiness and successful result closure',
                         'exit_code': result.get('outputs', {}).get('exit_code'), 'driver_exit_code': proc.returncode}
                     (node['path']/'evidence/guest-error.json').write_text(json.dumps(self.last_error)+'\n')
@@ -262,18 +293,20 @@ class Pool:
                         self.failure = 'three consecutive guest failures; last error: '+json.dumps(self.last_error)
                         self.event('failure_limit', consecutive_failures=self.consecutive_failures, last_error=self.last_error)
                 else:
-                    self.event('retired', run=str(node['path']), **cleanup)
+                    self.event('retired', run=str(node['path']), last_error=result.get('error'), **cleanup)
                 self.active.remove(node)
                 continue
             if node['node'] is None and not self.stopping:
                 nodes = self.nodes()
                 if nodes is None:
+                    node['readiness_error'] = self.last_broker_error
                     node['readiness_deadline'] = now + self.args.readiness_timeout
                     continue
                 found = ready_node(nodes, node['previous'], self.measurement, self.image)
                 if found:
                     node['node'] = found
                     node.pop('readiness_failed', None)
+                    node.pop('readiness_error', None)
                     self.consecutive_failures = 0
                     self.event('ready', run=str(node['path']), relay_peer=found['relay_peer'],
                                attestation=found['attestation'], broker_binding=found.get('payments'))
@@ -294,14 +327,7 @@ class Pool:
     def run(self):
         self.args.state.mkdir(parents=True, mode=0o700, exist_ok=True)
         while True:
-            try:
-                self.tick()
-            except HTTPError as error:
-                if not self.active:
-                    raise
-                self.failure = f'broker readiness HTTP {error.code}'
-                self.stopping = True
-                self.event('draining_after_error', error=self.failure)
+            self.tick()
             if not self.active and (self.stopping or (self.args.cycles and self.launched >= self.args.cycles)):
                 break
             time.sleep(2)

@@ -63,7 +63,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
                  {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'},
                  {'name':'workspace-seal','path':'/workspace/artifacts/workspace-seal.bin'},
                  {'name':'workspace-seal-meta','path':'/workspace/artifacts/workspace-seal.json'}]})
-    m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
+    m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20, output_max_bytes=232<<20)
     return canonical(m)
 
 if __name__ == '__main__':

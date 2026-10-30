@@ -4,7 +4,7 @@ import { once } from "node:events";
 import { fileURLToPath } from "node:url";
 
 export const WORKSPACE_CHUNK_BYTES = 512 * 1024;
-export const MAX_SNAPSHOT_BYTES = 272 * 1024 * 1024;
+export const MAX_SNAPSHOT_BYTES = 224 * 1024 * 1024;
 const GENESIS = "0".repeat(64);
 const helper = fileURLToPath(new URL("./workspace-tar.py", import.meta.url));
 const need = (value, message) => { if (!value) throw Error(message); };

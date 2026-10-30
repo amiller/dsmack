@@ -195,6 +195,11 @@ Lease renewal logs its stage, HTTP status and bounded response body. Transient
 HTTP/network failures retry on the next 25-second tick, up to three consecutive
 failures; attestation refusals stop the node. Admitted jobs are never resubmitted.
 
+Tunnel-index publication records every failing HTTP status and bounded response
+body, then retries transient errors up to three times, five seconds apart. These
+retries only repeat the HTTP publication; a completed chain write is never sent
+again.
+
 The launcher queries public A records with `dig` and gives the CONNECT helper
 per-process bindings, retaining hostname TLS verification. This avoids stale
 Mac resolver cache entries without changing resolver settings. The relay permits

@@ -111,7 +111,7 @@ func TestBrokerCanUseOutboundHTTPRelayForPrivateCircuit(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer r.Close()
-	if err := maintainBackhaul(ctx, operator, server.URL+"/relay-broker/sandbox/p2p", broker.ID().String()); err != nil {
+	if err := MaintainBackhaul(ctx, operator, server.URL+"/relay-broker/sandbox/p2p", broker.ID().String()); err != nil {
 		t.Fatal(err)
 	}
 	for broker.Network().Connectedness(operator.ID()) != network.Connected {

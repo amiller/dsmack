@@ -193,7 +193,7 @@ class Pool:
                     self.event('retired', run=str(node['path']), **cleanup)
                 self.active.remove(node)
                 continue
-            if node['node'] is None:
+            if node['node'] is None and not self.stopping:
                 nodes = self.nodes()
                 if nodes is None:
                     node['readiness_deadline'] = now + self.args.readiness_timeout
@@ -218,7 +218,14 @@ class Pool:
     def run(self):
         self.args.state.mkdir(parents=True, mode=0o700, exist_ok=True)
         while True:
-            self.tick()
+            try:
+                self.tick()
+            except HTTPError as error:
+                if not self.active:
+                    raise
+                self.failure = f'broker readiness HTTP {error.code}'
+                self.stopping = True
+                self.event('draining_after_error', error=self.failure)
             if not self.active and (self.stopping or (self.args.cycles and self.launched >= self.args.cycles)):
                 break
             time.sleep(2)

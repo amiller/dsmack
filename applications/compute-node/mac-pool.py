@@ -36,8 +36,8 @@ def guest_entries(snapshot, hint, now=None):
     return [entries[peer] for peer in sorted(entries)]
 
 
-def publish_directory(publish, entries, previous):
-    if entries == previous:
+def publish_directory(publish, entries, previous, pending=False):
+    if entries == previous and not pending:
         return previous
     try:
         publish(entries, True)
@@ -46,6 +46,26 @@ def publish_directory(publish, entries, previous):
         print(json.dumps(dict(event='guest-directory-publication-failed',
                               error=type(error).__name__, retrySeconds=60)), flush=True)
         return previous
+
+
+def publish_chain(entries, pending_path, prepare, run):
+    """Reconcile one saved attempt before allocating any later transaction."""
+    if pending_path.exists():
+        out = Path(pending_path.read_text())
+        previous = json.loads((out/'entries.json').read_text())
+        if previous == entries or (out/'publish-transaction.json').exists():
+            run(out)
+            pending_path.unlink()
+            if previous == entries:
+                return
+        else:
+            pending_path.unlink()
+    out = prepare(entries)
+    temporary = pending_path.with_suffix('.tmp')
+    temporary.write_text(str(out.resolve()))
+    temporary.replace(pending_path)
+    run(out)
+    pending_path.unlink()
 
 
 def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_seconds=2):
@@ -110,10 +130,13 @@ def main():
     while True:
         try:preflight(a.state,[]);break
         except MacOccupied:print('waiting for the active Mac lane',flush=True);time.sleep(10)
-    stopping=False;children=[];logs=[];pool=None;published=False;failure=None;published_entries=None
+    stopping=False;children=[];logs=[];pool=None;published=False;failure=None;published_entries=[]
     def stop(*_):
         nonlocal stopping
         stopping=True
+        if pool and pool.poll() is None:
+            try:pool.send_signal(signal.SIGTERM)
+            except ProcessLookupError:pass
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def start(command,name):
         log=(a.state/name).open('w');logs.append(log)
@@ -156,11 +179,18 @@ def main():
             if result.get('status')=='ready':return address
             time.sleep(5)
         raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
-    def publish(entries,chain):
-        out=a.state/('publication-'+str(time.time_ns()));out.mkdir();path=out/'entries.json';path.write_text(json.dumps(entries))
-        cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',path,'--evidence',out]
+    pending_path=a.state/'chain-pending.txt'
+    def prepare(entries):
+        out=a.state/('publication-'+str(time.time_ns()));out.mkdir()
+        (out/'entries.json').write_text(json.dumps(entries))
+        return out
+    def run_publication(out,chain):
+        cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',out/'entries.json','--evidence',out]
         if chain:cmd+=['--rpc',a.publication_rpc]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
+    def publish(entries,chain):
+        if chain:publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
+        else:run_publication(prepare(entries),False)
     try:
         if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
         broker_peer=discover_transport(a.broker,lambda:stopping)
@@ -176,7 +206,7 @@ def main():
         hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
         published=True;republish(publish,hint,False);last_http=time.monotonic()
-        last_chain_attempt=0;published_entries=None
+        last_chain_attempt=0;published_entries=[]
         if stopping:return
         pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log')
         draining=False
@@ -190,9 +220,9 @@ def main():
             snapshot_path=a.state/'guests/directory.json'
             snapshot=json.loads(snapshot_path.read_text()) if snapshot_path.exists() else {}
             entries=guest_entries(snapshot,hint)
-            if entries!=published_entries and now-last_chain_attempt>=60:
+            if (entries!=published_entries or pending_path.exists()) and now-last_chain_attempt>=60:
                 last_chain_attempt=now
-                published_entries=publish_directory(publish,entries,published_entries)
+                published_entries=publish_directory(publish,entries,published_entries,pending_path.exists())
             if now-last_http>=60:
                 hint['expiresAt']=int(time.time())+3300
                 republish(publish,hint,False);last_http=time.monotonic()
@@ -206,7 +236,7 @@ def main():
             except subprocess.TimeoutExpired:raise RuntimeError('warm guests still active; owned transport retained')
         try:
             if published:
-                publish_directory(publish,[],published_entries)
+                publish_directory(publish,[],published_entries,pending_path.exists())
                 publish([],False)
         finally:
             for proc in reversed(children):

@@ -91,7 +91,7 @@ class ChainPublicationTests(unittest.TestCase):
                     '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
                     '--evidence', str(root)]
             with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
-                    patch.dict(sys.modules, {'deploy': SimpleNamespace(load_owner=None, send=send)}), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(load_owner=None, send=send, wait_receipt=None)}), \
                     patch('urllib.request.urlopen', side_effect=AssertionError('chain publication contacted HTTP broker')), \
                     contextlib.redirect_stdout(io.StringIO()):
                 runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
@@ -103,3 +103,39 @@ class ChainPublicationTests(unittest.TestCase):
             message = 'dsmack-tunnels/1\n' + json.dumps(body, sort_keys=True, separators=(',', ':'))
             self.assertEqual(Account.recover_message(encode_defunct(text=message), signature=signature), account.address)
             self.assertFalse((root/'broker-published.json').exists())
+
+
+    def test_lost_submission_response_reconciles_saved_hash_without_sending_again(self):
+        account = Account.create()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'publisher.key').write_text(account.key.hex())
+            entries = [{'expiresAt': 1600, 'guestPeer': 'guest'}]
+            (root/'entries.json').write_text(json.dumps(entries))
+            accepted = '0xaccepted'
+            def send(account, quorum, output, label, **kwargs):
+                (output/'publish-transaction.json').write_text(json.dumps({
+                    'hash': accepted, 'from': account.address, 'to': kwargs['to']}))
+                raise TimeoutError('submission response lost after RPC accepted transaction')
+            from unittest.mock import Mock
+            submit = Mock(side_effect=send)
+            reconcile = Mock(return_value={'transactionHash': accepted, 'status': '0x1'})
+            args = ['publish.py', 'chain', '--key', str(root/'publisher.key'),
+                    '--publisher-address', account.address, '--entries', str(root/'entries.json'),
+                    '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
+                    '--evidence', str(root)]
+            with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(load_owner=None, send=submit, wait_receipt=reconcile)}), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaisesRegex(TimeoutError, 'submission response lost'):
+                    runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
+                signed = (root/'signed-publication.json').read_bytes()
+                runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
+                self.assertEqual((root/'signed-publication.json').read_bytes(), signed)
+                submit.assert_called_once()
+                self.assertEqual(reconcile.call_args.args[1], accepted)
+                self.assertEqual(json.loads((root/'publish-receipt.json').read_text())['transactionHash'], accepted)
+                (root/'entries.json').write_text(json.dumps([{'expiresAt': 1700, 'guestPeer': 'new-guest'}]))
+                with self.assertRaisesRegex(ValueError, 'pending publication differs'):
+                    runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
+                submit.assert_called_once()

@@ -75,6 +75,45 @@ class GuestDirectoryTests(unittest.TestCase):
         self.assertEqual(publish.call_count, 3)
 
 
+    def test_startup_and_repeated_empty_directory_do_not_submit_transactions(self):
+        publish = Mock()
+        previous = mac_pool.publish_directory(publish, [], [])
+        self.assertEqual(mac_pool.publish_directory(publish, [], previous), [])
+        publish.assert_not_called()
+
+    def test_pending_attempt_survives_retry_and_new_entries_wait_for_its_receipt(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pending = root/'pending.txt'
+            prepared = []
+            def prepare(entries):
+                out = root/str(len(prepared)); out.mkdir()
+                (out/'entries.json').write_text(json.dumps(entries))
+                prepared.append(out)
+                return out
+            accepted = []
+            def first_attempt(out):
+                (out/'publish-transaction.json').write_text('{"hash":"0xaccepted"}')
+                accepted.append(out)
+                raise subprocess.CalledProcessError(1, ['publication'])
+            old, new = [{'guestPeer': 'old'}], [{'guestPeer': 'new'}]
+            with self.assertRaises(subprocess.CalledProcessError):
+                mac_pool.publish_chain(old, pending, prepare, first_attempt)
+            self.assertEqual(prepared, accepted)
+            failed_reconciliation = Mock(side_effect=subprocess.CalledProcessError(1, ['reconcile']))
+            with self.assertRaises(subprocess.CalledProcessError):
+                mac_pool.publish_chain(new, pending, prepare, failed_reconciliation)
+            self.assertEqual(prepared, accepted)
+            failed_reconciliation.assert_called_once_with(accepted[0])
+            recovered = []
+            mac_pool.publish_chain(new, pending, prepare, recovered.append)
+            self.assertEqual(recovered, [accepted[0], prepared[1]])
+            self.assertEqual(json.loads((prepared[0]/'entries.json').read_text()), old)
+            self.assertEqual(json.loads((prepared[1]/'entries.json').read_text()), new)
+            self.assertFalse(pending.exists())
+
+
 PEER = '12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x'
 
 

@@ -11,7 +11,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'contracts/payments'))
-from deploy import load_owner,send
+from deploy import load_owner,send,wait_receipt
 from rpc import Quorum,CHAIN_ID,call
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('action',choices=['deploy','publish','chain','broker'])
@@ -112,11 +112,21 @@ if a.action=='deploy':
 else:
  if not a.registry or not a.entries:raise ValueError('registry and entries required')
  if a.action=='publish' and not a.broker:raise ValueError('publish requires broker; use chain for chain-only publication')
- if (a.evidence/'publish-transaction.json').exists():raise ValueError('publication already submitted; inspect its receipt')
  values=json.loads(a.entries.read_text())
- envelope=signed_publication(values,account);raw=json.dumps(envelope,separators=(',',':'))
- (a.evidence/'signed-publication.json').write_text(json.dumps(envelope,indent=2)+'\n')
- data='0x'+(keccak(text='publish(string)')[:4]+encode(['string'],[raw])).hex()
- receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
+ transaction=a.evidence/'publish-transaction.json'
+ if transaction.exists():
+  if a.action!='chain':raise ValueError('publication already submitted; inspect its receipt')
+  prior=json.loads(transaction.read_text())
+  envelope=json.loads((a.evidence/'signed-publication.json').read_text())
+  if (envelope['entries']!=values or prior['to'].lower()!=a.registry.lower()
+      or prior['from'].lower()!=account.address.lower()):
+   raise ValueError('pending publication differs; reconcile its original entries and publisher first')
+  receipt=wait_receipt(quorum,prior['hash'])
+  (a.evidence/'publish-receipt.json').write_text(json.dumps(receipt,indent=2)+'\n')
+ else:
+  envelope=signed_publication(values,account);raw=json.dumps(envelope,separators=(',',':'))
+  (a.evidence/'signed-publication.json').write_text(json.dumps(envelope,indent=2)+'\n')
+  data='0x'+(keccak(text='publish(string)')[:4]+encode(['string'],[raw])).hex()
+  receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
  if a.action=='publish':publish_broker()
  print(json.dumps({'chainId':CHAIN_ID,'registry':a.registry,'transactionHash':receipt['transactionHash'],'broker':a.broker}))

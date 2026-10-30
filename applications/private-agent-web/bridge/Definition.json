@@ -1,0 +1,24 @@
+{
+  "bridgeVersion": 1,
+  "globalObject": "window.dsmack",
+  "injectedByApp": true,
+  "categories": [
+    "Runtime",
+    "Storage",
+    "Agent",
+    "Credit",
+    "Diagnostics"
+  ],
+  "errors": [
+    "INVALID_ARGS",
+    "UNSUPPORTED_VERSION",
+    "METHOD_NOT_FOUND",
+    "NOT_AVAILABLE",
+    "PERMISSION_DENIED",
+    "USER_CANCELLED",
+    "RATE_LIMITED",
+    "GESTURE_REQUIRED",
+    "TIMEOUT",
+    "HOST_ERROR"
+  ]
+}

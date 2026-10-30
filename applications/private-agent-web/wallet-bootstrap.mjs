@@ -4,7 +4,9 @@ import { store } from "./wallet-store.mjs";
 
 // This entry runs independently of the large chat SDK and all network checks.
 const start = performance.now();
-try {
+if (window.top !== window.self) {
+  document.getElementById("wallet").textContent = "Open the private agent in its own tab to use your wallet.";
+} else try {
   const [bundle, legacy] = await Promise.all([store("continuity.keys"), store("burner")]);
   const key = bundle?.walletKey || legacy;
   document.getElementById("wallet").textContent = key

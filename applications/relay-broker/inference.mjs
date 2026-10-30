@@ -140,13 +140,20 @@ export class Inference {
       remainingNanoUsd: String(
         BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) - reserved - guestReserved,
       ),
+      modelSpentNanoUsd: String(Object.values(this.payments.state.inferenceRequests ?? {})
+        .filter(r => r.wallet === wallet && r.status === "charged")
+        .reduce((sum, r) => sum + BigInt(r.costNanoUsd), 0n)),
+      artifactBudgets: Object.fromEntries(Object.entries(a.artifactBudgets ?? {}).map(([id, budget]) =>
+        [id, { ...budget, reservedNanoUsd: pending?.artifactId === id && pending.status !== "charged" ? pending.reservedNanoUsd : "0" }])),
       usedTokens: a.usedTokens,
       pendingInferenceId: pending?.inferenceId ?? null,
     };
   }
   async authorized(r, action) {
     const extra = action === "prepare"
-      ? ["attestationNonce"]
+      ? ["attestationNonce", "artifactId"]
+      : action === "artifact-budget"
+      ? ["artifactId", "limitNanoUsd"]
       : action === "chat"
       ? ["sessionId", "body", "headers"]
       : action === "agent-open"
@@ -221,6 +228,27 @@ export class Inference {
     const wallet = await this.authorized(r, "credit");
     return this.summary(wallet);
   }
+  async artifactBudget(r) {
+    const wallet = await this.authorized(r, "artifact-budget");
+    check(typeof r.artifactId === "string" && /^[0-9a-f]{64}$/.test(r.artifactId) && typeof r.limitNanoUsd === "string" && r.limitNanoUsd.length <= 24 && uint(r.limitNanoUsd),
+      "BAD_REQUEST", "artifact hash and integer budget limit required");
+    await this.payments.serial(async () => {
+      const a = this.account(wallet), old = this.summary(wallet).artifactBudgets[r.artifactId];
+      check(!old || old.limitNanoUsd === r.limitNanoUsd,
+        "BUDGET_ALREADY_SET", "artifact budget limit is already set", 409);
+      if (old) return;
+      await this.save({ ...this.payments.state, inferenceCredit: { ...this.payments.state.inferenceCredit,
+        [wallet]: { ...a, artifactBudgets: { ...a.artifactBudgets,
+          [r.artifactId]: { limitNanoUsd: r.limitNanoUsd, spentNanoUsd: "0" } } } } });
+    });
+    return this.summary(wallet);
+  }
+  artifactRemaining(wallet, artifactId) {
+    check(typeof artifactId === "string" && /^[0-9a-f]{64}$/.test(artifactId), "BAD_REQUEST", "artifact identity must be a SHA256 hash");
+    const budget = this.summary(wallet).artifactBudgets[artifactId];
+    check(budget, "BUDGET_EXHAUSTED", "set an artifact budget before making model calls", 402);
+    return BigInt(budget.limitNanoUsd) - BigInt(budget.spentNanoUsd) - BigInt(budget.reservedNanoUsd);
+  }
   async prepare(r) {
     const wallet = await this.authorized(r, "prepare");
     this.configured();
@@ -241,6 +269,8 @@ export class Inference {
       "wallet has no available inference credit",
       402,
     );
+    if (r.artifactId !== undefined) check(this.artifactRemaining(wallet, r.artifactId) > 0n,
+      "BUDGET_EXHAUSTED", "artifact model budget is exhausted", 402);
     const checked = await this.provider.attest({
       model: this.cfg.model,
       nonce: r.attestationNonce,
@@ -274,6 +304,7 @@ export class Inference {
       expiresAt,
       attestation: checked,
       consumed: false,
+      artifactId: r.artifactId,
     });
     return {
       ...this.summary(wallet),
@@ -361,6 +392,8 @@ export class Inference {
         "wallet credit cannot cover this request's maximum cost",
         402,
       );
+      if (session.artifactId !== undefined) check(this.artifactRemaining(wallet, session.artifactId) >= reserve,
+        "BUDGET_EXHAUSTED", "artifact budget cannot cover this request's maximum cost", 402);
       localId = randomId();
       const state = this.payments.state;
       await this.save({
@@ -373,7 +406,9 @@ export class Inference {
           ...state.inferenceRequests,
           [localId]: {
             wallet,
+            sessionId: r.sessionId,
             status: "sent",
+            ...(session.artifactId !== undefined ? { artifactId: session.artifactId } : {}),
             reservedNanoUsd: String(reserve),
             inferenceId: null,
             usedTokens: null,
@@ -586,6 +621,10 @@ export class Inference {
           [wallet]: {
             ...account,
             pending: null,
+            ...(current.artifactId !== undefined ? { artifactBudgets: { ...account.artifactBudgets,
+              [current.artifactId]: { ...account.artifactBudgets[current.artifactId],
+                spentNanoUsd: String(BigInt(account.artifactBudgets[current.artifactId].spentNanoUsd) + cost),
+                lastSessionId: current.sessionId, lastCostNanoUsd: String(cost) } } } : {}),
             spentNanoUsd: String(BigInt(account.spentNanoUsd) + cost),
             usedTokens: String(
               BigInt(account.usedTokens) + BigInt(current.usedTokens),

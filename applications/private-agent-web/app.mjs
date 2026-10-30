@@ -5,6 +5,9 @@ import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
+import { ArtifactState } from "./artifact-state.mjs";
+import { ArtifactModels } from "./artifact-models.mjs";
+import { createSessionPersistence } from "./artifact-persistence.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
@@ -38,6 +41,7 @@ let keys, sync, continuity, cfg,
   agent,
   chat,
   storage,
+  persistSession,
   currentSession,
   unsubscribeChat,
   lastSave = Promise.resolve(),
@@ -300,7 +304,7 @@ async function saveCurrentChat(publish = false) {
   const session = currentSession;
   chat.dataset.saved = "false";
   $("chat-status").textContent = "Saving chat…";
-  const task = saveChat(storage, session, agent);
+  const task = persistSession(session, agent);
   lastSave = task;
   try {
     const data = await task;
@@ -365,7 +369,7 @@ async function useSession(data) {
         const record = held?.record;
         require(record, "Conversation is not ready to save its workspace.");
         record.session.dsmack.workspace = head;
-        const saved = lastSave.catch(() => {}).then(() => saveChat(storage, record.session, record.agent));
+        const saved = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
         lastSave = saved;
         await saved;
         require(sync, "Unlock chat sync before saving your workspace.");
@@ -392,7 +396,7 @@ async function useSession(data) {
               environment: status.environment || held.environment,
               guestSeconds: status.guestSeconds || 0,
             };
-            lastSave = lastSave.catch(() => {}).then(() => saveChat(storage, record.session, record.agent));
+            lastSave = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
           }
         }
         if (currentSession.id === conversationId) renderGuest(status);
@@ -403,21 +407,56 @@ async function useSession(data) {
   }
   renderGuest(guest.statusSnapshot || { state: "idle" });
   renderWorkspace(guest.workspaceStatus || { head: sessionRecord.dsmack.workspace });
-  const artifacts = createArtifacts();
+  let artifacts, artifactAgent;
   const artifactHost = $("artifacts-host");
-  artifactHost.replaceChildren(artifacts.panel);
+  artifactHost.replaceChildren();
   artifactHost.hidden = true;
-  const openArtifacts = () => { artifactHost.hidden = false; artifacts.panel.collapsed = false; };
-  artifacts.panel.onOpen = openArtifacts;
-  artifacts.panel.onClose = () => { artifactHost.hidden = true; };
-  artifacts.panel.onArtifactsChange = () => { $("open-artifacts").hidden = !artifacts.panel.artifacts.size; };
-  $("open-artifacts").onclick = openArtifacts;
+  $("open-artifacts").hidden = true;
+  $("open-artifacts").onclick = null;
+  if (keys.bundle && credit.signer) {
+    const artifactSession = currentSession;
+    const saveArtifact = async (scope, envelope) => {
+      const task = persistSession(artifactSession, artifactAgent, { scope, envelope });
+      lastSave = task;
+      await task;
+      try { await sync.push(artifactSession.id); }
+      catch (e) { error(e); }
+    };
+    const artifactState = new ArtifactState({ dataKey: keys.bundle.dk,
+      getRecord: async scope => (await storage.sessions.get(artifactSession.id))?.dsmack?.artifactState?.[scope],
+      saveRecord: saveArtifact,
+    });
+    const artifactModels = new ArtifactModels({ state: artifactState, credit, api, cfg, quote: () => quote, usage,
+      evidence: async evidence => {
+        artifactSession.dsmack.evidence.push(evidence);
+        if (currentSession === artifactSession) renderEvidence(evidence);
+        const task = persistSession(artifactSession, artifactAgent);
+        lastSave = task;
+        await task;
+        try { await sync.push(artifactSession.id); } catch (e) { error(e); }
+      },
+      changed: scope => artifacts?.refreshBudget(scope).catch(error),
+    });
+    artifacts = createArtifacts(undefined, { state: artifactState, models: artifactModels, credit,
+      scopeForFilename: filename => JSON.stringify([artifactSession.id, filename]), error,
+    });
+    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.panel);
+    artifactHost.hidden = true;
+    const openArtifacts = () => {
+      artifactHost.hidden = false; artifacts.panel.collapsed = false;
+      artifacts.refreshSelectedBudget().catch(error);
+    };
+    artifacts.panel.onOpen = openArtifacts;
+    artifacts.panel.onClose = () => { artifactHost.hidden = true; };
+    artifacts.panel.onArtifactsChange = () => { $("open-artifacts").hidden = !artifacts.panel.artifacts.size; };
+    $("open-artifacts").onclick = openArtifacts;
+  }
   agent = new Agent({
     initialState: {
       systemPrompt: "You are the dsmack private agent. Use your tools to inspect and change the attested workspace.",
       messages: currentSession.messages,
       thinkingLevel: "off",
-      tools: [...guest.tools(), artifacts.tool],
+      tools: [...guest.tools(), ...(artifacts ? [artifacts.tool] : [])],
     },
     toolExecution: "sequential",
     getApiKey: () => undefined,
@@ -432,10 +471,13 @@ async function useSession(data) {
       }) + "\n\n" + ARTIFACT_PROMPT,
     }),
   });
-  artifacts.panel.agent = agent;
-  await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
-    message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
-  $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
+  artifactAgent = agent;
+  if (artifacts) {
+    artifacts.panel.agent = agent;
+    await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
+      message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
+    $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
+  }
   guest.record = { session: currentSession, agent };
   if (credit.signer) {
     try { await guest.restore(); }
@@ -462,6 +504,7 @@ async function useSession(data) {
 }
 async function initChat() {
   storage = createChatStorage();
+  persistSession = createSessionPersistence({ storage, save: saveChat });
   if (keys.bundle) sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
   chat = new AgentInterface();
   chat.id = "chat";
@@ -826,6 +869,7 @@ async function checkSync() {
   }
 }
 async function main() {
+  require(window.top === window.self, "Open the private agent in its own tab to use your wallet.");
   require(
     !/^\/(ipfs|ipns)\//.test(window.location.pathname),
     "Open this app through a CID or IPNS subdomain gateway. Shared path gateways cannot isolate your wallet from other sites.",
@@ -859,6 +903,7 @@ async function main() {
     await credit.init();
     currentSession.dsmack.wallet = credit.address.toLowerCase();
     sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
+    await useSession(currentSession);
     render();
     $("welcome").hidden = true;
     $("service").textContent = "Your wallet is ready. Checking your credit…";

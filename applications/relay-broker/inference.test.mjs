@@ -598,6 +598,7 @@ test("SDK-encrypted tool schemas and tool results remain opaque at the broker", 
           { role: "tool", tool_call_id: "call_private", content: "private-tool-marker" },
         ],
         tools: [{ type: "function", function: { name: "bash", description: "private-description-marker", parameters: { type: "object", properties: { command: { type: "string" } } } } }],
+        tool_choice: "auto",
       }),
     }),
     modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
@@ -607,6 +608,9 @@ test("SDK-encrypted tool schemas and tool results remain opaque at the broker", 
   assert(!JSON.stringify(request).includes("private-description-marker"));
   const internal = f.inference.sessions.get(session.sessionId);
   assert(f.inference.encryptedRequest(request, internal) > 0n);
+  const plaintextChoice = structuredClone(request);
+  plaintextChoice.body.tool_choice = { type: "function", function: { name: "private-tool-marker" } };
+  assert.throws(() => f.inference.encryptedRequest(plaintextChoice, internal), code("BAD_REQUEST"));
   const plaintextSchema = structuredClone(request);
   plaintextSchema.body.tools[0].function.parameters = { type: "object" };
   assert.throws(() => f.inference.encryptedRequest(plaintextSchema, internal), code("BAD_REQUEST"));

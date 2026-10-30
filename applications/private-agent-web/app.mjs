@@ -700,7 +700,7 @@ function measuredEnvironment() {
   };
 }
 function renderGuest(status) {
-  const held = ["held", "connecting", "disconnected-held"].includes(status.state);
+  const held = ["held", "connecting", "disconnected-held", "handover"].includes(status.state);
   $("end-session").disabled = !held;
   $("download").disabled = status.state !== "held";
   $("save-workspace").disabled = status.state !== "held";
@@ -713,7 +713,8 @@ function renderGuest(status) {
     verifying: "Verifying an available guest…",
     connecting: "Connecting to the verified guest…",
     held: "Guest held for this conversation: " + status.node?.relay_peer,
-    "disconnected-held": "This conversation holds a disconnected guest. End the guest stay to resume its saved workspace.",
+    "disconnected-held": "Guest disconnected. The next tool call resumes this conversation’s saved workspace.",
+    handover: "Saving workspace and moving to the next guest…",
     released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call restores this conversation’s saved workspace.",
     ending: "Ending session; waiting for the guest’s signed final usage…",
     disconnected: "Guest stream closed.",

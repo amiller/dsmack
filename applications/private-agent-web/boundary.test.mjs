@@ -112,7 +112,7 @@ async function backend(page, kind) {
         attestation: {
           mode: "broker-e2ee",
           provider: "near",
-          model,
+          model: kind === "model" ? model + "-other" : model,
           verification: "verified",
           verifier: "synthetic-browser-boundary",
           nonce: kind === "nonce" ? "00".repeat(32) : body.attestationNonce,
@@ -152,7 +152,7 @@ async function ready(page) {
   );
 }
 async function send(page, text) {
-  const editor = page.locator("#chat-editor");
+  const editor = page.locator("agent-interface message-editor");
   const input = editor.locator('textarea,[contenteditable="true"]').first();
   await input.fill(text);
   const button = editor.getByRole("button", { name: /send/i });
@@ -203,7 +203,9 @@ try {
     assert.match(await page.locator("#job-prompt").inputValue(), /greet.txt/);
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
-    assert.equal(await page.locator("#chat-editor textarea").inputValue(), "");
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    assert.match(await page.locator("user-message").innerText(), new RegExp(marker));
+    assert.equal(await page.locator("agent-interface message-editor textarea").inputValue(), "");
     assert.match(
       await page.locator("#wallet").textContent(),
       /^0x[0-9a-f]{40}$/i,
@@ -303,7 +305,7 @@ try {
       );
     },
   );
-  for (const kind of ["nonce", "key"]) {
+  for (const kind of ["nonce", "key", "model"]) {
     await run(
       "provider-" + kind + "-refused-before-chat",
       kind,
@@ -321,7 +323,9 @@ try {
           page,
           kind === "nonce"
             ? "stale or reused nonce"
-            : "differs from the attested signing address",
+            : kind === "key"
+            ? "differs from the attested signing address"
+            : "invalid or names another model",
         );
         assert(calls.some((r) => r.path === "/inference/prepare"));
         assert(!calls.some((r) => r.path === "/inference/chat"));

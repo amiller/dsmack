@@ -1,4 +1,4 @@
-import { AssistantMessageEventStream } from "@mariozechner/pi-ai";
+import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
 import { require, walletBody } from "./credit.mjs";
 import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
@@ -38,8 +38,9 @@ export async function* sse(body) {
   }
 }
 export function brokerStream(
-  { credit, api, cfg, quote, evidence, usage, error },
+  { credit, api, cfg, quote, evidence, usage, error, startedAt },
 ) {
+  const conversationStarted = new Date(startedAt);
   return (model, context, options = {}) => {
     const stream = new AssistantMessageEventStream();
     const answer = {
@@ -90,9 +91,6 @@ export function brokerStream(
               : m.content.filter((c) => c.type === "text").map((c) => c.text)
                 .join("\n"),
           }));
-        if (context.systemPrompt) {
-          messages.unshift({ role: "system", content: context.systemPrompt });
-        }
         const started = Date.now();
         const attestationNonce = Array.from(
           crypto.getRandomValues(new Uint8Array(32)),
@@ -114,7 +112,20 @@ export function brokerStream(
           /^[0-9a-f]{32}$/.test(session.sessionId),
           "Provider preparation has no session ID.",
         );
-        evidence(checked);
+        await evidence(checked);
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const date = new Intl.DateTimeFormat(undefined, {
+          dateStyle: "full",
+          timeZone,
+        }).format(conversationStarted);
+        messages.unshift({
+          role: "system",
+          content: context.systemPrompt + "\n\n" + [
+            `Model: ${checked.model}`,
+            "Provider: NEAR AI Cloud (TEE)",
+            `Conversation started: ${date} (${timeZone})`,
+          ].join("\n"),
+        });
         const remaining = BigInt(session.remainingNanoUsd);
         const rate = BigInt(q.maxNanoUsdPerToken);
         const reservation = (body) => BigInt(
@@ -129,7 +140,7 @@ export function brokerStream(
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                model: model.id,
+                model: checked.model,
                 messages,
                 max_tokens: maxTokens,
                 stream: true,
@@ -188,6 +199,11 @@ export function brokerStream(
             !chunk.model || chunk.model === model.id,
             "Provider completion model differs from its attestation.",
           );
+          if (chunk.usage) {
+            answer.usage.input = chunk.usage.prompt_tokens;
+            answer.usage.output = chunk.usage.completion_tokens;
+            answer.usage.totalTokens = chunk.usage.total_tokens;
+          }
           const delta = chunk.choices?.[0]?.delta?.content;
           if (typeof delta === "string" && delta) {
             if (!answer.content[0].text) {
@@ -217,7 +233,9 @@ export function brokerStream(
           partial: answer,
         });
         try {
-          await usage();
+          const charged = await usage();
+          answer.usage.totalTokens = Number(BigInt(charged.usedTokens) - BigInt(session.usedTokens));
+          answer.usage.cost.total = Number(BigInt(charged.spentNanoUsd) - BigInt(session.spentNanoUsd)) / 1e9;
         } catch (e) {
           error(e);
         }

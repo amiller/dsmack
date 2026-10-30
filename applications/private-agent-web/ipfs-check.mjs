@@ -161,10 +161,10 @@ try {
   report.sameOriginStorage = await storage(page, sentinel);
   assert(report.sameOriginStorage.hasBurner && report.sameOriginStorage.sentinelMatches && report.sameOriginStorage.localStorageMatches);
   await page.screenshot({ path: resolve(evidence, "02-wallet-reloaded.png"), fullPage: true });
-  const reply = "IPFS_CHAT_OK", editor = page.locator("#chat-editor");
+  const reply = "IPFS_CHAT_OK", editor = page.locator("agent-interface message-editor");
   await editor.locator("textarea").fill("Reply with exactly IPFS_CHAT_OK.");
   await editor.locator("textarea").press("Enter");
-  await page.waitForFunction((reply) => ([...document.querySelectorAll("#messages assistant-message")].some((e) => e.textContent.includes(reply)) && document.querySelector("#chat-editor").isStreaming === false) || (document.querySelector("#alert") && !document.querySelector("#alert").hidden), reply, { timeout: 180000 });
+  await page.waitForFunction((reply) => ([...document.querySelectorAll("agent-interface assistant-message")].some((e) => e.textContent.includes(reply)) && document.querySelector("agent-interface message-editor").isStreaming === false) || (document.querySelector("#alert") && !document.querySelector("#alert").hidden), reply, { timeout: 180000 });
   await throwAlert(page);
   await page.waitForFunction((before) => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== before, report.creditBeforeNanoUsd, { timeout: 60000 });
   report.creditAfterNanoUsd = await page.locator("#chat-credit").getAttribute("data-remaining-nano-usd");

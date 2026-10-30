@@ -170,7 +170,8 @@ def deploy(args):
                   kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
-    wait_for_idle(args.url, args.wait_idle_minutes)
+    # Upload selects dev mode: its CVM-only provider key cannot load until
+    # promotion. The pre-upload idle check and shared lock cover both steps.
     api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
     deadline = time.monotonic() + 30
     while True:

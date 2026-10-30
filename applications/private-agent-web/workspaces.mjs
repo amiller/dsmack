@@ -5,7 +5,7 @@ const utf8 = new TextEncoder();
 const require = (value, message) => { if (!value) throw Error(message); };
 const GENESIS = "0".repeat(64);
 const CHUNK = 512 * 1024;
-const MAX_BYTES = 272 * 1024 * 1024;
+const MAX_BYTES = 224 * 1024 * 1024;
 const fields = ["workspaceId", "version", "previousHash", "hash", "size"];
 const same = (a, b) => fields.every(field => a?.[field] === b?.[field]);
 const decode = value => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));

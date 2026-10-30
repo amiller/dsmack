@@ -51,6 +51,7 @@ export class Inference {
       "model and integer inference limits are required",
     );
     this.sessions = new Map();
+    this.activeRequests = new Set();
   }
   configured() {
     check(
@@ -74,7 +75,7 @@ export class Inference {
     };
   }
   status() {
-    return this.quote();
+    return { ...this.quote(), inFlightStreams: this.activeRequests.size };
   }
   async recover() {
     await this.payments.serial(async () => {
@@ -96,7 +97,13 @@ export class Inference {
         };
         changed = true;
       }
-      if (changed) await this.save({ ...state, inferenceCredit: accounts });
+      const requests = { ...state.inferenceRequests };
+      for (const [id, request] of Object.entries(requests)) {
+        if (request.status !== "streaming" || !request.inferenceId) continue;
+        requests[id] = { ...request, status: "responded", interrupted: true };
+        changed = true;
+      }
+      if (changed) await this.save({ ...state, inferenceCredit: accounts, inferenceRequests: requests });
     });
     // A persisted dispatch without a billing ID is ambiguous. Keep its credit
     // reserved: restarting must never send another request on its behalf.
@@ -140,6 +147,8 @@ export class Inference {
       remainingNanoUsd: String(
         BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) - reserved - guestReserved,
       ),
+      unreportedTokenRequests: Object.values(this.payments.state.inferenceRequests ?? {})
+        .filter(r => r.wallet === wallet && r.status === "charged" && !uint(r.usedTokens)).length,
       modelSpentNanoUsd: String(Object.values(this.payments.state.inferenceRequests ?? {})
         .filter(r => r.wallet === wallet && r.status === "charged")
         .reduce((sum, r) => sum + BigInt(r.costNanoUsd), 0n)),
@@ -420,6 +429,7 @@ export class Inference {
       session.consumed = true;
       this.sessions.delete(r.sessionId);
     });
+    this.activeRequests.add(localId);
     let response;
     try {
       response = await this.provider.chatEncrypted({
@@ -463,6 +473,7 @@ export class Inference {
         });
       });
     } catch (error) {
+      this.activeRequests.delete(localId);
       await response?.body?.cancel();
       session.attestation.transport?.close?.();
       throw error;
@@ -532,6 +543,7 @@ export class Inference {
                     status: "responded",
                     usedTokens: tokens,
                     streamCompleted: done && !failure,
+                    interrupted: failure,
                   },
                 },
               });
@@ -539,6 +551,7 @@ export class Inference {
           } catch {
             failure = true;
           }
+          inference.activeRequests.delete(localId);
           if (!disconnected) {
             if (failure) {
               controller.error(
@@ -573,7 +586,7 @@ export class Inference {
       ledger = this.payments.state.inferenceRequests[localId];
     check(
       ledger.inferenceId && ledger.status === "responded" &&
-        uint(ledger.usedTokens),
+        (uint(ledger.usedTokens) || ledger.interrupted === true),
       "USAGE_PENDING",
       "provider request or billing evidence is still pending",
       409,
@@ -627,7 +640,7 @@ export class Inference {
                 lastSessionId: current.sessionId, lastCostNanoUsd: String(cost) } } } : {}),
             spentNanoUsd: String(BigInt(account.spentNanoUsd) + cost),
             usedTokens: String(
-              BigInt(account.usedTokens) + BigInt(current.usedTokens),
+              BigInt(account.usedTokens) + (uint(current.usedTokens) ? BigInt(current.usedTokens) : 0n),
             ),
           },
         },

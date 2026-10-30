@@ -171,7 +171,8 @@ def deploy(args):
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
     if project.get("mode") != "attested":
-        wait_for_idle(args.url, args.wait_idle_minutes)
+        # A dev-mode fallback cannot load the CVM-only key or activity report.
+        # The pre-upload idle check and shared lock cover its promotion.
         project = api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
     if project.get("mode") != "attested":
         raise ValueError("deployed broker did not enter attested mode")

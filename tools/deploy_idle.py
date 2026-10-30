@@ -35,5 +35,5 @@ def wait_for_idle(base, minutes=10, *, read=None, clock=time.monotonic, sleep=ti
         remaining = deadline - clock()
         print(f"Deploy guard: waiting for {busy} busy guests and {streams} model streams ({max(0, int(remaining))}s left)", flush=True)
         if remaining <= 0:
-            raise RuntimeError("Deploy guard timed out; no deployment was started")
+            raise RuntimeError("Deploy guard timed out; activity must reach idle before continuing")
         sleep(min(2, remaining))

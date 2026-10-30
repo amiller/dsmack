@@ -93,9 +93,10 @@ python3 applications/relay-broker/deploy-inference.py deploy \
 Preparation bundles the npm dependencies with Deno. Apply uses the configured
 webhost admin credential, updates only `relay-broker`, and promotes shared Deno.
 Deployment waits up to ten minutes for `/network` busy slots and
-`/inference/status` `inFlightStreams` to reach zero before upload and promotion.
+`/inference/status` `inFlightStreams` to reach zero before the upload/promotion transaction.
 Set `--wait-idle-minutes N` to change the wait. Disconnected browser requests
-count until their provider streams have drained. Interrupted requests with a
+count until their provider streams have drained; queued ciphertext stays counted
+until the HTTP consumer reaches EOF. Interrupted requests with a
 known NEAR billing ID settle once against that exact provider cost record;
 missing token totals remain explicitly unreported.
 

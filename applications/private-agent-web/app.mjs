@@ -545,8 +545,20 @@ async function useSession(data) {
   chat.dataset.sessionId = currentSession.id;
   if (!chat.isConnected) $("chat-host").append(chat);
   await chat.updateComplete;
+  let firstPartial = true;
   unsubscribeChat = agent.subscribe((event) => {
     renderToolProgress(chat, agent, event);
+    if (event.type === "message_start") firstPartial = true;
+    if (firstPartial && event.type === "message_update" && event.message.role === "assistant" &&
+      event.message.content.some(part => part.type === "text" && part.text)) {
+      firstPartial = false;
+      // Pi 0.75's clear-before-stream flag drops its first batched partial. Core
+      // 1.4 keeps it in streamingMessage until message_end. Show the first text
+      // immediately in Pi's component, leaving later deltas to native batching.
+      const container = chat.querySelector("streaming-message-container");
+      container.isStreaming = agent.state.isStreaming;
+      container.setMessage({ ...event.message }, true);
+    }
     // Pi's message list observes array references; the agent appends in place.
     if (event.type === "message_end") {
       agent.state.messages = [...agent.state.messages];

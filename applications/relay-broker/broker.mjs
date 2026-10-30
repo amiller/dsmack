@@ -1,12 +1,22 @@
 import { peerBytes, verifyRelay } from "./attestation.mjs";
 import { signGrant, verifyRequest } from "./grants.mjs";
-import { registerDiagnostic } from "./sandbox-inference.mjs";
 import { nodeStatus } from "./node-status.mjs";
 
 export class Refused extends Error {
   constructor(message, status = 403) { super(message); this.status = status; }
 }
 const require = (ok, message, status) => { if (!ok) throw new Refused(message, status); };
+// The free Mac pool registers its approved compute tuples without paid admission.
+async function registerDiagnostic(b, r) {
+  const checked = await verifyRelay(r, { ...b.cfg, workloads: b.cfg.sandboxDiagnosticWorkloads }, b.chain, b.now());
+  require(Number.isSafeInteger(r.admit_until) && r.admit_until > 0, "diagnostic_admission_deadline");
+  const keys = ["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash", "receipt_key", "secret_key", "admit_until"];
+  const out = { ...Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])), kind: "compute", proof: r.attestation,
+    attestation: { status: "verified", ...checked }, expires_at: b.now() + limits.relay_lease_seconds, operator_diagnostic: true };
+  b.relays.set(r.relay_peer, out);
+  return out;
+}
+
 export const limits = { relay_lease_seconds: 60, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
 
 export class Broker {

@@ -31,7 +31,6 @@ func TestBrokerGatewayKeepsAuthorityAndOriginForm(t *testing.T) {
 	}))
 	defer gateway.Close()
 	t.Setenv("BROKER_GATEWAY", gateway.URL)
-	t.Setenv("BROKER_IP", "192.0.2.1")
 	t.Setenv("HTTPS_PROXY", "http://192.0.2.2:1")
 	t.Setenv("HTTP_PROXY", "http://192.0.2.2:1")
 	client, err := brokerClient("https://broker.invalid/relay-broker")

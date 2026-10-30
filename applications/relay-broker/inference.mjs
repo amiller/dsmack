@@ -153,8 +153,6 @@ export class Inference {
       ? ["conversationId", "client_peer", "node_peer"]
       : ["agent-status", "agent-end"].includes(action)
       ? ["sessionId"]
-      : action === "sandbox-grant"
-      ? ["client_peer", "node_peer", "job_id"]
       : [];
     check(
       fields(r, ["action", "wallet", "nonce", "issuedAt", "sig", ...extra]) &&

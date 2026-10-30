@@ -64,83 +64,13 @@ func validID(s string) bool {
 }
 
 type admission struct {
-	JobID        string         `json:"job_id"`
-	Grant        map[string]any `json:"grant"`
-	ClientPeer   string         `json:"client_peer,omitempty"`
-	Signature    string         `json:"signature,omitempty"`
-	BundleSHA256 string         `json:"bundle_sha256,omitempty"`
-}
-
-// Forwarded admission authorizes the exact ciphertext and grant without exposing
-// the buyer's transport key to the broker. Direct Noise clients retain their path.
-func (a admission) forwardedClient(node, remote string) (string, error) {
-	if a.ClientPeer == "" && a.Signature == "" && a.BundleSHA256 == "" {
-		return remote, nil
-	}
-	fail := func() (string, error) { return "", fmt.Errorf("forwarded admission signature") }
-	id, err := peer.Decode(a.ClientPeer)
-	if err != nil {
-		return fail()
-	}
-	key, err := id.ExtractPublicKey()
-	if err != nil || key.Type().String() != "Ed25519" {
-		return fail()
-	}
-	digestBytes, err := hex.DecodeString(a.BundleSHA256)
-	if err != nil || len(digestBytes) != 32 || hex.EncodeToString(digestBytes) != a.BundleSHA256 {
-		return fail()
-	}
-	sig, err := hex.DecodeString(a.Signature)
-	if err != nil || len(sig) != 64 {
-		return fail()
-	}
-	message := map[string]any{"bundle_sha256": a.BundleSHA256, "client_peer": a.ClientPeer, "grant_sha256": digest(canon(a.Grant)), "job_id": a.JobID, "node_peer": node}
-	ok, err := key.Verify(canon(message), sig)
-	if err != nil || !ok {
-		return fail()
-	}
-	return a.ClientPeer, nil
-}
-
-type job struct {
-	JobID      string          `json:"job_id"`
-	GrantID    string          `json:"grant_id"`
-	Credential json.RawMessage `json:"credential"`
-	Repo       string          `json:"repo_tar"`
-	Prompt     string          `json:"prompt"`
-	OutputPub  string          `json:"output_pub"`
-}
-
-func openNestedCredential(secret *ecdh.PrivateKey, jobID string, raw json.RawMessage) (json.RawMessage, error) {
-	var header struct {
-		Schema string `json:"schema"`
-	}
-	if err := json.Unmarshal(raw, &header); err != nil {
-		return nil, err
-	}
-	if header.Schema != "dsmack-sealed-credential/1" {
-		return nil, nil
-	}
-	var envelope struct {
-		Box box `json:"box"`
-	}
-	if err := json.Unmarshal(raw, &envelope); err != nil {
-		return nil, err
-	}
-	opened, err := openBox(secret, jobID+"/credential", envelope.Box)
-	if err != nil {
-		return nil, err
-	}
-	if len(opened) > 65536 || !json.Valid(opened) {
-		return nil, fmt.Errorf("nested credential JSON")
-	}
-	return opened, nil
+	JobID string         `json:"job_id"`
+	Grant map[string]any `json:"grant"`
 }
 
 type terms struct {
 	id               string
 	seconds, expires int64
-	paid             *payments.Grant
 }
 
 func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, now int64) (terms, error) {
@@ -172,23 +102,17 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 }
 
 type engine struct {
-	paid           *payments.Meter
-	publish        func(payments.SignedReceipt) error
-	secret         *ecdh.PrivateKey
 	signer         ed25519.PrivateKey
 	broker         ed25519.PublicKey
 	node, run      string
 	until          time.Time
 	admissionUntil time.Time
-	worker         string
 	resultPath     string
 	mu             sync.Mutex
 	seen           map[string]bool
-	used           map[string]int64
 	busy           bool
 	jobsServed     int
 	lastError      string
-	attest         func([]byte) ([]byte, error)
 }
 
 func (n *engine) telemetry() map[string]any {
@@ -209,253 +133,4 @@ func (n *engine) recordError(message string) {
 	n.mu.Lock()
 	n.lastError = message
 	n.mu.Unlock()
-}
-
-func (n *engine) reserve(a admission, client string) (terms, int64, string) {
-	var t terms
-	var e error
-	if n.paid != nil {
-		var g payments.Grant
-		g, e = n.paid.Verify(canon(a.Grant), client, 1, time.Now().Unix())
-		if e == nil {
-			seconds, _ := strconv.ParseInt(g.Amount, 10, 64)
-			t = terms{id: g.PurchaseID, seconds: seconds, expires: g.ServiceUntil, paid: &g}
-		}
-	} else {
-		t, e = checkGrant(a.Grant, n.broker, n.node, client, time.Now().Unix())
-	}
-	if e != nil || !validID(a.JobID) {
-		return t, 0, "grant"
-	}
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	if n.seen[a.JobID] {
-		return t, 0, "replay"
-	}
-	if n.busy || (!n.admissionUntil.IsZero() && !time.Now().Before(n.admissionUntil)) {
-		return t, 0, "busy"
-	}
-	left := min(t.seconds-n.used[t.id], t.expires-time.Now().Unix(), int64(time.Until(n.until).Seconds()))
-	if left < 1 {
-		return t, 0, "grant"
-	}
-	n.seen[a.JobID] = true
-	n.busy = true
-	n.jobsServed++
-	return t, left, ""
-}
-func (n *engine) handle(s interface {
-	io.ReadWriter
-	SetDeadline(time.Time) error
-}, client string) {
-	var paid *paidJob
-	refuse := func(code string, failure ...map[string]string) {
-		frame := map[string]any{"status": "refused", "error": code}
-		if len(failure) == 1 {
-			frame["failure"] = failure[0]
-		}
-		message := code
-		if len(failure) == 1 {
-			message = string(canon(failure[0]))
-		}
-		n.recordError(message)
-		if paid != nil {
-			r, e := paid.finish()
-			frame["payment_receipt"] = r
-			if e != nil {
-				frame["receipt_error"] = e.Error()
-			}
-			s.SetDeadline(time.Now().Add(10 * time.Second))
-		}
-		writeFrame(s, frame)
-	}
-	s.SetDeadline(time.Now().Add(20 * time.Second))
-	var a admission
-	if e := readFrame(s, 4096, &a); e != nil {
-		refuse("grant")
-		return
-	}
-	var err error
-	client, err = a.forwardedClient(n.node, client)
-	if err != nil {
-		refuse("grant")
-		return
-	}
-	t, left, code := n.reserve(a, client)
-	if code != "" {
-		refuse(code)
-		return
-	}
-	start := time.Now()
-	deadline := start.Add(time.Duration(left) * time.Second)
-	ctx, cancel := context.WithDeadline(context.Background(), deadline)
-	defer cancel()
-	if t.paid != nil {
-		paid = &paidJob{meter: n.paid, grant: *t.paid, start: start, left: left, publish: n.publish, stop: func() { cancel(); s.SetDeadline(time.Now()) }}
-		if n.resultPath != "" {
-			paid.path = filepath.Join(filepath.Dir(n.resultPath), "payment-receipts")
-		}
-		paid.begin()
-	}
-	var used int64
-	defer func() {
-		if paid != nil && paid.final == nil {
-			_, e := paid.finish()
-			if e != nil {
-				fmt.Fprintln(os.Stderr, "paid final receipt:", e)
-			}
-		}
-		os.Remove("/run/dsmack/credential")
-		os.RemoveAll("/run/dsmack/job-" + a.JobID)
-		n.mu.Lock()
-		if used == 0 {
-			used = max(1, min(left, int64(math.Ceil(time.Since(start).Seconds()))))
-		}
-		n.used[t.id] += used
-		n.busy = false
-		n.mu.Unlock()
-	}()
-	s.SetDeadline(deadline)
-	if e := writeFrame(s, map[string]string{"status": "ready"}); e != nil {
-		return
-	}
-	var b box
-	if e := readFrame(s, 48<<20, &b); e != nil {
-		refuse("bundle")
-		return
-	}
-	if a.BundleSHA256 != "" && digest(canon(b)) != a.BundleSHA256 {
-		refuse("bundle")
-		return
-	}
-	raw, e := openBox(n.secret, a.JobID, b)
-	if e != nil {
-		refuse("bundle")
-		return
-	}
-	var j job
-	if e = json.Unmarshal(raw, &j); e != nil || j.JobID != a.JobID || j.GrantID != t.id || len(j.Prompt) > 1<<20 {
-		refuse("bundle")
-		return
-	}
-	// A client on the credential-owning machine may seal just the credential to
-	// this node. Browser jobs then carry that opaque envelope inside the outer box.
-	if opened, err := openNestedCredential(n.secret, a.JobID, j.Credential); err != nil {
-		refuse("bundle")
-		return
-	} else if opened != nil {
-		j.Credential = opened
-		raw = canon(j)
-	}
-	outPub, e := hex.DecodeString(j.OutputPub)
-	if e != nil || len(outPub) != 64 {
-		refuse("bundle")
-		return
-	}
-	if _, e = ecdh.P256().NewPublicKey(append([]byte{4}, outPub...)); e != nil {
-		refuse("bundle")
-		return
-	}
-	s.SetDeadline(deadline.Add(10 * time.Second))
-	cmd := exec.CommandContext(ctx, "python3", "-B", n.worker)
-	cmd.Stdin = bytes.NewReader(raw)
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
-	cmd.Cancel = func() error {
-		if n.paid != nil {
-			return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL)
-		}
-		return syscall.Kill(-cmd.Process.Pid, syscall.SIGTERM)
-	}
-	cmd.WaitDelay = 3 * time.Second
-	// Never attach child stdout/stderr to the console or result disk.
-	var result limitedBuffer
-	result.max = 24 << 20
-	cmd.Stdout = &result
-	if e = cmd.Run(); e != nil {
-		failure := map[string]string{"stage": "worker", "code": "process_failed"}
-		if ctx.Err() != nil {
-			failure["code"] = "deadline_exceeded"
-		} else {
-			var reported struct {
-				Error map[string]string `json:"error"`
-			}
-			if json.Unmarshal(result.Bytes(), &reported) == nil && len(reported.Error) == 2 &&
-				regexp.MustCompile(`^[a-z_]{1,40}$`).MatchString(reported.Error["stage"]) &&
-				regexp.MustCompile(`^[A-Za-z0-9_]{1,100}$`).MatchString(reported.Error["code"]) {
-				failure = reported.Error
-			}
-		}
-		refuse("execution", failure)
-		return
-	}
-	var encoded map[string]string
-	if e = json.Unmarshal(result.Bytes(), &encoded); e != nil || len(encoded) != 3 {
-		refuse("execution", map[string]string{"stage": "worker_output", "code": "invalid_output_object"})
-		return
-	}
-	outputs := map[string]box{}
-	hashes := map[string]string{}
-	for _, name := range []string{"patch", "transcript", "verdict"} {
-		v, ok := encoded[name]
-		plain, err := base64.StdEncoding.DecodeString(v)
-		if !ok || err != nil {
-			refuse("execution")
-			return
-		}
-		sealed, err := seal(outPub, j.JobID+"/"+name, plain)
-		if err != nil {
-			refuse("execution")
-			return
-		}
-		outputs[name] = sealed
-		hashes[name] = digest(plain)
-	}
-	used = max(1, min(left, int64(math.Ceil(time.Since(start).Seconds()))))
-	if paid != nil {
-		final, e := paid.finish()
-		if final == nil {
-			refuse("receipt")
-			return
-		}
-		used, _ = strconv.ParseInt(final.Receipt.Used, 10, 64)
-		if e != nil {
-			fmt.Fprintln(os.Stderr, "paid final delivery:", e)
-		}
-	}
-	statement := map[string]any{"job_id": j.JobID, "bundle_sha256": digest(canon(b)), "outputs": hashes, "grant_id": t.id, "seconds_used": used}
-	report := sha256.Sum256(canon(statement))
-	att, e := n.attest(append(report[:], make([]byte, 32)...))
-	if e != nil {
-		refuse("attestation")
-		return
-	}
-	receipt := map[string]any{"client_peer": client, "node_peer": n.node, "run": n.run, "report_sha256": hex.EncodeToString(report[:]), "grant_id": t.id, "job_id": j.JobID, "seconds_used": used}
-	receipt["sig"] = hex.EncodeToString(ed25519.Sign(n.signer, canon(receipt)))
-	resultFrame := map[string]any{"status": "complete", "outputs": outputs, "statement": statement, "attestation": hex.EncodeToString(att), "receipt": receipt}
-	if paid != nil {
-		r, e := paid.finish()
-		resultFrame["payment_receipt"] = r
-		if e != nil {
-			resultFrame["receipt_error"] = e.Error()
-		}
-	}
-	if n.resultPath != "" {
-		if e := os.WriteFile(n.resultPath, canon(resultFrame), 0644); e != nil {
-			refuse("execution")
-			return
-		}
-	}
-	writeFrame(s, resultFrame)
-}
-
-type limitedBuffer struct {
-	bytes.Buffer
-	max int
-}
-
-func (b *limitedBuffer) Write(p []byte) (int, error) {
-	if b.Len()+len(p) > b.max {
-		return 0, fmt.Errorf("output limit")
-	}
-	return b.Buffer.Write(p)
 }

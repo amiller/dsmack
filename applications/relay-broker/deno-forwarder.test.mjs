@@ -21,37 +21,14 @@ async function readFrame(s) {
   const prefix = (await s.read({ bytes: 4 })).subarray();
   return JSON.parse(dec.decode((await s.read({ bytes: new DataView(prefix.buffer, prefix.byteOffset).getUint32(0, false) })).subarray()));
 }
-async function writeFrame(s, value) {
-  const raw = enc.encode(JSON.stringify(value)), prefix = new Uint8Array(4);
-  new DataView(prefix.buffer).setUint32(0, raw.length, false);
-  await s.write(prefix); await s.write(raw);
-}
 
-Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, without plaintext or buyer keys", async () => {
+Deno.test("shared Deno fetches node attestations over Noise and a circuit relay", async () => {
   const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { applyDefaultLimit: false } }) });
   let guest, forwarder;
   try {
     const relayAddress = relay.getMultiaddrs()[0].toString();
     guest = await makeNode([relayAddress + "/p2p-circuit"]);
     const target = relayAddress + "/p2p-circuit/p2p/" + guest.peerId.toString();
-    const sealed = { epk: "public-key", iv: "nonce", ct: "ciphertext".repeat(80000) };
-    const admission = { job_id: "aa".repeat(16), grant: { sig: "broker-signature" }, client_peer: "browser", signature: "browser-signature", bundle_sha256: "ciphertext-hash" };
-    const complete = { status: "complete", outputs: { patch: { ct: "sealed-output" } }, statement: { job_id: admission.job_id } };
-    let received;
-    let jobWaiting;
-    const waiting = new Promise((resolve) => { jobWaiting = resolve; });
-    await guest.handle("/dsmack/job/1", async (stream) => {
-      const s = byteStream(stream); const a = await readFrame(s);
-      if (a.job_id === "busy") { await writeFrame(s, { status: "refused", error: "busy" }); await stream.close(); return; }
-      await writeFrame(s, { status: "ready" });
-      received = { admission: a, sealed: await readFrame(s) };
-      if (a.job_id === "oversize") {
-        const prefix = new Uint8Array(4); new DataView(prefix.buffer).setUint32(0, 49 << 20, false);
-        await s.write(prefix); await stream.close(); return;
-      }
-      if (a.job_id === "wait") { jobWaiting(); await new Promise((resolve) => stream.addEventListener("close", resolve, { once: true })); return; }
-      await writeFrame(s, complete); await stream.close();
-    }, { runOnLimitedConnection: true });
     await guest.handle("/dsmack/attest/1", async (stream) => { stream.send(enc.encode('{"attestation":"public-proof"}')); await stream.close(); }, { runOnLimitedConnection: true });
     await guest.handle("/dsmack/payments-attest/1", async (stream) => {
       const s = byteStream(stream); const q = await readFrame(s);
@@ -65,24 +42,12 @@ Deno.test("shared Deno forwards BE32 jobs over Noise and a circuit relay, withou
     // Deno's successful HTTP response can abort its Request signal afterwards.
     discoveryRequest.abort(new Error("successful discovery HTTP response ended"));
     assert.deepEqual(await forwarder.forward("attestation", { target, challenge: "ab".repeat(32) }), { attestation: "fresh-public-proof", challenge: "ab".repeat(32) });
-    assert.deepEqual(await forwarder.forward("jobs", { target, admission, sealed }), complete);
-    assert.deepEqual(received, { admission, sealed });
-    assert.deepEqual(await forwarder.forward("jobs", { target, admission: { ...admission, job_id: "busy" }, sealed }), { status: "refused", error: "busy" });
-    await assert.rejects(forwarder.forward("jobs", { target, admission, sealed }, { signal: AbortSignal.abort(new Error("browser left")) }), /node_unreachable/);
-    await assert.rejects(forwarder.forward("jobs", { target, admission: { ...admission, job_id: "oversize" }, sealed }), /node_result_lost/);
-    const abort = new AbortController();
-    const abandoned = forwarder.forward("jobs", { target, admission: { ...admission, job_id: "wait" }, sealed }, { signal: abort.signal });
-    await waiting; abort.abort(new Error("browser left after admission"));
-    await assert.rejects(abandoned, /node_result_lost/);
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
 });
 
-Deno.test("HTTP polling backhaul carries pinned relay Noise and a 3040542-byte result over a finite circuit", async () => {
+Deno.test("HTTP polling backhaul carries pinned relay Noise", async () => {
   const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { defaultDurationLimit: 120000, defaultDataLimit: 8n << 20n } }) });
   const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()] });
-  const sendDelayMs = 100;
-  let sends = 0;
-  let guest;
   const http = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => forwarder.acceptBackhaul(req));
   const base = "http://127.0.0.1:" + http.addr.port + "/sandbox/p2p";
   const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
@@ -98,8 +63,6 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise and a 3040542-byte r
         while (true) {
           const size = await conn.read(buffer);
           if (size === null) return;
-          await new Promise((resolve) => setTimeout(resolve, sendDelayMs));
-          sends++;
           const sent = await fetch(base + "/" + id + "/send", { method: "POST", body: buffer.slice(0, size), signal: controller.signal });
           if (sent.status !== 204) throw new Error("backhaul send refused");
         }
@@ -136,24 +99,11 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise and a 3040542-byte r
       stream.send(enc.encode('{"attestation":"backhaul-proof"}')); await stream.close();
     });
     assert.deepEqual(await forwarder.forward("attestation", { target: unreachableAddress }), { attestation: "backhaul-proof" });
-    guest = await makeNode([relay.getMultiaddrs()[0].toString() + "/p2p-circuit"]);
-    const targetJob = unreachableAddress + "/p2p-circuit/p2p/" + guest.peerId;
-    const result = { status: "complete", outputs: { patch: { ct: "" } } };
-    result.outputs.patch.ct = "x".repeat(3040542 - enc.encode(JSON.stringify(result)).length);
-    assert.equal(enc.encode(JSON.stringify(result)).length, 3040542);
-    await guest.handle("/dsmack/job/1", async (stream) => {
-      const s = byteStream(stream); await readFrame(s);
-      await writeFrame(s, { status: "ready" }); await readFrame(s);
-      await writeFrame(s, result); await stream.close();
-    }, { runOnLimitedConnection: true });
-    const started = performance.now();
-    assert.deepEqual(await forwarder.forward("jobs", { target: targetJob, admission: { job_id: "large-result" }, sealed: { ct: "tiny-input" } }), result);
-    console.log(JSON.stringify({ resultBytes: 3040542, sendDelayMs, sends, elapsedMs: Math.round(performance.now() - started) }));
     const stranger = await makeNode([]);
     try { await assert.rejects(stranger.dialProtocol(multiaddr(target), "/ipfs/id/1.0.0", { signal: AbortSignal.timeout(2000) })); }
     finally { await stranger.stop(); }
   } finally {
-    listener.close(); await guest?.stop(); await relay.stop(); await forwarder.stop(); await accepting;
+    listener.close(); await relay.stop(); await forwarder.stop(); await accepting;
     await Promise.all([...adapters]); await http.shutdown();
   }
 });

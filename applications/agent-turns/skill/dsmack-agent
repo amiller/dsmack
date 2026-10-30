@@ -21,12 +21,6 @@ from urllib.parse import quote
 import uuid
 
 TURNS = Path(__file__).resolve().parents[1]
-if len(sys.argv) > 1 and sys.argv[1] == 'run-remote':
-    sys.path.insert(0, str(TURNS.parent/'compute-node'))
-    import client
-    client.main(sys.argv[2:])
-    raise SystemExit(0)
-
 sys.path.insert(0, str(TURNS))
 import find
 import turn

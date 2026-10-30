@@ -62,33 +62,6 @@ registration before offering that class. Run `register-class.mjs CONFIG FUNDING_
 MANIFEST` after the deployment is finalized to pin the broker and register the
 measured compute class.
 
-```
-dsmack-agent run-remote --payments-config CONFIG --funding-key FUNDING_KEY \
-  --send-payments --launch-node 'operator-launch-command' \
-  --stop-node 'operator-stop-and-wait-command' \
-  --binary ./dsmack-compute --broker BROKER --broker-key ED25519_KEY \
-  --cdhash CDHASH --manifest MANIFEST --enrollment ENROLLMENT \
-  --repo REPO --prompt 'Fix the issue' --credential LOCAL_TOKEN \
-  --seconds 90 --out paid-job
-```
-
-The launch command runs after purchase finality. The stop command returns only
-when the VM has exited; settlement and refund confirmation follow. For multiple
-buyers sharing a run, use `--prepare-only` for each purchase, launch once, execute
-each with `--resume-payment --defer-settlement`, stop the VM, then invoke
-`--finish-only` for each retained receipt. Prepared output preserves buyer keys
-and transaction hashes for recovery. Each purchase gets fresh EVM and libp2p
-keys, funded from one testnet wallet.
-
-For a Mac-local inference token, replace `--funding-key` with
-`--payment-service http://127.0.0.1:18455`. Run
-`service.py CONFIG FUNDING_KEY STATE_DIR 18455` on the wallet machine and forward
-that loopback port over the existing SSH master. Keys and token stay on their
-respective machines. For an IPv4-only RPC transport, run `rpc-proxy.py 18457`
-and set `rpcProxy` to `http://127.0.0.1:18457` in the local wallet configuration.
-It tunnels TLS to the same three providers. The helper refuses funding-wallet transactions below
-0.02 testnet ETH.
-
 `GET /payments/classes` exposes prices before a VM exists. `/payments/nodes`
 lists live attested runs. `/payments/confirm` records the finalized Purchase event and immutable allowance
 before VM launch. Grant activation uses that saved confirmation and the live
@@ -103,6 +76,5 @@ refunds and withdraws credits; transaction commands require `--send`.
 Run Go guest and compute tests on the builder with `PAYMENTS_EVIDENCE` pointing
 to the evidence directory. Deno tests in `payments.test.mjs` check quorum,
 canonical purchase events, buyer authorization, grant persistence and receipt
-storage. `test-local.sh` settles original Go and compute receipt signatures in
-Solidity and exercises payout, refunds, price increase and decay. Contract tests
+storage. Contract tests
 are `forge test --root contracts --match-contract UsageEscrowTest --offline`.

@@ -260,7 +260,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return fmt.Errorf("invalid Linux uptime")
 	}
 	remaining := time.Duration(seconds)*time.Second - time.Duration(uptimeSeconds*float64(time.Second)) - 30*time.Second
-	if remaining <= 270*time.Second {
+	if remaining <= 480*time.Second {
 		return fmt.Errorf("insufficient measured guest lifetime")
 	}
 	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
@@ -278,7 +278,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		}
 		n.admissionUntil = time.Now().Add(time.Duration(admit) * time.Second)
 	}
-	cutoff := n.until.Add(-270 * time.Second)
+	cutoff := n.until.Add(-480 * time.Second)
 	if n.admissionUntil.IsZero() || n.admissionUntil.After(cutoff) {
 		n.admissionUntil = cutoff
 	}

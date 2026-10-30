@@ -62,7 +62,7 @@ func TestActiveBudgetCannotShrinkOrRunPastAuthenticatedWindow(t *testing.T) {
 func TestDrainCompletesInflightToolButRejectsNextTool(t *testing.T) {
 	start := time.Unix(1000, 0)
 	cut := start.Add(10 * time.Second)
-	hard := start.Add(270 * time.Second)
+	hard := start.Add(480 * time.Second)
 	meter := newAgentMeter(start, 3600)
 	meter.allow(300)
 	meter.begin(json.RawMessage(`1`), start, cut)

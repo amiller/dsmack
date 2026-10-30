@@ -1,11 +1,12 @@
 """Wait for the broker's reported guests and model streams before a shared-runtime update."""
 import json
+import math
 import time
 from urllib.request import urlopen
 
 
 def wait_for_idle(base, minutes=10, *, read=None, clock=time.monotonic, sleep=time.sleep):
-    if minutes < 0:
+    if not math.isfinite(minutes) or minutes < 0:
         raise ValueError("idle wait minutes must be nonnegative")
     def fetch(path):
         with urlopen(base.rstrip('/') + '/relay-broker' + path, timeout=10) as response:

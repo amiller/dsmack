@@ -36,6 +36,45 @@ class PublicationTests(unittest.TestCase):
             mac_pool.republish(Mock(side_effect=ValueError('invalid publisher key')), {}, False)
 
 
+class GuestDirectoryTests(unittest.TestCase):
+    def snapshot(self):
+        return {'slots': [{'state': 'ready', 'attestation': {
+            'relay_peer': 'guest', 'admit_until': 1500,
+            'payments': {'runExpires': 1800}}}]}
+
+    def test_heartbeat_and_busy_state_do_not_repeat_chain_transaction(self):
+        snapshot = self.snapshot()
+        hint = {'url': 'wss://guest.trycloudflare.com/', 'relayPeer': 'relay', 'expiresAt': 2000}
+        publish = Mock()
+        entries = mac_pool.guest_entries(snapshot, hint, now=1000)
+        previous = mac_pool.publish_directory(publish, entries, None)
+        hint['expiresAt'] += 60
+        snapshot['slots'][0]['state'] = 'busy'
+        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, hint, now=1060), previous)
+        publish.assert_called_once_with(entries, True)
+        self.assertEqual(entries[0]['expiresAt'], 1500)
+        self.assertEqual(entries[0]['guestPeer'], 'guest')
+        changed = dict(hint, url='wss://replacement.trycloudflare.com/')
+        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, changed, now=1060), previous)
+        self.assertEqual(publish.call_count, 2)
+        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, changed, now=1500), previous)
+        self.assertEqual(publish.call_args.args, ([], True))
+        self.assertEqual(previous, [])
+
+    def test_local_guest_removal_and_publication_failure_do_not_need_broker(self):
+        hint = {'url': 'wss://guest.trycloudflare.com/', 'relayPeer': 'relay'}
+        entries = mac_pool.guest_entries(self.snapshot(), hint, now=1000)
+        publish = Mock(side_effect=[subprocess.CalledProcessError(1, ['chain']), None, None])
+        with contextlib.redirect_stdout(io.StringIO()):
+            previous = mac_pool.publish_directory(publish, entries, None)
+            self.assertIsNone(previous)
+            previous = mac_pool.publish_directory(publish, entries, previous)
+        self.assertEqual(previous, entries)
+        removed = mac_pool.guest_entries({'slots': []}, hint, now=1100)
+        self.assertEqual(mac_pool.publish_directory(publish, removed, previous), [])
+        self.assertEqual(publish.call_count, 3)
+
+
 PEER = '12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x'
 
 

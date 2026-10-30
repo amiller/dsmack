@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Deploy/update the Base Sepolia tunnel index, then publish the same hints to the broker."""
+"""Publish Mac-signed tunnel hints to Base Sepolia or the broker."""
 import argparse,json,os,sys,time
 from http.client import HTTPException
 from urllib.error import HTTPError,URLError
@@ -14,7 +14,7 @@ sys.path.insert(0,str(ROOT/'contracts/payments'))
 from deploy import load_owner,send
 from rpc import Quorum,CHAIN_ID,call
 p=argparse.ArgumentParser(description=__doc__)
-p.add_argument('action',choices=['deploy','publish','broker'])
+p.add_argument('action',choices=['deploy','publish','chain','broker'])
 p.add_argument('--key',type=Path)
 p.add_argument('--evidence',type=Path,required=True)
 p.add_argument('--bytecode',type=Path)
@@ -26,6 +26,15 @@ p.add_argument('--publisher-address',help='Mac-local publisher address, checked 
 p.add_argument('--rpc',help='explicit single RPC for Mac-local zero-value locator publications')
 p.add_argument('--registry-owner',help='Initial publisher when deploying a registry')
 a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=True)
+def signed_publication(entries, signer):
+ now=int(time.time())
+ expiry=max((entry['expiresAt'] for entry in entries),default=now+3300)
+ if not now<expiry<=now+3600:raise ValueError('tunnel publication expiry must be within one hour')
+ body={'entries':entries,'publisher':signer.address.lower(),'expiresAt':expiry}
+ canonical=json.dumps(body,sort_keys=True,separators=(',',':'))
+ body['signature']='0x'+signer.sign_message(encode_defunct(text='dsmack-tunnels/1\n'+canonical)).signature.hex()
+ return body
+
 def publish_broker():
  if not a.entries or not a.broker:raise ValueError('entries and broker required')
  raw=json.dumps(json.loads(a.entries.read_text()),separators=(',',':'))
@@ -33,9 +42,7 @@ def publish_broker():
  if a.operator_token:headers['Authorization']='Bearer '+a.operator_token.read_text().strip()
  else:
   signer=publisher()
-  body={'entries':json.loads(raw),'publisher':signer.address.lower(),'expiresAt':int(__import__('time').time())+3300}
-  canonical=json.dumps(body,sort_keys=True,separators=(',',':'))
-  body['signature']='0x'+signer.sign_message(encode_defunct(text='dsmack-tunnels/1\n'+canonical)).signature.hex()
+  body=signed_publication(json.loads(raw),signer)
   raw=json.dumps(body,separators=(',',':'))
  request=Request(a.broker,raw.encode(),headers,method='POST')
  for attempt in range(1,4):
@@ -65,7 +72,7 @@ def publisher():
 if a.action=='broker':publish_broker();sys.exit()
 if not a.key:raise ValueError('--key required for Base Sepolia writes')
 account=publisher()
-if a.rpc and (a.action!='publish' or not a.publisher_address or not a.rpc.startswith('https://')):
+if a.rpc and (a.action not in ('publish','chain') or not a.publisher_address or not a.rpc.startswith('https://')):
  raise ValueError('--rpc requires a Mac-local locator publication and an HTTPS RPC')
 class PublicationRPC(Quorum):
  def __init__(self):
@@ -103,10 +110,13 @@ if a.action=='deploy':
  record={'chainId':CHAIN_ID,'registry':receipt['contractAddress'],'transactionHash':receipt['transactionHash'],'entriesSelector':'0x'+keccak(text='entries()')[:4].hex()}
  (a.evidence/'registry.json').write_text(json.dumps(record,indent=2)+'\n');print(json.dumps(record))
 else:
- if not a.registry or not a.entries or not a.broker:raise ValueError('registry, entries and broker required')
+ if not a.registry or not a.entries:raise ValueError('registry and entries required')
+ if a.action=='publish' and not a.broker:raise ValueError('publish requires broker; use chain for chain-only publication')
  if (a.evidence/'publish-transaction.json').exists():raise ValueError('publication already submitted; inspect its receipt')
- values=json.loads(a.entries.read_text());raw=json.dumps(values,separators=(',',':'))
+ values=json.loads(a.entries.read_text())
+ envelope=signed_publication(values,account);raw=json.dumps(envelope,separators=(',',':'))
+ (a.evidence/'signed-publication.json').write_text(json.dumps(envelope,indent=2)+'\n')
  data='0x'+(keccak(text='publish(string)')[:4]+encode(['string'],[raw])).hex()
  receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
- publish_broker()
+ if a.action=='publish':publish_broker()
  print(json.dumps({'chainId':CHAIN_ID,'registry':a.registry,'transactionHash':receipt['transactionHash'],'broker':a.broker}))

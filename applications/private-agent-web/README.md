@@ -5,6 +5,11 @@ running in an attested Mac-hosted Linux guest. Tool calls and results appear
 inline. Model requests and responses remain encrypted between the browser and
 NEAR AI Cloud's model TEE; the broker forwards ciphertext and meters usage.
 
+If a reply loses its connection, its partial text stays in the conversation marked
+Interrupted. Retry checks the broker ledger, then resends the last user/tool
+context without adding another user message. The page shows the settled model
+charge; the retry is a new metered request.
+
 Choose Start fresh to generate a browser wallet and a random data key locally.
 The wallet receives $0.250000 credit for model tokens and guest seconds. The first
 tool call claims a guest, verifies its Apple attestation and
@@ -96,6 +101,10 @@ unprivileged user within `/workspace`; the measured firewall and CONNECT proxy
 apply the guest's host allowlist to commands.
 
 The saved wallet renders before chat sync, broker checks and RPC calls. A first visit offers Start fresh or recovery; creating a wallet is explicit. After receiving credit or saving a chat, add a passkey or email on the original browser to return on another device.
+
+Deployment waits up to ten minutes for `/relay-broker/network` busy slots and
+`/relay-broker/inference/status` in-flight model streams to reach zero.
+`--wait-idle-minutes N` changes the wait; a timeout stops before upload.
 
 Deploy the built page using its existing private environment JSON and operator-token SHA256:
 

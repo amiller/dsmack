@@ -18,7 +18,7 @@ export function dsmackRuntime(sandboxId) {
     }
   }
   addEventListener("message", event => {
-    if (event.source !== parent || event.origin !== "null") return;
+    if (event.source !== parent || event.origin !== "https://artifacts.private-agent.dstack.soc1024.com") return;
     const data = event.data;
     if (!data || data.type !== "dsmack-response" || data.sandboxId !== sandboxId || data.version !== 1) return;
     const entry = pending.get(data.requestId);

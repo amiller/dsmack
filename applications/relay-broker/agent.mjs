@@ -1,4 +1,5 @@
 import { InferenceError } from "./inference.mjs";
+import { rankNodes } from "./scheduler.mjs";
 import { peerBytes } from "./attestation.mjs";
 import { signGrant, canonical } from "./grants.mjs";
 import { unhex } from "../../dstack-compat/secret-release/policy.mjs";
@@ -11,10 +12,14 @@ const id = (value) => typeof value === "string" && /^[0-9a-f]{32}$/.test(value);
 // A session reserves guest time from the same wallet ledger as encrypted model
 // calls. Only the receipt key bound by the guest attestation can charge usage.
 export class AgentSessions {
-  constructor(broker) { this.b = broker; }
-  available(node) {
+  /** @param {any} broker @param {() => Promise<any[]>} readFleet */
+  constructor(broker, readFleet = async () => []) { this.b = broker; this.readFleet = readFleet; }
+  /** @param {any} node @param {{publisher: string, slot_id: number} | undefined} placement */
+  available(node, placement = undefined) {
     return !node.telemetry?.busy && !Object.values(this.b.payments?.state.agentSessions ?? {})
-      .some(s => s.node.relay_peer === node.relay_peer && !s.final && s.grant.expires_at > this.b.now());
+      .some(s => !s.final && s.grant.expires_at > this.b.now() &&
+        (s.node.relay_peer === node.relay_peer || (placement && s.placement?.publisher === placement.publisher &&
+          s.placement.slot_id === placement.slot_id)));
   }
   async save(fields) {
     const p = this.b.payments, next = { ...p.state, ...fields };
@@ -31,7 +36,7 @@ export class AgentSessions {
   view(s) {
     return {
       sessionId: s.grant.grant_id, conversationId: s.conversationId,
-      node: s.node, seconds: s.grant.seconds, grant: s.grant,
+      node: s.node, placement: s.placement, seconds: s.grant.seconds, grant: s.grant,
       guestSeconds: s.guestSeconds, rateNanoUsdPerSecond: s.rateNanoUsdPerSecond,
       active: !s.final && s.grant.expires_at > this.b.now(),
       endRequested: !!s.endRequested, usageUnresolved: !s.final && s.grant.expires_at <= this.b.now(), credit: this.b.inference.summary(s.wallet),
@@ -48,7 +53,13 @@ export class AgentSessions {
       need(!existing.some((s) => s.wallet === wallet && !s.final && s.grant.expires_at > b.now()), "SESSION_ACTIVE", "end the wallet's held guest first", 409);
       const node = b.live().find((n) => n.kind === "compute" && n.relay_peer === r.node_peer);
       need(node?.receipt_key && /^[0-9a-f]{64}$/.test(node.receipt_key), "NODE_NOT_LIVE", "attested guest is unavailable", 404);
-      need(this.available(node), "GUEST_BUSY", "guest is held by another conversation", 409);
+      // Read the signed heartbeat and recheck occupancy inside the same ledger
+      // transaction that reserves credit. Client placement hints are ignored.
+      const ranked = rankNodes(b.live().filter(n => n.kind === "compute"), await this.readFleet(),
+        (candidate, placement) => this.available(candidate, placement), { now: b.now() });
+      const offered = ranked.find(candidate => candidate.relay_peer === node.relay_peer && candidate.available);
+      need(offered, "GUEST_BUSY", "guest logical slot is busy or no longer offered", 409);
+      const placement = offered.placement;
       const rate = BigInt(b.cfg.agent?.nanoUsdPerSecond ?? "10000");
       need(rate > 0n, "BAD_CONFIG", "guest second price must be positive", 503);
       const available = BigInt(b.inference.summary(wallet).remainingNanoUsd);
@@ -58,7 +69,7 @@ export class AgentSessions {
       need(seconds >= 1, "CREDIT_EXHAUSTED", "wallet cannot cover a guest second", 402);
       const grant = await signGrant(b.key, { client_peer: r.client_peer,
         relay_peer: node.relay_peer, unit: "seconds", seconds, expires_at: b.now() + seconds });
-      const s = { wallet, conversationId: r.conversationId, node,
+      const s = { wallet, conversationId: r.conversationId, node, placement,
         grant, guestSeconds: 0, rateNanoUsdPerSecond: String(rate),
         reservedNanoUsd: String(BigInt(seconds) * rate), final: false, openedAt: b.now() };
       await this.save({ agentSessions: { ...b.payments.state.agentSessions, [grant.grant_id]: s } });

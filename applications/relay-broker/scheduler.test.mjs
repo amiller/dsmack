@@ -30,3 +30,19 @@ test("full fleet supplies a bounded retry time instead of creating a queued stay
   assert.equal(busyRetrySeconds([], { held: { final: false, grant: { expires_at: now + 7 } } }, now), 7);
   assert.equal(busyRetrySeconds([], { ended: { final: true, grant: { expires_at: now + 1 } } }, now), 15);
 });
+
+
+test("one free logical slot offers its newest ready guest while retaining every observer peer",()=>{
+ const nodes=[node("old",now+600),node("replacement",now+900),node("other",now+700)];
+ const fleet=[mac("one",[],{slots:[{slot_id:0,state:"ready",relay_peer:"old"},
+  {slot_id:0,state:"ready",relay_peer:"replacement"},{slot_id:1,state:"ready",relay_peer:"other"}]})];
+ const ranked=rankNodes(nodes,fleet,()=>true,{now});
+ assert.equal(ranked.length,3);
+ assert.deepEqual(ranked.filter(node=>node.available).map(node=>node.relay_peer),["replacement","other"]);
+ assert.equal(ranked[0].scheduler.freeSlots,2);
+ assert.deepEqual(ranked[0].placement,{publisher:"one",slot_id:0});
+ const held=rankNodes(nodes,fleet,node=>node.relay_peer!=="old",{now});
+ assert.deepEqual(held.filter(node=>node.available).map(node=>node.relay_peer),["other"]);
+ fleet[0].slots[0].state="busy";
+ assert.deepEqual(rankNodes(nodes,fleet,()=>true,{now}).filter(node=>node.available).map(node=>node.relay_peer),["other"]);
+});

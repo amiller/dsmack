@@ -14,6 +14,7 @@ def main():
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--broker',required=True);p.add_argument('--index',required=True)
+    p.add_argument('--publication-rpc',default='https://base-sepolia-rpc.publicnode.com')
     p.add_argument('--registry',required=True);p.add_argument('--publisher-address',required=True)
     a=p.parse_args();a.state.mkdir(parents=True,mode=0o700)
     manifest=json.loads((a.workload/'compose-manifest.json').read_bytes())
@@ -45,6 +46,7 @@ def main():
     def publish(entries,chain):
         out=a.state/('publication-'+str(time.time_ns()));out.mkdir();path=out/'entries.json';path.write_text(json.dumps(entries))
         cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','publish' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',path,'--evidence',out]
+        if chain:cmd+=['--rpc',a.publication_rpc]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     try:
         with urlopen(a.broker.rstrip('/')+'/sandbox/transport',timeout=30) as response:broker_peer=json.load(response)['peer_id']

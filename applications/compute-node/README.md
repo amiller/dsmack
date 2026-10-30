@@ -86,6 +86,11 @@ Write `~/.dsmack/operator.json` on the Mac:
 {"max_guests":4,"guest":{"mem_mib":4096,"vcpus":1},"reserve":{"mem_gb":16,"cores":4}}
 ```
 
+Optionally add `"region":{"name":"Michigan, US","lat":42,"lon":-84}` to
+publish a coarse location on the network map. Coordinates must be whole degrees.
+The publisher rereads this field for each signed heartbeat; remove it to opt out.
+No IP geolocation is used.
+
 The pool checks physical RAM and cores at startup and refuses a configuration
 whose guests exceed the capacity after the reserve, reporting the requested,
 physical, reserved and available numbers. Editing the file takes effect on

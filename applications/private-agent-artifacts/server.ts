@@ -18,7 +18,11 @@ function receive(event) {
     if (data.sandboxId === sandboxId && data.type === 'console') parent.postMessage(data, host);
     return;
   }
-  if (event.source !== parent || event.origin !== host || inner) return;
+  if (event.source !== parent || event.origin !== host) return;
+  if (inner) {
+    if (data.type === 'runtime-response' && data.sandboxId === sandboxId) inner.contentWindow.postMessage(data, '*');
+    return;
+  }
   if (data.type !== 'sandbox-load' || typeof data.code !== 'string' || typeof data.sandboxId !== 'string') return;
   sandboxId = data.sandboxId;
   inner = document.createElement('iframe');

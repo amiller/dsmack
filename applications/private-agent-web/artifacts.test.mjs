@@ -27,6 +27,11 @@ try {
   await page.evaluate(async html=>window.artifacts.tool.execute('create1',{command:'create',filename:'test.html',content:html}),html);
   let app=page.frames().find(f=>f.url().startsWith('blob:'));
   assert.ok(app,'artifact renders in a blob iframe');
+  const acknowledgement = await app.evaluate(() => Promise.race([
+    window.sendRuntimeMessage({type:'console',method:'log',text:'acknowledgement-probe'}),
+    new Promise((_,reject)=>setTimeout(()=>reject(new Error('Console acknowledgement missing after 2s')),2000)),
+  ]));
+  assert.equal(acknowledgement.success,true,'console request receives the source-bound host acknowledgement');
   await app.locator('#count').click();assert.equal(await app.locator('#count').textContent(),'1');
   await page.screenshot({path:resolve(evidence,'artifacts.png')});
   const logs=()=>page.evaluate(async()=>JSON.stringify(await window.artifacts.tool.execute('logs',{command:'logs',filename:'test.html'})));

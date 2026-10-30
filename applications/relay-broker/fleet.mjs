@@ -14,21 +14,30 @@ export function fleet(req, publishers = {}, path, now = () => Math.floor(Date.no
   return result;
 }
 
+export async function readFleet(path, now = Math.floor(Date.now() / 1000)) {
+  const state = await readState(path);
+  return Object.values(state).map(mac => {
+    const online = now - mac.received_at < 60 && now - mac.updated_at < 60;
+    return { ...mac, online, status: online ? "online" : "offline" };
+  });
+}
+
+async function readState(path) {
+  if (!path) return memory;
+  try { return JSON.parse(await Deno.readTextFile(path)); }
+  catch (error) { if (!(error instanceof Deno.errors.NotFound)) throw error; return {}; }
+}
+
 async function handle(req, publishers, path, now) {
   const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, POST, OPTIONS",
     "access-control-allow-headers": "content-type", "cache-control": "no-store", "content-type": "application/json" };
   const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (!["GET", "POST"].includes(req.method)) return reply({ error: "method" }, 405);
-  let state = memory;
-  if (path) {
-    try { state = JSON.parse(await Deno.readTextFile(path)); }
-    catch (error) { if (!(error instanceof Deno.errors.NotFound)) throw error; state = {}; }
-  }
-  const visible = mac => {
-    const online = now() - mac.received_at < 60 && now() - mac.updated_at < 60;
-    return { ...mac, online, status: online ? "online" : "offline" };
-  };
+  const state = await readState(path);
+  const visible = mac => ({ ...mac,
+    online: now() - mac.received_at < 60 && now() - mac.updated_at < 60,
+    status: now() - mac.received_at < 60 && now() - mac.updated_at < 60 ? "online" : "offline" });
   if (req.method === "GET") {
     const payout = new URL(req.url).searchParams.get("payout")?.toLowerCase();
     if (payout && !address(payout)) return reply({ error: "payout address" }, 400);

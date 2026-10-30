@@ -1,3 +1,4 @@
+import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
@@ -83,7 +84,7 @@ async function load(ctx: Context) {
     rpcChain(cfg.rpc, cfg.attest, cfg.canary),
     cfg.enrollments,
   );
-  return new Broker({
+  const broker = new Broker({
     cfg,
     chain,
     key,
@@ -93,6 +94,28 @@ async function load(ctx: Context) {
     providerEnvironment,
     saveCredits: (value: object) => atomicSave(path, value),
   });
+  const syncPath = ctx.dataDir + "/continuity.json", blobs = ctx.dataDir + "/continuity-blocks";
+  await Deno.mkdir(blobs, { recursive: true, mode: 0o700 });
+  let syncState;
+  try { syncState = JSON.parse(await Deno.readTextFile(syncPath)); }
+  catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
+  return Object.assign(broker, { continuity: new Continuity({
+    cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
+    anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
+    state: syncState,
+    save: (v: object) => atomicSave(syncPath, v),
+    put: async (cid: string, ciphertext: string) => {
+      const temporary = blobs + "/" + cid + "." + crypto.randomUUID() + ".tmp";
+      await Deno.writeTextFile(temporary, ciphertext, { mode: 0o600 });
+      using f = await Deno.open(temporary, { write: true }); await f.sync();
+      await Deno.rename(temporary, blobs + "/" + cid);
+      using directory = await Deno.open(blobs, { read: true }); await directory.sync();
+    },
+    get: async (cid: string) => {
+      try { return await Deno.readTextFile(blobs + "/" + cid); }
+      catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; return null; }
+    },
+  }) });
 }
 
 const escape = (s: string) =>
@@ -218,7 +241,12 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path.startsWith("/agent/") && req.method === "POST") {
+    if (path.startsWith("/sync/") && req.method === "POST") {
+      const sync = (b as Broker & { continuity?: Continuity }).continuity;
+      if (!sync) return finish(Response.json({ error: "sync not configured" }, { status: 503 }));
+      try { response = Response.json(await sync.call(path.slice(6), await body(req, 3 * 1024 * 1024))); }
+      catch (e) { if (e instanceof Error && "status" in e) return finish(Response.json({ error: e.message }, { status: Number(e.status) })); throw e; }
+    } else if (path.startsWith("/agent/") && req.method === "POST") {
       if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
       const sessions = new AgentSessions(b), request = await body(req);
       const action = path.slice("/agent/".length);

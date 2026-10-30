@@ -88,6 +88,10 @@ async function backend(page, kind) {
         "wallet action signature",
       );
     }
+    if (path.startsWith("/sync/")) return respond({ error: {
+      code: "SYNTHETIC_SYNC_UNAVAILABLE",
+      message: "Encrypted sync is unavailable in this inference fixture.",
+    } }, 503);
     const credit = {
       wallet: body?.wallet?.toLowerCase(),
       model,
@@ -192,14 +196,19 @@ async function run(name, kind, fn) {
     });
   } catch (e) {
     result.error = e.message;
+    result.alert = await page.locator("#alert").textContent();
+    result.chatStatus = await page.locator("#chat-status").textContent();
+    await page.screenshot({ path: resolve(evidence, name + "-failed.png"), fullPage: true });
   }
   report.cases.push(result);
   await ctx.close();
   console.log(result.status + ": " + name);
 }
 try {
-  await run("first-send-creates-wallet", "valid", async (page, calls) => {
+  await run("first-visit-creates-wallet", "valid", async (page, calls) => {
     const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
+    assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);
+    assert.equal(await page.locator("#continuity-panel").isVisible(), false);
     assert.equal(await page.locator("#policy").inputValue(), "");
     assert.match(
       await page.locator("#node-status").textContent(),
@@ -209,6 +218,12 @@ try {
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
     await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    await page.waitForFunction(() => document.querySelector("#chat-status").textContent.includes("Sync pending"));
+    assert.match(await page.locator("#alert").textContent(), /SYNTHETIC_STOP/,
+      "Background sync failure must preserve the model error");
+    assert(calls.some((r) => r.path === "/sync/blob"), "Saved chat attempted encrypted synchronization");
+    assert(!calls.filter((r) => r.path.startsWith("/sync/")).some((r) => JSON.stringify(r.body).includes(marker)),
+      "Plaintext prompt reached chat synchronization");
     assert.match(await page.locator("user-message").innerText(), new RegExp(marker));
     assert.equal(await page.locator("agent-interface message-editor textarea").inputValue(), "");
     assert.match(
@@ -221,48 +236,6 @@ try {
     partialCredit = (reservation(chat.body.body) - 200n * 1500n).toString();
     assert.equal(await page.locator("#wallet-tools").isVisible(), true);
   });
-  await run(
-    "injected-wallet-switches-to-base-sepolia",
-    "valid",
-    async (page, calls) => {
-      const wallet = Wallet.createRandom();
-      await page.exposeFunction(
-        "fixtureWalletSign",
-        async (hex) => wallet.signMessage(Buffer.from(hex.slice(2), "hex")),
-      );
-      await page.evaluate((address) => {
-        let chainId = "0x1";
-        window.fixtureWalletMethods = [];
-        window.ethereum = {
-          request: async ({ method, params }) => {
-            window.fixtureWalletMethods.push(method);
-            if (method === "eth_chainId") return chainId;
-            if (method === "eth_requestAccounts" || method === "eth_accounts") {
-              return [address];
-            }
-            if (method === "wallet_switchEthereumChain") {
-              chainId = params[0].chainId;
-              return null;
-            }
-            if (method === "personal_sign") {
-              return window.fixtureWalletSign(params[0]);
-            }
-            throw new Error("Unexpected synthetic wallet method " + method);
-          },
-        };
-      }, wallet.address);
-      await page.locator("#connect").click();
-      await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.250000"
-      );
-      assert.equal(await page.locator("#wallet").textContent(), wallet.address);
-      const methods = await page.evaluate(() => window.fixtureWalletMethods);
-      assert(methods.includes("wallet_switchEthereumChain"));
-      assert(!methods.some((method) => method.startsWith("eth_send")));
-      assert(calls.some((request) => request.path === "/inference/credit"));
-    },
-  );
   await run("guest-is-lazy-until-a-tool-call", "valid", async (page, calls) => {
     assert.equal(await page.locator("#end-session").isDisabled(), true);
     assert.equal(await page.locator("#download").isDisabled(), true);
@@ -340,7 +313,7 @@ try {
       "provider-" + kind + "-refused-before-chat",
       kind,
       async (page, calls) => {
-        await page.locator("#burner").click();
+
         await page.waitForFunction(() =>
           document.querySelector("#chat-credit").textContent ===
             "Chat credit $0.250000"
@@ -375,7 +348,7 @@ try {
     assert(!JSON.stringify(chat.body).includes("FIRST_VISIT_PROMPT_STAYS_ENCRYPTED"));
   });
   await run("insufficient-reservation-refused-before-chat", "insufficient", async (page, calls) => {
-    await page.locator("#burner").click();
+
     await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd === "1");
     await send(page, "Private text must stay here when the token reservation exceeds credit.");
     await alert(page, "CREDIT_EXHAUSTED: Chat credit used up\\.");
@@ -386,7 +359,7 @@ try {
     "starter-credit-and-encrypted-wire",
     "valid",
     async (page, calls) => {
-      await page.locator("#burner").click();
+
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
           "Chat credit $0.250000"

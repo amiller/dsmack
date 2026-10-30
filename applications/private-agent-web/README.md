@@ -5,8 +5,9 @@ running in an attested Mac-hosted Linux guest. Tool calls and results appear
 inline. Model requests and responses remain encrypted between the browser and
 NEAR AI Cloud's model TEE; the broker forwards ciphertext and meters usage.
 
-Create or connect a wallet to receive $0.250000 credit for model tokens and guest
-seconds. The first tool call claims a guest, verifies its Apple attestation and
+The first visit generates a browser wallet and a random data key locally. The
+wallet receives $0.250000 credit for model tokens and guest seconds. The first
+tool call claims a guest, verifies its Apple attestation and
 measured compose, and opens a Noise-authenticated libp2p stream to it. The page
 shows the guest, its attestation and seconds used. End session releases it;
 five idle minutes also release it.
@@ -24,7 +25,28 @@ The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
 repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository
 content is marked untrusted in the prompt. The guest workspace persists until
-release. Wallets and saved conversations stay in this browser's IndexedDB.
+release. The wallet and conversations persist in IndexedDB. At
+https://private-agent.dstack.soc1024.com, Use on another device offers passkey
+recovery, QR linking and email recovery. Passkeys use WebAuthn PRF and HKDF to
+wrap the data key and wallet key. QR linking transfers sealed keys over WebRTC
+through the relay with Noise; compare and approve the short code on both devices.
+Move from an older origin opens its page and transfers keys through an
+origin-bound popup handshake.
+
+Chats sync as AES-GCM encrypted session blobs and an encrypted manifest in the
+broker's persistent content-addressed pins. Sessions merge by union, with the
+latest counter winning each session. The broker signs the head and commits its
+counter and digest to the pinned Base Sepolia SyncHeads contract. Each browser
+checks the contract code, on-chain head, signature and ciphertext CID before
+loading remote sessions. Refresh loads changes made on another device.
+
+Email recovery verifies the gate's Intel TDX quote and approved boot measurements
+in the browser before sending keys sealed to its quoted ECDH key. A verified
+email code enrolls or recovers a copy; recovered keys are sealed to the browser's
+fresh ECDH key. The gate limits code attempts and sends. Configure SMTP_HOST,
+SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM through the project's
+private environment. SMTP_TLS defaults to true and uses implicit TLS; use port 465
+for a provider supporting that transport.
 
 Build on a development host with Node 24 or newer:
 

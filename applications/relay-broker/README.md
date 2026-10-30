@@ -114,3 +114,23 @@ deno test --allow-read --allow-net \
   --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
   applications/relay-broker applications/payments/payments.test.mjs
 ```
+
+## Encrypted conversation sync
+
+Configure `continuity.anchor` with the Base Sepolia `SyncHeads` contract and
+`continuity.rpc` with the RPC URL. The contract writer is the existing payment
+signer; fund it with test ETH for head commits. The page pins the contract address
+and runtime code hash in `syncAnchor` and `syncAnchorCodeHash`.
+
+Wallet-signed POST requests at `/sync/blob`, `/sync/read`, `/sync/head` and
+`/sync/commit` retain ciphertext by raw CIDv1 and update a signed head after an
+on-chain compare-and-swap commit. The broker stores the blocks under its persistent
+`continuity-blocks` directory. The encrypted manifest merges session IDs by union
+and selects the newest counter per session. `/sync/wrap/put` stores wallet-signed
+passkey envelopes; `/sync/wrap/get` retrieves an envelope by its credential ID.
+
+Run the network boundary tests with:
+
+```sh
+deno test --allow-read --allow-write --allow-net --allow-env continuity.test.mjs
+```

@@ -5,6 +5,9 @@ import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
 import { Agent } from "@earendil-works/pi-agent-core";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
+import { DeviceKeys } from "./keys.mjs";
+import { ChatSync } from "./chat-sync.mjs";
+import { continuityUI } from "./continuity-ui.mjs";
 import {
   Credit,
   formatEther,
@@ -21,7 +24,7 @@ import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-p
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   guests = new Map();
-let cfg,
+let keys, sync, cfg,
   credit,
   quote,
   policy,
@@ -105,8 +108,6 @@ async function api(path, body, opts = {}) {
 }
 function render() {
   $("wallet").textContent = credit.address || "No wallet connected";
-  $("burner").disabled = !!credit.address;
-  $("connect").disabled = !!credit.address;
   $("wallet-tools").hidden = !credit.address;
   const list = $("purchases");
   list.replaceChildren();
@@ -280,7 +281,7 @@ function setModel() {
     ? "NEAR TEE model · unavailable" : agent.state.model.id;
   chat?.requestUpdate();
 }
-async function saveCurrentChat() {
+async function saveCurrentChat(publish = false) {
   const session = currentSession;
   chat.dataset.saved = "false";
   $("chat-status").textContent = "Saving chat…";
@@ -290,8 +291,21 @@ async function saveCurrentChat() {
     const data = await task;
     if (currentSession === session) {
       $("session-title").textContent = data.title;
-      $("chat-status").textContent = "Saved in this browser";
+      $("chat-status").textContent = "Saved on this device";
       chat.dataset.saved = "true";
+    }
+    if (publish) {
+      try {
+        chat.dataset.synced = "false";
+        await sync.push(data.id);
+        if (currentSession === session) {
+          chat.dataset.synced = "true";
+          $("chat-status").textContent = "Encrypted and synced";
+        }
+      } catch (e) {
+        $("chat-status").textContent = "Saved on this device · Sync pending: " + e.message;
+        if ($("alert").hidden) error(e);
+      }
     }
   } catch (e) {
     $("chat-status").textContent = "Chat could not be saved";
@@ -320,7 +334,7 @@ async function useSession(data) {
   unsubscribeChat?.();
   currentSession = data || {
     id: crypto.randomUUID(), title: "New chat", createdAt: new Date().toISOString(),
-    messages: [], dsmack: { evidence: [] },
+    messages: [], dsmack: { evidence: [], wallet: credit.address.toLowerCase() },
   };
   const conversationId = currentSession.id;
   guest = guests.get(conversationId);
@@ -389,13 +403,16 @@ async function useSession(data) {
       agent.state.messages = [...agent.state.messages];
       chat.requestUpdate();
     }
-    if (event.type === "message_end" || event.type === "agent_end") return saveCurrentChat();
+    if (event.type === "message_end" || event.type === "agent_end") return saveCurrentChat(event.type === "agent_end");
   });
   await saveCurrentChat();
   await storage.settings.set("chat.active", currentSession.id);
 }
 async function initChat() {
   storage = createChatStorage();
+  sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
+  try { await sync.pull(); await sync.flush(); }
+  catch (e) { error(e); }
   chat = new AgentInterface();
   chat.id = "chat";
   chat.enableAttachments = false;
@@ -430,7 +447,16 @@ async function initChat() {
     }
   };
   chat.onCostClick = () => usage().catch(error);
-  const active = await storage.settings.get("chat.active");
+  const imported = await store("continuity.imported");
+  let active = await storage.settings.get("chat.active");
+  if (imported) {
+    const remoteIds = new Set(Object.keys(sync.state?.sessions || {}));
+    const saved = await storage.sessions.getAllMetadata();
+    active = saved.filter((m) => remoteIds.has(m.id))
+      .sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0]?.id;
+    if (remoteIds.size) await store("continuity.imported", false);
+  }
+  active ||= await storage.sessions.getLatestSessionId();
   await useSession(active ? await storage.sessions.get(active) : null);
   await renderPersistence();
   action("new-chat", () => useSession());
@@ -657,17 +683,11 @@ async function main() {
     client = await sandbox.createClient();
     await store("client", client);
   }
+  keys = await new DeviceKeys().init();
   credit = await new Credit(cfg, client, render).init();
+  continuityUI({ keys, credit, cfg, api, error, beforeExport: () => sync.flush() });
   await initChat();
   render();
-  action("burner", async () => {
-    await credit.burner();
-    await claimChatCredit();
-  });
-  action("connect", async () => {
-    await credit.connect();
-    await claimChatCredit();
-  });
   action("copy-address", async () => {
     require(credit.address, "Create or connect a wallet first.");
     await navigator.clipboard.writeText(credit.address);

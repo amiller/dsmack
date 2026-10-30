@@ -1,0 +1,11 @@
+{
+  "chainId": 84532,
+  "escrow": "0x927202770c0e2bc30B2aee82Ef58229AD89e72F2",
+  "codeHash": "0x033e38f688e77afb49c338d120049a782a0acbca9f26e961395b8907036cf3c0",
+  "deploymentBlock": 51436111,
+  "broker": "https://pod.dstack.soc1024.com/relay-broker",
+  "rpc": "https://base-sepolia-rpc.publicnode.com",
+  "classesByPublisher": {
+    "0xa43f9f32411358c1319cb36027650a206644c131": ["0xbe885f5e92711be153e63cfa978aa9693b9caf8434b463b5f27496ef8b2342bb"]
+  }
+}

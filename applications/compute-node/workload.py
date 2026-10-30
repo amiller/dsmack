@@ -43,8 +43,8 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
                    'AGENT_NETWORK_ALLOWLIST':canonical([url.hostname, 'attested relay hostname from '+tunnel_index]).decode()},
                'read_only':True, 'security_profile':'agent-sandbox-v1',
                'volumes':['artifacts:/workspace/artifacts:rw','/var/run/dstack.sock:/var/run/dstack.sock:ro']}
-    if not 1 <= seconds <= 840:
-        raise ValueError('compute lifetime must be 1..840 seconds')
+    if not 1 <= seconds <= 3600:
+        raise ValueError('compute lifetime must be 1..3600 seconds')
     admit_seconds = max(1, seconds - 270) if admit_seconds is None else admit_seconds
     if not 1 <= admit_seconds < seconds:
         raise ValueError('admission cutoff must precede compute lifetime')

@@ -45,7 +45,7 @@ use krun::api::{Payload, VerifiedBootPins, VmmBuilder};
 /// run loop), so a built-but-unrun VM cannot leave the guest running forever.
 /// Distinct from the finalization deadline (post-halt). Stated as an enforceable
 /// bound, not a comment-only claim.
-pub const GUEST_EXEC_BUDGET_SECONDS: u64 = 900;
+pub const GUEST_EXEC_BUDGET_SECONDS: u64 = 3600;
 
 /// The v3 HVF consumption platform.
 pub struct HvfConsumptionV3;

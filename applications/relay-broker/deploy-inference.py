@@ -10,6 +10,7 @@ import re
 import secrets
 import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -18,6 +19,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
+sys.path.insert(0, str(REPO / "tools"))
+from deploy_idle import wait_for_idle
 SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
 
@@ -162,10 +165,12 @@ def deploy(args):
             + json.dumps(manifest).encode()
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
+    wait_for_idle(args.url, args.wait_idle_minutes)
     project = api("/_api/projects", method="POST", body=body,
                   kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
+    wait_for_idle(args.url, args.wait_idle_minutes)
     api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
     deadline = time.monotonic() + 30
     while True:
@@ -194,6 +199,7 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(run=prepare)
     p = sub.add_parser("deploy", help="upload and promote only with --apply")
+    p.add_argument("--wait-idle-minutes", type=float, default=10)
     p.add_argument("--prepared", type=Path, required=True)
     p.add_argument("--url", required=True)
     p.add_argument("--evidence", type=Path, required=True)

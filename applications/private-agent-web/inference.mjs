@@ -2,6 +2,7 @@ import { AssistantMessageEventStream, getSystemMessageText } from "@earendil-wor
 import { require, walletBody } from "./credit.mjs";
 import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
+import { replyFailure } from "./reply-recovery.mjs";
 export { checkEvidence, PRIVACY };
 export async function* sse(body) {
   const reader = body.getReader(), decoder = new TextDecoder();
@@ -90,6 +91,10 @@ export function brokerStream(
           require(budget && BigInt(budget.reservedNanoUsd) === 0n, "USAGE_PENDING: Artifact model cost is still pending.");
           cost = budget.lastSessionId === session.sessionId && typeof budget.lastCostNanoUsd === "string"
             ? BigInt(budget.lastCostNanoUsd) : null;
+        } else if (Object.hasOwn(charged, "lastModelCharge")) {
+          const charge = charged.lastModelCharge;
+          cost = charge?.sessionId === session.sessionId && typeof charge.costNanoUsd === "string"
+            ? BigInt(charge.costNanoUsd) : null;
         } else {
           const before = BigInt(exact ? session.modelSpentNanoUsd : session.spentNanoUsd);
           const after = BigInt(exact ? charged.modelSpentNanoUsd : charged.spentNanoUsd);
@@ -247,10 +252,10 @@ export function brokerStream(
         for await (const item of sse(decrypted.body)) {
           if (item.event === "error") {
             const e = JSON.parse(item.data).error;
-            throw new Error(
+            throw Object.assign(new Error(
               (e?.code || "INFERENCE_ERROR") + ": " +
                 (e?.message || "Stream failed. Reconcile usage."),
-            );
+            ), { code: e?.code || "INFERENCE_ERROR" });
           }
           if (item.data === "[DONE]") {
             done = true;
@@ -309,27 +314,37 @@ export function brokerStream(
         answer.stopReason = toolCalls.size ? "toolUse" : finishReason === "length" ? "length" : "stop";
         try { await reconcile(); } catch (e) { billing.pendingReason = e.message; reportError(e); }
       } catch (e) {
+        // Publish the interruption immediately. Ledger reconciliation can take
+        // time after a broker restart, but it must not hide the partial answer.
+        if (!options.signal?.aborted) {
+          answer.failure = replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+          answer.stopReason = "error";
+          answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+          if (answer.failure.interrupted) stream.push({ type: "text_delta", contentIndex: 0, delta: "", partial: answer });
+          reportError(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
+        }
         if (billing.dispatched && !billing.settled) {
           try { await reconcile(); } catch (usageError) {
             billing.pendingReason = usageError.message;
-            reportError(usageError);
           }
         }
         answer.stopReason = options.signal?.aborted ? "aborted" : "error";
-        answer.errorMessage = e.message;
+        answer.errorMessage = answer.failure
+          ? (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message : e.message;
         answer.errorCode = e.code;
-        reportError(e);
       }
       try { await options.onBilling?.({ ...billing }); } catch (e) {
         answer.stopReason = "error";
-        answer.errorMessage = e.message;
-        answer.errorCode = e.code;
-        reportError(e);
+        answer.failure ||= replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+        answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+        answer.errorCode ||= e.code;
+        reportError(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
       }
     }).catch(e => {
       answer.stopReason = options.signal?.aborted ? "aborted" : "error";
-      answer.errorMessage = e.message;
-      error?.(e);
+      answer.failure = replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+      answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+      error?.(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
     }).finally(() => {
       stream.push(answer.stopReason === "error" || answer.stopReason === "aborted"
         ? { type: "error", reason: answer.stopReason, error: answer }
@@ -352,7 +367,8 @@ export function modelTranscript(context) {
       messages.push({ role: "tool", tool_call_id: message.toolCallId,
         content: contentText(message.content) });
     } else if (message.role === "assistant") {
-      // Failed transport attempts have no provider output to replay.
+      // Keep failed attempts in the page, but never replay a partial answer as
+      // completed model output when the user retries or sends another turn.
       if (message.stopReason === "error" || message.stopReason === "aborted") continue;
       const calls = message.content.filter(c => c.type === "toolCall");
       messages.push({ role: "assistant", content: contentText(message.content) || null,

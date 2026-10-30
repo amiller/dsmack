@@ -10,6 +10,7 @@ import re
 import secrets
 import shlex
 import subprocess
+import sys
 import tarfile
 import time
 from urllib.error import HTTPError, URLError
@@ -17,6 +18,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 PROJECT = "private-agent"
+sys.path.insert(0, str(APP.parents[1] / "tools"))
+from deploy_idle import wait_for_idle
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -67,6 +70,7 @@ def package(dist):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--wait-idle-minutes", type=float, default=10)
     parser.add_argument("--dist", type=Path, default=APP / "dist")
     parser.add_argument("--evidence", type=Path, required=True)
     parser.add_argument("--url", default="https://pod.dstack.soc1024.com")
@@ -123,11 +127,13 @@ def main():
         + archive
         + f"\r\n--{boundary}--\r\n".encode()
     )
+    wait_for_idle(base, args.wait_idle_minutes)
     project = json.loads(api("/_api/projects", method="POST", body=body,
                              kind="multipart/form-data; boundary=" + boundary, auth=True))
     if project["runtime"] != "deno" or project["isolation"] != "shared":
         raise ValueError("Deployment did not select shared Deno")
     if project.get("mode") != "attested":
+        wait_for_idle(base, args.wait_idle_minutes)
         project = json.loads(api("/_api/projects/private-agent/promote", method="POST", auth=True))
     for attempt in range(30):
         try:

@@ -61,6 +61,7 @@ func main() {
 	r := relay.DefaultResources()
 	r.MaxReservations = 8
 	r.MaxCircuits = 4
+	r.Limit.Data = 8 << 20 // sealed attestation transcripts exceed the 128-KiB default
 	service, err := relay.New(h, relay.WithResources(r), relay.WithACL(logACL{}))
 	if err != nil {
 		log.Fatal(err)

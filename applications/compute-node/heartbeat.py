@@ -49,6 +49,8 @@ class Publisher:
                 record['status'] = error.code
                 try:
                     record['body'] = error.read(4096).decode(errors='replace')
+                except (OSError, TimeoutError, HTTPException) as read_error:
+                    record['body_read_error'] = str(read_error)
                 finally:
                     error.close()
             return record

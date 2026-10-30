@@ -73,7 +73,7 @@ function drawHistory() {
   const now = Math.floor(Date.now() / 1000), start = now - 86400, x = t => 55 + (t - start) / 86400 * (width - 80), y = p => 175 - p * 145;
   chart.replaceChildren();
   for (const p of [0, .5, 1]) chart.append(svg("line", { x1: 55, x2: width - 25, y1: y(p), y2: y(p), class: "chart-grid" }), svg("text", { x: 42, y: y(p) + 4, "text-anchor": "end", class: "chart-label" }, `${p * 100}%`));
-  for (const hours of [24, 18, 12, 6, 0]) chart.append(svg("text", { x: x(now - hours * 3600), y: 205, "text-anchor": hours === 24 ? "start" : hours === 0 ? "end" : "middle", class: "chart-label" }, hours ? `${hours}h ago` : "Now"));
+  for (const hours of width < 500 ? [24, 12, 0] : [24, 18, 12, 6, 0]) chart.append(svg("text", { x: x(now - hours * 3600), y: 205, "text-anchor": hours === 24 ? "start" : hours === 0 ? "end" : "middle", class: "chart-label" }, hours ? `${hours}h ago` : "Now"));
   const samples = history.samples.filter(s => s.timestamp >= start && s.timestamp <= now), groups = [];
   for (const s of samples) {
     const previous = groups.at(-1)?.at(-1);

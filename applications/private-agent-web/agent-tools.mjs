@@ -11,6 +11,17 @@ import { require, walletBody } from "./credit.mjs";
 
 const encoder = new TextEncoder();
 const MAX_FRAME = 8 * 1024 * 1024;
+// A completed dial must not leave a timer or caller signal attached to the
+// conversation's cached connection. Tool cancellation belongs to MCP calls.
+async function connecting(milliseconds, signal, operation) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(new Error("Guest connection timed out.")), milliseconds);
+  const abort = () => controller.abort(signal.reason);
+  if (signal?.aborted) abort();
+  else signal?.addEventListener("abort", abort, { once: true });
+  try { return await operation(controller.signal); }
+  finally { clearTimeout(timeout); signal?.removeEventListener("abort", abort); }
+}
 // MCP 2026-07-28 custom transport: a shared reliable libp2p Noise byte
 // stream, using the specification's stdio NDJSON framing and cancellation.
 export class Libp2pMcpTransport {
@@ -135,12 +146,13 @@ export class GuestSession {
     require(entries.length, "No live browser relay advertises the verified guest.");
     let connection, failure;
     for (const entry of entries) {
-      try { connection = await peer.dial(multiaddr(address(entry)), { signal: AbortSignal.any([signal || new AbortController().signal, AbortSignal.timeout(20000)]) }); break; }
+      try { connection = await connecting(20000, signal, scoped => peer.dial(multiaddr(address(entry)), { signal: scoped })); break; }
       catch (e) { failure = e; }
     }
     if (!connection) throw failure;
     require(connection.remotePeer.toString() === verified.registration.relay_peer, "Noise peer differs from attested guest.");
-    const stream = await connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: signal || AbortSignal.timeout(30000) });
+    const stream = await connecting(30000, signal, scoped => connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: scoped }));
+    stream.inactivityTimeout = Math.max(330000, this.lease.seconds * 1000 + 15000);
     const admissionTimer = setTimeout(() => stream.abort(new Error("Guest session admission timed out.")), 30000);
     let framed;
     try { framed = await admission(stream, this.lease); }

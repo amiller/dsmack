@@ -230,7 +230,7 @@ async function usage() {
       credit.chatCredit = result;
       renderChatCredit();
       $("usage").textContent =
-        `Provider: ${result.usedTokens} tokens · ${result.spentNanoUsd} nano-USD charged · ${
+        `Credit: ${result.usedTokens} model tokens · ${result.spentNanoUsd} nano-USD total charged · ${
           formatNanoUsd(result.remainingNanoUsd)
         } available`;
       details($("usage"), "Metered wallet credit", result);

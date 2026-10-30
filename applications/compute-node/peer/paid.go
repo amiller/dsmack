@@ -3,12 +3,8 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"io"
-	"math"
 	"os"
-	"sync"
-	"time"
 
 	payments "dsmack-payments"
 )

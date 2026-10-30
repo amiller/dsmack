@@ -2,26 +2,10 @@ package main
 
 import (
 	"context"
-	"crypto/ecdh"
-	"crypto/ed25519"
-	"crypto/rand"
-	"encoding/hex"
-	"encoding/json"
-	"errors"
-	"golang.org/x/crypto/sha3"
-	"net"
-	"os"
-	"path/filepath"
-	"strconv"
-	"sync"
 	"testing"
 	"time"
 
-	payments "dsmack-payments"
-	secp "github.com/decred/dcrd/dcrec/secp256k1/v4"
-	"github.com/decred/dcrd/dcrec/secp256k1/v4/ecdsa"
 	"github.com/libp2p/go-libp2p"
-	lc "github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
 )

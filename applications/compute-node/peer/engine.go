@@ -2,28 +2,15 @@ package main
 
 import (
 	"bytes"
-	"context"
-	"crypto/ecdh"
 	"crypto/ed25519"
-	"crypto/sha256"
-	payments "dsmack-payments"
-	"encoding/base64"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"regexp"
-	"strconv"
 	"sync"
-	"syscall"
 	"time"
-
-	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func canon(v any) []byte {
@@ -35,7 +22,6 @@ func canon(v any) []byte {
 	}
 	return bytes.TrimSuffix(b.Bytes(), []byte{'\n'})
 }
-func digest(b []byte) string { h := sha256.Sum256(b); return hex.EncodeToString(h[:]) }
 func readFrame(r io.Reader, max uint32, out any) error {
 	var n uint32
 	if e := binary.Read(r, binary.BigEndian, &n); e != nil {
@@ -104,7 +90,7 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 type engine struct {
 	signer         ed25519.PrivateKey
 	broker         ed25519.PublicKey
-	node, run      string
+	node           string
 	until          time.Time
 	admissionUntil time.Time
 	resultPath     string

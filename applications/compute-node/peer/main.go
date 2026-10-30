@@ -27,14 +27,10 @@ import (
 	"syscall"
 	"time"
 
-	payments "dsmack-payments"
 	"dsmack-peer/p2p"
 	"github.com/libp2p/go-libp2p"
-	lc "github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/network"
 	"github.com/libp2p/go-libp2p/core/peer"
-	protocolpkg "github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/client"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
 )
@@ -249,11 +245,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	var registrationMu sync.Mutex
 	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": publicRelay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
-	run, ok := info["instance_id"].(string)
-	if !ok {
-		return fmt.Errorf("missing guest instance_id")
-	}
-	n := &engine{signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	n := &engine{signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(time.Duration(seconds) * time.Second), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
 	if value := os.Getenv("ADMIT_SECONDS"); value != "" {
 		admit, err := strconv.Atoi(value)
 		if err != nil {
@@ -341,10 +333,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		})
 		if err := os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644); err != nil {
 			return err
-		}
-		n.publish = func(r payments.SignedReceipt) error {
-			var out map[string]any
-			return post(c, strings.TrimRight(brokerURL, "/")+"/payments/receipts", r, &out)
 		}
 		legacy := append(hash[:], make([]byte, 32)...)
 		baseRegistration := map[string]any{}

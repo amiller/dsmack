@@ -5,18 +5,24 @@ import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 
 const mainUrl = process.argv[2] || process.env.PAGE_URL, output = process.argv[3] || process.env.EVIDENCE;
-assert(mainUrl && output && process.env.ALT_PAGE_URL, "Usage: ALT_PAGE_URL=... node ipfs-check.mjs PAGE_URL EVIDENCE");
+const publicGateway = process.env.PUBLIC_GATEWAY === "1";
+assert(mainUrl && output && (publicGateway || process.env.ALT_PAGE_URL), "Usage: ALT_PAGE_URL=... or PUBLIC_GATEWAY=1 node ipfs-check.mjs PAGE_URL EVIDENCE");
 const pageUrl = new URL(mainUrl);
-const alternateUrl = new URL(process.env.ALT_PAGE_URL);
+const alternateUrl = new URL(process.env.ALT_PAGE_URL || mainUrl);
 const evidence = resolve(output);
 for (const url of [pageUrl, alternateUrl]) {
-  assert.equal(url.protocol, "http:", "local gateway must use HTTP localhost");
-  assert.match(url.hostname, /^b[a-z2-7]+\.ipfs\..*localhost$/);
+  if (publicGateway) {
+    assert.equal(url.protocol, "https:", "public gateway must use HTTPS");
+    assert.match(url.hostname, /^(b[a-z2-7]+\.ipfs|k[0-9a-z]+\.ipns)\./);
+  } else {
+    assert.equal(url.protocol, "http:", "local gateway must use HTTP localhost");
+    assert.match(url.hostname, /^b[a-z2-7]+\.ipfs\..*localhost$/);
+  }
   assert.equal(url.pathname, "/", "load the CID root, not a shared path gateway");
   assert(!url.username && !url.password && !url.search && !url.hash);
 }
 assert.equal(pageUrl.hostname.split(".")[0], alternateUrl.hostname.split(".")[0]);
-assert.notEqual(pageUrl.origin, alternateUrl.origin, "alternate gateway needs another origin");
+if (!publicGateway) assert.notEqual(pageUrl.origin, alternateUrl.origin, "alternate gateway needs another origin");
 const moduleName = process.env.PLAYWRIGHT_MODULE || "playwright";
 const { chromium } = await import(
   isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName
@@ -192,6 +198,7 @@ try {
   report.sandbox = { jobId: job.statement.job_id, secondsUsed: job.statement.seconds_used, patchApplied: true, outputHashes: job.statement.outputs, providerAttestations, status: "completed" };
   await untouched();
   await page.screenshot({ path: resolve(evidence, "04-verified-patch-applied.png"), fullPage: true });
+  if (!publicGateway) {
   const alternate = await context.newPage();
   observe(alternate);
   await ready(alternate, alternateUrl);
@@ -200,6 +207,7 @@ try {
   assert.deepEqual(report.otherOriginStorage, { hasBurner: false, hasSentinel: false, sentinelMatches: false, localStorageHasSentinel: false, localStorageMatches: false });
   report.origins = { first: pageUrl.origin, alternate: new URL(alternate.url()).origin, sameCid: true, sameBrowserContext: true, secureContexts: true };
   await alternate.screenshot({ path: resolve(evidence, "05-other-gateway-isolated.png"), fullPage: true });
+  }
   const jobs = report.requests.filter((r) => r.method === "POST" && r.path.endsWith("/sandbox/jobs"));
   assert.equal(jobs.length, 1, "the flow must not resubmit its sandbox job");
   assert.equal(report.chainTransactionsAttempted, 0);

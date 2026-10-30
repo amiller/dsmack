@@ -79,7 +79,7 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
              harness={'name':'compute-node','path':'/usr/local/bin/dsmack-compute',
                       'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'version':'compute-node-1'},
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
-             outputs={'capture':[], 'artifacts':[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts]})
+             outputs={'capture':['stderr'], 'artifacts':[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts]})
     m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
     return canonical(m)
 

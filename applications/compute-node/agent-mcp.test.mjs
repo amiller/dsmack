@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm, symlink } from "node:fs/promises";
+import { mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { resolve } from "node:path";
 import { PassThrough } from "node:stream";
@@ -8,7 +8,8 @@ import { Client } from "@modelcontextprotocol/client";
 import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/stdio";
 import { createAgentServer, createWorkspaceTools, initializeWorkspace, workspacePath } from "./agent-mcp.mjs";
 import { toolCatalog } from "./pi-tools.mjs";
-import { WorkspaceSnapshots } from "./workspace.mjs";
+import { WorkspaceSnapshots, WORKSPACE_CHUNK_BYTES } from "./workspace.mjs";
+import { randomBytes } from "node:crypto";
 const testTmp = tmpdir();
 
 async function workspace(t) {
@@ -79,6 +80,7 @@ test("workspace keys and pending saves survive a browser MCP connection closing"
   const first = await connection();
   await first.client.callTool({ name: "dsmack_workspace", arguments: { operation: "bind", workspaceId: "conversation-reconnect", key: "ab".repeat(32), head: null } });
   await first.client.callTool({ name: "write", arguments: { path: "survives.txt", content: "browser closed" } });
+  await writeFile(resolve(root, "transfer.bin"), randomBytes(800000));
   await first.close();
   const internal = await connection();
   try {
@@ -87,7 +89,8 @@ test("workspace keys and pending saves survive a browser MCP connection closing"
     const repeated = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "seal" } });
     assert.deepEqual(repeated.structuredContent, saved.structuredContent);
     const chunk = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "read", offset: 0 } });
-    assert.equal(Buffer.from(chunk.structuredContent.data, "base64").length, saved.structuredContent.size);
+    assert.equal(Buffer.from(chunk.structuredContent.data, "base64").length, WORKSPACE_CHUNK_BYTES);
+    assert(Buffer.byteLength(JSON.stringify(chunk)) < 1024 * 1024, "A 512 KiB snapshot chunk must fit the native MCP frame");
     await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "commit", head: { ...saved.structuredContent, cid: "stored", mac: "mac" } } });
     const later = await internal.client.callTool({ name: "dsmack_workspace", arguments: { operation: "seal" } });
     assert.equal(later.structuredContent.version, 2);

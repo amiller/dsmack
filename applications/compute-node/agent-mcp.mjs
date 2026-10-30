@@ -114,7 +114,8 @@ export function createAgentServer(root, options = {}) {
     const { name, arguments: args = {}, _meta } = request.params;
     if (name === "dsmack_workspace") {
       const result = await snapshots.call(args);
-      return { content: [{ type: "text", text: JSON.stringify(result) }], structuredContent: result };
+      const acknowledgement = args.operation === "read" ? { offset: result.offset, eof: result.eof } : result;
+      return { content: [{ type: "text", text: JSON.stringify(acknowledgement) }], structuredContent: result };
     }
     const tool = tools.find((entry) => entry.name === name);
     if (!tool) throw new Error("Unknown tool");

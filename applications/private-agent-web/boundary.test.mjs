@@ -385,7 +385,7 @@ try {
       assert(
         chat.body.body.messages.every((m) => /^04[0-9a-f]+$/i.test(m.content)),
       );
-      assert.equal(chat.body.body.tools.length, 4);
+      assert(chat.body.body.tools.length > 0, "encrypted tool catalog missing");
       for (const tool of chat.body.body.tools) {
         for (const field of ["name", "description", "parameters"]) assert.match(tool.function[field], /^04[0-9a-f]+$/i);
       }

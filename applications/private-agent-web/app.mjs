@@ -5,6 +5,7 @@ import { AgentInterface } from "@pi-components/components/AgentInterface.js";
 import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
 import { Agent } from "@earendil-works/pi-agent-core";
+import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
@@ -366,12 +367,21 @@ async function useSession(data) {
     guests.set(conversationId, guest);
   }
   renderGuest(guest.statusSnapshot || { state: "idle" });
+  const artifacts = createArtifacts();
+  const artifactHost = $("artifacts-host");
+  artifactHost.replaceChildren(artifacts.panel);
+  artifactHost.hidden = true;
+  const openArtifacts = () => { artifactHost.hidden = false; artifacts.panel.collapsed = false; };
+  artifacts.panel.onOpen = openArtifacts;
+  artifacts.panel.onClose = () => { artifactHost.hidden = true; };
+  artifacts.panel.onArtifactsChange = () => { $("open-artifacts").hidden = !artifacts.panel.artifacts.size; };
+  $("open-artifacts").onclick = openArtifacts;
   agent = new Agent({
     initialState: {
       systemPrompt: "You are the dsmack private agent. Use your tools to inspect and change the attested workspace.",
       messages: currentSession.messages,
       thinkingLevel: "off",
-      tools: guest.tools(),
+      tools: [...guest.tools(), artifacts.tool],
     },
     toolExecution: "sequential",
     getApiKey: () => undefined,
@@ -383,9 +393,13 @@ async function useSession(data) {
         environment: guest.environment || measuredEnvironment(),
         attestation: guest.node ? { verification: "Browser verified Apple enrollment, build, measured compose and bound Noise peer", guestPeer: guest.node.registration.relay_peer, manifestHash: guest.node.registration.manifest_sha256, imageHash: guest.node.registration.os_image_hash, cdhash: guest.node.registration.cdhash } : { status: "Guest attestation will be verified before the first tool call.", cdhash: policy.cdhash },
         repository: "Initial repository snapshot; use the read tool for current workspace contents.\n" + [...repoFiles].map(([name, text]) => `${name}\n${text.length < 4096 ? text : "Read this file with the read tool."}`).join("\n"),
-      }),
+      }) + "\n\n" + ARTIFACT_PROMPT,
     }),
   });
+  artifacts.panel.agent = agent;
+  await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
+    message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
+  $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
   guest.record = { session: currentSession, agent };
   if (credit.signer) {
     try { await guest.restore(); }

@@ -17,7 +17,7 @@ const types: Record<string, string> = {
 };
 const security = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",

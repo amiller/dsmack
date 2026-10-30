@@ -21,6 +21,11 @@ descriptions, truncation and edit behavior. MCP uses the official split SDK
 stream carries newline-delimited JSON-RPC; cancellation uses MCP notifications.
 Bash progress appears inline through MCP progress notifications.
 
+Ask for a single-file browser app to open Pi's Apps panel. HTML apps run in an
+opaque iframe served by `../private-agent-artifacts`, with inline styles and
+JavaScript and no network access. Apps and console feedback are saved with the
+conversation; the Apps button reopens the panel.
+
 The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
 repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository
@@ -83,6 +88,13 @@ Run browser boundary checks with an existing browser:
 BASE_URL=http://127.0.0.1:18731/private-agent/ \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
+```
+
+Run the generated-app boundary checks with Node 24 and an existing browser:
+
+```sh
+CHROMIUM_PATH=/absolute/path/to/chromium \
+EVIDENCE=/absolute/path/to/local-data/artifacts node artifacts.test.mjs
 ```
 
 For IPFS, add `dist` with Kubo and serve through a CID subdomain gateway. Assets

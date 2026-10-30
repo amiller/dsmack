@@ -1,13 +1,18 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/libp2p/go-libp2p/core/peer"
 )
@@ -76,5 +81,64 @@ func TestTunnelSelectionUsesMeasuredRelayAndNewestLiveLocator(t *testing.T) {
 	raw, _ = json.Marshal(hints)
 	if _, err := selectTunnel(raw, measured, 20); err == nil {
 		t.Fatal("non-single-label tunnel authority accepted")
+	}
+}
+
+// Metering and renewal can become ready on the same tick. The measured gateway
+// accepts one request per refill, so concurrency must not spend the same token.
+func TestBrokerGatewayPacesAdjacentReceiptAndRenewalAndCancelsWaiting(t *testing.T) {
+	var mu sync.Mutex
+	var arrivals []time.Time
+	var paths []string
+	gateway := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		now := time.Now()
+		accepted := len(arrivals) == 0 || now.Sub(arrivals[len(arrivals)-1]) >= time.Minute/120
+		arrivals = append(arrivals, now)
+		paths = append(paths, r.URL.Path)
+		mu.Unlock()
+		if !accepted {
+			http.Error(w, "budget_or_rate", http.StatusTooManyRequests)
+			return
+		}
+		io.WriteString(w, `{"accepted":true}`)
+	}))
+	defer gateway.Close()
+	t.Setenv("BROKER_GATEWAY", gateway.URL)
+	client, err := brokerClient("https://broker.invalid/relay-broker")
+	if err != nil {
+		t.Fatal(err)
+	}
+	results := make(chan error, 2)
+	for _, path := range []string{"/agent/receipt", "/nodes"} {
+		go func(path string) {
+			response, err := client.Post("https://broker.invalid/relay-broker"+path, "application/json", strings.NewReader(`{}`))
+			if err == nil {
+				response.Body.Close()
+				if response.StatusCode != http.StatusOK {
+					err = fmt.Errorf("broker gateway refused adjacent %s: %d", path, response.StatusCode)
+				}
+			}
+			results <- err
+		}(path)
+	}
+	for range 2 {
+		if err := <-results; err != nil {
+			t.Fatal(err)
+		}
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer cancel()
+	request, _ := http.NewRequestWithContext(ctx, "POST", "https://broker.invalid/relay-broker/agent/receipt", strings.NewReader(`{}`))
+	if _, err = client.Do(request); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("waiting request ignored cancellation: %v", err)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(arrivals) != 2 {
+		t.Fatal("cancelled request reached the gateway", paths)
+	}
+	if arrivals[1].Sub(arrivals[0]) < time.Minute/120 {
+		t.Fatal("receipt and renewal reused one gateway token")
 	}
 }

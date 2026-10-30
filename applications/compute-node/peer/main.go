@@ -245,7 +245,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	var registrationMu sync.Mutex
 	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": publicRelay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
-	n := &engine{signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(time.Duration(seconds) * time.Second), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(time.Duration(seconds) * time.Second), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
 	if value := os.Getenv("ADMIT_SECONDS"); value != "" {
 		admit, err := strconv.Atoi(value)
 		if err != nil {
@@ -304,6 +304,14 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
 		return err
+	}
+	for _, file := range []struct {
+		path string
+		data []byte
+	}{{"workspace-seal.bin", nil}, {"workspace-seal.json", []byte("null")}} {
+		if err := os.WriteFile("/workspace/artifacts/"+file.path, file.data, 0600); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644); err != nil {
 		return err

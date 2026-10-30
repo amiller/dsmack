@@ -7,6 +7,18 @@ Agent sessions reserve guest seconds from the same wallet credit.
 
 Live: <https://pod.dstack.soc1024.com/relay-broker>.
 
+`GET /network` returns each ownership-linked Mac's signed, reported capacity:
+operator address, optional coarse region, chip/RAM, logical guest slots,
+ready/busy counts and last heartbeat. Network totals include Macs whose signed
+heartbeat and broker receipt are both less than 60 seconds old. Rotation can
+report multiple guests for one logical slot; each slot counts once and busy
+takes precedence over ready.
+
+`GET /network/history` returns minute samples of ready slots, busy slots, total
+slots and online Macs from an in-memory 24-hour ring buffer. It starts when the
+broker loads, samples independently of readers and is lost on broker restart.
+Both endpoints allow public CORS reads.
+
 ## Configure and run
 
 Start with `config.example.json`; set the RPC, App Attest registries and approved
@@ -160,3 +172,20 @@ Run the network boundary tests with:
 ```sh
 deno test --allow-read --allow-write --allow-net --allow-env continuity.test.mjs
 ```
+
+## Saved workspaces
+
+Set `workspaces.stores` to a map from Mac publisher addresses to their workspace
+store HTTPS URLs. Wallet-signed `/workspaces/{head,begin,chunk,commit,read,history}`
+POSTs use `action: "workspace-OP"` and a conversation `workspaceId`. The guest can
+use its stay ID and attested Ed25519 receipt key to seal before its final receipt;
+its conversation ID selects the workspace and its recorded placement selects the
+Mac. The broker retains version/hash pointers in `workspaces.json`.
+
+`begin` takes `version`, `previousHash`, `hash`, `size`, and optionally `mac`, and
+returns `uploadId` and `offset`. `chunk` takes that upload ID, a byte offset and
+at most 512 KiB of standard base64 ciphertext. `commit` returns the new `head`.
+A head contains `workspaceId`, `version`, `previousHash`, `hash`, `size`, `cid`,
+and `mac`. `read` takes the trusted version/hash and a bounded byte range;
+`history` returns ascending heads after `afterVersion`. Identical uploads and
+commits can resume after interrupted responses.

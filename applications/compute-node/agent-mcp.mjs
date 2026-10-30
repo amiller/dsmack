@@ -10,6 +10,8 @@ import { serveStdio, StdioServerTransport } from "@modelcontextprotocol/server/s
 import { Value } from "typebox/value";
 import { createBashTool, createReadTool, createWriteTool, createEditTool, toolCatalog, piVersion } from "./pi-tools.mjs";
 
+import { WorkspaceSnapshots } from "./workspace.mjs";
+
 export const COMMAND_TIMEOUT_SECONDS = 120;
 export const OUTPUT_CAP_BYTES = 50 * 1024;
 export const RAW_OUTPUT_CAP_BYTES = 1024 * 1024;
@@ -93,7 +95,7 @@ export function createWorkspaceTools(root) {
 
 export function environment(root = "/workspace") {
   return { os: "Linux", user: "agent (uid 1000)", cwd: root, workspace: root,
-    persistence: "Workspace persists for this conversation only; releasing or expiring the guest deletes it.",
+    persistence: "This conversation’s files persist as numbered encrypted workspace saves and restore when it moves to a new guest. Dependencies, caches and generated build output are excluded.",
     commandTimeoutSeconds: COMMAND_TIMEOUT_SECONDS, outputCapBytes: OUTPUT_CAP_BYTES, rawOutputCapBytes: RAW_OUTPUT_CAP_BYTES,
     outputCapLines: 2000, idleTimeoutSeconds: 300, piVersion, mcpVersion: "2026-07-28", mcpSdkVersion: "2.4.0",
     allowlist: JSON.parse(process.env.AGENT_NETWORK_ALLOWLIST || "[]"), proxy: process.env.HTTPS_PROXY || "",
@@ -105,11 +107,16 @@ export function environment(root = "/workspace") {
 export function createAgentServer(root, options = {}) {
   const tools = createWorkspaceTools(root, options);
   const server = new Server({ name: "Dsmack attested Pi tools", version: piVersion }, { capabilities: { tools: {}, resources: {} }, supportedProtocolVersions: ["2026-07-28"] });
-  let pending = Promise.resolve();
-  const serial = (fn) => { const result = pending.then(fn); pending = result.catch(() => {}); return result; };
+  const snapshots = options.snapshots ?? new WorkspaceSnapshots(root);
+  const serial = (fn) => snapshots.serial(fn);
   server.setRequestHandler("tools/list", async () => ({ tools: toolCatalog().map(({ label, ...tool }) => ({ ...tool, title: label })) }));
   server.setRequestHandler("tools/call", (request, ctx) => serial(async () => {
     const { name, arguments: args = {}, _meta } = request.params;
+    if (name === "dsmack_workspace") {
+      const result = await snapshots.call(args);
+      const acknowledgement = args.operation === "read" ? { offset: result.offset, eof: result.eof } : result;
+      return { content: [{ type: "text", text: JSON.stringify(acknowledgement) }], structuredContent: result };
+    }
     const tool = tools.find((entry) => entry.name === name);
     if (!tool) throw new Error("Unknown tool");
     if (!Value.Check(tool.parameters, args)) throw new Error("Arguments do not match pi tool schema");
@@ -160,10 +167,11 @@ export async function listen({ root = "/workspace", socket = process.env.AGENT_M
   await unlink(socket).catch((error) => { if (error.code !== "ENOENT") throw error; });
   let ready;
   const initialized = new Promise((done) => { ready = done; });
+  const snapshots = new WorkspaceSnapshots(root);
   const listener = createServer((stream) => {
     stream.pause();
     initialized.then(() => {
-      serveStdio(() => createAgentServer(root), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
+      serveStdio(() => createAgentServer(root, { snapshots }), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
       stream.resume();
     });
   });

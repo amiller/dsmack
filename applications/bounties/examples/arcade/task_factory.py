@@ -31,7 +31,7 @@ def git_tree(repository,commit):
 def tree_digest(files):return hashlib.sha256(canonical({n:hashlib.sha256(b).hexdigest()for n,b in sorted(files.items())})).hexdigest()
 
 def task_projection(config):
-    app={'board-search-testnet-1':'board','board-undo-testnet-1':'board','puzzle-deadlock-testnet-1':'puzzle','routes-segments-testnet-1':'routes'}[config['task_slug']]
+    app={'board-search-testnet-1':'board','board-undo-testnet-1':'board','puzzle-deadlock-testnet-1':'puzzle','routes-segments-testnet-1':'routes','flight-wind-testnet-1':'flight','flight-replay-testnet-1':'flight','routes-time-testnet-1':'routes'}[config['task_slug']]
     return {'apps/'+app+'/'+name for name in ('index.html','logic.js','ui.js')},'frozen-base39+candidate-'+app+'3/v1'
 
 def project_candidate(base,submitted,allowed=ALLOWED):

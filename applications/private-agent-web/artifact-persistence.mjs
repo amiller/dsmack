@@ -1,10 +1,14 @@
-// All session saves merge the latest encrypted artifact envelopes. The session
+import { newestWorkspace } from "./workspaces.mjs";
+
+// All session saves merge the latest workspace and encrypted artifact envelopes. The session
 // lock prevents a stale chat or another tab from overwriting a reserved budget.
 export function createSessionPersistence({ storage, save, locks = globalThis.navigator?.locks }) {
   const pending = new Map();
   return (session, agent, artifact) => {
     const persist = async () => {
       const stored = await storage.sessions.get(session.id);
+      const head = newestWorkspace(session.dsmack.workspace, stored?.dsmack?.workspace);
+      if (head) session.dsmack.workspace = head;
       const previous = session.dsmack.artifactState;
       session.dsmack.artifactState = { ...previous, ...stored?.dsmack?.artifactState };
       if (artifact) session.dsmack.artifactState[artifact.scope] = artifact.envelope;

@@ -1,7 +1,7 @@
 import { build } from "esbuild";
 import { generateManifest } from "./bridge/generate.mjs";
 import { piPromptPlugin } from "../compute-node/pi-browser-build.mjs";
-import { copyFile, mkdir } from "node:fs/promises";
+import { copyFile, cp, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 const app = dirname(fileURLToPath(import.meta.url));
@@ -31,3 +31,8 @@ for (const name of ["index.html", "style.css", "config.json"]) {
   await copyFile(resolve(app, name), resolve(app, "dist", name));
 }
 await copyFile(resolve(pi, "app.css"), resolve(app, "dist/pi.css"));
+// The public network view is dependency-free and shares this IPFS release.
+const { copyDashboard } = await import("../network-dashboard/build.mjs");
+await copyDashboard(resolve(app, "dist/network"));
+await import("../operator-fleet/build.mjs");
+await cp(resolve(app, "../operator-fleet/dist"), resolve(app, "dist/fleet"), { recursive: true });

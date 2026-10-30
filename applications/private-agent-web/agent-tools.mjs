@@ -104,8 +104,8 @@ export function createGuestPeer() {
   });
 }
 export class GuestSession {
-  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease }) {
-    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease });
+  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace }) {
+    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace });
   }
   tools() {
     return this.catalog.map(tool => ({
@@ -151,10 +151,12 @@ export class GuestSession {
   async open(signal) {
     performance.mark("dsmack:guest:start");
     this.changed({ state: "verifying" });
+    const head = await this.workspace.latest();
     const deadline = Date.now() + 90000, exclude = new Set();
+    this.workspaceReady = false;
     const peer = await createGuestPeer();
     this.peer = peer;
-    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal,
+    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal, workspace: head,
       claim: async selected => {
         // Claim capacity before expensive verification to avoid four browsers
         // all attesting the first guest. Only verified guests receive MCP/data.
@@ -221,12 +223,16 @@ export class GuestSession {
     this.environment = JSON.parse(env.contents[0].text);
     this.client = client;
     performance.mark("dsmack:mcp:ready");
-    for (const [path, content] of this.repository()) {
-      const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
-      require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
+    const restored = await this.workspace.bind(client, verified.registration, this.lease);
+    if (!restored) {
+      for (const [path, content] of this.repository()) {
+        const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
+        require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
+      }
+      const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
+      require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
     }
-    const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
-    require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
+    this.workspaceReady = true;
     this.lastActivity = Date.now();
     await this.status();
     this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 10000);
@@ -243,6 +249,8 @@ export class GuestSession {
       await this.peer?.stop(); this.peer = null;
       this.lease = null;
       this.savedLease = null;
+      this.workspaceReady = false;
+      await this.workspace.latest();
     }
     return result;
   }
@@ -252,8 +260,13 @@ export class GuestSession {
     const content = result.contents[0];
     return content.blob ? Uint8Array.from(atob(content.blob), c => c.charCodeAt(0)) : encoder.encode(content.text);
   }
+  async save() {
+    require(this.client && this.workspaceReady, "Run a tool in this conversation before saving its workspace.");
+    return this.workspace.save(this.client, this.lease);
+  }
   async end() {
     clearInterval(this.poll);
+    if (this.client && this.workspaceReady) await this.save();
     await this.client?.close(); this.client = null;
     await this.peer?.stop(); this.peer = null;
     if (this.lease) {
@@ -265,7 +278,10 @@ export class GuestSession {
       }
       if (result.credit) this.credit.chatCredit = result.credit;
       this.changed({ ...result, state: result.active ? "ending" : "released", lease: this.lease });
-      if (!result.active) { this.lease = null; this.savedLease = null; }
+      if (!result.active) {
+        this.lease = null; this.savedLease = null; this.workspaceReady = false;
+        await this.workspace.latest();
+      }
       else this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 5000);
     }
   }

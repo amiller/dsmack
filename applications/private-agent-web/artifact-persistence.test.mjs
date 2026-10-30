@@ -11,7 +11,9 @@ test("a later chat save preserves durable encrypted budget updates and targets t
   await persist(b, agentB);
   // Another tab reserved a model call while this tab's session object stayed old.
   records.get("a").dsmack.artifactState = { app: { v: 1, iv: "iv", ciphertext: "new-reservation" } };
+  records.get("a").dsmack.workspace = { workspaceId: "a", version: 2, previousHash: "a".repeat(64), hash: "b".repeat(64), size: 29 };
   await persist(a, agentA);
+  assert.equal(records.get("a").dsmack.workspace.version, 2);
   assert.equal(records.get("a").dsmack.artifactState.app.ciphertext, "new-reservation");
   await persist(a, agentA, { scope: "app", envelope: { v: 1, iv: "iv2", ciphertext: "completed-call" } });
   assert.equal(records.get("a").dsmack.artifactState.app.ciphertext, "completed-call");

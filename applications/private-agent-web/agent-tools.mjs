@@ -151,8 +151,8 @@ export class GuestSession {
   async open(signal) {
     performance.mark("dsmack:guest:start");
     this.changed({ state: "verifying" });
-    const deadline = Date.now() + 90000, exclude = new Set();
     const head = await this.workspace.latest();
+    const deadline = Date.now() + 90000, exclude = new Set();
     this.workspaceReady = false;
     const peer = await createGuestPeer();
     this.peer = peer;

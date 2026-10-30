@@ -567,6 +567,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
   const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
   const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
     version: String(workspace.version), hash: workspace.hash }) : "";
+  const setupSeconds = 30 + (workspace ? Math.ceil(workspace.size / (512 * 1024)) : 0);
   let lastRefusal, chainDirectory, brokerFailure;
   const mark = (stage, detail) => performance.mark("dsmack:" + stage, { detail });
   const pause = milliseconds => new Promise((resolve, reject) => {
@@ -609,7 +610,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
     const candidates = nodes.filter(entry => entry.kind === "compute" &&
       entry.available !== false && !exclude.has(entry.relay_peer) &&
       (chainDirectory || (entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
-      Number(entry.admit_until) * 1000 >= Date.now() + 30000)));
+      Number(entry.admit_until) * 1000 >= Date.now() + setupSeconds * 1000)));
     for (const selected of candidates) {
       signal?.throwIfAborted();
       $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
@@ -645,8 +646,8 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
         const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
         require(!registration.payments || registration.payments.challenge === challenge,
           "Node challenge mismatch. Stale attestation refused.");
-        require(Number(registration.admit_until) * 1000 >= Date.now() + 30000 &&
-          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + 30000),
+        require(Number(registration.admit_until) * 1000 >= Date.now() + setupSeconds * 1000 &&
+          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + setupSeconds * 1000),
           "Guest is too close to drain. Trying another approved guest.");
         mark("attestation:verified", { peer });
         // The attestation endpoint omits scheduler hints; retain them for sealed

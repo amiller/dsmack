@@ -2,7 +2,10 @@
 
 This receive-only SMTP sink and raw-message HTTP endpoint retain the original
 headers under the subject nonce for fifteen minutes. Message bodies are discarded
-while streaming. The attested email gate verifies the headers before releasing keys.
+while streaming. Exim pipe input may use LF line endings and a leading mbox
+`From ` envelope line; the receiver removes that envelope and restores CRLF
+without changing header values. The attested email gate verifies the headers
+before releasing keys.
 
 Run the local test mailbox with Node 22 or newer:
 

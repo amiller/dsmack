@@ -80,6 +80,7 @@ export class NetworkChain {
     const finalized = await this.pair("eth_getBlockByNumber", ["finalized", false]);
     if (finalized.some(block => !block)) throw Error("Public RPC has no finalized block");
     const head = Math.min(...finalized.map(block => number(block.number)));
+    if (this.lastHead !== undefined && head < this.lastHead) throw Error("Public RPC finalized head regressed. Totals withheld.");
     this.headers.delete(head);
     const header = await this.header(head);
     if (now - number(header.timestamp) > 1800 || number(header.timestamp) > now + 60) throw Error("Finalized chain data is stale");
@@ -101,6 +102,8 @@ export class NetworkChain {
       }
       this.events.push(...chunk); this.nextBlock = to + 1;
     }
-    return { windows: totals(this.events, now), block: head, blockHash: header.hash, finalizedAt: number(header.timestamp), timestamp: now, providers: [...this.config.rpcs], escrow: this.config.escrow };
+    const windows = totals(this.events, now);
+    this.lastHead = head;
+    return { windows, block: head, blockHash: header.hash, finalizedAt: number(header.timestamp), timestamp: now, providers: [...this.config.rpcs], escrow: this.config.escrow };
   }
 }

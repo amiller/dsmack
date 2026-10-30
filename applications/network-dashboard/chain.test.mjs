@@ -38,3 +38,20 @@ test("chain reader withholds a total if providers disagree on the finalized bloc
   const reader = new NetworkChain(config, async (url, method) => method === "eth_chainId" ? "0x14a34" : { number: "0xa", hash: id(url.includes("one") ? 1 : 2), timestamp: "0x186a0" });
   await assert.rejects(reader.read(() => {}, 100000), /disagree/);
 });
+test("a regressed finalized head cannot include cached settlements from later blocks", async () => {
+  let head = 12;
+  const config = { rpcs: ["https://one.example", "https://two.example"], chainId: 84532, deploymentBlock: 10 };
+  const purchase = log(PURCHASE, [0, 1, 100, 4, 123], 1, 10);
+  const settlement = log(SETTLED, [1, 90, 400, 0, 1], 1, 12);
+  const reader = new NetworkChain(config, async (_url, method, params) => {
+    if (method === "eth_chainId") return "0x14a34";
+    if (method === "eth_getCode") return "0x1234";
+    if (method === "eth_getLogs") return [purchase, settlement];
+    const block = params[0] === "finalized" ? head : Number(BigInt(params[0]));
+    return { number: "0x" + block.toString(16), hash: id(block), timestamp: "0x1869f" };
+  });
+  assert.equal((await reader.read(() => {}, 100000)).windows[0].guestSeconds, "90");
+  head = 11;
+  await assert.rejects(reader.read(() => {}, 100000), /regressed/);
+  assert.equal(reader.lastHead, 12);
+});

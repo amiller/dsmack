@@ -201,3 +201,18 @@ test("public WSS circuit locators retain the attested destination binding", asyn
   assert.equal(registered.relay_maddr,address);
   await assert.rejects(b.register({...r,relay_maddr:address+'/ws'}),/circuit address/);
 });
+
+
+test("compute routing leases cover 90-second renewals and expire at 120 while ordinary relays expire at 60",async()=>{
+ const compute=JSON.parse(readFileSync(new URL("fixtures/compute.json",import.meta.url)));
+ let now=NOW;
+ const b=broker({cfg:{workloads:[{...r,service:"peer"},{...compute,service:"node"}]},now:()=>now});
+ const diagnostic=broker({cfg:{sandboxDiagnosticWorkloads:[{...compute,service:"node"}]},now:()=>now});
+ const relay=await b.register(r),node=await b.register({...compute,admit_until:NOW+1000});
+ const pinned=await diagnostic.register({...compute,admit_until:NOW+1000});
+ assert.equal(relay.expires_at,NOW+60);assert.equal(node.expires_at,NOW+120);
+ assert.equal(pinned.expires_at,NOW+120);
+ now=NOW+60;assert.deepEqual(b.live().map(n=>n.relay_peer),[compute.relay_peer]);
+ now=NOW+91;assert.equal(b.live().length,1);assert.equal(diagnostic.live().length,1);
+ now=NOW+120;assert.deepEqual(b.live(),[]);assert.deepEqual(diagnostic.live(),[]);
+});

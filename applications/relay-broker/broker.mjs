@@ -12,12 +12,12 @@ async function registerDiagnostic(b, r) {
   require(Number.isSafeInteger(r.admit_until) && r.admit_until > 0, "diagnostic_admission_deadline");
   const keys = ["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash", "receipt_key", "secret_key", "admit_until"];
   const out = { ...Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])), kind: "compute", proof: r.attestation,
-    attestation: { status: "verified", ...checked }, expires_at: b.now() + limits.relay_lease_seconds, operator_diagnostic: true };
+    attestation: { status: "verified", ...checked }, expires_at: b.now() + limits.compute_lease_seconds, operator_diagnostic: true };
   b.relays.set(r.relay_peer, out);
   return out;
 }
 
-export const limits = { relay_lease_seconds: 60, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
+export const limits = { relay_lease_seconds: 60, compute_lease_seconds: 120, grant_seconds: 300, max_seconds: 1800, max_bytes: 64 * 1024 * 1024, grants_per_hour: 4 };
 
 export class Broker {
   constructor({ cfg, chain, key, credits = {}, saveCredits, payments, inference, providerEnvironment, now = () => Math.floor(Date.now() / 1000) }) {
@@ -48,7 +48,7 @@ export class Broker {
     require(!this.payments || r.payments, "paid broker requires receipt key admission");
     const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);
     const out = Object.fromEntries(["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"].map((k) => [k, r[k]]));
-    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + limits.relay_lease_seconds });
+    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
     if (r.payments) out.payments = r.payments;
     if (telemetry) out.telemetry = telemetry;

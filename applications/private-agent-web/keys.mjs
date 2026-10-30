@@ -46,24 +46,35 @@ async function evaluate(credentialId) {
 
 export class DeviceKeys {
   async init() {
-    let bundle = await store("continuity.keys");
-    if (!bundle) bundle = { v: 1, dk: b64(random()),
-      walletKey: await store("burner") || Wallet.createRandom().privateKey };
-    await this.import(bundle);
+    const bundle = await store("continuity.keys");
+    const legacy = !bundle && await store("burner");
+    if (bundle || legacy) await this.import(bundle || { v: 1, dk: b64(random()), walletKey: legacy });
     return this;
+  }
+  async create() {
+    if (!this.bundle) await this.import({ v: 1, dk: b64(random()), walletKey: Wallet.createRandom().privateKey });
+    return this.bundle;
   }
   async import(bundle) {
     require(bundle?.v === 1 && unb64(bundle.dk).length === 32,
       "Invalid device key bundle.");
     const wallet = new Wallet(bundle.walletKey);
     const previous = await store("continuity.keys");
-    if (previous && previous.walletKey !== wallet.privateKey) await store("continuity.imported", true);
+    const previousKey = previous?.walletKey || await store("burner");
+    if (previousKey !== wallet.privateKey) {
+      await store("purchases", []);
+      await store("continuity.passkey", null);
+      await store("continuity.email", null);
+      await store("continuity.imported", !!previousKey);
+    }
+    this.address = wallet.address;
     this.bundle = { v: 1, dk: bundle.dk, walletKey: wallet.privateKey };
     await store("continuity.keys", this.bundle);
     await store("burner", wallet.privateKey);
     return this.bundle;
   }
   async addPasskey({ credit, api }) {
+    require(this.bundle, "Choose Start fresh or recover your wallet before adding a passkey.");
     checkOrigin();
     const credential = await navigator.credentials.create({ publicKey: {
       challenge: random(), rp: { id: RP_ID, name: "Dsmack private agent" },

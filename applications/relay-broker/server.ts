@@ -299,7 +299,9 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/relays") {
       response = Response.json(b.live().filter((r) => r.kind === "relay"));
     } else if (req.method === "GET" && path === "/nodes") {
-      response = Response.json(b.live().filter((r) => r.kind === "compute"));
+      const sessions = new AgentSessions(b);
+      response = Response.json(b.live().filter((r) => r.kind === "compute")
+        .map(node => ({ ...node, available: sessions.available(node) })));
     } else if (req.method === "GET" && path === "/") {
       response = new Response(page(b), {
         headers: { "content-type": "text/html; charset=utf-8" },

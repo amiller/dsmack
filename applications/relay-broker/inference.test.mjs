@@ -399,7 +399,11 @@ test("browser disconnect still drains the encrypted provider stream for billing 
     );
   const response = await f.send();
   assert.equal(f.inference.status().inFlightStreams, 1);
-  await response.body.cancel();
+  const consumer = response.body.getReader();
+  await consumer.read();
+  const pendingRead = consumer.read();
+  await consumer.cancel();
+  await pendingRead;
   assert.equal(f.inference.status().inFlightStreams, 1, "disconnected browser still has a metered provider stream");
   finishSource();
   await stored;
@@ -717,4 +721,22 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   assert.equal(second.spentNanoUsd, "300");
   assert.equal(f.costsCalls(), 2);
   assert.equal(f.calls(), 1, "reconciliation never resends the interrupted model request");
+});
+
+
+test("completed provider reply stays busy while ciphertext is queued for its HTTP consumer", async () => {
+  const f = fixture();
+  await f.credit();
+  let responded;
+  const stored = new Promise(resolve => responded = resolve), save = f.payments.save;
+  f.payments.save = async next => {
+    await save(next);
+    if (Object.values(next.inferenceRequests ?? {}).some(r => r.status === "responded")) responded();
+  };
+  const response = await f.send();
+  await stored;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.inference.status().inFlightStreams, 1, "provider EOF alone cannot permit a deploy over queued ciphertext");
+  await response.text();
+  assert.equal(f.inference.status().inFlightStreams, 0);
 });

@@ -480,7 +480,7 @@ export class Inference {
       throw error;
     }
     const inference = this, decoder = new TextDecoder();
-    let disconnected = false;
+    let disconnected = false, upstreamDone = false;
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "", tokens = null, done = false, failure = false;
@@ -552,7 +552,8 @@ export class Inference {
           } catch {
             failure = true;
           }
-          inference.activeRequests.delete(localId);
+          upstreamDone = true;
+          if (disconnected) inference.activeRequests.delete(localId);
           if (!disconnected) {
             if (failure) {
               controller.error(
@@ -570,7 +571,32 @@ export class Inference {
         disconnected = true;
       },
     });
-    return new Response(stream, {
+    // Keep queued ciphertext counted until the HTTP consumer reaches EOF.
+    // A disconnected browser still leaves its provider drain counted above.
+    const reader = stream.getReader();
+    let consumerCancelled = false;
+    const tracked = new ReadableStream({
+      async pull(controller) {
+        try {
+          const { value, done } = await reader.read();
+          if (consumerCancelled) return;
+          if (done) {
+            inference.activeRequests.delete(localId);
+            controller.close();
+          } else controller.enqueue(value);
+        } catch (error) {
+          if (consumerCancelled) return;
+          inference.activeRequests.delete(localId);
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        consumerCancelled = true;
+        try { await reader.cancel(reason); }
+        finally { if (upstreamDone) inference.activeRequests.delete(localId); }
+      },
+    });
+    return new Response(tracked, {
       headers: {
         "content-type": "text/event-stream",
         "cache-control": "no-store",

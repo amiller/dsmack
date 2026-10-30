@@ -173,11 +173,17 @@ class PoolTests(unittest.TestCase):
             message = 'POST /relay-broker/nodes: HTTP 503 body="promotion\\nretry" read=<nil>'
             gateway = (json.dumps({'event': 'registration_renewal_error', 'stage': 'broker lease renewal 3/3', 'error': message})+'\n').encode()
             stderr = ('2026/10/30 12:00:00 '+message+'\n').encode()
+            agent_receipts = (json.dumps({'sessionId': '01'*16, 'node_peer': 'guest-peer',
+                                         'guestSeconds': 3, 'final': True, 'sig': '02'*64})+'\n').encode()
+            tool_log = b'agent tool server ready\n'
             declaration = lambda data: {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
             outputs = {'status': 'failed', 'exit_code': 1, 'stderr': declaration(stderr),
-                       'artifacts': [dict(declaration(gateway), name='gateway-log')], 'missing': []}
+                       'artifacts': [dict(declaration(gateway), name='gateway-log'),
+                                     dict(declaration(agent_receipts), name='agent-receipts'),
+                                     dict(declaration(tool_log), name='tool-server-log')], 'missing': []}
             files = {'receipt.json': json.dumps({'outputs': outputs}).encode(), 'outputs/streams/stderr': stderr,
-                     'outputs/artifacts/gateway-log': gateway}
+                     'outputs/artifacts/gateway-log': gateway, 'outputs/artifacts/agent-receipts': agent_receipts,
+                     'outputs/artifacts/tool-server-log': tool_log}
             def read(argv, **kwargs):
                 path = argv[2].removeprefix('cat /compute-node-v1/')
                 return SimpleNamespace(stdout=files[path], stderr=b'debugfs 1.47.0 (5-Feb-2023)\n')
@@ -189,6 +195,8 @@ class PoolTests(unittest.TestCase):
             self.assertTrue(result['error']['terminal'])
             self.assertEqual((run/'out/guest-stderr.log').read_bytes(), stderr)
             self.assertEqual((run/'out/gateway-log.jsonl').read_bytes(), gateway)
+            self.assertEqual((run/'out/agent-receipts.jsonl').read_bytes(), agent_receipts)
+            self.assertEqual((run/'out/tool-server.log').read_bytes(), tool_log)
 
     def test_guest_gateway_error_is_available_when_old_manifest_did_not_capture_stderr(self):
         with tempfile.TemporaryDirectory() as tmp:

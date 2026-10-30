@@ -143,8 +143,10 @@ def guest_result(run, debugfs):
         outputs = json.loads(raw)['outputs']
         captured = {}
         declarations = [('stderr', outputs.get('stderr'), 'outputs/streams/stderr', 'guest-stderr.log')]
-        declarations += [('gateway-log', item, 'outputs/artifacts/gateway-log', 'gateway-log.jsonl')
-                         for item in outputs.get('artifacts', []) if item['name'] == 'gateway-log']
+        exports = {'gateway-log': 'gateway-log.jsonl', 'agent-receipts': 'agent-receipts.jsonl',
+                   'tool-server-log': 'tool-server.log'}
+        declarations += [(item['name'], item, 'outputs/artifacts/'+item['name'], exports[item['name']])
+                         for item in outputs.get('artifacts', []) if item['name'] in exports]
         for name, declared, source, target in declarations:
             if declared is None or name in outputs.get('missing', []):
                 continue

@@ -33,6 +33,8 @@ def main():
             time.sleep(1)
         cfg['Addresses'].update(Swarm=['/ip4/127.0.0.1/tcp/4049/ws'],Announce=['/dns4/'+host+'/tcp/443/wss'],API='/ip4/127.0.0.1/tcp/15092',Gateway='/ip4/127.0.0.1/tcp/18092')
         cfg.setdefault('Swarm',{})['DisableNatPortMap']=True
+        cfg['Swarm']['AddrFilters']=[rule for rule in cfg['Swarm'].get('AddrFilters',[]) if rule!='/ip4/127.0.0.0/ipcidr/8']
+        cfg['Swarm']['ConnMgr'].update(LowWater=32,HighWater=64)
         cfg['Datastore']['StorageMax']='1GB'
         (a.state/'repo/config').write_text(json.dumps(cfg))
         daemon=start([a.ipfs,'daemon','--migrate=true'],'daemon.log')
@@ -44,7 +46,7 @@ def main():
         root=json.loads(ipfs('dag','import','--enc=json',str(a.car)))['Root']['Cid']['/']
         ipfs('pin','add',root)
         result=ipfs('name','publish','--key=friends-page','--lifetime=168h','/ipfs/'+root);print(result,flush=True)
-        record={'cid':root,'name':name,'provider':ipfs('id','-f=<id>'),'transport':'/dns4/'+host+'/tcp/443/wss','publishedAt':int(time.time()),'gateway':'https://'+name+'.ipns.dweb.link/'}
+        record={'cid':root,'name':name,'provider':ipfs('id','-f=<id>'),'transport':'/dns4/'+host+'/tcp/443/wss','publishedAt':int(time.time()),'gateway':'https://'+name+'.ipns.inbrowser.link/'}
         (a.state/'published.json').write_text(json.dumps(record,indent=2));print(json.dumps(record),flush=True)
         while not stop:
             for child in children:

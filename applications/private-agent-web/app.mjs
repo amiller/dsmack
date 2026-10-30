@@ -176,12 +176,12 @@ function renderChatCredit() {
   $("chat-credit").dataset.spentNanoUsd = c?.spentNanoUsd || "";
   $("chat-credit").textContent = c
     ? "Chat credit " + formatNanoUsd(c.remainingNanoUsd)
-    : "Chat credit · Choose how to begin";
+    : credit.address ? "Chat credit · Checking balance…" : "Chat credit · Choose how to begin";
   $("chat-credit-status").textContent = c
     ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
       c.pendingInferenceId ? " · Usage pending" : ""
     }`
-    : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
+    : credit.address ? "Your wallet is loaded. Checking your current credit…" : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
 }
 async function claimChatCredit() {
   require(

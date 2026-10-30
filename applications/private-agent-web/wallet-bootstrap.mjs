@@ -10,6 +10,10 @@ try {
   document.getElementById("wallet").textContent = key
     ? computeAddress(key) : "Choose Start fresh or recover your wallet.";
   document.getElementById("welcome").hidden = !!key;
+  if (key) {
+    document.getElementById("chat-credit").textContent = "Chat credit · Checking balance…";
+    document.getElementById("chat-credit-status").textContent = "Your wallet is loaded. Checking your current credit…";
+  }
   document.documentElement.dataset.walletLoaded = "true";
   performance.measure("startup:wallet-visible", { start, end: performance.now() });
 } catch {

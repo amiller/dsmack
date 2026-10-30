@@ -200,7 +200,7 @@ try {
       await page.locator("#node-status").textContent(),
       /Approved sandbox policy included/,
     );
-    assert.match(await page.locator("#job-prompt").inputValue(), /greet.txt/);
+    assert.match(await page.locator("#repository-status").textContent(), /greet.txt/);
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
     await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
@@ -258,53 +258,14 @@ try {
       assert(calls.some((request) => request.path === "/inference/credit"));
     },
   );
-  await run(
-    "completed-sandbox-state-survives-reload",
-    "valid",
-    async (page) => {
-      await page.locator("#burner").click();
-      await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.250000"
-      );
-      const wallet = (await page.locator("#wallet").textContent())
-        .toLowerCase();
-      await page.evaluate((wallet) =>
-        new Promise((resolve, reject) => {
-          const open = indexedDB.open("dsmack-private-agent", 1);
-          open.onerror = () => reject(open.error);
-          open.onsuccess = () => {
-            const db = open.result, tx = db.transaction("wallet", "readwrite");
-            tx.objectStore("wallet").put(
-              { status: "completed" },
-              "sandbox-starter:" + wallet,
-            );
-            tx.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
-          };
-        }), wallet);
-      await ready(page);
-      await page.waitForFunction(() =>
-        document.querySelector("#sandbox-credit").dataset.status === "completed"
-      );
-      assert.equal(
-        await page.locator("#sandbox-credit").textContent(),
-        "Starter sandbox completed. Your verified result is ready.",
-      );
-      assert.equal(
-        await page.locator("#sandbox-credit").getAttribute(
-          "data-remaining-jobs",
-        ),
-        "0",
-      );
-    },
-  );
+  await run("guest-is-lazy-until-a-tool-call", "valid", async (page, calls) => {
+    assert.equal(await page.locator("#end-session").isDisabled(), true);
+    assert.equal(await page.locator("#download").isDisabled(), true);
+    await send(page, "A chat request alone must not allocate a guest.");
+    await alert(page, "SYNTHETIC_STOP");
+    assert(!calls.some(r => r.path.startsWith("/agent/")));
+    assert.equal(await page.locator("#guest-status").getAttribute("data-state"), "idle");
+  });
   for (const kind of ["nonce", "key", "model"]) {
     await run(
       "provider-" + kind + "-refused-before-chat",
@@ -382,6 +343,10 @@ try {
       assert(
         chat.body.body.messages.every((m) => /^04[0-9a-f]+$/i.test(m.content)),
       );
+      assert.equal(chat.body.body.tools.length, 4);
+      for (const tool of chat.body.body.tools) {
+        for (const field of ["name", "description", "parameters"]) assert.match(tool.function[field], /^04[0-9a-f]+$/i);
+      }
       assert.equal(
         await page.locator("#attestations .evidence-item").count(),
         1,

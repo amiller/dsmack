@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/ecdh"
@@ -17,7 +18,9 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -43,7 +46,11 @@ func must(e error) {
 }
 func guestClient() *http.Client {
 	return &http.Client{Timeout: 30 * time.Second, Transport: &http.Transport{DialContext: func(ctx context.Context, _, _ string) (net.Conn, error) {
-		return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/dstack.sock")
+		socket := os.Getenv("DSTACK_SOCKET")
+		if socket == "" {
+			socket = "/var/run/dstack.sock"
+		}
+		return (&net.Dialer{}).DialContext(ctx, "unix", socket)
 	}}}
 }
 
@@ -134,6 +141,32 @@ func brokerClient(raw string) (*http.Client, error) {
 }
 
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (serveErr error) {
+	if os.Geteuid() != 0 {
+		return fmt.Errorf("agent bootstrap requires root")
+	}
+	socket := os.Getenv("DSTACK_SOCKET")
+	if socket != "/root/dstack.sock" {
+		return fmt.Errorf("agent attestation socket requires its root-private mount")
+	}
+	private, err := os.Stat(filepath.Dir(socket))
+	if err != nil {
+		return err
+	}
+	owner, ok := private.Sys().(*syscall.Stat_t)
+	if !ok || owner.Uid != 0 || private.Mode().Perm()&0077 != 0 {
+		return fmt.Errorf("attestation socket parent must be root-private")
+	}
+	for _, path := range []string{"/workspace/artifacts", "/workspace/state"} {
+		if err := os.MkdirAll(path, 0700); err != nil {
+			return err
+		}
+		if err := os.Chown(path, 0, 0); err != nil {
+			return err
+		}
+		if err := os.Chmod(path, 0700); err != nil {
+			return err
+		}
+	}
 	paid := paidMeter()
 	operatorStop := make(chan struct{})
 	var stopOnce sync.Once
@@ -165,6 +198,63 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		gatewayErrors = gateways.failed
 		publicRelay = advertised
 	}
+	if err := os.MkdirAll("/run/dsmack", 0711); err != nil {
+		return err
+	}
+	if err := os.Chown("/run/dsmack", 0, 0); err != nil {
+		return err
+	}
+	if err := os.Chmod("/run/dsmack", 0711); err != nil {
+		return err
+	}
+	toolLog, err := os.OpenFile("/workspace/artifacts/tool-server.log", os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0600)
+	if err != nil {
+		return err
+	}
+	defer toolLog.Close()
+	readyRead, readyWrite, err := os.Pipe()
+	if err != nil {
+		return err
+	}
+	defer readyRead.Close()
+	defer readyWrite.Close()
+	toolServer := exec.Command("node", worker)
+	toolServer.ExtraFiles = []*os.File{readyWrite}
+	toolServer.Env = append(os.Environ(), "AGENT_READY_FD=3")
+	toolServer.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	toolServer.Stdout, toolServer.Stderr = toolLog, toolLog
+	if err := toolServer.Start(); err != nil {
+		return err
+	}
+	readyWrite.Close()
+	toolReady := make(chan error, 1)
+	go func() {
+		line, err := bufio.NewReader(readyRead).ReadString('\n')
+		if err == nil && line != "ready\n" {
+			err = fmt.Errorf("unexpected tool ready marker")
+		}
+		toolReady <- err
+	}()
+	toolExited := make(chan error, 1)
+	go func() { toolExited <- toolServer.Wait() }()
+	defer func() {
+		syscall.Kill(-toolServer.Process.Pid, syscall.SIGTERM)
+		select {
+		case <-toolExited:
+		case <-time.After(5 * time.Second):
+			syscall.Kill(-toolServer.Process.Pid, syscall.SIGKILL)
+		}
+	}()
+	select {
+	case err := <-toolReady:
+		if err != nil {
+			return fmt.Errorf("tool server readiness: %w", err)
+		}
+	case err := <-toolExited:
+		return fmt.Errorf("tool server exited: %v", err)
+	case <-time.After(20 * time.Second):
+		return fmt.Errorf("tool server did not initialize before deadline")
+	}
 	secret, e := ecdh.P256().GenerateKey(rand.Reader)
 	if e != nil {
 		return e
@@ -174,7 +264,8 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return e
 	}
 	h := p2p.NewHost(libp2p.NoListenAddrs, libp2p.EnableRelay(), libp2p.Security(noise.ID, noise.New))
-	defer h.Close()
+	var agentStreams sync.WaitGroup
+	defer func() { h.Close(); agentStreams.Wait() }()
 	var info map[string]any
 	if err := post(guestClient(), "http://localhost/v1/Info", map[string]any{}, &info); err != nil {
 		return err
@@ -216,7 +307,15 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		registrationMu.Unlock()
 		s.Write(raw)
 	})
-	h.SetStreamHandler("/dsmack/job/1", func(s network.Stream) { defer s.Close(); n.handle(s, s.Conn().RemotePeer().String()) })
+	c, e := brokerClient(brokerURL)
+	if e != nil {
+		return e
+	}
+	h.SetStreamHandler(agentProtocol, func(s network.Stream) {
+		agentStreams.Add(1)
+		defer agentStreams.Done()
+		n.handleMCP(s, brokerURL, c, func() { stopOnce.Do(func() { close(operatorStop) }) })
+	})
 	ri, e := peer.AddrInfoFromString(relay)
 	if e != nil {
 		return e
@@ -232,10 +331,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	if err := reserve(); err != nil {
 		return err
-	}
-	c, e := brokerClient(brokerURL)
-	if e != nil {
-		return e
 	}
 	renew := func() error {
 		var out map[string]any
@@ -371,6 +466,8 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	defer timer.Stop()
 	for {
 		select {
+		case err := <-toolExited:
+			return fmt.Errorf("tool server exited: %v", err)
 		case err := <-gatewayErrors:
 			return err
 		case <-tick.C:

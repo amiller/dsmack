@@ -52,8 +52,14 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
         egress = [proxy_endpoint,endpoint(host,port),endpoint(broker_ip,url.port or (443 if url.scheme=='https' else 80))]
     m = json.loads(starter.read_bytes())
     service = {'image':'127.0.0.1:5005/compute-node@'+digest, 'entrypoint':['/usr/local/bin/dsmack-compute'],
-               'command':['serve',relay,str(seconds),broker,key,cdhash,'/opt/compute-node/worker.py'],
-               'environment':environment | {'MODEL':'claude-opus-4-8'}, 'read_only':True,
+               'command':['serve',relay,str(seconds),broker,key,cdhash,'/opt/compute-node/agent-mcp.mjs'],
+               'environment':environment | {'AGENT_MCP_SOCKET':'/run/dsmack/agent-mcp.sock',
+                   'AGENT_COMMAND_TIMEOUT_SECONDS':'120','AGENT_OUTPUT_CAP_BYTES':'51200',
+                   'AGENT_RAW_OUTPUT_CAP_BYTES':'1048576','AGENT_IDLE_TIMEOUT_SECONDS':'300',
+                   'AGENT_PI_VERSION':'1.4.0','AGENT_MCP_VERSION':'2026-07-28',
+                   'DSTACK_SOCKET':'/root/dstack.sock','AGENT_CONFINEMENT':'readonly-rootfs-uid1000-workspace-tmpfs',
+                   'AGENT_NETWORK_ALLOWLIST':canonical([url.hostname, 'attested relay hostname from '+tunnel_index] if mac else [url.hostname]).decode()},
+               'read_only':True, 'security_profile':'agent-sandbox-v1',
                'volumes':['artifacts:/workspace/artifacts:rw','/var/run/dstack.sock:/var/run/dstack.sock:ro']}
     if not 1 <= seconds <= 840:
         raise ValueError('compute lifetime must be 1..840 seconds')
@@ -66,9 +72,9 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
         provider = validate_config(provider)
         if provider['base_url'].rstrip('/') != broker.rstrip('/') or provider['broker_key'] != key:
             raise ValueError('inference capability must use the measured node broker and key')
-        service['environment']['INFERENCE_PROVIDER'] = canonical(provider).decode()
-        service['environment']['MODEL'] = provider['model']
-    artifacts = ['registration', 'last-result', 'egress']
+        # Model inference stays in the browser. Keep validating an existing
+        # pool packer's provider input while it migrates to the MCP workload.
+    artifacts = ['registration', 'last-result', 'egress', 'agent-receipts']
     if mac:
         artifacts += ['egress-checks','gateway-log']
     if payments is not None:
@@ -79,7 +85,9 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
              harness={'name':'compute-node','path':'/usr/local/bin/dsmack-compute',
                       'sha256':hashlib.sha256(binary.read_bytes()).hexdigest(),'version':'compute-node-1'},
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
-             outputs={'capture':[], 'artifacts':[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts]})
+             outputs={'capture':['stderr'], 'artifacts':[
+                 *[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts],
+                 {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'}]})
     m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
     return canonical(m)
 

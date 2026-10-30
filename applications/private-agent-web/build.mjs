@@ -1,4 +1,5 @@
 import { build } from "esbuild";
+import { piPromptPlugin } from "../compute-node/pi-browser-build.mjs";
 import { copyFile, mkdir } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -9,6 +10,7 @@ const sandboxSource = process.env.SANDBOX_SOURCE ||
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
+  plugins: [piPromptPlugin()],
   entryPoints: { app: "app.mjs", "sandbox-client": sandboxSource },
   bundle: true,
   format: "esm",

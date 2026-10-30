@@ -211,33 +211,26 @@ export async function verifyNode(registration, policy) {
       service.command[5] === policy.cdhash,
     "compose broker key/build",
   );
-  const provider = service.environment?.INFERENCE_PROVIDER
-    ? JSON.parse(service.environment.INFERENCE_PROVIDER)
-    : null;
-  if (provider) {
-    require(
-      provider.schema === "dsmack-broker-model/1" &&
-        provider.broker_key === policy.brokerKey &&
-        provider.base_url.replace(/\/$/, "") ===
-          service.command[3].replace(/\/$/, "") &&
-        service.environment.MODEL === provider.model,
-      "compose broker inference binding",
-    );
-  }
-  const configuredModel = provider?.model ?? service.environment?.MODEL;
+  const env = service.environment;
   require(
-    typeof configuredModel === "string" && configuredModel.length > 0,
-    "compose model",
+    service.command[6] === "/opt/compute-node/agent-mcp.mjs" &&
+      env?.AGENT_MCP_SOCKET === "/run/dsmack/agent-mcp.sock" &&
+      env.AGENT_MCP_VERSION === "2026-07-28" &&
+      env.AGENT_PI_VERSION === "1.4.0" &&
+      service.read_only === true &&
+      service.security_profile === "agent-sandbox-v1" &&
+      env.DSTACK_SOCKET === "/root/dstack.sock" &&
+      service.volumes?.includes("/var/run/dstack.sock:/var/run/dstack.sock:ro") &&
+      Number(env.AGENT_COMMAND_TIMEOUT_SECONDS) > 0 &&
+      Number(env.AGENT_OUTPUT_CAP_BYTES) > 0 &&
+      Array.isArray(JSON.parse(env.AGENT_NETWORK_ALLOWLIST || "null")),
+    "compose agent tool server and runtime policy",
   );
-  if (policy.model !== undefined) {
-    require(configuredModel === policy.model, "compose model");
-  }
   const resolved = {
     ...policy,
     manifestHash: await hash(policy.manifest),
     image: manifest.base_vm.os_image_hash,
-    model: policy.model ?? configuredModel,
-    provider,
+    agentEnvironment: env,
   };
   require(
     registration.kind === "compute" && registration.cdhash === policy.cdhash &&

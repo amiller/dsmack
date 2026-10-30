@@ -14,9 +14,20 @@
     "@nearai/inference-sdk": "0.2.0",
     "diff": "8.0.4",
     "@earendil-works/pi-web-ui": "0.75.3",
-    "@earendil-works/pi-agent-core": "0.75.3",
-    "@earendil-works/pi-ai": "0.75.3",
-    "process": "0.11.10"
+    "@earendil-works/pi-agent-core": "1.4.0",
+    "@earendil-works/pi-ai": "1.4.0",
+    "process": "0.11.10",
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "@modelcontextprotocol/core": "2.4.0",
+    "@chainsafe/libp2p-noise": "17.0.0",
+    "@chainsafe/libp2p-yamux": "8.0.1",
+    "@libp2p/circuit-relay-v2": "4.2.17",
+    "@libp2p/identify": "4.1.18",
+    "@libp2p/ping": "3.1.17",
+    "@libp2p/websockets": "10.1.25",
+    "@multiformats/multiaddr": "13.0.3",
+    "libp2p": "3.5.1"
   },
   "devDependencies": {
     "esbuild": "0.25.12",

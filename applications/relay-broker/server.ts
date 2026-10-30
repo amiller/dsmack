@@ -10,6 +10,7 @@ import { canonical } from "./grants.mjs";
 import { getProviderEnvKey, getSigningKey } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
 import { sandbox } from "./sandbox.mjs";
+import { AgentSessions } from "./agent.mjs";
 import { SandboxInference } from "./sandbox-inference.mjs";
 
 type Context = { env: Record<string, string>; dataDir: string };
@@ -217,7 +218,16 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path === "/sandbox/starter-grant" && req.method === "POST") {
+    if (path.startsWith("/agent/") && req.method === "POST") {
+      if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
+      const sessions = new AgentSessions(b), request = await body(req);
+      const action = path.slice("/agent/".length);
+      if (action === "open") response = Response.json(await sessions.open(request));
+      else if (action === "status") response = Response.json(await sessions.status(request));
+      else if (action === "end") response = Response.json(await sessions.status(request, true));
+      else if (action === "receipt") response = Response.json(await sessions.receipt(request));
+      else response = new Response("not found", { status: 404 });
+    } else if (path === "/sandbox/starter-grant" && req.method === "POST") {
       response = Response.json(await new SandboxInference(b).starterGrant(await body(req)));
     } else if (path === "/sandbox/capability" && req.method === "POST") {
       response = Response.json(

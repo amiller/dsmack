@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """One owned warm-pool hvf-v3 launch; pool.py performs the Mac ownership preflight.
 
-python3 pool_mac_run.py <runner dir> <run dir> <seconds>
+python3 pool_mac_run.py <runner dir> <run dir> <seconds> <profile>
 
 The runner dir holds DsmackRunner.app, base/ (the image files) and enrollment/keyId.txt; the run dir
 holds workload.img and compose-manifest.json and receives out/, stdout.txt, stderr.txt and gvproxy.log.
@@ -17,6 +17,12 @@ from pathlib import Path
 d, t = Path(sys.argv[1]), Path(sys.argv[2])
 b, rt = d/'base', Path.home()/'.ap/runtime'
 seconds = int(sys.argv[3])
+profile = sys.argv[4]
+compose = json.loads((t/'compose-manifest.json').read_bytes())
+mem_mib, vcpus = compose['base_vm']['memory_mb'], compose['base_vm']['vcpus']
+resources = {'mem_mib': mem_mib, 'vcpus': vcpus, 'basis': f'warm compute node:{mem_mib}MiB/{vcpus}vCPU'}
+if profile != f'mini-{mem_mib}-{vcpus}':
+    raise ValueError('launch resource profile differs from measured compose size')
 if not 1 <= seconds <= 840:
     raise ValueError('pool runtime must be 1..840 seconds')
 
@@ -51,20 +57,20 @@ image = {'schema': 'dsmack-general-launcher/image-manifest/1', 'arch': 'aarch64'
          'guest': {'console': 'hvc0', 'scratch_device': 'vdb', 'workload_device': 'vdc', 'supervisor_markers': 'DSMACK_RESULT_CLOSED_V1'},
          'kernel': desc(b/'Image'), 'initrd': desc(b/'initramfs.cpio.gz'),
          'system_disk': dict(desc(b/'rootfs.squashfs.verity'), format='raw', verity_root_hash=args['dstack.rootfs_hash']),
-         'resource_profiles': {'mini-4096': {'mem_mib': 4096, 'vcpus': 1, 'basis': 'warm compute node:4096MiB/1vCPU'}},
+         'resource_profiles': {profile: resources},
          'provenance': {'profile_id': 'warm-compute-node-v1', 'os_image_hash': osh}}
 ir = canon(image)
 (t/'image-manifest.json').write_bytes(ir)
-(t/'policy.json').write_bytes(canon({'schema': 'dsmack-general-launcher/admission-policy/1', 'policy_id': 'warm-compute-node-4096-1-900',
+(t/'policy.json').write_bytes(canon({'schema': 'dsmack-general-launcher/admission-policy/1', 'policy_id': f'warm-compute-node-{mem_mib}-{vcpus}-900',
     'notes': 'warm compute node', 'admitted_images': [{'image_id': osh, 'manifest_sha256': hashlib.sha256(ir).hexdigest(), 'admitted_by': 'local:warm-compute-pool'}],
-    'resource_limits': {'max_mem_mib': 4096, 'max_vcpus': 1, 'max_runtime_seconds': 900},
+    'resource_limits': {'max_mem_mib': mem_mib, 'max_vcpus': vcpus, 'max_runtime_seconds': 900},
     'device_contract': {'system': 'vda', 'scratch': 'vdb', 'workload': 'vdc'}}))
 (t/'admission.json').write_bytes(canon({'admission_version': 1, 'allowed_os_image_hashes': [osh]}))
 (t/'challenge.bin').write_bytes(secrets.token_bytes(32))
 (t/'session.json').write_bytes(canon({'schema': 'dsmack-general-launcher/session/3', 'policy_path': str(t/'policy.json'),
     'image_manifest_path': str(t/'image-manifest.json'), 'checksum_manifest_path': str(b/'sha256sum.txt'),
     'metadata_path': str(b/'metadata.json'), 'admission_path': str(t/'admission.json'),
-    'compose_manifest_path': str(t/'compose-manifest.json'), 'profile': 'mini-4096', 'workload_disk_path': str(t/'workload.img'),
+    'compose_manifest_path': str(t/'compose-manifest.json'), 'profile': profile, 'workload_disk_path': str(t/'workload.img'),
     'workload_sha256': fsha(t/'workload.img'), 'workload_id': 'compute-node-v1', 'runtime_seconds': 900,
     'private_input_path': '', 'net_socket_path': str(t/'net.sock'), **template('scratch'), **template('result')}))
 net = subprocess.Popen([str(rt/'helper/gvproxy-darwin'), '-listen-qemu', 'unix://%s' % (t/'net.sock'), '-ssh-port', '-1',

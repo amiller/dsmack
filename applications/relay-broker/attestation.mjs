@@ -26,7 +26,7 @@ export async function verifyRelay(r, cfg, chain, now) {
   const workload = cfg.workloads.find((w) => ["manifest_sha256", "os_image_hash", "cdhash"].every((k) => w[k] === r[k]));
   require(workload, "workload is not admitted");
   require(typeof r.relay_maddr === "string" && r.relay_maddr.length <= 512 &&
-    /^\/(ip4|ip6|dns4|dns6)\/[a-zA-Z0-9.:-]+\/tcp\/[0-9]+\/p2p\/[1-9A-HJ-NP-Za-km-z]+\/p2p-circuit\/p2p\/[1-9A-HJ-NP-Za-km-z]+$/.test(r.relay_maddr) &&
+    /^\/(ip4|ip6|dns4|dns6)\/[a-zA-Z0-9.:-]+\/tcp\/[0-9]+(?:\/ws|\/wss)?\/p2p\/[1-9A-HJ-NP-Za-km-z]+\/p2p-circuit\/p2p\/[1-9A-HJ-NP-Za-km-z]+$/.test(r.relay_maddr) &&
     r.relay_maddr.endsWith("/p2p-circuit/p2p/" + r.relay_peer), "circuit address must target relay_peer");
   require(typeof r.attestation === "string" && r.attestation.length <= 131072, "attestation hex required");
   const a = await decodeAttestation(unhex(r.attestation));

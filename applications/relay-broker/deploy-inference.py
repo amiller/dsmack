@@ -17,8 +17,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
-SECRET_FIELDS = {"near_api_key", "near_management_token", "near_reporting_token", "managementtoken",
-                 "reportingtoken", "api_key", "apikey", "password", "secret", "credential"}
+SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
 
 def public_config(value):
@@ -163,10 +162,10 @@ def deploy(args):
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
     project = api("/_api/projects", method="POST", body=body,
-                  kind="multipart/form-data; boundary=" + boundary, auth=True)
+                  kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
-    api("/_api/projects/relay-broker/promote", method="POST", auth=True)
+    api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
     deadline = time.monotonic() + 30
     while True:
         try:

@@ -1,5 +1,4 @@
 import {
-  BrowserProvider,
   Contract,
   formatEther,
   JsonRpcProvider,
@@ -118,76 +117,12 @@ export class Credit {
     this.address = wallet.address;
     this.changed();
   }
-  async connect() {
-    require(
-      window.ethereum,
-      "No wallet extension was found. Choose Create browser wallet; starter chat and sandbox need no ETH.",
-    );
-    require(
-      !this.address || !await store("burner"),
-      "Browser wallet already active. Use another profile for an injected wallet.",
-    );
-    await window.ethereum.request({ method: "eth_requestAccounts" });
-    if (
-      BigInt(await window.ethereum.request({ method: "eth_chainId" })) !==
-        84532n
-    ) {
-      try {
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x14a34" }],
-        });
-      } catch (error) {
-        if (error.code !== 4902) {
-          throw new Error(
-            "Connect on Base Sepolia to continue. Approve the network switch in your wallet.",
-          );
-        }
-        await window.ethereum.request({
-          method: "wallet_addEthereumChain",
-          params: [{
-            chainId: "0x14a34",
-            chainName: "Base Sepolia",
-            nativeCurrency: { name: "Ether", symbol: "ETH", decimals: 18 },
-            rpcUrls: [this.cfg.rpc],
-            blockExplorerUrls: ["https://sepolia.basescan.org"],
-          }],
-        });
-        await window.ethereum.request({
-          method: "wallet_switchEthereumChain",
-          params: [{ chainId: "0x14a34" }],
-        });
-      }
-    }
-    require(
-      BigInt(await window.ethereum.request({ method: "eth_chainId" })) ===
-        84532n,
-      "Your wallet must approve Base Sepolia before it can connect.",
-    );
-    const p = new BrowserProvider(window.ethereum, 84532);
-    this.signer = await p.getSigner();
-    this.address = await this.signer.getAddress();
-    this.changed();
-  }
   async contract() {
     require(this.signer, "Create or connect a wallet first.");
     require(
       BigInt(await this.rpc.send("eth_chainId", [])) === 84532n,
       "RPC is not Base Sepolia.",
     );
-    if (window.ethereum && this.signer.provider instanceof BrowserProvider) {
-      require(
-        BigInt(await window.ethereum.request({ method: "eth_chainId" })) ===
-          84532n,
-        "Wrong network. Switch to Base Sepolia.",
-      );
-      require(
-        (await this.signer.getAddress()).toLowerCase() ===
-          (await window.ethereum.request({ method: "eth_accounts" }))[0]
-            ?.toLowerCase(),
-        "Wallet account changed. Reconnect before spending.",
-      );
-    }
     require(
       keccak256(await this.rpc.getCode(this.cfg.escrow)) === this.cfg.codeHash,
       "Escrow code hash does not match the deployment pin.",

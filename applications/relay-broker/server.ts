@@ -1,4 +1,6 @@
+import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
+import { fleet } from "./fleet.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, InferenceError } from "./inference.mjs";
@@ -10,7 +12,7 @@ import { canonical } from "./grants.mjs";
 import { getProviderEnvKey, getSigningKey } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
 import { sandbox } from "./sandbox.mjs";
-import { SandboxInference } from "./sandbox-inference.mjs";
+import { AgentSessions } from "./agent.mjs";
 
 type Context = { env: Record<string, string>; dataDir: string };
 async function load(ctx: Context) {
@@ -82,7 +84,7 @@ async function load(ctx: Context) {
     rpcChain(cfg.rpc, cfg.attest, cfg.canary),
     cfg.enrollments,
   );
-  return new Broker({
+  const broker = new Broker({
     cfg,
     chain,
     key,
@@ -92,6 +94,28 @@ async function load(ctx: Context) {
     providerEnvironment,
     saveCredits: (value: object) => atomicSave(path, value),
   });
+  const syncPath = ctx.dataDir + "/continuity.json", blobs = ctx.dataDir + "/continuity-blocks";
+  await Deno.mkdir(blobs, { recursive: true, mode: 0o700 });
+  let syncState;
+  try { syncState = JSON.parse(await Deno.readTextFile(syncPath)); }
+  catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
+  return Object.assign(broker, { continuity: new Continuity({
+    cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
+    anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
+    state: syncState,
+    save: (v: object) => atomicSave(syncPath, v),
+    put: async (cid: string, ciphertext: string) => {
+      const temporary = blobs + "/" + cid + "." + crypto.randomUUID() + ".tmp";
+      await Deno.writeTextFile(temporary, ciphertext, { mode: 0o600 });
+      using f = await Deno.open(temporary, { write: true }); await f.sync();
+      await Deno.rename(temporary, blobs + "/" + cid);
+      using directory = await Deno.open(blobs, { read: true }); await directory.sync();
+    },
+    get: async (cid: string) => {
+      try { return await Deno.readTextFile(blobs + "/" + cid); }
+      catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; return null; }
+    },
+  }) });
 }
 
 const escape = (s: string) =>
@@ -183,7 +207,8 @@ export default async function handler(req: Request, ctx: Context) {
 
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
-  if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256);
+  if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
+  if(path==="/fleet")return await fleet(req,b.cfg.fleet_publishers,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||
@@ -217,18 +242,22 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path === "/sandbox/starter-grant" && req.method === "POST") {
-      response = Response.json(await new SandboxInference(b).starterGrant(await body(req)));
-    } else if (path === "/sandbox/capability" && req.method === "POST") {
-      response = Response.json(
-        await new SandboxInference(b).mint(await body(req)),
-      );
-    } else if (path === "/sandbox/inference" && req.method === "POST") {
-      response = Response.json(
-        await new SandboxInference(b).complete(req, await body(req, 1 << 20)),
-      );
+    if (path.startsWith("/sync/") && req.method === "POST") {
+      const sync = (b as Broker & { continuity?: Continuity }).continuity;
+      if (!sync) return finish(Response.json({ error: "sync not configured" }, { status: 503 }));
+      try { response = Response.json(await sync.call(path.slice(6), await body(req, 3 * 1024 * 1024))); }
+      catch (e) { if (e instanceof Error && "status" in e) return finish(Response.json({ error: e.message }, { status: Number(e.status) })); throw e; }
+    } else if (path.startsWith("/agent/") && req.method === "POST") {
+      if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
+      const sessions = new AgentSessions(b), request = await body(req);
+      const action = path.slice("/agent/".length);
+      if (action === "open") response = Response.json(await sessions.open(request));
+      else if (action === "status") response = Response.json(await sessions.status(request));
+      else if (action === "end") response = Response.json(await sessions.status(request, true));
+      else if (action === "receipt") response = Response.json(await sessions.receipt(request));
+      else response = new Response("not found", { status: 404 });
     } else if (path.startsWith("/sandbox/")) {
-      response = await sandbox(req, b, body);
+      response = await sandbox(req, b);
     } else if (path.startsWith("/inference/")) {
       if (!b.inference) {
         throw new InferenceError(
@@ -287,7 +316,9 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     } else if (req.method === "GET" && path === "/relays") {
       response = Response.json(b.live().filter((r) => r.kind === "relay"));
     } else if (req.method === "GET" && path === "/nodes") {
-      response = Response.json(b.live().filter((r) => r.kind === "compute"));
+      const sessions = new AgentSessions(b);
+      response = Response.json(b.live().filter((r) => r.kind === "compute")
+        .map(node => ({ ...node, available: sessions.available(node) })));
     } else if (req.method === "GET" && path === "/") {
       response = new Response(page(b), {
         headers: { "content-type": "text/html; charset=utf-8" },

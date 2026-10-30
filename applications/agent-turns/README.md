@@ -183,6 +183,3 @@ with `internal: true` alone the host's listeners stay reachable.
 python3 -m pytest -q applications/agent-turns
 ```
 
-`dsmack-agent run-remote` discovers an attested compute node, seals a turn over
-the libp2p relay, verifies its outputs and applies the patch. See the
-[compute client instructions](../compute-node/README.md#run-a-remote-turn).

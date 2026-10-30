@@ -3,8 +3,7 @@
 The shared Deno broker verifies Mac relay and compute attestations, issues
 Ed25519 byte/time grants, and authorizes Base Sepolia payments. Private inference
 forwards browser-encrypted NEAR requests and charges provider-reported costs.
-Sandbox jobs carry a grant-bound model capability; prompts and model credentials
-stay inside the broker CVM and attested compute guest.
+Agent sessions reserve guest seconds from the same wallet credit.
 
 Live: <https://pod.dstack.soc1024.com/relay-broker>.
 
@@ -26,8 +25,7 @@ reserves its maximum cost; billing evidence reconciles that reservation.
 
 For the free Mac pool, configure `sandboxDiagnosticWorkloads` with its approved
 compute tuples. `sandbox_backhaul_peers` identifies Mac peers permitted to open
-the in-process libp2p backhaul. The signed wallet starter allowance funds one
-180-second sandbox job.
+the in-process libp2p backhaul.
 
 Run against a local dstack simulator from this directory:
 
@@ -94,11 +92,17 @@ The deployment manifest contains the operator hash and ciphertext envelope.
 - `GET /inference/quote`, `/status`, `/environment-key`: public configuration.
 - `POST /inference/credit`, `/prepare`, `/chat`, `/usage`: EIP-191 wallet requests
   to claim credit, attest the model, dispatch ciphertext and reconcile costs.
-- `POST /sandbox/starter-grant`, `/capability`, `/inference`, `/jobs`: job and
-  model-capability admission under `/sandbox`; node evidence is available at
-  `GET /sandbox/nodes/PEER/attestation?challenge=HEX`.
+- `POST /agent/open`, `/status`, `/end`: wallet-signed guest sessions;
+  `POST /agent/receipt` accepts guest-signed usage.
+- `GET /sandbox/nodes/PEER/attestation?challenge=HEX`: fresh node evidence.
 - `/sandbox/p2p/*`: bounded HTTPS backhaul to the native libp2p transport.
 - `GET/POST /tunnels`: discover and publish expiring browser tunnel hints.
+- `GET /fleet`: signed Mac capacity, slots and errors, optionally filtered by
+  `?payout=ADDRESS`. A Mac becomes offline after 60 seconds without a heartbeat.
+  `POST /fleet` accepts EIP-191 messages signed by the Mac's tunnel publisher key
+  over `dsmack-fleet/1\n` and the recursively sorted JSON payload. Configure
+  `fleet_publishers` as a map from lowercase publisher addresses to lowercase
+  payout addresses before starting the Mac pool.
 
 See [the compute protocol](../compute-node/PROTOCOL.md) for admission and wire
 formats. `verify-grant.py` independently verifies an HTTP grant with Python
@@ -113,4 +117,24 @@ deno check applications/relay-broker/server.ts
 deno test --allow-read --allow-net \
   --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
   applications/relay-broker applications/payments/payments.test.mjs
+```
+
+## Encrypted conversation sync
+
+Configure `continuity.anchor` with the Base Sepolia `SyncHeads` contract and
+`continuity.rpc` with the RPC URL. The contract writer is the existing payment
+signer; fund it with test ETH for head commits. The page pins the contract address
+and runtime code hash in `syncAnchor` and `syncAnchorCodeHash`.
+
+Wallet-signed POST requests at `/sync/blob`, `/sync/read`, `/sync/head` and
+`/sync/commit` retain ciphertext by raw CIDv1 and update a signed head after an
+on-chain compare-and-swap commit. The broker stores the blocks under its persistent
+`continuity-blocks` directory. The encrypted manifest merges session IDs by union
+and selects the newest counter per session. `/sync/wrap/put` stores wallet-signed
+passkey envelopes; `/sync/wrap/get` retrieves an envelope by its credential ID.
+
+Run the network boundary tests with:
+
+```sh
+deno test --allow-read --allow-write --allow-net --allow-env continuity.test.mjs
 ```

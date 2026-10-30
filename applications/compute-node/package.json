@@ -1,0 +1,12 @@
+{
+  "name": "dsmack-agent-tools",
+  "private": true,
+  "type": "module",
+  "scripts": { "test": "node --test agent-mcp.test.mjs" },
+  "dependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@modelcontextprotocol/server": "2.4.0",
+    "@modelcontextprotocol/client": "2.4.0",
+    "typebox": "1.3.27"
+  }
+}

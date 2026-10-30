@@ -174,12 +174,12 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
   const tampered = { ...claim, wallet: Wallet.createRandom().address };
   await assert.rejects(f.inference.credit(tampered), code("BUYER_SIGNATURE"));
   const granted = await f.inference.credit(claim);
-  assert.equal(granted.grantedNanoUsd, "10000000");
-  assert.equal(granted.remainingNanoUsd, "10000000");
+  assert.equal(granted.grantedNanoUsd, "250000000");
+  assert.equal(granted.remainingNanoUsd, "250000000");
   await assert.rejects(f.inference.credit(claim), code("REQUEST_REPLAY"));
-  assert.equal((await f.credit()).grantedNanoUsd, "10000000");
+  assert.equal((await f.credit()).grantedNanoUsd, "250000000");
   const second = Wallet.createRandom();
-  assert.equal((await f.credit(second)).grantedNanoUsd, "10000000");
+  assert.equal((await f.credit(second)).grantedNanoUsd, "250000000");
   const old = await f.signed("usage");
   f.advance(121);
   await assert.rejects(f.inference.usage(old), code("REQUEST_EXPIRED"));
@@ -199,7 +199,7 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
   assert.equal(
     (await restarted.credit(await f.signed("credit", { issuedAt: 2000000000 })))
       .grantedNanoUsd,
-    "10000000",
+    "250000000",
   );
   assert.equal(f.calls(), 0);
 });
@@ -282,13 +282,13 @@ test("budget reservation excludes concurrent requests and provider cost charges 
   for (const u of usages) {
     assert.equal(u.spentNanoUsd, "300");
     assert.equal(u.usedTokens, "8");
-    assert.equal(u.remainingNanoUsd, "9999700");
+    assert.equal(u.remainingNanoUsd, "249999700");
   }
   assert.equal(
     (await f.inference.usage(await f.signed("usage"))).spentNanoUsd,
     "300",
   );
-  assert.equal(f.inference.recover().pendingRequests, 0);
+  assert.equal((await f.inference.recover()).pendingRequests, 0);
 });
 
 test("insufficient credit and untrusted provider costs cannot start or overdraw requests", async () => {
@@ -342,7 +342,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
     provider: f.provider,
     now: () => 2000000000,
   });
-  assert.equal(restarted.recover().pendingRequests, 1);
+  assert.equal((await restarted.recover()).pendingRequests, 1);
   await assert.rejects(
     restarted.usage(await f.signed("usage")),
     code("USAGE_PENDING"),
@@ -464,5 +464,167 @@ test("prepared sessions are wallet-bound and expire before any paid call", async
     f.inference.chat(await f.signed("chat", await f.encrypted(session))),
     code("ATTESTATION_INVALID"),
   );
+  assert.equal(f.calls(), 0);
+});
+
+test("startup tops up every old account once while preserving spend and pending requests", async () => {
+  const wallet = Wallet.createRandom(), inactive = Wallet.createRandom();
+  const activeKey = wallet.address.toLowerCase(),
+    inactiveKey = inactive.address.toLowerCase();
+  const account = {
+    grantedNanoUsd: "10000000",
+    spentNanoUsd: "9000000",
+    usedTokens: "1234",
+    pending: "pending-request",
+    nonces: { ["ab".repeat(16)]: 2000000000 },
+  };
+  const pending = {
+    wallet: activeKey,
+    status: "sent",
+    reservedNanoUsd: "500000",
+    inferenceId: null,
+    createdAt: 1999999999,
+  };
+  const history = { status: "charged", costNanoUsd: "9000000" };
+  const f = fixture({
+    state: {
+      grants: { existing: { retained: true } },
+      receipts: {},
+      inferenceCredit: {
+        [activeKey]: account,
+        [inactiveKey]: { ...account, pending: null },
+        alreadyAbove: { ...account, grantedNanoUsd: "300000000" },
+      },
+      inferenceRequests: { "pending-request": pending, old: history },
+    },
+  });
+  let finishSave, saving;
+  const gate = new Promise((resolve) => finishSave = resolve),
+    started = new Promise((resolve) => saving = resolve);
+  const save = f.payments.save;
+  f.payments.save = async (next) => {
+    saving();
+    await gate;
+    await save(next);
+  };
+  const recovery = f.inference.recover();
+  await started;
+  assert.equal(
+    f.payments.state.inferenceCredit[activeKey].grantedNanoUsd,
+    "10000000",
+  );
+  const claim = f.inference.credit(await f.signed("credit", {}, wallet));
+  finishSave();
+  assert.equal((await recovery).pendingRequests, 1);
+  assert.equal((await claim).remainingNanoUsd, "240500000");
+  for (const key of [activeKey, inactiveKey]) {
+    const migrated = f.saved().inferenceCredit[key];
+    assert.equal(migrated.grantedNanoUsd, "250000000");
+    assert.equal(migrated.spentNanoUsd, account.spentNanoUsd);
+    assert.equal(migrated.usedTokens, account.usedTokens);
+    assert.equal(migrated.pending, key === activeKey ? account.pending : null);
+    assert.equal(migrated.nonces["ab".repeat(16)], 2000000000);
+    assert.deepEqual(migrated.starterTopUps, [{
+      amountNanoUsd: "240000000",
+      grantedNanoUsd: "250000000",
+      grantedAt: 2000000000,
+    }]);
+  }
+  assert.deepEqual(f.saved().inferenceRequests, {
+    "pending-request": pending,
+    old: history,
+  });
+  assert.deepEqual(f.saved().grants, { existing: { retained: true } });
+  assert.equal(
+    f.saved().inferenceCredit.alreadyAbove.grantedNanoUsd,
+    "300000000",
+  );
+  assert.equal(f.saved().inferenceCredit.alreadyAbove.starterTopUps, undefined);
+  const restarted = fixture({ state: f.saved() });
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 0);
+  const repeated = await restarted.inference.credit(
+    await restarted.signed("credit", {}, wallet),
+  );
+  assert.equal(repeated.grantedNanoUsd, "250000000");
+  assert.equal(
+    restarted.saved().inferenceCredit[activeKey].starterTopUps.length,
+    1,
+  );
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 1);
+});
+
+test("failed startup top-up persistence leaves the original grant available for retry", async () => {
+  const original = {
+    grantedNanoUsd: "10000000",
+    spentNanoUsd: "100",
+    usedTokens: "3",
+    pending: null,
+    nonces: {},
+  };
+  const f = fixture({
+    state: { inferenceCredit: { wallet: original } },
+    cfg: { starterCreditNanoUsd: "500000000" },
+  });
+  const save = f.payments.save;
+  f.payments.save = async () => {
+    throw new Error("disk write failed");
+  };
+  await assert.rejects(f.inference.recover(), /disk write failed/);
+  assert.deepEqual(f.payments.state.inferenceCredit.wallet, original);
+  f.payments.save = save;
+  await f.inference.recover();
+  assert.equal(f.saved().inferenceCredit.wallet.grantedNanoUsd, "500000000");
+  assert.equal(f.saved().inferenceCredit.wallet.starterTopUps.length, 1);
+  assert.equal(
+    f.saved().inferenceCredit.wallet.starterTopUps[0].amountNanoUsd,
+    "490000000",
+  );
+});
+
+test("SDK-encrypted tool schemas and tool results remain opaque at the broker", async () => {
+  const f = fixture();
+  await f.credit();
+  const session = await f.prepare();
+  const prepared = await prepareE2eeChatRequest({
+    request: new Request("https://cloud-api.near.ai/v1/chat/completions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, stream: true, max_tokens: 128,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: "user", content: PROMPT },
+          { role: "assistant", content: null, tool_calls: [{ id: "call_private", type: "function", function: { name: "bash", arguments: '{"command":"printf private-tool-marker"}' } }] },
+          { role: "tool", tool_call_id: "call_private", content: "private-tool-marker" },
+        ],
+        tools: [{ type: "function", function: { name: "bash", description: "private-description-marker", parameters: { type: "object", properties: { command: { type: "string" } } } } }],
+        tool_choice: "auto",
+      }),
+    }),
+    modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
+  });
+  const request = { sessionId: session.sessionId, body: await prepared.request.json(), headers: Object.fromEntries(prepared.request.headers) };
+  assert(!JSON.stringify(request).includes("private-tool-marker"));
+  assert(!JSON.stringify(request).includes("private-description-marker"));
+  const internal = f.inference.sessions.get(session.sessionId);
+  assert(f.inference.encryptedRequest(request, internal) > 0n);
+  const plaintextChoice = structuredClone(request);
+  plaintextChoice.body.tool_choice = { type: "function", function: { name: "private-tool-marker" } };
+  assert.throws(() => f.inference.encryptedRequest(plaintextChoice, internal), code("BAD_REQUEST"));
+  const plaintextSchema = structuredClone(request);
+  plaintextSchema.body.tools[0].function.parameters = { type: "object" };
+  assert.throws(() => f.inference.encryptedRequest(plaintextSchema, internal), code("BAD_REQUEST"));
+  const plaintextCall = structuredClone(request);
+  plaintextCall.body.messages[1].tool_calls[0].function.arguments = '{"command":"secret"}';
+  assert.throws(() => f.inference.encryptedRequest(plaintextCall, internal), code("BAD_REQUEST"));
+});
+
+test("model dispatch cannot spend credit already reserved by a held guest", async () => {
+  const f = fixture(); await f.credit();
+  f.payments.state.agentSessions = { held: {
+    wallet: f.wallet.address.toLowerCase(), final: false, reservedNanoUsd: "249999999",
+  } };
+  const session = await f.prepare();
+  await assert.rejects(f.inference.chat(await f.signed("chat", await f.encrypted(session))), code("CREDIT_EXHAUSTED"));
   assert.equal(f.calls(), 0);
 });

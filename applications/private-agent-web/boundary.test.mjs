@@ -28,14 +28,26 @@ const canonical = (o) =>
   JSON.stringify(
     Object.fromEntries(Object.keys(o).sort().map((key) => [key, o[key]])),
   );
-const publicHeaders = { "content-type": "application/json" };
+let partialCredit;
+const reservation = (body) => BigInt(
+  Buffer.byteLength(JSON.stringify(body)) + 256 +
+    64 * body.messages.length + body.max_tokens,
+) * 1500n;
+const publicHeaders = {
+  "content-type": "application/json",
+  "access-control-allow-origin": new URL(base).origin,
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
 async function backend(page, kind) {
   const cfg = await (await page.request.get(new URL("config.json", base).href))
     .json();
   const calls = [];
+  let recoveredEnded = false;
   await page.route("**/relay-broker/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/relay-broker", "");
+    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: publicHeaders});
     const body = req.method() === "POST" ? req.postDataJSON() : undefined;
     calls.push({ path, method: req.method(), body });
     const respond = (value, status = 200) =>
@@ -62,7 +74,7 @@ async function backend(page, kind) {
         mode: "broker-e2ee",
         provider: "near",
         model,
-        starterCreditNanoUsd: "10000000",
+        starterCreditNanoUsd: "250000000",
         maxOutputTokens: 512,
         maxNanoUsdPerToken: "1500",
         maxRequestBytes: 32768,
@@ -76,17 +88,25 @@ async function backend(page, kind) {
         "wallet action signature",
       );
     }
+    if (path.startsWith("/sync/")) return respond({ error: {
+      code: "SYNTHETIC_SYNC_UNAVAILABLE",
+      message: "Encrypted sync is unavailable in this inference fixture.",
+    } }, 503);
     const credit = {
       wallet: body?.wallet?.toLowerCase(),
       model,
       mode: "broker-e2ee",
-      grantedNanoUsd: "10000000",
+      grantedNanoUsd: "250000000",
       spentNanoUsd: "0",
-      remainingNanoUsd: kind === "insufficient" ? "1" : "10000000",
+      remainingNanoUsd: kind === "insufficient" ? "1" : kind === "partial" ? partialCredit : "250000000",
       reservedNanoUsd: "0",
       usedTokens: "0",
       pendingInferenceId: null,
     };
+    if (kind === "recovery" && (path === "/agent/status" || path === "/agent/end")) {
+      if (path === "/agent/end") recoveredEnded = true;
+      return respond({ sessionId: body.sessionId, active: !recoveredEnded, guestSeconds: 17, credit });
+    }
     if (path === "/inference/credit" || path === "/inference/usage") {
       return respond(credit);
     }
@@ -101,7 +121,7 @@ async function backend(page, kind) {
         attestation: {
           mode: "broker-e2ee",
           provider: "near",
-          model,
+          model: kind === "model" ? model + "-other" : model,
           verification: "verified",
           verifier: "synthetic-browser-boundary",
           nonce: kind === "nonce" ? "00".repeat(32) : body.attestationNonce,
@@ -141,7 +161,7 @@ async function ready(page) {
   );
 }
 async function send(page, text) {
-  const editor = page.locator("#chat-editor");
+  const editor = page.locator("agent-interface message-editor");
   const input = editor.locator('textarea,[contenteditable="true"]').first();
   await input.fill(text);
   const button = editor.getByRole("button", { name: /send/i });
@@ -176,23 +196,36 @@ async function run(name, kind, fn) {
     });
   } catch (e) {
     result.error = e.message;
+    result.alert = await page.locator("#alert").textContent();
+    result.chatStatus = await page.locator("#chat-status").textContent();
+    await page.screenshot({ path: resolve(evidence, name + "-failed.png"), fullPage: true });
   }
   report.cases.push(result);
   await ctx.close();
   console.log(result.status + ": " + name);
 }
 try {
-  await run("first-send-creates-wallet", "valid", async (page, calls) => {
+  await run("first-visit-creates-wallet", "valid", async (page, calls) => {
     const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
+    assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);
+    assert.equal(await page.locator("#continuity-panel").isVisible(), false);
     assert.equal(await page.locator("#policy").inputValue(), "");
     assert.match(
       await page.locator("#node-status").textContent(),
       /Approved sandbox policy included/,
     );
-    assert.match(await page.locator("#job-prompt").inputValue(), /greet.txt/);
+    assert.match(await page.locator("#repository-status").textContent(), /greet.txt/);
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
-    assert.equal(await page.locator("#chat-editor textarea").inputValue(), "");
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    await page.waitForFunction(() => document.querySelector("#chat-status").textContent.includes("Sync pending"));
+    assert.match(await page.locator("#alert").textContent(), /SYNTHETIC_STOP/,
+      "Background sync failure must preserve the model error");
+    assert(calls.some((r) => r.path === "/sync/blob"), "Saved chat attempted encrypted synchronization");
+    assert(!calls.filter((r) => r.path.startsWith("/sync/")).some((r) => JSON.stringify(r.body).includes(marker)),
+      "Plaintext prompt reached chat synchronization");
+    assert.match(await page.locator("user-message").innerText(), new RegExp(marker));
+    assert.equal(await page.locator("agent-interface message-editor textarea").inputValue(), "");
     assert.match(
       await page.locator("#wallet").textContent(),
       /^0x[0-9a-f]{40}$/i,
@@ -200,106 +233,90 @@ try {
     assert(calls.some((r) => r.path === "/inference/credit"));
     const chat = calls.find((r) => r.path === "/inference/chat");
     assert(chat && !JSON.stringify(chat.body).includes(marker));
+    partialCredit = (reservation(chat.body.body) - 200n * 1500n).toString();
     assert.equal(await page.locator("#wallet-tools").isVisible(), true);
   });
-  await run(
-    "injected-wallet-switches-to-base-sepolia",
-    "valid",
-    async (page, calls) => {
-      const wallet = Wallet.createRandom();
-      await page.exposeFunction(
-        "fixtureWalletSign",
-        async (hex) => wallet.signMessage(Buffer.from(hex.slice(2), "hex")),
-      );
-      await page.evaluate((address) => {
-        let chainId = "0x1";
-        window.fixtureWalletMethods = [];
-        window.ethereum = {
-          request: async ({ method, params }) => {
-            window.fixtureWalletMethods.push(method);
-            if (method === "eth_chainId") return chainId;
-            if (method === "eth_requestAccounts" || method === "eth_accounts") {
-              return [address];
-            }
-            if (method === "wallet_switchEthereumChain") {
-              chainId = params[0].chainId;
-              return null;
-            }
-            if (method === "personal_sign") {
-              return window.fixtureWalletSign(params[0]);
-            }
-            throw new Error("Unexpected synthetic wallet method " + method);
-          },
+  await run("guest-is-lazy-until-a-tool-call", "valid", async (page, calls) => {
+    assert.equal(await page.locator("#end-session").isDisabled(), true);
+    assert.equal(await page.locator("#download").isDisabled(), true);
+    await send(page, "A chat request alone must not allocate a guest.");
+    await alert(page, "SYNTHETIC_STOP");
+    assert(!calls.some(r => r.path.startsWith("/agent/")));
+    assert.equal(await page.locator("#guest-status").getAttribute("data-state"), "idle");
+  });
+  await run("inline-tool-output-and-markdown-code-visible", "valid", async (page, calls) => {
+    // Display fixture derived from the real guest script journey. No model or
+    // guest request is made: this catches missing custom-element registration.
+    await page.evaluate(async () => {
+      const chat = document.querySelector("agent-interface"), model = chat.session.state.model;
+      const usage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0,
+        cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 } };
+      const assistant = content => ({ role: "assistant", content, api: model.api, provider: model.provider,
+        model: model.id, usage, stopReason: "stop", timestamp: Date.now() });
+      chat.session.state.messages = [
+        assistant([{ type: "toolCall", id: "render-write", name: "write", arguments: { path: "/workspace/proof-script.sh", content: "echo DSMACK_GUEST_SCRIPT_OK" } },
+          { type: "toolCall", id: "render-bash", name: "bash", arguments: { command: "bash /workspace/proof-script.sh" } }]),
+        { role: "toolResult", toolCallId: "render-write", toolName: "write", isError: false, content: [{ type: "text", text: "Successfully wrote to /workspace/proof-script.sh" }], details: {}, timestamp: Date.now() },
+        { role: "toolResult", toolCallId: "render-bash", toolName: "bash", isError: false, content: [{ type: "text", text: "DSMACK_GUEST_SCRIPT_OK\n6 * 7 = 42\n" }], details: {}, timestamp: Date.now() },
+        assistant([{ type: "text", text: "Output:\n```text\nDSMACK_GUEST_SCRIPT_OK\n6 * 7 = 42\n```" }]),
+      ];
+      chat.requestUpdate(); await chat.updateComplete;
+    });
+    const bash = page.locator("tool-message").filter({ has: page.locator("console-block") });
+    await bash.locator("console-block pre").waitFor({ state: "visible" });
+    assert.match(await bash.innerText(), /bash · completed/);
+    assert.doesNotMatch(await bash.innerText(), /bash · running|Running command/);
+    assert.match(await bash.locator("console-block pre").innerText(), /bash \/workspace\/proof-script\.sh[\s\S]*DSMACK_GUEST_SCRIPT_OK[\s\S]*42/);
+    const write = page.locator("tool-message").filter({ has: page.locator("code-block") });
+    assert.match(await write.innerText(), /Successfully wrote to \/workspace\/proof-script\.sh/);
+    const fenced = page.locator("assistant-message markdown-block code-block pre code");
+    await fenced.waitFor({ state: "visible" });
+    assert.match(await fenced.innerText(), /DSMACK_GUEST_SCRIPT_OK[\s\S]*42/);
+    assert(!calls.some(r => r.path.startsWith("/agent/") || r.path === "/inference/chat"));
+  });
+  await run("held-guest-can-be-ended-after-reload", "recovery", async (page, calls) => {
+    await send(page, "Saved conversation survives lease recovery.");
+    await alert(page, "SYNTHETIC_STOP");
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    const wallet = (await page.locator("#wallet").textContent()).toLowerCase();
+    await page.evaluate(wallet => new Promise((resolve, reject) => {
+      const id = document.querySelector("#chat").dataset.sessionId;
+      const open = indexedDB.open("dsmack-private-agent-chats", 1);
+      open.onerror = () => reject(open.error);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("sessions", "readwrite"), store = tx.objectStore("sessions");
+        const get = store.get(id);
+        get.onsuccess = () => {
+          const data = get.result;
+          data.dsmack.guest = { sessionId: "ab".repeat(16), conversationId: id, wallet, active: true,
+            guestSeconds: 12, node: { relay_peer: "saved-guest" } };
+          if (store.keyPath) store.put(data); else store.put(data, id);
         };
-      }, wallet.address);
-      await page.locator("#connect").click();
-      await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
-      );
-      assert.equal(await page.locator("#wallet").textContent(), wallet.address);
-      const methods = await page.evaluate(() => window.fixtureWalletMethods);
-      assert(methods.includes("wallet_switchEthereumChain"));
-      assert(!methods.some((method) => method.startsWith("eth_send")));
-      assert(calls.some((request) => request.path === "/inference/credit"));
-    },
-  );
-  await run(
-    "completed-sandbox-state-survives-reload",
-    "valid",
-    async (page) => {
-      await page.locator("#burner").click();
-      await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
-      );
-      const wallet = (await page.locator("#wallet").textContent())
-        .toLowerCase();
-      await page.evaluate((wallet) =>
-        new Promise((resolve, reject) => {
-          const open = indexedDB.open("dsmack-private-agent", 1);
-          open.onerror = () => reject(open.error);
-          open.onsuccess = () => {
-            const db = open.result, tx = db.transaction("wallet", "readwrite");
-            tx.objectStore("wallet").put(
-              { status: "completed" },
-              "sandbox-starter:" + wallet,
-            );
-            tx.oncomplete = () => {
-              db.close();
-              resolve();
-            };
-            tx.onerror = () => {
-              db.close();
-              reject(tx.error);
-            };
-          };
-        }), wallet);
-      await ready(page);
-      await page.waitForFunction(() =>
-        document.querySelector("#sandbox-credit").dataset.status === "completed"
-      );
-      assert.equal(
-        await page.locator("#sandbox-credit").textContent(),
-        "Starter sandbox completed. Your verified result is ready.",
-      );
-      assert.equal(
-        await page.locator("#sandbox-credit").getAttribute(
-          "data-remaining-jobs",
-        ),
-        "0",
-      );
-    },
-  );
-  for (const kind of ["nonce", "key"]) {
+        tx.oncomplete = () => { db.close(); resolve(); };
+        tx.onerror = () => { db.close(); reject(tx.error); };
+      };
+    }), wallet);
+    await ready(page);
+    await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "disconnected-held");
+    assert.equal(await page.locator("#end-session").isEnabled(), true);
+    assert.equal(await page.locator("#download").isDisabled(), true);
+    assert.match(await page.locator("user-message").innerText(), /Saved conversation survives/);
+    assert.equal(await page.locator("#attestations .evidence-item").count(), 1);
+    await page.locator("#end-session").click();
+    await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "released");
+    assert(calls.some(r => r.path === "/agent/status" && r.body.wallet.toLowerCase() === wallet));
+    assert(calls.some(r => r.path === "/agent/end" && r.body.sessionId === "ab".repeat(16)));
+    assert(!calls.some(r => r.path === "/agent/open"));
+  });
+  for (const kind of ["nonce", "key", "model"]) {
     await run(
       "provider-" + kind + "-refused-before-chat",
       kind,
       async (page, calls) => {
-        await page.locator("#burner").click();
+
         await page.waitForFunction(() =>
           document.querySelector("#chat-credit").textContent ===
-            "Chat credit $0.010000"
+            "Chat credit $0.250000"
         );
         await send(
           page,
@@ -309,18 +326,32 @@ try {
           page,
           kind === "nonce"
             ? "stale or reused nonce"
-            : "differs from the attested signing address",
+            : kind === "key"
+            ? "differs from the attested signing address"
+            : "invalid or names another model",
         );
         assert(calls.some((r) => r.path === "/inference/prepare"));
         assert(!calls.some((r) => r.path === "/inference/chat"));
       },
     );
   }
+  await run("remaining-credit-reduces-encrypted-output-limit", "partial", async (page, calls) => {
+    await send(page, "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED");
+    await alert(page, "SYNTHETIC_STOP");
+    const chat = calls.find((r) => r.path === "/inference/chat");
+    assert(chat, "Affordable encrypted request was refused");
+    const body = chat.body.body, available = BigInt(partialCredit);
+    assert(body.max_tokens >= 64 && body.max_tokens < 512);
+    assert(reservation(body) <= available, "Encrypted reservation exceeds remaining credit");
+    assert(reservation({ ...body, max_tokens: body.max_tokens + 1 }) > available,
+      "Output limit leaves an affordable token unused");
+    assert(!JSON.stringify(chat.body).includes("FIRST_VISIT_PROMPT_STAYS_ENCRYPTED"));
+  });
   await run("insufficient-reservation-refused-before-chat", "insufficient", async (page, calls) => {
-    await page.locator("#burner").click();
+
     await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd === "1");
     await send(page, "Private text must stay here when the token reservation exceeds credit.");
-    await alert(page, "CREDIT_EXHAUSTED.*reservation");
+    await alert(page, "CREDIT_EXHAUSTED: Chat credit used up\\.");
     assert(calls.some((r) => r.path === "/inference/prepare"));
     assert(!calls.some((r) => r.path === "/inference/chat"), "Underfunded prompt left the browser");
   });
@@ -328,17 +359,17 @@ try {
     "starter-credit-and-encrypted-wire",
     "valid",
     async (page, calls) => {
-      await page.locator("#burner").click();
+
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const wallet = await page.locator("#wallet").textContent();
       await ready(page);
       assert.equal(await page.locator("#wallet").textContent(), wallet);
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const marker = "W1_BROWSER_ONLY_PROMPT_9b5cb2d3";
       await send(page, marker);
@@ -354,6 +385,10 @@ try {
       assert(
         chat.body.body.messages.every((m) => /^04[0-9a-f]+$/i.test(m.content)),
       );
+      assert.equal(chat.body.body.tools.length, 4);
+      for (const tool of chat.body.body.tools) {
+        for (const field of ["name", "description", "parameters"]) assert.match(tool.function[field], /^04[0-9a-f]+$/i);
+      }
       assert.equal(
         await page.locator("#attestations .evidence-item").count(),
         1,

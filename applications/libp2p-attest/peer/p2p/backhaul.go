@@ -160,10 +160,10 @@ func bridgeHTTP(conn net.Conn, raw string) {
 	}
 }
 
-// maintainBackhaul authenticates the configured broker PeerId over the outbound
+// MaintainBackhaul authenticates the configured broker PeerId over the outbound
 // connection. The broker can then open relay streams on that same connection;
 // neither side needs an inbound route to the operator's LAN address.
-func maintainBackhaul(ctx context.Context, h host.Host, raw, brokerID string) error {
+func MaintainBackhaul(ctx context.Context, h host.Host, raw, brokerID string) error {
 	id, err := peer.Decode(brokerID)
 	if err != nil {
 		return err

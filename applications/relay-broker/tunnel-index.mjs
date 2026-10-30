@@ -1,8 +1,15 @@
 import { tunnel } from "../browser-p2p/tunnels.mjs";
 import { verifyMessage } from "../payments/schema.mjs";
-let entries=[];const publishers=new Map();
+const memory={entries:[],publishers:[]};let pending=Promise.resolve();
 const canonical=v=>JSON.stringify(v,(_,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
-export async function tunnelIndex(req,operatorHash) {
+export function tunnelIndex(req,operatorHash,path) {
+ const result=pending.then(()=>handleIndex(req,operatorHash,path));
+ pending=result.then(()=>{},()=>{});return result;
+}
+async function handleIndex(req,operatorHash,path) {
+ let state=memory;
+ if(path){try{state=JSON.parse(await Deno.readTextFile(path))}catch(e){if(!(e instanceof Deno.errors.NotFound))throw e;state={entries:[],publishers:[]}}}
+ let entries=state.entries;const publishers=new Map(state.publishers);
  const headers={"access-control-allow-origin":"*","access-control-allow-methods":"GET, POST, OPTIONS","access-control-allow-headers":"content-type, authorization","cache-control":"no-store","content-type":"application/json"};
  const reply=(data,status=200)=>new Response(JSON.stringify(data),{status,headers});
  if(req.method==='OPTIONS')return new Response(null,{status:204,headers});
@@ -28,6 +35,10 @@ export async function tunnelIndex(req,operatorHash) {
   if(operator)entries=next;else{
    const prior=publishers.get(publisher);if(prior&&(prior.expiry>body.expiresAt||(prior.expiry===body.expiresAt&&prior.signature!==body.signature)))throw Error('stale publisher update');
    publishers.delete(publisher);publishers.set(publisher,{entries:next,expiry:body.expiresAt,signature:body.signature});while(publishers.size>32)publishers.delete(publishers.keys().next().value)
-  }return reply(next);
+  }
+  const saved={entries,publishers:[...publishers]};
+  if(path){await Deno.writeTextFile(path+'.tmp',JSON.stringify(saved),{mode:0o600});await Deno.rename(path+'.tmp',path)}
+  else Object.assign(memory,saved);
+  return reply(next);
  }catch(e){return reply({error:e.message},400)}
 }

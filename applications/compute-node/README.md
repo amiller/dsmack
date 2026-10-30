@@ -1,151 +1,132 @@
 # Compute node
 
-A v0.2 guest daemon accepts one coding job at a time through a libp2p circuit
-relay. It generates its identity, P-256 bundle key and Ed25519 receipt key at
-boot, binds them with App Attest, and renews its broker registration every
-25 seconds. Jobs and results use the [job protocol](PROTOCOL.md).
+The compute guest exposes Pi's `bash`, `read`, `write` and `edit` tools over an
+attested libp2p stream. The agent loop and encrypted model calls run in the
+browser. A conversation claims one guest on its first tool call, holds its
+workspace, and releases it after five idle minutes or when the user ends it.
+Guest seconds are charged from the conversation's chat credit.
 
-The image pins Claude Code 2.1.187. The measured compose sets `MODEL`
-to `claude-opus-4-8`. `worker.py` calls
-`agent-turns/find.py` for one edit turn. `/run/dsmack` points to the container's
-`/dev/shm` tmpfs; the worker checks the mount before opening a credential. The
-worker reads `/run/dsmack/credential` with mode `0400`. Inference-only tokens
-go to the CLI through `CLAUDE_CODE_OAUTH_TOKEN`; refreshable documents use the
-credential sentinel. The credential and temporary work tree are removed after
-the job. Outputs travel over pipes and
-are sealed before leaving the daemon. Result artifacts contain public registration, the
-last sealed result, and network probe outcomes.
+The guest uses `@earendil-works/pi-coding-agent` **1.4.0**. Its actual tool
+factories supply the schemas, descriptions, truncation, and edit behavior.
+The official TypeScript MCP SDK uses its current split packages
+`@modelcontextprotocol/server` and `@modelcontextprotocol/client` **2.4.0**,
+which implement MCP **2026-07-28**.
 
-## Build on a Linux builder
+## Transport and workspace
 
-From the repository root, with the Claude image available locally:
+`/dsmack/agent-mcp/1.0.0` authenticates the existing broker-signed admission
+against the libp2p Noise peer. After the ready frame, the stream carries only
+newline-delimited UTF-8 JSON-RPC, using MCP's stdio framing. The official SDK
+handles discovery, per-request metadata, cancellation, and progress. Bash output
+arrives as `notifications/progress` while the command runs.
+
+The Go daemon forwards the stream to the Node server's Unix socket at
+`/run/dsmack/agent-mcp.sock`. Standard MCP resources provide
+`dsmack://environment` and `dsmack://workspace/patch`. The latter returns the
+workspace's binary Git diff as a base64 blob. Repository import uses the same
+write and bash tools, then commits the imported baseline.
+
+Tools run as `agent`, uid 1000 without supplementary groups. File operations
+reject absolute paths and symlinks outside `/workspace`. The container root
+filesystem is read-only; the writable workspace is tmpfs and lasts for the
+conversation. Root-owned daemon state and the attestation socket are inaccessible
+to the tool user. Shell commands can read installed system runtimes.
+
+A command has a maximum 120-second timeout. Pi truncates model-facing text to
+2000 lines or 50 KiB; commands producing more than 1 MiB of raw output stop.
+The measured compose records those caps, the tool versions, and network policy.
+The guest firewall permits the operator CONNECT proxy; that proxy enforces its
+host allowlist. The browser verifies the measured compose, image and App Attest
+binding before sending a tool request.
+
+## Build on zed
+
+From the repository root:
 
 ```sh
 (cd applications/compute-node/peer && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../dsmack-compute .)
 (cd applications/egress-policy && CGO_ENABLED=0 GOOS=linux GOARCH=arm64 go build -o ../compute-node/dsmack-egress .)
-docker build -f applications/compute-node/Dockerfile \
-  --build-arg QUALIFIED_CLAUDE_REPOSITORY=QUALIFIED_LOCAL_REPOSITORY \
-  -t compute-node .
+docker build -f applications/compute-node/Dockerfile -t compute-node .
 ```
 
-Export that image as a gzip OCI layout. Pack it with a starter compose manifest
-whose `base_vm` describes the installed base image:
+Update an installed base with the measured agent runtime profile:
+
+```sh
+python3 base-vm/browser-sandbox-v1/update-runtime.py --base BASE --out BASE_UPDATE
+```
+
+Use `BASE_UPDATE/build/legs/diagnostic/files` as the new base. Export the tool
+image as a gzip OCI layout and pack it with a starter compose manifest:
 
 ```sh
 python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   sha256:IMAGE_DIGEST applications/compute-node/dsmack-compute \
-  /ip4/RELAY_IP/tcp/RELAY_PORT/p2p/RELAY_ID \
-  http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 840
+  /ip4/127.0.0.1/tcp/18082/ws/p2p/MAC_RELAY_PEER \
+  https://pod.dstack.soc1024.com/relay-broker BROKER_ED25519_HEX RUNNER_CDHASH \
+  http://192.168.127.254:18484 OUT 840 PAYMENTS_JSON_OR_- \
+  https://pod.dstack.soc1024.com/private-agent/tunnels [OPERATOR_JSON]
 ```
 
-The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
-The node dials that IP while preserving the HTTPS hostname for certificate
-verification. The guest allowlist contains exactly that endpoint, the circuit relay,
-and the supplied proxy IP and port. Run the CONNECT proxy on that host with
-`python3 applications/compute-node/connect-proxy.py --listen PROXY_IP --port PROXY_PORT`. It permits
-only `CONNECT api.anthropic.com:443`; the CLI or sentinel verifies provider TLS
-in its guest process. Its measured `HTTPS_PROXY` config selects the tunnel.
-
-Admit the resulting compose/image/CDHash tuple at the broker, then launch the
-workload using the installed v0.2 runner and the public `workload.img`, with no
-private input disk. `GET /nodes` discovers live compute nodes. The daemon's
-`serve` arguments are `RELAY SECONDS BROKER_URL BROKER_KEY CDHASH WORKER`.
-
-## Transport helper
-
-The same Go binary builds for a client host. `keygen FILE` creates its libp2p
-key, `id FILE` prints the PeerId, and `sign FILE` signs a canonical JSON object
-read on stdin. `exchange CIRCUIT KEY` relays framed stdin/stdout over
-`/dsmack/job/1`. The client must verify discovery before using `exchange` and
-wait for `ready` before sending its encrypted bundle.
+The tunnel index must be on the broker's host. The guest's hostname gateway verifies broker TLS and the discovered quick-tunnel
+hostname. Noise authenticates the relay PeerId measured in the compose.
 
 ## Test
 
 ```sh
+(cd applications/compute-node && npm ci --ignore-scripts && npm test)
 (cd applications/compute-node/peer && go test -race ./...)
 python3 -m unittest discover -s applications/compute-node -p 'test_*.py'
-deno test --allow-read --allow-net applications/relay-broker/broker.test.mjs
 ```
 
-## Run a remote turn
+## Mac pool
 
-Build the transport helper for the client machine on the Linux builder, then
-run from the source checkout:
+Write `~/.dsmack/operator.json` on the Mac:
+
+```json
+{"max_guests":4,"guest":{"mem_mib":4096,"vcpus":1},"reserve":{"mem_gb":16,"cores":4}}
+```
+
+The pool checks physical RAM and cores at startup and refuses a configuration
+whose guests exceed the capacity after the reserve, reporting the requested,
+physical, reserved and available numbers. Editing the file takes effect on
+restart; `--operator PATH` selects another configuration.
+
+Pack the matching guest size by supplying the operator file as the final
+argument to `workload.py`. The compose manifest and launch
+image's `resource_profiles` bind the memory and vCPU count. Each size uses its
+own escrow node class, compose measurement and price; register the packed class
+with `applications/payments/register-class.mjs` before starting the pool.
+
+Each configured slot rotates independently: a replacement starts after 450
+seconds, the old guest stops admitting at 570 seconds and exits at 840 seconds.
+Up to two generations per slot overlap during handover. Boot registration is
+serialized to associate each guest's broker identity with its owned VM. A failed
+guest is preserved, retired and replaced. Three consecutive failures stop only
+that slot; successful retirement resets its failure count. Other slots continue.
+The preflight requires 12 GiB free and waits while another lane owns a VM.
+
+The Mac posts signed fleet heartbeats every 15 seconds with the operator config,
+hardware, active and draining guests, errors and source commit. The publisher
+uses the existing Mac tunnel-discovery key. The broker's `/fleet` endpoint serves
+the latest status; the fleet page reads job and earnings events from the escrow.
+
+`mac-pool.py` starts the loopback libp2p relay, its broker backhaul, a Cloudflare
+quick tunnel, the allowlisted CONNECT proxy, and the guest pool. It publishes
+signed, expiring relay hints to the HTTP index and Base Sepolia.
 
 ```sh
-applications/agent-turns/skill/dsmack-agent run-remote \
-  --repo ./my-checkout --prompt 'Fix add so it adds its arguments.' \
-  --out ./remote-turn --binary ./dsmack-compute --client-key ./client.key \
-  --manifest ./compose-manifest.json --enrollment ./enrollment \
-  --cdhash APPROVED_RUNNER_CDHASH --broker-key PINNED_BROKER_ED25519_HEX
+VENV/bin/python applications/compute-node/mac-pool.py \
+  --runner RUNNER --workload WORKLOAD --state SHORT_FRESH_STATE \
+  --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
+  --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
+  --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
+  --pool-version SOURCE_COMMIT \
+  --broker https://pod.dstack.soc1024.com/relay-broker \
+  --index https://pod.dstack.soc1024.com/private-agent/tunnels
 ```
 
-The client discovers a registered node at the live broker, checks its Apple
-assertion and the current CDRegistry and canary state through read-only RPC,
-checks the exact compose and image, and fetches the registration directly over
-the authenticated relay stream. The measured compose binds the broker key.
-A signed seconds grant and the node's admission precede the credential read.
-The client prefers `~/.dsmack/private-inputs/claude-oauth-token` from
-`claude setup-token` when present, otherwise `claude-subscription.json`.
-Use `--credential PATH` to select a source explicitly. It is projected and
-sealed in memory alongside the repo snapshot and prompt. Inference-only
-tokens use the CLI's native OAuth requests through the CONNECT proxy, with
-no refresh or local expiry. The sentinel refreshes refreshable documents.
-
-The client verifies the per-job assertion, receipt, sealed output digests and
-observed model/tool use, then applies the patch with `git apply`. `--out` receives
-the encrypted input and result, the verified plaintext patch, transcript and
-verdict, and `turn.json`. The client uses broker HTTP, chain RPC and the relay;
-it runs no remote shell command.
-
-## Browser model jobs
-
-`worker.py` accepts a job-scoped broker capability inside the sealed input:
-`{"schema":"dsmack-broker-inference/1","token":"…","job_id":"…"}`. Pin its
-broker/model in the workload's provider JSON:
-`{"schema":"dsmack-broker-model/1","base_url":"https://BROKER/relay-broker","model":"MODEL_ID","broker_key":"ED25519_HEX"}`.
-The agent uses file tools to edit the repository. The guest-local egress gateway
-permits only `POST /relay-broker/sandbox/inference` to that hostname and validates
-TLS over the measured CONNECT proxy. The broker verifies NEAR gateway/per-model
-attestation and encrypts the model request. It handles plaintext inside its CVM;
-the NEAR API key never reaches the browser or compute node. Each completion is
-signed by the pinned broker key and binds the job, fresh nonce, request hash,
-model, attestation and result. Those records and gateway decisions are sealed in
-the transcript. The capability permits eight requests and expires with its grant.
-
-Run the transport proxy on its measured operator endpoint:
-
-```sh
-python3 applications/compute-node/connect-proxy.py --listen GATEWAY_IP \
-  --port 18443 --model-host BROKER_HOST
-```
-
-Without provider JSON, jobs use the pinned Claude CLI and `claudeAiOauth` format.
-
-## Warm operator pool
-
-Run the pool on the Mac. `RUNNER` holds the installed runner app, base image and
-enrollment; `WORKLOAD` holds a packed `workload.img` and `compose-manifest.json`.
-Pack it with an 840-second lifetime; its measured `ADMIT_SECONDS` is 570.
-
-```sh
-python3 applications/compute-node/pool.py --runner RUNNER --workload WORKLOAD \
-  --state POOL_STATE --broker http://BROKER_IP:PORT --repo SOURCE_CHECKOUT
-```
-
-At 450 seconds, the daemon launches a replacement and waits for the broker's
-verified attestation and binding before counting it as ready. Each old node
-stops admitting jobs at 570 seconds, finishes admitted jobs and exits at 840
-seconds, before the runner's 900-second watchdog. At most two owned VMs overlap.
-The Mac preflight checks 12 GiB free and permits only runner sessions already
-owned by this pool; another session's VM blocks a new launch.
-
-`--cycles 2` runs two generations and exits. For a shorter rehearsal, pack a
-420-second workload with `admit_seconds=330` and run with `--seconds 420
---drain-seconds 90 --replace-after 210 --readiness-timeout 90 --cycles 2`. SIGINT/SIGTERM stops rotation and
-waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
-and a verified gzip of the original result disk under `run-*/evidence/`. The
-existing guarded cleanup checks open references before retiring that attempt's
-scratch and staged disks, recording retired allocated bytes and free space. A
-guest failure is recorded after preserving and retiring its owned disks; the
-pool stops rotation and returns a failure even if the host driver exited zero.
+Stop with `kill -TERM LAUNCHER_PID`. It drains owned guests, preserves logs,
+assertions, original result disks and signed receipts, retires temporary disks,
+clears its discovery hints, and stops its relay, tunnel and helper. Each
+`run-*/evidence/` directory retains the guest evidence and reclaimed-space record.
+No launchd or systemd service is installed.

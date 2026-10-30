@@ -117,8 +117,10 @@ def parser_validate(control, lowered, project_name: str) -> dict:
     for name, service in services.items():
         if service.get("runtime") != lowered["requires_runtime"]:
             raise RunnerError("config-runtime-drift", "the normalized config does not pin the requested runtime")
-        if service.get("user") != "%d:%d" % (lowered["workload_uid_gid"][0], lowered["workload_uid_gid"][1]):
-            raise RunnerError("config-user-drift", "the normalized config does not pin the fixed nonroot workload user")
+        from dsmack_compose_contract.security import service_user, AGENT_PROFILE, AGENT_SOCKET_TARGET
+        profile = lowered.get("security_profiles", {}).get(name)
+        if service.get("user") != service_user(profile):
+            raise RunnerError("config-user-drift", "the normalized config does not pin the measured profile user")
         if service.get("read_only") is not True:
             raise RunnerError("config-readonly-drift", "the normalized config is not read-only-root")
         if service.get("privileged"):
@@ -126,7 +128,7 @@ def parser_validate(control, lowered, project_name: str) -> dict:
         if lowered.get("security_profiles", {}).get(name):
             from dsmack_compose_contract.security import validate_normalized
             try:
-                validate_normalized(service)
+                validate_normalized(service, profile)
                 expected_mounts = sorted((m["source"], m["target"], m["mode"] == "ro")
                                          for m in lowered["mounts_by_service"][name]["mounts"])
                 actual_mounts = sorted((m.get("source"), m.get("target"), m.get("read_only", False))
@@ -140,7 +142,8 @@ def parser_validate(control, lowered, project_name: str) -> dict:
             if volume.get("type") != "bind" or (volume.get("bind") or {}).get("propagation") != "rprivate":
                 raise RunnerError("config-mount-drift", "mounts must be rprivate binds")
             agent_sock = (source, volume.get("target"), volume.get("read_only")) == (
-                "%s/%s.sock" % (AGENT_SOCKET_DIR, name), "/var/run/dstack.sock", True)
+                "%s/%s.sock" % (AGENT_SOCKET_DIR, name),
+                AGENT_SOCKET_TARGET if profile == AGENT_PROFILE else "/var/run/dstack.sock", True)
             resolv = (source, volume.get("target"), volume.get("read_only")) == (GUEST_RESOLV_CONF, "/etc/resolv.conf", True)
             runtime = any(m["slot"] == "runtime" and
                           (source, volume.get("target"), volume.get("read_only", False)) ==

@@ -1,57 +1,97 @@
 # Private agent web
 
-A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
-nodes. Create or connect an Ethereum wallet to receive $0.010000 starter chat
-credit and a first sandbox job of up to 180 seconds. Sending a first message or
-job also creates a browser wallet automatically. The wallet signs credit and job
-actions; starter use needs no ETH purchase. Existing Base Sepolia escrow purchases can
-still be checked and refunded.
+Dsmack Agent is one Pi conversation with `bash`, `read`, `write` and `edit`
+running in an attested Mac-hosted Linux guest. Tool calls and results appear
+inline. Model requests and responses remain encrypted between the browser and
+NEAR AI Cloud's model TEE; the broker forwards ciphertext and meters usage.
 
-The broker verifies fresh NEAR attestation. Before sending a message, the browser
-checks its nonce, model and encryption-key address, then encrypts the conversation
-to the model with the NEAR SDK. It decrypts streamed answers in the tab and shows
-provider-reported tokens, nanoUSD charges and remaining chat credit. The broker
-forwards ciphertext and meters requests with its provider key.
+The first visit generates a browser wallet and a random data key locally. The
+wallet receives $0.250000 credit for model tokens and guest seconds. The first
+tool call claims a guest, verifies its Apple attestation and
+measured compose, and opens a Noise-authenticated libp2p stream to it. The page
+shows the guest, its attestation and seconds used. End session releases it;
+five idle minutes also release it.
 
-Browser wallets and sandbox buyer keys stay in IndexedDB. Conversation text,
-repository input and sandbox credentials stay in tab memory. An injected wallet
-can sign chat actions and pay for sandbox seconds.
+The browser and guest use Pi agent-core, pi-ai and pi-coding-agent 1.4.0.
+Pi web-ui 0.75.3 supplies AgentInterface, IndexedDB sessions and dialogs. The
+upstream Pi prompt builder and tool factories supply the prompt, schemas,
+descriptions, truncation and edit behavior. MCP uses the official split SDK
+2.4.0 (`@modelcontextprotocol/client`, `server` and `core`) with protocol
+2026-07-28, over `/dsmack/agent-mcp/1.0.0`. After authenticated admission, the
+stream carries newline-delimited JSON-RPC; cancellation uses MCP notifications.
+Bash progress appears inline through MCP progress notifications.
+
+The included repository contains `greet.txt`. Ask for an edit in chat and choose
+Download patch for the workspace diff. Before the first tool call, Choose
+repository accepts a tar or gzipped tar of UTF-8 files, without `.git`. Repository
+content is marked untrusted in the prompt. The guest workspace persists until
+release. The wallet and conversations persist in IndexedDB. At
+https://private-agent.dstack.soc1024.com, Use on another device offers passkey
+recovery, QR linking and email recovery. Passkeys use WebAuthn PRF and HKDF to
+wrap the data key and wallet key. QR linking transfers sealed keys over WebRTC
+through the relay with Noise; compare and approve the short code on both devices.
+Move from an older origin opens its page and transfers keys through an
+origin-bound popup handshake.
+
+Chats sync as AES-GCM encrypted session blobs and an encrypted manifest in the
+broker's persistent content-addressed pins. Sessions merge by union, with the
+latest counter winning each session. The broker signs the head and commits its
+counter and digest to the pinned Base Sepolia SyncHeads contract. Each browser
+checks the contract code, on-chain head, signature and ciphertext CID before
+loading remote sessions. Refresh loads changes made on another device.
+
+Email recovery verifies the gate's Intel TDX quote and approved boot measurements
+in the browser before sending keys sealed to its quoted ECDH key. A verified
+email code enrolls or recovers a copy; recovered keys are sealed to the browser's
+fresh ECDH key. The gate limits code attempts and sends. Configure SMTP_HOST,
+SMTP_PORT, SMTP_TLS, SMTP_USER, SMTP_PASSWORD and SMTP_FROM through the project's
+private environment. SMTP_TLS defaults to true and uses implicit TLS; use port 465
+for a provider supporting that transport.
 
 Build on a development host with Node 24 or newer:
 
 ```sh
+(cd ../compute-node && npm ci --ignore-scripts)
 npm ci --ignore-scripts
 npm run build
 python3 dev.py --port 18731
 ```
 
-Open `http://127.0.0.1:18731/private-agent/`. Development forwards broker requests
-to the existing pod. Set `SANDBOX_SOURCE` to the absolute path of
-`applications/compute-node/browser/sandbox.mjs` when building against a separate
-sandbox checkout. `config.json` supplies public deployment pins and the RPC.
+Open `http://127.0.0.1:18731/private-agent/`. `config.json` supplies explicit
+broker, RPC and tunnel discovery URLs. `sandbox-policy.json` contains the
+approved measured compose and Apple enrollment. The guest's tools run as an
+unprivileged user within `/workspace`; the measured firewall and CONNECT proxy
+apply the guest's host allowlist to commands.
 
-The approved policy and Apple enrollment ship in the page source as
-`sandbox-policy.json`, imported into `cfg.sandboxPolicy`. Run the included task
-to use the sample repository. The page discovers a compatible node and verifies
-it automatically, obtains a wallet-bound starter grant and job-scoped model
-capability, then seals the job to the guest. It verifies the job attestation,
-receipt and output hashes before applying the patch to the included repository
-in browser memory and displaying the updated files. Provider keys remain in
-the broker CVM. Advanced controls support a custom repository snapshot, policy
-override, existing credit and patch download. The wallet panel has its address,
-a copy button and a Base Sepolia faucet link for additional paid use.
-
-Deploy the built page to the `private-agent` shared Deno project:
+Deploy the built page to the shared Deno project:
 
 ```sh
 python3 deploy.py --evidence /absolute/path/to/local-data/ui/deploy
 ```
 
-Run browser boundary checks with an existing Playwright installation and browser:
+Run browser boundary checks with an existing browser:
 
 ```sh
 BASE_URL=http://127.0.0.1:18731/private-agent/ \
-PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```
+
+For IPFS, add `dist` with Kubo and serve through a CID subdomain gateway. Assets
+use relative paths; the page supplies its CSP. Register each gateway origin in
+the broker's `browser_origins`. Wallet and conversation storage belongs to that
+origin. Shared `/ipfs/` and `/ipns/` path gateways are rejected to isolate wallets.
+A stable DNSLink/IPNS gateway origin preserves browser storage across releases.
+
+## Public IPFS pin on the Mac
+
+Add `--ipfs-bin /absolute/path/to/ipfs --ipfs-car /absolute/path/to/page.car
+--ipfs-state /absolute/path/to/retained-ipfs-state` to `compute-node/mac-pool.py`.
+The launcher owns Kubo and a second quick tunnel exposing only its Bitswap
+WebSocket listener. The Kubo API and gateway bind to loopback. NAT port mapping
+is disabled. The recursive pin and locally generated `friends-page` IPNS key stay
+in the retained state directory; `published.json` records the CID, name and
+provider address. Kubo republishes IPNS while running. `kill -TERM LAUNCHER_PID`
+drains the guests and stops both the compute and IPFS transports, retaining the
+pin and key for the next launch. Never move the IPNS signing key between hosts.
+Use the final subdomain gateway origin in the broker allowlist.

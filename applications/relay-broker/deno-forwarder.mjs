@@ -1,5 +1,6 @@
 // In-process TCP/Noise/circuit-relay transport for the shared Deno broker.
 // Only public admission data and secret-box ciphertext cross this transport.
+import { privateKeyFromRaw } from "npm:@libp2p/crypto@5.2.0/keys";
 import { createLibp2p } from "npm:libp2p@3.3.11";
 import { tcp } from "npm:@libp2p/tcp@11.0.28";
 import { webSockets } from "npm:@libp2p/websockets@10.1.21";
@@ -12,7 +13,6 @@ import { multiaddr } from "npm:@multiformats/multiaddr@13.0.3";
 const enc = new TextEncoder();
 const decoder = new TextDecoder("utf-8", { fatal: true });
 const CONTROL_LIMIT = 4096;
-const BUNDLE_LIMIT = 48 << 20;
 const ATTESTATION_LIMIT = 150000;
 const canonical = (value) => JSON.stringify(value, (_key, v) => v && typeof v === "object" && !Array.isArray(v)
   ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, v[k]])) : v);
@@ -26,8 +26,32 @@ function operationScope(milliseconds, external) {
   if (external?.aborted) abort(); else external?.addEventListener("abort", abort, { once: true });
   return { signal: controller.signal, clear() { clearTimeout(timeout); external?.removeEventListener("abort", abort); } };
 }
+function networkCause(error, budget = { nodes: 0 }, seen = new Set(), depth = 0) {
+  budget.nodes++;
+  const name = String(error?.name || "Error"), message = String(error?.message ?? error);
+  const detail = { name: name.slice(0, 64), message: message.slice(0, 512) };
+  if (name.length > 64 || message.length > 512) detail.truncated = true;
+  if (depth >= 4 || seen.has(error)) { detail.truncated = true; return detail; }
+  seen.add(error);
+  if (error?.cause != null) {
+    if (budget.nodes < 8) detail.cause = networkCause(error.cause, budget, seen, depth + 1);
+    else detail.truncated = true;
+  }
+  if (Array.isArray(error?.errors)) {
+    detail.errors = [];
+    for (const nested of error.errors.slice(0, 4)) {
+      if (budget.nodes >= 8) { detail.truncated = true; break; }
+      detail.errors.push(networkCause(nested, budget, seen, depth + 1));
+    }
+    if (detail.errors.length < error.errors.length) detail.truncated = true;
+  }
+  return detail;
+}
 export class ForwardError extends Error {
-  constructor(code, cause) { super(code, { cause }); this.code = code; this.status = 502; }
+  constructor(code, cause) {
+    super(code, { cause }); this.code = code; this.stage = code; this.status = 502;
+    this.detail = networkCause(cause);
+  }
 }
 
 class Reader {
@@ -50,12 +74,6 @@ class Reader {
       this.offset += size; used += size;
     }
     return out;
-  }
-  async frame(limit) {
-    const prefix = await this.bytes(4);
-    const length = new DataView(prefix.buffer).getUint32(0, false);
-    if (!length || length > limit) throw new Error("frame size");
-    return JSON.parse(decoder.decode(await this.bytes(length)));
   }
   async registration() {
     const parts = []; let length = 0;
@@ -82,7 +100,15 @@ async function sendFrame(stream, value, limit, signal) {
   }
 }
 
-export async function createDenoForwarder({ privateKey, logger, backhaulPeers = [] } = {}) {
+export async function createDenoForwarder({ privateKey, signingKey, logger, backhaulPeers = [] } = {}) {
+  if (signingKey) {
+    // Noise signs its protocol-prefixed static key; grants sign canonical JSON.
+    // Keep the project identity stable across shared-worker promotions.
+    const jwk = await crypto.subtle.exportKey("jwk", signingKey.priv);
+    const bytes = (value) => Uint8Array.from(atob(value.replace(/-/g, "+").replace(/_/g, "/")), c => c.charCodeAt(0));
+    const raw = new Uint8Array(64); raw.set(bytes(jwk.d)); raw.set(bytes(jwk.x), 32);
+    privateKey = privateKeyFromRaw(raw);
+  }
   const node = await createLibp2p({
     ...(privateKey ? { privateKey } : {}), ...(logger ? { logger } : {}),
     addresses: { listen: backhaulPeers.length ? ["/ip4/127.0.0.1/tcp/0/ws"] : [] },
@@ -177,35 +203,22 @@ export async function createDenoForwarder({ privateKey, logger, backhaulPeers = 
     peerId: node.peerId.toString(),
     stop: () => { for (const id of channels.keys()) closeChannel(id); return node.stop(); },
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
-      if (endpoint !== "attestation" && endpoint !== "jobs") throw new Error("forward endpoint");
-      const scope = operationScope(endpoint === "jobs" ? 900000 : 30000, requestedSignal), { signal } = scope;
+      if (endpoint !== "attestation") throw new Error("forward endpoint");
+      const scope = operationScope(30000, requestedSignal), { signal } = scope;
       let stream;
       let phase = "node_unreachable";
       try {
-        const protocol = endpoint === "jobs" ? "/dsmack/job/1" : payload.challenge
-          ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
+        const protocol = payload.challenge ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
         stream = await node.dialProtocol(multiaddr(payload.target), protocol,
           { signal, runOnLimitedConnection: true });
-        // Agent turns may be quiet for longer than libp2p's default 120 seconds.
-        stream.inactivityTimeout = endpoint === "jobs" ? 900000 : 30000;
+        stream.inactivityTimeout = 30000;
         const abort = () => stream.abort(signal.reason instanceof Error ? signal.reason : new Error("request aborted"));
         signal.addEventListener("abort", abort, { once: true });
         try {
           signal.throwIfAborted();
-          const reader = new Reader(stream);
-          if (endpoint === "attestation") {
-            phase = "node_attestation";
-            if (payload.challenge) await sendFrame(stream, { challenge: payload.challenge }, CONTROL_LIMIT, signal);
-            return await reader.registration();
-          }
-          phase = "node_admission";
-          await sendFrame(stream, payload.admission, CONTROL_LIMIT, signal);
-          const admission = await reader.frame(CONTROL_LIMIT);
-          if (admission.status === "refused") return admission;
-          if (admission.status !== "ready") throw new Error("node did not send ready");
-          phase = "node_result_lost";
-          await sendFrame(stream, payload.sealed, BUNDLE_LIMIT, signal);
-          return await reader.frame(BUNDLE_LIMIT);
+          phase = "node_attestation";
+          if (payload.challenge) await sendFrame(stream, { challenge: payload.challenge }, CONTROL_LIMIT, signal);
+          return await new Reader(stream).registration();
         } finally { signal.removeEventListener("abort", abort); }
       } catch (cause) {
         throw new ForwardError(phase, cause);

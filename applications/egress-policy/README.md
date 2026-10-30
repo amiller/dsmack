@@ -29,7 +29,11 @@ Only the measured endpoint is reachable through the compute node's CONNECT proxy
 A positive `websocket_seconds` enables WebSocket upgrades for that rule. The
 browser peer starts the gateway with `-websocket-host TUNNEL_HOST`, which maps
 loopback WebSocket requests to the measured TLS hostname. Each stream has a
-lifetime and byte budget.
+lifetime and byte budget. HTTP body/header caps govern the upgrade request;
+the opaque stream reserves the rule’s remaining `upload_bytes` and
+`download_bytes`, then refunds unused bytes after closing. This carries model
+transcripts larger than an ordinary HTTP body while retaining the measured
+cumulative limits.
 
 Optional `-dns :53 -answer-ip GATEWAY_IP` starts a non-recursive DNS stub. It
 answers allowed A queries with that private address, returns no AAAA records

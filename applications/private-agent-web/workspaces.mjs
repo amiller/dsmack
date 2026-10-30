@@ -113,7 +113,9 @@ export class SavedWorkspace {
     this.changed({ state: head ? "restoring" : "opening", head });
     await this.control(client, "bind", { sealed });
     if (head) {
-      const bytes = this.downloaded && same(this.downloaded.head, head) ? this.downloaded.bytes : await this.download(head);
+      const local = this.downloaded && same(this.downloaded.head, head) &&
+        lease.placement?.publisher === head.mac;
+      const bytes = local ? this.downloaded.bytes : await this.download(head);
       for (let offset = 0; offset < bytes.length; offset += CHUNK) {
         let text = ""; const chunk = bytes.subarray(offset, offset + CHUNK);
         for (let at = 0; at < chunk.length; at += 8192) text += String.fromCharCode(...chunk.subarray(at, at + 8192));

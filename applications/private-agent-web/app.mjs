@@ -1,3 +1,4 @@
+import "./theme.mjs";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import { renderToolProgress } from "./tool-renderers.mjs";
 import { AgentInterface } from "@pi-components/components/AgentInterface.js";

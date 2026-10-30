@@ -188,13 +188,20 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
       if (endpoint !== "attestation" && endpoint !== "jobs") throw new Error("forward endpoint");
       const scope = operationScope(endpoint === "jobs" ? 900000 : 30000, requestedSignal), { signal } = scope;
-      let stream;
+      let stream, jobConnection;
       let phase = "node_unreachable";
       try {
         const protocol = endpoint === "jobs" ? "/dsmack/job/1" : payload.challenge
           ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
-        stream = await node.dialProtocol(multiaddr(payload.target), protocol,
-          { signal, runOnLimitedConnection: true });
+        if (endpoint === "jobs") {
+          // Each job gets its own finite circuit budget and a full lifetime.
+          // Reusing a partially spent circuit can truncate a later result.
+          jobConnection = await node.dial(multiaddr(payload.target), { signal, force: true });
+          stream = await jobConnection.newStream(protocol, { signal, runOnLimitedConnection: true });
+        } else {
+          stream = await node.dialProtocol(multiaddr(payload.target), protocol,
+            { signal, runOnLimitedConnection: true });
+        }
         // Agent turns may be quiet for longer than libp2p's default 120 seconds.
         stream.inactivityTimeout = endpoint === "jobs" ? 900000 : 30000;
         const abort = () => stream.abort(signal.reason instanceof Error ? signal.reason : new Error("request aborted"));
@@ -219,7 +226,7 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
       } catch (cause) {
         throw new ForwardError(phase, cause);
       }
-      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
+      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); if (jobConnection) await jobConnection.close(); }
     },
   };
 }

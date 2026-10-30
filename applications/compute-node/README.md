@@ -184,3 +184,7 @@ The relay allows eight reservations and four circuits per peer, with a two-minut
 8-MiB-per-direction circuit budget; a verified model transcript is about
 3 MB after encryption/hex framing. The guest WebSocket gateway retains a
 32-MiB cumulative budget per direction and refunds unused reservations.
+
+Lease renewal logs its stage, HTTP status and bounded response body. Transient
+HTTP/network failures retry on the next 25-second tick, up to three consecutive
+failures; attestation refusals stop the node. Admitted jobs are never resubmitted.

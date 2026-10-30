@@ -191,6 +191,16 @@ async function alert(page, pattern) {
     { timeout: 15000 },
   );
 }
+async function sharedAppFrame(page) {
+  for (let retry = 0; retry < 50; retry++) {
+    for (const frame of page.frames()) {
+      if (!frame.url().startsWith("blob:")) continue;
+      // The native isolation loader also uses a temporary blob probe frame.
+      if (await frame.locator("#shared-ready").count().catch(() => 0)) return frame;
+    }
+    await page.waitForTimeout(100);
+  }
+}
 async function run(name, kind, fn) {
   const ctx = await browser.newContext(),
     page = await ctx.newPage(),
@@ -238,8 +248,7 @@ try {
     await page.locator("#start-fresh").click();
     await page.waitForFunction(()=>document.querySelector("#artifacts-host artifacts-panel"));
     await page.waitForFunction(()=>Array.from(document.querySelectorAll("iframe")).length>0);
-    let app;
-    for(let retry=0;retry<50&&!app;retry++){app=page.frames().find(frame=>frame.url().startsWith("blob:"));if(!app)await page.waitForTimeout(100);}
+    let app = await sharedAppFrame(page);
     assert(app,"shared HTML opens without a model request");
     await app.waitForFunction(()=>window.dsmack);
     assert.equal(await app.evaluate(()=>dsmack.storage.get("viewer-secret")),null);
@@ -247,8 +256,7 @@ try {
     const wallet=(await page.locator("#wallet").textContent()).trim().match(/0x[0-9a-f]{40}/i)[0];
     assert.equal(await page.locator("#chat").getAttribute("data-session-id"),viewerSessionId(wallet,sealed.cid));
     await page.reload();await page.waitForSelector("#chat");
-    app=undefined;
-    for(let retry=0;retry<50&&!app;retry++){app=page.frames().find(frame=>frame.url().startsWith("blob:"));if(!app)await page.waitForTimeout(100);}
+    app = await sharedAppFrame(page);
     assert(app);await app.waitForFunction(()=>window.dsmack);
     assert.equal(await app.evaluate(()=>dsmack.storage.get("viewer-secret")),"VIEWER_PRIVATE_STATE");
     assert.equal(await page.locator("#chat").getAttribute("data-session-id"),viewerSessionId(wallet,sealed.cid));

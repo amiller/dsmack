@@ -1,3 +1,4 @@
+import { ArtifactShares, artifactStoreRemote } from "./artifact-shares.mjs";
 import { Continuity } from "./continuity.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { fleet, readFleet } from "./fleet.mjs";
@@ -100,7 +101,7 @@ async function load(ctx: Context) {
   let syncState;
   try { syncState = JSON.parse(await Deno.readTextFile(syncPath)); }
   catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
-  return Object.assign(broker, { continuity: new Continuity({
+  const continuity = new Continuity({
     cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
     anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
     state: syncState,
@@ -116,7 +117,9 @@ async function load(ctx: Context) {
       try { return await Deno.readTextFile(blobs + "/" + cid); }
       catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; return null; }
     },
-  }) });
+  });
+  return Object.assign(broker, { continuity, artifactShares: new ArtifactShares({ continuity,
+    remote: artifactStoreRemote({ url: cfg.artifactShares?.store, key: payments?.key }) }) });
 }
 
 const escape = (s: string) =>
@@ -243,7 +246,13 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if (path.startsWith("/sync/") && req.method === "POST") {
+    if ((path === "/artifacts/share" && req.method === "POST") ||
+      (path.startsWith("/artifacts/share/") && req.method === "GET")) {
+      const shares = (b as Broker & { artifactShares?: ArtifactShares }).artifactShares;
+      if (!shares) throw new InferenceError("ARTIFACT_STORE_UNAVAILABLE", "artifact store is not configured", 503);
+      response = Response.json(req.method === "POST" ? await shares.publish(await body(req, 720 * 1024)) :
+        await shares.read(path.slice("/artifacts/share/".length)));
+    } else if (path.startsWith("/sync/") && req.method === "POST") {
       const sync = (b as Broker & { continuity?: Continuity }).continuity;
       if (!sync) return finish(Response.json({ error: "sync not configured" }, { status: 503 }));
       try { response = Response.json(await sync.call(path.slice(6), await body(req, 3 * 1024 * 1024))); }

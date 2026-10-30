@@ -42,6 +42,7 @@ export default async function handler(req: Request,ctx?: {env:Record<string,stri
     return new Response("Invalid path", { status: 400, headers: security });
   }
   const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "a") parts.shift();
   if (parts.some((part) => part.startsWith(".") || /[\\\0]/.test(part))) {
     return new Response("Invalid path", { status: 400, headers: security });
   }

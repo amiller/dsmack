@@ -24,6 +24,8 @@ class Handler(BaseHTTPRequestHandler):
   path=self.path.split('?',1)[0]
   if not path.startswith('/private-agent/') or self.command!='GET':self.send_error(404);return
   relative=path[len('/private-agent/'):] or 'index.html'
+  if relative=='a' or relative=='a/':relative='index.html'
+  elif relative.startswith('a/'):relative=relative[2:]
   file=(ROOT/relative).resolve()
   if not file.is_relative_to(ROOT) or not file.is_file():self.send_error(404);return
   data=file.read_bytes();self.send_response(200);self.send_header('Content-Type',mimetypes.guess_type(file)[0] or 'application/octet-stream');self.send_header('Content-Length',str(len(data)));self.send_header('Cache-Control','no-store');self.end_headers();self.wfile.write(data)

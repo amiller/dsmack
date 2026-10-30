@@ -1,21 +1,12 @@
 import { Contract, JsonRpcProvider, keccak256 } from "ethers";
 import { store, walletBody } from "./credit.mjs";
+import { cidFor, encodeBase64Url as encode, decodeBase64Url as decode } from "./content-address.mjs";
 import { encodeSyncJson, decodeSyncJson } from "./sync-codec.mjs";
 
 const encoder = new TextEncoder();
 const canonical = (o) => JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k,o[k]])));
 const need = (ok,message) => { if(!ok) throw new Error(message); };
 const unhex = (v) => Uint8Array.from(v.match(/../g)??[],x=>parseInt(x,16));
-const decode = (v) => Uint8Array.from(atob(v.replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
-const encode = (v) => {
-  let s="";for(let i=0;i<v.length;i+=8192)s+=String.fromCharCode(...v.subarray(i,i+8192));
-  return btoa(s).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
-};
-async function cidFor(bytes) {
-  const digest=new Uint8Array(await crypto.subtle.digest("SHA-256",bytes));let bits=0,value=0,out="b";
-  for(const b of [1,0x55,0x12,0x20,...digest]) { value=(value<<8)|b;bits+=8;while(bits>=5){bits-=5;out+="abcdefghijklmnopqrstuvwxyz234567"[(value>>>bits)&31];} }
-  if(bits)out+="abcdefghijklmnopqrstuvwxyz234567"[(value<<(5-bits))&31];return out;
-}
 export function mergeSessions(left,right) {
   const out={...left};
   for(const [id,r] of Object.entries(right)) { const l=out[id];if(!l||r.counter>l.counter||(r.counter===l.counter&&r.writer>l.writer))out[id]=r; }

@@ -133,3 +133,24 @@ assertions, original result disks and signed receipts, retires temporary disks,
 clears its discovery hints, and stops its relay, tunnel and helper. Each
 `run-*/evidence/` directory retains the guest evidence and reclaimed-space record.
 No launchd or systemd service is installed.
+
+
+## Encrypted artifact pins
+
+`artifact-store.py` serves broker-signed `raw-put` and `raw-get` requests on
+loopback using the existing Kubo API. It stores up to 64 MiB across 4096 permanent
+artifact pins, with a 512 KiB limit per encrypted block. Its state directory holds
+the published CID records; Kubo holds the ciphertext.
+
+Use the operator Python environment containing `eth-account`:
+
+```sh
+VENV/bin/python applications/compute-node/artifact-store.py \
+  --state ARTIFACT_PIN_STATE --broker-signer BROKER_PAYMENT_SIGNER \
+  --ipfs-api http://127.0.0.1:15092 --port 15094
+```
+
+Route the broker's `artifactShares.store` URL to port 15094 through the operator's
+HTTPS tunnel. The signer is the address returned by the broker's `/payments/key`.
+Stop the helper with `kill -TERM PID`; its pins and CID records remain available
+when it restarts.

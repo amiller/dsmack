@@ -205,6 +205,12 @@ func (n *engine) telemetry() map[string]any {
 	return status
 }
 
+func (n *engine) recordError(message string) {
+	n.mu.Lock()
+	n.lastError = message
+	n.mu.Unlock()
+}
+
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
 	var t terms
 	var e error
@@ -235,6 +241,7 @@ func (n *engine) reserve(a admission, client string) (terms, int64, string) {
 	}
 	n.seen[a.JobID] = true
 	n.busy = true
+	n.jobsServed++
 	return t, left, ""
 }
 func (n *engine) handle(s interface {
@@ -247,12 +254,11 @@ func (n *engine) handle(s interface {
 		if len(failure) == 1 {
 			frame["failure"] = failure[0]
 		}
-		n.mu.Lock()
-		n.lastError = code
+		message := code
 		if len(failure) == 1 {
-			n.lastError = string(canon(failure[0]))
+			message = string(canon(failure[0]))
 		}
-		n.mu.Unlock()
+		n.recordError(message)
 		if paid != nil {
 			r, e := paid.finish()
 			frame["payment_receipt"] = r
@@ -307,7 +313,6 @@ func (n *engine) handle(s interface {
 		}
 		n.used[t.id] += used
 		n.busy = false
-		n.jobsServed++
 		n.mu.Unlock()
 	}()
 	s.SetDeadline(deadline)

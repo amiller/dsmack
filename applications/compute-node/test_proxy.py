@@ -43,6 +43,7 @@ class MacRouteTests(unittest.TestCase):
         allowed={'pod.example.com','pool.trycloudflare.com'}
         with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
             server.allowed_hosts=allowed
+            server.resolved_hosts={'pool.trycloudflare.com':'203.0.113.7'}
             t=threading.Thread(target=server.serve_forever);t.start()
             try:
                 with patch.object(proxy.socket,'create_connection',side_effect=AssertionError('unapproved dial')):
@@ -60,5 +61,5 @@ class MacRouteTests(unittest.TestCase):
                             self.assertIn(b'200',client.recv(1024));client.sendall(b'opaque TLS bytes')
                             self.assertEqual(peer.recv(1024),b'opaque TLS bytes')
                             peer.sendall(b'opaque reply');self.assertEqual(client.recv(1024),b'opaque reply')
-                        dial.assert_called_once_with((host,443),timeout=10)
+                        dial.assert_called_once_with((server.resolved_hosts.get(host,host),443),timeout=10)
             finally:server.shutdown();t.join()

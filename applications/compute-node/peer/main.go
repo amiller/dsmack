@@ -9,6 +9,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -45,6 +46,24 @@ func guestClient() *http.Client {
 		return (&net.Dialer{}).DialContext(ctx, "unix", "/var/run/dstack.sock")
 	}}}
 }
+
+type brokerHTTPError struct {
+	Status     int
+	Path, Body string
+	ReadError  error
+}
+
+func (e *brokerHTTPError) Error() string {
+	return fmt.Sprintf("POST %s: HTTP %d body=%q read=%v", e.Path, e.Status, e.Body, e.ReadError)
+}
+func transientRegistration(err error) bool {
+	var response *brokerHTTPError
+	if errors.As(err, &response) {
+		return response.Status >= 500 || response.Status == 408 || response.Status == 429
+	}
+	var network net.Error
+	return errors.As(err, &network)
+}
 func post(c *http.Client, url string, in, out any) error {
 	r, e := c.Post(url, "application/json", bytes.NewReader(canon(in)))
 	if e != nil {
@@ -52,7 +71,8 @@ func post(c *http.Client, url string, in, out any) error {
 	}
 	defer r.Body.Close()
 	if r.StatusCode < 200 || r.StatusCode >= 300 {
-		return fmt.Errorf("HTTP %d", r.StatusCode)
+		raw, readErr := io.ReadAll(io.LimitReader(r.Body, 4096))
+		return &brokerHTTPError{r.StatusCode, r.Request.URL.Path, string(raw), readErr}
 	}
 	return json.NewDecoder(io.LimitReader(r.Body, 256<<10)).Decode(out)
 }
@@ -124,6 +144,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if len(key) != 32 {
 		return fmt.Errorf("broker key length")
 	}
+	reportRenewal := func(stage string, err error) { fmt.Fprintln(os.Stderr, stage, err) }
 	publicRelay := relay
 	var gatewayErrors <-chan error
 	if index := os.Getenv("TUNNEL_INDEX"); index != "" {
@@ -137,6 +158,10 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			}
 			gateways.close()
 		}()
+		reportRenewal = func(stage string, err error) {
+			fmt.Fprintln(os.Stderr, stage, err)
+			fmt.Fprintf(gateways.log, "%s\n", canon(map[string]string{"event": "registration_renewal_error", "stage": stage, "error": err.Error()}))
+		}
 		gatewayErrors = gateways.failed
 		publicRelay = advertised
 	}
@@ -341,6 +366,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(stop)
+	renewalFailures := 0
 	timer := time.NewTimer(time.Until(n.until))
 	defer timer.Stop()
 	for {
@@ -353,7 +379,13 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			}
 			if paid == nil {
 				if err := renew(); err != nil {
-					return err
+					renewalFailures++
+					reportRenewal(fmt.Sprintf("broker lease renewal %d/3", renewalFailures), err)
+					if !transientRegistration(err) || renewalFailures >= 3 {
+						return err
+					}
+				} else {
+					renewalFailures = 0
 				}
 			} else if err := renew(); err != nil {
 				fmt.Fprintln(os.Stderr, "paid registration:", err)

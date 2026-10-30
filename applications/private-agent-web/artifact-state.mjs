@@ -62,6 +62,9 @@ export class ArtifactState {
   async put(scope, key, value) {
     await this.update(scope, state => {
       Object.defineProperty(state.values, key, { value, writable: true, enumerable: true, configurable: true });
+      if (utf8.encode(JSON.stringify(state.values)).length > 512 * 1024) {
+        throw Object.assign(new Error('Artifact storage values exceed 512 KiB.'), { code: 'INVALID_ARGS' });
+      }
     });
     return value;
   }

@@ -5,8 +5,8 @@ running in an attested Mac-hosted Linux guest. Tool calls and results appear
 inline. Model requests and responses remain encrypted between the browser and
 NEAR AI Cloud's model TEE; the broker forwards ciphertext and meters usage.
 
-The first visit generates a browser wallet and a random data key locally. The
-wallet receives $0.250000 credit for model tokens and guest seconds. The first
+Choose Start fresh to generate a browser wallet and a random data key locally.
+The wallet receives $0.250000 credit for model tokens and guest seconds. The first
 tool call claims a guest, verifies its Apple attestation and
 measured compose, and opens a Noise-authenticated libp2p stream to it. The page
 shows the guest, its attestation and seconds used. End session releases it;
@@ -28,14 +28,22 @@ conversation; the Apps button reopens the panel.
 
 Apps receive a frozen `window.dsmack` SDK. Call `await dsmack.ready()` and check
 `dsmack.capabilities.has(method)` before using `storage.get/put/list`,
-`agent.complete`, `credit.balance` or `diagnostics.log`. Storage is encrypted
-under a key derived for the conversation and HTML filename. The viewer grants
+`agent.complete`, `credit.balance` or `diagnostics.log`. Storage values have a
+512 KiB UTF-8 quota per app and are encrypted
+under a key derived for the conversation and HTML filename, or the ciphertext
+CID when viewing a shared app. The viewer grants
 each app a model budget once in the host bar, starting at $0.02; the bar shows
 its limit, spent amount and pending reservation. Model requests use an isolated
 untrusted transcript and the viewer's credit. Amounts use nano-USD strings.
 
 The per-category bridge contracts live in `bridge/Categories/`; the build runs
 `node bridge/generate.mjs` to merge them into `bridge/Manifest.json`.
+
+Share app encrypts the original HTML and its functional manifest, pins the
+ciphertext, and shows a link to `/a/` with the decryption key in its fragment.
+The bundle contains code only. Each viewer chooses their own wallet and uses
+their own encrypted storage and model credit. Reloading a link preserves that
+viewer's state and the budget bound to the ciphertext CID.
 
 The included repository contains `greet.txt`. Ask for an edit in chat and choose
 Download patch for the workspace diff. Before the first tool call, Choose
@@ -120,13 +128,19 @@ A stable DNSLink/IPNS gateway origin preserves browser storage across releases.
 
 ## Public IPFS pin on the Mac
 
-Add `--ipfs-bin /absolute/path/to/ipfs --ipfs-car /absolute/path/to/page.car
---ipfs-state /absolute/path/to/retained-ipfs-state` to `compute-node/mac-pool.py`.
-The launcher owns Kubo and a second quick tunnel exposing only its Bitswap
+Run the publisher independently of the compute pool:
+
+```sh
+python3 pin-mac.py --ipfs /absolute/path/to/ipfs \
+  --cloudflared /absolute/path/to/cloudflared \
+  --car /absolute/path/to/page.car --state /absolute/path/to/retained-ipfs-state
+```
+
+The publisher owns Kubo and a quick tunnel exposing only its Bitswap
 WebSocket listener. The Kubo API and gateway bind to loopback. NAT port mapping
 is disabled. The recursive pin and locally generated `friends-page` IPNS key stay
 in the retained state directory; `published.json` records the CID, name and
-provider address. Kubo republishes IPNS while running. `kill -TERM LAUNCHER_PID`
-drains the guests and stops both the compute and IPFS transports, retaining the
-pin and key for the next launch. Never move the IPNS signing key between hosts.
+provider address. Kubo republishes IPNS while running. Compute pools can drain
+while this publisher keeps serving pins. `kill -TERM PUBLISHER_PID` stops its
+daemon and tunnel, retaining the repository, pins and key for the next launch.
 Use the final subdomain gateway origin in the broker allowlist.

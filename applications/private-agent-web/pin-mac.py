@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Serve a recursive page pin and stable IPNS name for the Mac pool lifetime."""
+"""Serve a recursive page pin and stable IPNS name from retained Mac state."""
 import argparse,json,os,re,signal,subprocess,time
 from pathlib import Path
 

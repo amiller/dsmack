@@ -37,3 +37,12 @@ test('Mac publishers sign and clear only their own scoped hints; forged/stale up
  const values=await (await tunnelIndex(new Request('https://index.test/tunnels'),'')).json()
  assert(!values.some(v=>v.url===entry('first').url));assert(values.some(v=>v.url===entry('second').url))
 })
+
+test('a relay bootstrap hint needs no guest identity; peer browser discovery does not mistake it for a guest',async()=>{
+ const {tunnel,address}=await import('../browser-p2p/tunnels.mjs')
+ const hint={url:'wss://bootstrap.trycloudflare.com/',relayPeer:'12D3KooW'+'a'.repeat(44),expiresAt:Math.floor(Date.now()/1000)+600}
+ assert.deepEqual(tunnel(hint),hint)
+ assert.throws(()=>address(hint),/guest hint required/)
+ const original=globalThis.fetch,events=[];globalThis.fetch=async()=>Response.json([hint])
+ try{const found=await discover({broker:'https://index.test',rpcs:[]},v=>events.push(v),()=>assert.fail('relay-only hint was dialed as guest'));assert.deepEqual(found,[]);assert(events.some(e=>e.status==='relay-only'))}finally{globalThis.fetch=original}
+})

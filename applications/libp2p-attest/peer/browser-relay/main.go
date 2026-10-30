@@ -2,7 +2,9 @@
 package main
 
 import (
+	"context"
 	"crypto/rand"
+	"dsmack-peer/p2p"
 	"fmt"
 	"log"
 	"os"
@@ -15,13 +17,14 @@ import (
 	"github.com/libp2p/go-libp2p/p2p/muxer/yamux"
 	"github.com/libp2p/go-libp2p/p2p/protocol/circuitv2/relay"
 	"github.com/libp2p/go-libp2p/p2p/security/noise"
+	"github.com/libp2p/go-libp2p/p2p/transport/tcp"
 	"github.com/libp2p/go-libp2p/p2p/transport/websocket"
 	ma "github.com/multiformats/go-multiaddr"
 )
 
 func main() {
-	if len(os.Args) != 2 {
-		log.Fatal("usage: browser-relay <private key file>")
+	if len(os.Args) != 2 && len(os.Args) != 4 {
+		log.Fatal("usage: browser-relay <private key file> [broker HTTP backhaul URL broker PeerId]")
 	}
 	raw, err := os.ReadFile(os.Args[1])
 	if os.IsNotExist(err) {
@@ -48,7 +51,7 @@ func main() {
 		log.Fatal(err)
 	}
 	h, err := libp2p.New(libp2p.Identity(key), libp2p.NoTransports,
-		libp2p.Transport(websocket.New), libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/4019/ws"),
+		libp2p.Transport(websocket.New), libp2p.Transport(tcp.NewTCPTransport), libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/4019/ws"),
 		libp2p.Security(noise.ID, noise.New), libp2p.Muxer(yamux.ID, yamux.DefaultTransport),
 		libp2p.ForceReachabilityPublic(), libp2p.DisableRelay())
 	if err != nil {
@@ -63,6 +66,13 @@ func main() {
 		log.Fatal(err)
 	}
 	defer service.Close()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	if len(os.Args) == 4 {
+		if err = p2p.MaintainBackhaul(ctx, h, os.Args[2], os.Args[3]); err != nil {
+			log.Fatal(err)
+		}
+	}
 	fmt.Printf("relay_peer=%s listen=%s resources=%+v limit=%+v\n", h.ID(), h.Addrs(), r, r.Limit)
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)

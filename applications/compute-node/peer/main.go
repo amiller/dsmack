@@ -74,8 +74,8 @@ func hostFor(file string) host.Host {
 	return h
 }
 
-// Broker HTTPS keeps its URL hostname for TLS, while dialing only its measured IP.
-// The sentinel's HTTPS_PROXY must never intercept broker registration.
+// Select the measured guest-local TLS gateway or the explicit legacy IP route.
+// Neither route uses an ambient provider proxy for broker registration.
 func brokerClient(raw string) (*http.Client, error) {
 	u, err := url.Parse(raw)
 	if err != nil {
@@ -83,6 +83,9 @@ func brokerClient(raw string) (*http.Client, error) {
 	}
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return nil, fmt.Errorf("broker scheme")
+	}
+	if gateway := os.Getenv("BROKER_GATEWAY"); gateway != "" {
+		return gatewayBrokerClient(u, gateway)
 	}
 	ip := net.ParseIP(os.Getenv("BROKER_IP"))
 	if ip == nil {
@@ -110,41 +113,69 @@ func brokerClient(raw string) (*http.Client, error) {
 	return &http.Client{Timeout: 30 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
-func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
+func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (serveErr error) {
 	paid := paidMeter()
 	operatorStop := make(chan struct{})
 	var stopOnce sync.Once
 	key, e := hex.DecodeString(brokerHex)
-	must(e)
+	if e != nil {
+		return e
+	}
 	if len(key) != 32 {
-		log.Fatal("broker key length")
+		return fmt.Errorf("broker key length")
+	}
+	publicRelay := relay
+	var gatewayErrors <-chan error
+	if index := os.Getenv("TUNNEL_INDEX"); index != "" {
+		gateways, advertised, err := startNodeGateways(relay, brokerURL, index)
+		if err != nil {
+			return err
+		}
+		defer func() {
+			if serveErr != nil {
+				fmt.Fprintf(gateways.log, "%s\n", canon(map[string]string{"event": "node_gateway_error", "error": serveErr.Error()}))
+			}
+			gateways.close()
+		}()
+		gatewayErrors = gateways.failed
+		publicRelay = advertised
 	}
 	secret, e := ecdh.P256().GenerateKey(rand.Reader)
-	must(e)
+	if e != nil {
+		return e
+	}
 	receipt, signer, e := ed25519.GenerateKey(rand.Reader)
-	must(e)
+	if e != nil {
+		return e
+	}
 	h := p2p.NewHost(libp2p.NoListenAddrs, libp2p.EnableRelay(), libp2p.Security(noise.ID, noise.New))
 	defer h.Close()
 	var info map[string]any
-	must(post(guestClient(), "http://localhost/v1/Info", map[string]any{}, &info))
+	if err := post(guestClient(), "http://localhost/v1/Info", map[string]any{}, &info); err != nil {
+		return err
+	}
 	rd := append([]byte("dsmack-compute-node/1"), []byte(h.ID())...)
 	rd = append(rd, public(secret)...)
 	rd = append(rd, receipt...)
 	hash := sha256.Sum256(rd)
 	att, e := attest(append(hash[:], make([]byte, 32)...))
-	must(e)
+	if e != nil {
+		return e
+	}
 	var registrationMu sync.Mutex
-	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": relay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
+	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": publicRelay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
 	run, ok := info["instance_id"].(string)
 	if !ok {
-		log.Fatal("missing guest instance_id")
+		return fmt.Errorf("missing guest instance_id")
 	}
 	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), run: run, until: time.Now().Add(time.Duration(seconds) * time.Second), worker: worker, resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}, used: map[string]int64{}, attest: attest}
 	if value := os.Getenv("ADMIT_SECONDS"); value != "" {
 		admit, err := strconv.Atoi(value)
-		must(err)
+		if err != nil {
+			return err
+		}
 		if admit < 1 || admit > seconds {
-			log.Fatal("ADMIT_SECONDS must be within serving lifetime")
+			return fmt.Errorf("ADMIT_SECONDS must be within serving lifetime")
 		}
 		n.admissionUntil = time.Now().Add(time.Duration(admit) * time.Second)
 	}
@@ -162,7 +193,9 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	})
 	h.SetStreamHandler("/dsmack/job/1", func(s network.Stream) { defer s.Close(); n.handle(s, s.Conn().RemotePeer().String()) })
 	ri, e := peer.AddrInfoFromString(relay)
-	must(e)
+	if e != nil {
+		return e
+	}
 	reserve := func() error {
 		ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
 		defer cancel()
@@ -172,16 +205,26 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 		_, e := client.Reserve(ctx, h, *ri)
 		return e
 	}
-	must(reserve())
+	if err := reserve(); err != nil {
+		return err
+	}
 	c, e := brokerClient(brokerURL)
-	must(e)
+	if e != nil {
+		return e
+	}
 	renew := func() error {
 		var out map[string]any
 		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", registration, &out)
 	}
-	must(os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644))
-	must(os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644))
-	must(os.WriteFile("/workspace/artifacts/egress", []byte("{}"), 0644))
+	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644); err != nil {
+		return err
+	}
+	if err := os.WriteFile("/workspace/artifacts/egress", []byte("{}"), 0644); err != nil {
+		return err
+	}
 	if paid != nil {
 		h.SetStreamHandler("/dsmack/payments-stop/1", func(s network.Stream) {
 			defer s.Close()
@@ -202,7 +245,9 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 			}
 			acknowledgeStop(s, func() { stopOnce.Do(func() { close(operatorStop) }) })
 		})
-		must(os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644))
+		if err := os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644); err != nil {
+			return err
+		}
 		n.publish = func(r payments.SignedReceipt) error {
 			var out map[string]any
 			return post(c, strings.TrimRight(brokerURL, "/")+"/payments/receipts", r, &out)
@@ -284,7 +329,9 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	// Paid runs expose their attested admission for the owner before registration.
 	// An unregistered run cannot receive a grant; retries permit owner admission.
 	if paid == nil {
-		must(renew())
+		if err := renew(); err != nil {
+			return err
+		}
 	} else if err := renew(); err != nil {
 		fmt.Fprintln(os.Stderr, "awaiting paid admission:", err)
 	}
@@ -298,19 +345,25 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) {
 	defer timer.Stop()
 	for {
 		select {
+		case err := <-gatewayErrors:
+			return err
 		case <-tick.C:
-			must(reserve())
+			if err := reserve(); err != nil {
+				return err
+			}
 			if paid == nil {
-				must(renew())
+				if err := renew(); err != nil {
+					return err
+				}
 			} else if err := renew(); err != nil {
 				fmt.Fprintln(os.Stderr, "paid registration:", err)
 			}
 		case <-timer.C:
-			return
+			return nil
 		case <-operatorStop:
-			return
+			return nil
 		case <-stop:
-			return
+			return nil
 		}
 	}
 }
@@ -323,7 +376,7 @@ func main() {
 		if seconds < 1 || seconds > 86400 {
 			log.Fatal("duration")
 		}
-		serve(a[1], a[3], a[4], a[5], a[6], seconds)
+		must(serve(a[1], a[3], a[4], a[5], a[6], seconds))
 	case len(a) == 2 && a[0] == "keygen":
 		k, _, e := lc.GenerateEd25519Key(rand.Reader)
 		must(e)

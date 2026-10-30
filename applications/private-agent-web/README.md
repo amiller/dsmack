@@ -1,7 +1,7 @@
 # Private agent web
 
 A browser app for encrypted NEAR TEE chat and sealed jobs on attested Mac compute
-nodes. Create or connect an Ethereum wallet to receive $0.010000 starter chat
+nodes. Create or connect an Ethereum wallet to receive $0.250000 starter chat
 credit and a first sandbox job of up to 180 seconds. Sending a first message or
 job also creates a browser wallet automatically. The wallet signs credit and job
 actions; starter use needs no ETH purchase. Existing Base Sepolia escrow purchases can
@@ -55,3 +55,47 @@ PLAYWRIGHT_MODULE=/absolute/path/to/playwright/index.mjs \
 CHROMIUM_PATH=/absolute/path/to/chromium \
 EVIDENCE=/absolute/path/to/local-data/ui npm run test:browser
 ```
+
+## Local IPFS serving
+
+`config.json` contains explicit HTTPS broker, RPC and tunnel-index URLs and the
+Base Sepolia registry address. Assets stay relative to the CID root. CSP and
+referrer controls ship in the HTML as well as the Deno response.
+
+Build on the Linux builder, then use an isolated Kubo repository with
+`--offline`, empty `Bootstrap` and `Addresses.Swarm`, and a loopback gateway.
+Add the static directory with `ipfs --offline add --cid-version=1 -Qr dist` and
+export its CAR with `ipfs --offline dag export CID`. Set
+`Gateway.PublicGateways` for `localhost` and `alt.localhost` with paths
+`["/ipfs","/ipns"]` and `UseSubdomains:true`; run `ipfs --offline daemon`.
+Add each printed CID origin to the broker's exact `browser_origins` allowlist.
+
+```sh
+PAGE_URL=http://CID.ipfs.localhost:18091/ \
+ALT_PAGE_URL=http://CID.ipfs.alt.localhost:18091/ \
+EVIDENCE=/data/private-agent-ipfs npm run test:ipfs
+```
+
+The probe creates a wallet, chats, applies a verified sandbox patch and checks
+same-origin persistence and isolation on the second gateway origin. Stop the
+owned Kubo process afterwards. Offline imports and local recursive pins retain
+blocks locally; public announcement and remote pinning are separate operations.
+
+Wallet, buyer identity and purchase storage belong to the browser origin. A new
+CID or gateway origin has separate storage; connecting an external wallet also
+needs permission for that origin. Shared `/ipfs/` and `/ipns/` path gateways are
+refused before wallet storage opens. For updates with one stable wallet origin,
+keep the same DNSLink/IPNS name and gateway. Wallet recovery/export is separate
+from static hosting.
+
+For a public release, recursively pin on an existing publicly reachable non-zed
+Kubo host with persistent storage, plus an independent peer. This needs no new
+pinning account; gateway caching alone does not retain a release. Public pinning
+requires Andrew’s separate approval. DNSLink on an already-owned domain is the
+simplest stable friends link: update one TXT record, with no per-release protocol
+fee, and configure a compatible HTTPS gateway. IPNS has no protocol fee either,
+but needs regular republication (Kubo defaults to four hours; DHT records expire
+after 48 hours). Keep the final gateway hostname stable for wallet storage.
+See [persistence](https://docs.ipfs.tech/concepts/persistence/),
+[DNSLink](https://docs.ipfs.tech/concepts/dnslink/) and
+[IPNS](https://docs.ipfs.tech/concepts/ipns/).

@@ -33,7 +33,12 @@ const reservation = (body) => BigInt(
   Buffer.byteLength(JSON.stringify(body)) + 256 +
     64 * body.messages.length + body.max_tokens,
 ) * 1500n;
-const publicHeaders = { "content-type": "application/json" };
+const publicHeaders = {
+  "content-type": "application/json",
+  "access-control-allow-origin": new URL(base).origin,
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type",
+};
 async function backend(page, kind) {
   const cfg = await (await page.request.get(new URL("config.json", base).href))
     .json();
@@ -41,6 +46,7 @@ async function backend(page, kind) {
   await page.route("**/relay-broker/**", async (route) => {
     const req = route.request(),
       path = new URL(req.url()).pathname.replace("/relay-broker", "");
+    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: publicHeaders});
     const body = req.method() === "POST" ? req.postDataJSON() : undefined;
     calls.push({ path, method: req.method(), body });
     const respond = (value, status = 200) =>
@@ -67,7 +73,7 @@ async function backend(page, kind) {
         mode: "broker-e2ee",
         provider: "near",
         model,
-        starterCreditNanoUsd: "10000000",
+        starterCreditNanoUsd: "250000000",
         maxOutputTokens: 512,
         maxNanoUsdPerToken: "1500",
         maxRequestBytes: 32768,
@@ -85,9 +91,9 @@ async function backend(page, kind) {
       wallet: body?.wallet?.toLowerCase(),
       model,
       mode: "broker-e2ee",
-      grantedNanoUsd: "10000000",
+      grantedNanoUsd: "250000000",
       spentNanoUsd: "0",
-      remainingNanoUsd: kind === "insufficient" ? "1" : kind === "partial" ? partialCredit : "10000000",
+      remainingNanoUsd: kind === "insufficient" ? "1" : kind === "partial" ? partialCredit : "250000000",
       reservedNanoUsd: "0",
       usedTokens: "0",
       pendingInferenceId: null,
@@ -241,7 +247,7 @@ try {
       await page.locator("#connect").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       assert.equal(await page.locator("#wallet").textContent(), wallet.address);
       const methods = await page.evaluate(() => window.fixtureWalletMethods);
@@ -257,7 +263,7 @@ try {
       await page.locator("#burner").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const wallet = (await page.locator("#wallet").textContent())
         .toLowerCase();
@@ -305,7 +311,7 @@ try {
         await page.locator("#burner").click();
         await page.waitForFunction(() =>
           document.querySelector("#chat-credit").textContent ===
-            "Chat credit $0.010000"
+            "Chat credit $0.250000"
         );
         await send(
           page,
@@ -349,14 +355,14 @@ try {
       await page.locator("#burner").click();
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const wallet = await page.locator("#wallet").textContent();
       await ready(page);
       assert.equal(await page.locator("#wallet").textContent(), wallet);
       await page.waitForFunction(() =>
         document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.010000"
+          "Chat credit $0.250000"
       );
       const marker = "W1_BROWSER_ONLY_PROMPT_9b5cb2d3";
       await send(page, marker);

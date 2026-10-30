@@ -304,11 +304,12 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	down := headerBytes(resp.Header)
 	if isWS && resp.StatusCode == 101 {
+		g.event(i, "allow", "websocket_tls", up, down)
 		extraUp, extraDown := g.websocket(w, r, resp, duration, rule.MaxRequestBytes-up, rule.MaxResponseBytes-down)
 		up += extraUp
 		down += extraDown
 		g.refundDownload(i, down)
-		g.event(i, "allow", "websocket_tls", up, down)
+		g.event(i, "complete", "websocket_tls", up, down)
 		return
 	}
 	if resp.StatusCode == 101 || down > rule.MaxResponseBytes {
@@ -549,15 +550,16 @@ func main() {
 	}
 	var handler http.Handler = g
 	if *fixedHost != "" {
-		if !validName(*fixedHost) || g.index(*fixedHost) < 0 || *listen != "127.0.0.1:8080" {
+		listenHost, _, listenErr := net.SplitHostPort(*listen)
+		if !validName(*fixedHost) || g.index(*fixedHost) < 0 || listenErr != nil || !net.ParseIP(listenHost).IsLoopback() {
 			log.Fatal("fixed WebSocket host requires an allowed hostname and loopback listener")
 		}
 		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			if r.Host != "127.0.0.1:8080" || !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
+			if r.Host != *listen || !strings.EqualFold(r.Header.Get("Upgrade"), "websocket") {
 				http.Error(w, "fixed_websocket_route", 403)
 				return
 			}
-			r.Host = *fixedHost + ":8080"
+			r.Host = *fixedHost
 			g.ServeHTTP(w, r)
 		})
 	}

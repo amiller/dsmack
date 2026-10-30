@@ -5,8 +5,8 @@ const enc = new TextEncoder();
 export const jobLimit = 48 * 1024 * 1024 + 16384;
 const require = (ok, message, status = 400) => { if (!ok) throw new Refused(message, status); };
 let inProcess;
-async function nativeTransport(cfg) {
-  return await (inProcess ??= import("./deno-forwarder.mjs").then(({ createDenoForwarder }) => createDenoForwarder({ backhaulPeers: cfg.sandbox_backhaul_peers ?? [] })));
+async function nativeTransport(cfg, key) {
+  return await (inProcess ??= import("./deno-forwarder.mjs").then(({ createDenoForwarder }) => createDenoForwarder({ signingKey: key, backhaulPeers: cfg.sandbox_backhaul_peers ?? [] })));
 }
 function nodeResponse(result) {
   if (result.status === "refused") return Response.json(result, { status: result.error === "busy" || result.error === "replay" ? 409 : 403 });
@@ -18,9 +18,12 @@ function nodeResponse(result) {
 export async function sandbox(req, broker, readBody, transport = nativeTransport) {
   const url = new URL(req.url), path = url.pathname;
   let node, payload, endpoint;
+  if (req.method === "GET" && path === "/sandbox/transport") {
+    return Response.json({ peer_id: (await transport(broker.cfg, broker.key)).peerId });
+  }
   if (path.startsWith("/sandbox/p2p/")) {
     require(broker.cfg.sandbox_backhaul_peers?.length, "backhaul_not_configured", 503);
-    return (await transport(broker.cfg)).acceptBackhaul(req);
+    return (await transport(broker.cfg, broker.key)).acceptBackhaul(req);
   }
   const match = /^\/sandbox\/nodes\/([^/]+)\/attestation$/.exec(path);
   if (req.method === "GET" && match) {
@@ -46,7 +49,7 @@ export async function sandbox(req, broker, readBody, transport = nativeTransport
     require(enc.encode(canonical(payload.admission)).length <= 4096, "admission_too_large", 413);
   } else return new Response("not found", { status: 404 });
   let forwarder;
-  try { forwarder = await transport(broker.cfg); }
+  try { forwarder = await transport(broker.cfg, broker.key); }
   catch { throw new Refused("sandbox_transport_unavailable", 503); }
   try { return nodeResponse(await forwarder.forward(endpoint, payload, { signal: req.signal })); }
   catch (error) { throw new Refused(error.code || "node_unreachable", error.status || 502); }

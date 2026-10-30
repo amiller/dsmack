@@ -37,3 +37,28 @@ class ProviderRouteTests(unittest.TestCase):
                 conn.set_tunnel.assert_called_once_with('api.anthropic.com',443)
                 context.assert_called_once_with(cafile='ca.pem')
             with self.assertRaises(SentinelError):provider_connection('other.example','ca.pem',10)
+
+class MacRouteTests(unittest.TestCase):
+    def test_mac_proxy_admits_only_its_broker_and_tunnel_and_preserves_bytes(self):
+        allowed={'pod.example.com','pool.trycloudflare.com'}
+        with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
+            server.allowed_hosts=allowed
+            t=threading.Thread(target=server.serve_forever);t.start()
+            try:
+                with patch.object(proxy.socket,'create_connection',side_effect=AssertionError('unapproved dial')):
+                    with socket.socket() as client:
+                        client.settimeout(2);client.connect(server.server_address)
+                        client.sendall(b'CONNECT api.anthropic.com:443 HTTP/1.1\r\n\r\n')
+                        self.assertIn(b'403',client.recv(1024))
+                for host in allowed:
+                    upstream,peer=socket.socketpair()
+                    with peer, patch.object(proxy.socket,'create_connection',return_value=upstream) as dial:
+                        peer.settimeout(2)
+                        with socket.socket() as client:
+                            client.settimeout(2);client.connect(server.server_address)
+                            client.sendall(f'CONNECT {host}:443 HTTP/1.1\r\n\r\n'.encode())
+                            self.assertIn(b'200',client.recv(1024));client.sendall(b'opaque TLS bytes')
+                            self.assertEqual(peer.recv(1024),b'opaque TLS bytes')
+                            peer.sendall(b'opaque reply');self.assertEqual(client.recv(1024),b'opaque reply')
+                        dial.assert_called_once_with((host,443),timeout=10)
+            finally:server.shutdown();t.join()

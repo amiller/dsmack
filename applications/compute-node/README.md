@@ -38,13 +38,17 @@ python3 applications/compute-node/workload.py REPO BASE STARTER OCI_DIR \
   http://BROKER_IP:BROKER_PORT BROKER_ED25519_HEX RUNNER_CDHASH http://PROXY_IP:PROXY_PORT OUT 840
 ```
 
-The packer resolves the broker hostname once and measures its fixed `BROKER_IP`.
-The node dials that IP while preserving the HTTPS hostname for certificate
-verification. The guest allowlist contains exactly that endpoint, the circuit relay,
-and the supplied proxy IP and port. Run the CONNECT proxy on that host with
-`python3 applications/compute-node/connect-proxy.py --listen PROXY_IP --port PROXY_PORT`. It permits
-only `CONNECT api.anthropic.com:443`; the CLI or sentinel verifies provider TLS
-in its guest process. Its measured `HTTPS_PROXY` config selects the tunnel.
+For the Mac warm pool, use relay
+`/ip4/127.0.0.1/tcp/18082/ws/p2p/MAC_RELAY_PEER`, proxy
+`http://192.168.127.254:18484`, provider JSON and the final `TUNNEL_INDEX`
+argument `https://pod.dstack.soc1024.com/private-agent/tunnels`. The measured
+firewall allows only that Mac proxy. A guest-local hostname gateway verifies
+broker TLS; a second gateway verifies the discovered quick-tunnel hostname and
+passes WebSocket upgrades. The tunnel index is an untrusted locator: its relay
+PeerId must match the measured compose, and Noise authenticates the dial.
+
+For a direct-IP operator route, the packer resolves and measures `BROKER_IP`
+and allows the explicit broker, relay and proxy endpoints.
 
 Admit the resulting compose/image/CDHash tuple at the broker, then launch the
 workload using the installed v0.2 runner and the public `workload.img`, with no
@@ -149,3 +153,26 @@ existing guarded cleanup checks open references before retiring that attempt's
 scratch and staged disks, recording retired allocated bytes and free space. A
 guest failure is recorded after preserving and retiring its owned disks; the
 pool stops rotation and returns a failure even if the host driver exited zero.
+
+## Mac-owned tunnel lifetime
+
+`mac-pool.py` starts the capped loopback WebSocket relay, its outbound broker
+backhaul, a Cloudflare quick tunnel, a two-host opaque CONNECT helper and the
+warm pool. It publishes the relay locator to the HTTP index and Base Sepolia
+with a publisher key generated and retained on the Mac. No service is installed.
+
+```sh
+VENV/bin/python applications/compute-node/mac-pool.py \
+  --runner RUNNER --workload WORKLOAD --state SHORT_FRESH_STATE \
+  --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
+  --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
+  --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
+  --broker https://pod.dstack.soc1024.com/relay-broker \
+  --index https://pod.dstack.soc1024.com/private-agent/tunnels
+```
+
+Stop with `kill -TERM LAUNCHER_PID`. It stops rotation, drains guests, preserves
+their evidence and retires their temporary disks, clears both discovery sources,
+and stops its relay, tunnel and helper. Restart with a fresh short state path.
+The relay retains eight reservation/four circuit caps and the default two-minute,
+128-KiB-per-direction circuit budget.

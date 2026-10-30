@@ -726,9 +726,17 @@ async function refund() {
     "Unused testnet credit withdrawn. View the refund in your purchase card.";
 }
 async function main() {
+  require(
+    !/^\/(ipfs|ipns)\//.test(window.location.pathname),
+    "Open this app through a CID or IPNS subdomain gateway. Shared path gateways cannot isolate your wallet from other sites.",
+  );
   const response = await fetch("./config.json", { cache: "no-store" });
   require(response.ok, "Page configuration could not load.");
-  cfg = { ...await response.json(), sandboxPolicy: approvedSandboxPolicy };
+  cfg = await response.json();
+  for (const name of ["broker", "rpc"]) {
+    require(/^https:\/\//.test(cfg[name]), `${name} must be an explicit HTTPS service address.`);
+  }
+  cfg.sandboxPolicy = { ...approvedSandboxPolicy, registry: cfg.registry, rpc: cfg.rpc };
   require(cfg.chainId === 84532, "This page is restricted to Base Sepolia.");
   let client = await store("client");
   if (!client) {

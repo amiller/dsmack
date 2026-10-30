@@ -155,6 +155,7 @@ export class Inference {
       artifactBudgets: Object.fromEntries(Object.entries(a.artifactBudgets ?? {}).map(([id, budget]) =>
         [id, { ...budget, reservedNanoUsd: pending?.artifactId === id && pending.status !== "charged" ? pending.reservedNanoUsd : "0" }])),
       usedTokens: a.usedTokens,
+      lastModelCharge: a.lastModelCharge ?? null,
       pendingInferenceId: pending?.inferenceId ?? null,
     };
   }
@@ -634,6 +635,7 @@ export class Inference {
           [wallet]: {
             ...account,
             pending: null,
+            lastModelCharge: { sessionId: current.sessionId, inferenceId: current.inferenceId, costNanoUsd: String(cost) },
             ...(current.artifactId !== undefined ? { artifactBudgets: { ...account.artifactBudgets,
               [current.artifactId]: { ...account.artifactBudgets[current.artifactId],
                 spentNanoUsd: String(BigInt(account.artifactBudgets[current.artifactId].spentNanoUsd) + cost),

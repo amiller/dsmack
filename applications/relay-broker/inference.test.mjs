@@ -708,6 +708,7 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   f.cost("300");
   const first = await restarted.usage(await f.signed("usage"));
   assert.equal(first.spentNanoUsd, "300");
+  assert.deepEqual(first.lastModelCharge, { sessionId: request.sessionId, inferenceId: request.inferenceId, costNanoUsd: "300" });
   assert.equal(first.reservedNanoUsd, "0");
   assert.equal(first.usedTokens, "0");
   assert.equal(first.unreportedTokenRequests, 1);

@@ -23,6 +23,7 @@ import {
   walletBody,
 } from "./credit.mjs";
 import { brokerStream, PRIVACY } from "./inference.mjs";
+import { replyFailure, retryCandidate, meteredReply, settleInterruptedReply } from "./reply-recovery.mjs";
 import * as sandbox from "@sandbox";
 import approvedSandboxPolicy from "./sandbox-policy.json";
 import { GuestSession, createGuestPeer } from "./agent-tools.mjs";
@@ -53,7 +54,9 @@ async function startupStep(name, task) {
   finally { performance.measure("startup:" + name, { start, end: performance.now() }); }
 }
 function error(e) {
-  $("alert").textContent = e.message || String(e);
+  const message = e.message || String(e);
+  $("alert").textContent = e.replyFailure?.message ||
+    (/network error|failed to fetch|load failed/i.test(message) ? replyFailure(e).message : message);
   $("alert").hidden = false;
 }
 function clearError() {
@@ -344,6 +347,44 @@ function setChatBusy(busy) {
   chatBusy = busy;
   $("new-chat").disabled = busy;
   $("sessions").disabled = busy;
+  renderReplyRecovery();
+}
+function renderReplyRecovery() {
+  const panel = $("reply-recovery");
+  if (!panel) return;
+  const reply = retryCandidate(agent?.state.messages || []);
+  panel.hidden = !reply;
+  if (!reply) return;
+  panel.dataset.category = reply.failure.category;
+  $("reply-recovery-message").textContent = reply.failure.message;
+  $("reply-recovery-charge").textContent = meteredReply(reply.billing);
+  $("retry-reply").disabled = chatBusy || agent.state.isStreaming;
+}
+async function retryReply() {
+  const originalAgent = agent, reply = retryCandidate(agent.state.messages);
+  if (!reply || chatBusy || agent.state.isStreaming) return;
+  setChatBusy(true);
+  clearError();
+  try {
+    $("reply-recovery-charge").textContent = "Checking the broker's metered charge before retrying…";
+    const ledger = await usage();
+    require(!ledger.pendingInferenceId, "USAGE_PENDING: Provider cost is still pending.");
+    if (settleInterruptedReply(reply, ledger)) await saveCurrentChat();
+    await chat.onBeforeSend();
+    require(agent === originalAgent && retryCandidate(agent.state.messages) === reply,
+      "This conversation changed. Select its latest interrupted reply before retrying.");
+    // Pi accepts an empty prompt list. No duplicate user message is appended:
+    // inference.modelTranscript omits the failed assistant and resends the last
+    // user/tool context while preserving the interrupted text in local history.
+    $("reply-recovery").hidden = true;
+    await agent.prompt([]);
+  } catch (e) {
+    const failure = replyFailure(e);
+    error(Object.assign(new Error(failure.message), { replyFailure: failure }));
+  } finally {
+    setChatBusy(false);
+    chat.requestUpdate();
+  }
 }
 async function renderPersistence() {
   const persisted = await navigator.storage?.persisted?.();
@@ -510,11 +551,13 @@ async function useSession(data) {
     if (event.type === "message_end") {
       agent.state.messages = [...agent.state.messages];
       chat.requestUpdate();
+      renderReplyRecovery();
     }
     if (event.type === "message_end" || event.type === "agent_end") return saveCurrentChat(event.type === "agent_end");
   });
   await saveCurrentChat();
   await storage.settings.set("chat.active", currentSession.id);
+  renderReplyRecovery();
 }
 async function loadSharedViewer() {
   if (!sharedLink || !keys.bundle || !credit.signer) return false;
@@ -538,6 +581,20 @@ async function initChat() {
   chat.enableAttachments = false;
   chat.enableModelSelector = false;
   chat.enableThinkingSelector = false;
+  const recoveryPanel = document.createElement("div");
+  recoveryPanel.id = "reply-recovery";
+  recoveryPanel.className = "reply-recovery";
+  recoveryPanel.hidden = true;
+  recoveryPanel.setAttribute("role", "status");
+  const message = document.createElement("p"), charge = document.createElement("p"), retry = document.createElement("button");
+  message.id = "reply-recovery-message";
+  charge.id = "reply-recovery-charge";
+  charge.className = "small muted";
+  retry.id = "retry-reply";
+  retry.textContent = "Retry";
+  retry.addEventListener("click", retryReply);
+  recoveryPanel.append(message, charge, retry);
+  $("chat-host").before(recoveryPanel);
   // The broker authenticates the wallet and holds the provider key in its CVM.
   chat.onApiKeyRequired = async () => true;
   chat.onBeforeSend = async () => {
@@ -559,7 +616,10 @@ async function initChat() {
   chat.sendMessage = async (...args) => {
     if (chatBusy) return;
     setChatBusy(true);
-    try { await sendMessage(...args); } catch (e) { error(e); }
+    try { await sendMessage(...args); } catch (e) {
+      const failure = replyFailure(e);
+      error(Object.assign(new Error(failure.message), { replyFailure: failure }));
+    }
     finally {
       setChatBusy(false);
       // The agent becomes idle after its final event listeners have settled.

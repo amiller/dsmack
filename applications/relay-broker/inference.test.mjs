@@ -398,9 +398,13 @@ test("browser disconnect still drains the encrypted provider stream for billing 
       },
     );
   const response = await f.send();
+  assert.equal(f.inference.status().inFlightStreams, 1);
   await response.body.cancel();
+  assert.equal(f.inference.status().inFlightStreams, 1, "disconnected browser still has a metered provider stream");
   finishSource();
   await stored;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.inference.status().inFlightStreams, 0);
   const result = await f.inference.usage(await f.signed("usage"));
   assert.equal(result.spentNanoUsd, "300");
   assert.equal(result.usedTokens, "12");
@@ -586,4 +590,34 @@ test('settled artifact cost exhausts its grant before another provider request',
   await response.text();await f.inference.usage(await f.signed('usage'));
   await assert.rejects(artifactPrepare(f), code('BUDGET_EXHAUSTED'));
   assert.equal(f.calls(), 1);
+});
+
+
+test("restart reconciles interrupted known billing ID exactly once without inventing token counts", async () => {
+  const f = fixture();
+  await f.credit();
+  await (await f.send()).text();
+  const state = structuredClone(f.saved());
+  const [id, request] = Object.entries(state.inferenceRequests)[0];
+  state.inferenceRequests[id] = { ...request, status: "streaming", usedTokens: null, streamCompleted: false };
+  const payments = new Payments({ cfg: {}, key: {}, state, quorum: {}, save: async () => {} });
+  const restarted = new Inference({ payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  await restarted.recover();
+  assert.equal(restarted.status().inFlightStreams, 0);
+  assert.equal(payments.state.inferenceRequests[id].interrupted, true);
+  f.cost("0");
+  await assert.rejects(restarted.usage(await f.signed("usage")), code("USAGE_PENDING"));
+  assert.equal(restarted.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "0");
+  f.cost("300");
+  const first = await restarted.usage(await f.signed("usage"));
+  assert.equal(first.spentNanoUsd, "300");
+  assert.deepEqual(first.lastModelCharge, { sessionId: request.sessionId, inferenceId: request.inferenceId, costNanoUsd: "300" });
+  assert.equal(first.reservedNanoUsd, "0");
+  assert.equal(first.usedTokens, "0");
+  assert.equal(first.unreportedTokenRequests, 1);
+  assert.equal(payments.state.inferenceRequests[id].usedTokens, null);
+  const second = await restarted.usage(await f.signed("usage"));
+  assert.equal(second.spentNanoUsd, "300");
+  assert.equal(f.costsCalls(), 2);
+  assert.equal(f.calls(), 1, "reconciliation never resends the interrupted model request");
 });

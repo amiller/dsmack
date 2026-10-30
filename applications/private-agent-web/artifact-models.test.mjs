@@ -7,6 +7,7 @@ import { resolve } from 'node:path';
 import { build } from 'esbuild';
 import { Wallet, SigningKey, verifyMessage } from 'ethers';
 import { ArtifactState } from './artifact-state.mjs';
+import { Agent } from '@earendil-works/pi-agent-core';
 
 const app = new URL('./', import.meta.url).pathname;
 await mkdir(app+'local-data', {recursive:true});
@@ -35,7 +36,7 @@ function decrypt(text, privateKey) {
   const data=Buffer.from(text,'hex'),nonce=data.subarray(65,77),ciphertext=data.subarray(77),decipher=createDecipheriv('aes-256-gcm',keyFor(privateKey,'0x'+data.subarray(0,65).toString('hex')),nonce);
   decipher.setAuthTag(ciphertext.subarray(-16));return Buffer.concat([decipher.update(ciphertext.subarray(0,-16)),decipher.final()]).toString('utf8');
 }
-async function fixture({remaining='250000000',pending=false,dispatchError=false,missingModelCost=false,failSaveAt=0,otherDeviceSettlement=false}={}) {
+async function fixture({remaining='250000000',pending=false,dispatchError=false,truncateFirst=false,missingModelCost=false,failSaveAt=0,otherDeviceSettlement=false}={}) {
   const wallet=Wallet.createRandom(),provider=Wallet.createRandom(),records=new Map(),dataKey=randomBytes(32).toString('base64url');
   let saves=0;
   const makeState=()=>new ArtifactState({dataKey,getRecord:async k=>records.get(k),saveRecord:async(k,v)=>{if(++saves===failSaveAt)throw new Error('disk save failed');records.set(k,structuredClone(v));}});
@@ -73,6 +74,11 @@ async function fixture({remaining='250000000',pending=false,dispatchError=false,
     }
     if(dispatchError)throw new Error('DISCONNECTED: provider result unknown');
     const content=encrypt('Isolated answer',body.headers['x-client-pub-key']);
+    if(truncateFirst&&calls.length===1){
+      const frame='data: '+JSON.stringify({model,choices:[{delta:{content}}]})+'\n\n';
+      const body=truncateFirst==='network'?new ReadableStream({start(c){c.enqueue(new TextEncoder().encode(frame));setTimeout(()=>c.error(new TypeError('network error')),0);}}):frame;
+      return new Response(body,{headers:{'content-type':'text/event-stream'}});
+    }
     return new Response('data: '+JSON.stringify({model,choices:[{delta:{content},finish_reason:'stop'}]})+'\n\ndata: '+JSON.stringify({choices:[],usage:{prompt_tokens:7,completion_tokens:5,total_tokens:12}})+'\n\ndata: [DONE]\n\n',{headers:{'content-type':'text/event-stream'}});
   };
   let chargedCalls=0;
@@ -163,9 +169,31 @@ test('transport abort after dispatch settles the persisted artifact cost',async(
   const f=await fixture();await f.models.grant(scope,'20000000');
   const api=async(...args)=>{const result=await f.api(...args);if(args[0]==='/inference/chat')throw new DOMException('transport aborted','AbortError');return result;};
   const interrupted=new ArtifactModels({...f.options,api});
-  await assert.rejects(interrupted.complete(scope,{messages:[{role:'user',content:'hello'}]}),/transport aborted/);
+  await assert.rejects(interrupted.complete(scope,{messages:[{role:'user',content:'hello'}]}),/Cannot reach the broker/);
   const b=(await f.makeState().read(scope)).budget;
   assert.equal(b.spentNanoUsd,'300000');assert.equal(b.reservedNanoUsd,'0');assert(!b.pending);
+});
+
+test('EOF and network-read failures keep partial Pi replies; retry sends one user turn with separate metered costs',async()=>{
+ for(const truncateFirst of [true,'network']){
+  const f=await fixture({truncateFirst});
+  const agent=new Agent({initialState:{model:{id:model},thinkingLevel:'off'},
+    getApiKey:()=>undefined,streamFn:brokerStream({...f.options,startedAt:Date.now(),error:()=>{}})});
+  await agent.prompt('private artifact question');
+  const partial=agent.state.messages.find(m=>m.role==='assistant');
+  assert.equal(partial.content[0].text,'Isolated answer');
+  assert.equal(partial.stopReason,'error');assert.equal(partial.failure.interrupted,true);
+  assert.match(partial.errorMessage,/Interrupted.*Connection lost mid-reply/);
+  assert.equal(partial.billing.costNanoUsd,'300000');assert.equal(partial.billing.settled,true);
+  await f.usage();
+  await agent.prompt([]);
+  assert.equal(agent.state.messages.filter(m=>m.role==='user').length,1);
+  assert.equal(agent.state.messages.filter(m=>m.role==='assistant').length,2);
+  assert.equal(agent.state.messages.at(-1).stopReason,'stop');
+  assert.equal(agent.state.messages.at(-1).billing.costNanoUsd,'300000');
+  assert.deepEqual(f.transcripts.map(t=>t.filter(m=>m.role==='user').length),[1,1]);
+  assert.equal(f.credit.chatCredit.modelSpentNanoUsd,'600000');
+ }
 });
 
 test('another device settlement refreshes budget without attributing its cost or token totals to this response',async()=>{

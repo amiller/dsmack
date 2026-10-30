@@ -4,13 +4,14 @@ import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { verifyMessage, Wallet, keccak256 } from "ethers";
 import { sealArtifact, sharedScope, viewerSessionId } from "./artifact-share.mjs";
-import { loader as artifactLoader } from "../private-agent-artifacts/server.ts";
+import { artifactTestServer } from "./artifact-test-server.mjs";
 const base = process.env.BASE_URL || "http://127.0.0.1:18731/private-agent/";
 const evidence = resolve(process.env.EVIDENCE || "local-data/chat-boundaries");
 const moduleName = process.env.PLAYWRIGHT_MODULE || "playwright";
 const { chromium } = await import(
   isAbsolute(moduleName) ? pathToFileURL(moduleName).href : moduleName
 );
+const tls = await artifactTestServer({mainRoot:resolve("dist")});
 const browser = process.env.PLAYWRIGHT_CDP_URL
   ? await chromium.connectOverCDP(process.env.PLAYWRIGHT_CDP_URL)
   : await chromium.launch({
@@ -18,7 +19,7 @@ const browser = process.env.PLAYWRIGHT_CDP_URL
     ...(process.env.CHROMIUM_PATH
       ? { executablePath: process.env.CHROMIUM_PATH }
       : {}),
-    args: ["--no-sandbox"],
+    args: ["--no-sandbox",...tls.args],
   });
 await mkdir(evidence, { recursive: true });
 const model = "deepseek-ai/DeepSeek-V4-Flash", modelKey = Wallet.createRandom();
@@ -227,10 +228,8 @@ try {
     await page.route(origin + "/**", async route => {
       const url = new URL(route.request().url());
       if (url.pathname.endsWith("config.json")) return route.fallback();
-      const response = await route.fetch({ url: new URL("a/" + url.pathname.replace(/^\/a\/?/, ""), base).href });
-      return route.fulfill({ response });
+      return route.continue();
     });
-    await page.route("https://artifacts.private-agent.dstack.soc1024.com/loader.html", route => route.fulfill({contentType:"text/html",body:artifactLoader}));
     await page.route("**/artifacts/share/" + sealed.cid, route => route.fulfill({ headers:{...publicHeaders,"access-control-allow-origin":origin}, body:JSON.stringify({cid:sealed.cid,ciphertext:sealed.ciphertext}) }));
     await page.goto(origin + "/a/#" + new URLSearchParams({cid:sealed.cid,k:sealed.key}));
     await page.waitForSelector("#chat");
@@ -492,5 +491,6 @@ try {
     JSON.stringify(report, null, 2),
   );
   await browser.close();
+  await tls.close();
 }
 if (!report.passed) process.exitCode = 1;

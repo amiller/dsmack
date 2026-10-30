@@ -140,6 +140,14 @@ func brokerClient(raw string) (*http.Client, error) {
 	return &http.Client{Timeout: 30 * time.Second, Transport: transport, CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}, nil
 }
 
+// Draining guests retain their relay circuits while their fixed paid binding expires.
+func renewAdmission(until time.Time, renew func() error) error {
+	if !time.Now().Before(until) {
+		return nil
+	}
+	return renew()
+}
+
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (serveErr error) {
 	if os.Geteuid() != 0 {
 		return fmt.Errorf("agent bootstrap requires root")
@@ -452,6 +460,8 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 		}
 	}
+	register := renew
+	renew = func() error { return renewAdmission(n.admissionUntil, register) }
 	// Paid runs expose their attested admission for the owner before registration.
 	// An unregistered run cannot receive a grant; retries permit owner admission.
 	if paid == nil {

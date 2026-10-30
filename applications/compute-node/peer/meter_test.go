@@ -64,7 +64,7 @@ func TestDrainCompletesInflightToolButRejectsNextTool(t *testing.T) {
 	cut := start.Add(10 * time.Second)
 	hard := start.Add(480 * time.Second)
 	meter := newAgentMeter(start, 3600)
-	meter.allow(300)
+	meter.allow(600)
 	meter.begin(json.RawMessage(`1`), start, cut)
 	deadline, reason := meter.deadline(cut, hard, cut, 5*time.Minute)
 	if deadline.Before(hard) || reason != "drain" {

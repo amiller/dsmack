@@ -9,7 +9,7 @@ await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
   plugins: [piPromptPlugin()],
-  entryPoints: { app: "app.mjs" },
+  entryPoints: { app: "app.mjs", "wallet-bootstrap": "wallet-bootstrap.mjs" },
   bundle: true,
   format: "esm",
   platform: "browser",

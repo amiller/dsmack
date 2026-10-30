@@ -76,7 +76,9 @@ approved measured compose and Apple enrollment. The guest's tools run as an
 unprivileged user within `/workspace`; the measured firewall and CONNECT proxy
 apply the guest's host allowlist to commands.
 
-Deploy the built page to the shared Deno project:
+The saved wallet renders before chat sync, broker checks and RPC calls. A first visit offers Start fresh or recovery; creating a wallet is explicit. After receiving credit or saving a chat, add a passkey or email on the original browser to return on another device.
+
+Deploy the built page to the existing shared Deno project, retaining its recovery configuration:
 
 ```sh
 python3 deploy.py --evidence /absolute/path/to/local-data/ui/deploy

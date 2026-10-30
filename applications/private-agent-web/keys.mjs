@@ -101,6 +101,7 @@ export class DeviceKeys {
     const { credentialId, key } = await evaluate();
     const record = await api("/sync/wrap/get", { credentialId });
     await this.import(await open(key, record.envelope, "dsmack/passkey/" + credentialId));
+    await store("continuity.imported", true);
     await store("continuity.passkey", credentialId);
     return this.bundle;
   }

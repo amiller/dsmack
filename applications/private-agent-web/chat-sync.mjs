@@ -112,7 +112,7 @@ export class ChatSync {
     }
     for(const id of ids) {
       const data=await this.storage.sessions.get(id),wallet=data?.dsmack?.wallet;
-      if(!data?.messages?.length||(wallet&&wallet.toLowerCase()!==this.wallet)) {
+      if(!data?.messages?.some(message=>message.role==="user")||(wallet&&wallet.toLowerCase()!==this.wallet)) {
         this.state.pending=this.state.pending.filter(pending=>pending!==id);await store(this.stateKey,this.state);continue;
       }
       await this.push(id);

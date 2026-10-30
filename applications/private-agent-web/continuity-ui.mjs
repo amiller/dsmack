@@ -6,7 +6,7 @@ import { createEmailGate } from "./email-gate-client.mjs";
 export function recoveryMessage(e) {
   const message = String(e?.message || "");
   if (e?.name === "NotAllowedError" || e?.name === "AbortError") return "That request was cancelled or timed out. Try again when you’re ready.";
-  if (e?.name === "NotSupportedError" || /PRF|does not support/i.test(message)) return "This browser or passkey cannot restore these keys. Use the QR link from your original device instead.";
+  if (e?.name === "NotSupportedError" || /does not support PRF|PRF.*(?:unavailable|unsupported)/i.test(message)) return "This browser or passkey cannot restore these keys. Use the QR link from your original device instead.";
   if (e?.name === "SecurityError" || /Open https:/i.test(message)) return "Open https://private-agent.dstack.soc1024.com to use your passkey, or link from your original device with a QR code.";
   if (e?.name === "InvalidStateError") return "That passkey is already registered. Try Recover with passkey, or choose a different passkey.";
   if (/attestation|measurement|quote|TCB|nonce|approved|policy|digest|event log|bound to/i.test(message)) return "We couldn’t verify the recovery service. Try again later, or link directly from your original device with a QR code.";
@@ -53,6 +53,7 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   };
   const imported = async (bundle) => {
     await keys.import(bundle);
+    await store("continuity.imported", true);
     status("Device linked. Loading your chats…");
   };
   const bind = (id, fn) => { $(id).onclick = async () => {

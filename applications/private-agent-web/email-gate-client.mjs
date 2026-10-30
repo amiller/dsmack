@@ -4,6 +4,22 @@ const hex=(value)=>Array.from(new Uint8Array(value),b=>b.toString(16).padStart(2
 const unhex=(value)=>{if(!/^(?:[0-9a-f]{2})*$/i.test(value))throw Error('Invalid attestation hex');return Uint8Array.from(value.match(/../g)||[],x=>parseInt(x,16));};
 const cat=(...parts)=>new Uint8Array(parts.flatMap(p=>Array.from(p)));
 const require=(ok,message)=>{if(!ok)throw Error(message);};
+export async function replayGateEvents(eventLog) {
+  let mr=new Uint8Array(48),ready=false;const boot={};
+  for(const event of eventLog) {
+    if(event.imr!==3)continue;
+    const eventType=new Uint8Array(4);new DataView(eventType.buffer).setUint32(0,event.event_type,true);
+    const preimage=cat(eventType,bytes(':'+event.event+':'),unhex(event.event_payload));
+    const digest=new Uint8Array(await crypto.subtle.digest('SHA-384',preimage));
+    require(!event.digest||hex(digest)===event.digest,'Email gate event digest differs');
+    mr=new Uint8Array(await crypto.subtle.digest('SHA-384',cat(mr,digest)));
+    if(!ready&&['app-id','compose-hash'].includes(event.event)) {
+      require(!boot[event.event],'Duplicate email gate boot identity');boot[event.event]=event.event_payload;
+    }
+    if(event.event==='system-ready')ready=true;
+  }
+  return {mr,ready,boot};
+}
 export async function verifyGateAttestation(attestation,nonce,policy) {
   require(policy?.appId&&policy?.composeHash&&policy?.mrtd&&policy?.rtmr?.length===3,'Email gate attestation policy is not configured');
   require(attestation.nonce===nonce,'Email gate returned a stale nonce');
@@ -14,18 +30,7 @@ export async function verifyGateAttestation(attestation,nonce,policy) {
   require(hex(report.reportData)===hex(await quoteBinding(nonce,attestation.publicKey)),'Email gate key or challenge is not bound to its quote');
   require(hex(report.mrTd)===policy.mrtd,'Email gate OS measurement differs');
   for(let i=0;i<3;i++)require(hex(report['rtMr'+i])===policy.rtmr[i],'Email gate boot measurement differs');
-  let mr=new Uint8Array(48),ready=false;const boot={};
-  for(const event of attestation.eventLog) {
-    if(event.imr!==3)continue;
-    const eventType=new Uint8Array(4);new DataView(eventType.buffer).setUint32(0,event.event_type,true);
-    const preimage=cat(eventType,bytes(':'+event.event+':'),unhex(event.event_payload));
-    require(hex(await crypto.subtle.digest('SHA-384',preimage))===event.digest,'Email gate event digest differs');
-    mr=new Uint8Array(await crypto.subtle.digest('SHA-384',cat(mr,unhex(event.digest))));
-    if(!ready&&['app-id','compose-hash'].includes(event.event)) {
-      require(!boot[event.event],'Duplicate email gate boot identity');boot[event.event]=event.event_payload;
-    }
-    if(event.event==='system-ready')ready=true;
-  }
+  const {mr,ready,boot}=await replayGateEvents(attestation.eventLog);
   require(hex(mr)===hex(report.rtMr3),'Email gate event log does not match its quote');
   require(ready&&boot['app-id']===policy.appId&&boot['compose-hash']===policy.composeHash,'Email gate app or compose is not approved');
   return {publicKey:attestation.publicKey,status:result.status};

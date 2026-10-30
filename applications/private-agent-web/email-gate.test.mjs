@@ -29,3 +29,13 @@ test('five incorrect guesses lock the challenge and email throttles repeated sen
 test('email enrollment cannot overwrite the existing recovery bundle',async()=>{
  const f=await fixture(),a=await ephemeral();assert.equal((await enroll(f,a)).status,200);assert.equal((await enroll(f,a)).status,409);
 });
+test('dstack quote logs with omitted digests replay their canonical measured events',async()=>{
+ const {replayGateEvents}=await import('./email-gate-client.mjs');
+ const {createHash}=await import('node:crypto');
+ const events=[{imr:3,event_type:134217729,event:'app-id',event_payload:'abcd',digest:''},{imr:3,event_type:134217729,event:'system-ready',event_payload:'',digest:''}];
+ let expected=Buffer.alloc(48);
+ for(const e of events){const type=Buffer.alloc(4);type.writeUInt32LE(e.event_type);const digest=createHash('sha384').update(type).update(':'+e.event+':').update(Buffer.from(e.event_payload,'hex')).digest();expected=createHash('sha384').update(expected).update(digest).digest();}
+ const result=await replayGateEvents(events);
+ assert.deepEqual(Buffer.from(result.mr),expected);assert.equal(result.ready,true);assert.equal(result.boot['app-id'],'abcd');
+ await assert.rejects(replayGateEvents([{...events[0],digest:'00'.repeat(48)}]),/digest differs/);
+});

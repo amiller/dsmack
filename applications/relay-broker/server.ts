@@ -183,7 +183,7 @@ export default async function handler(req: Request, ctx: Context) {
 
 export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
-  if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256);
+  if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||

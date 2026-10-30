@@ -202,7 +202,7 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if g.reserve(0, 100) {
+				if _, _, ok := g.reserve(0, 100, false); ok {
 					accepted.Add(1)
 				}
 			}()
@@ -216,7 +216,9 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 		p := policy()
 		p.Rules[0].RequestsPerMinute = 1
 		g := newGateway(p, log.New(io.Discard, "", 0))
-		if !g.reserve(0, 1) || g.reserve(0, 1) {
+		_, _, first := g.reserve(0, 1, false)
+		_, _, second := g.reserve(0, 1, false)
+		if !first || second {
 			t.Fatal("initial burst is one request")
 		}
 	})
@@ -255,6 +257,8 @@ func TestWebSocketTLSAndByteBudget(t *testing.T) {
 	p := policy()
 	p.Rules[0].WebSocketSeconds = 2
 	p.Rules[0].MaxRequestBytes = 512
+	p.Rules[0].UploadBytes = (2 << 20) + 8192
+	p.Rules[0].DownloadBytes = 4 << 20
 	g, _ := withFixture(t, p, "allowed.test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != "allowed.test" || r.TLS.ServerName != "allowed.test" {
 			t.Error("WebSocket authority changed")
@@ -291,7 +295,17 @@ func TestWebSocketTLSAndByteBudget(t *testing.T) {
 	if _, err = io.ReadFull(b, got); err != nil || string(got) != "Noise bytes" {
 		t.Fatalf("echo: %s %v", got, err)
 	}
-	c.Write(bytes.Repeat([]byte("x"), 1024))
+	payload := bytes.Repeat([]byte("x"), 2<<20)
+	sent := make(chan error, 1)
+	go func() { _, err := c.Write(payload); sent <- err }()
+	got = make([]byte, len(payload))
+	if _, err = io.ReadFull(b, got); err != nil || !bytes.Equal(got, payload) {
+		t.Fatalf("large opaque result: %v", err)
+	}
+	if err = <-sent; err != nil {
+		t.Fatal(err)
+	}
+	c.Write(bytes.Repeat([]byte("x"), 16<<10))
 	io.Copy(io.Discard, b)
 	c.Close()
 	deadline := time.Now().Add(time.Second)
@@ -299,8 +313,8 @@ func TestWebSocketTLSAndByteBudget(t *testing.T) {
 		g.mu.Lock()
 		up, down := g.usage[0].upload, g.usage[0].download
 		g.mu.Unlock()
-		if down < 1024 {
-			if up != 512 {
+		if down < p.Rules[0].DownloadBytes {
+			if up != p.Rules[0].UploadBytes {
 				t.Fatalf("upload cap = %d", up)
 			}
 			break

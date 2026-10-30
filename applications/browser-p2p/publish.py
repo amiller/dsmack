@@ -21,6 +21,7 @@ p.add_argument('--entries',type=Path)
 p.add_argument('--broker')
 p.add_argument('--operator-token',type=Path)
 p.add_argument('--publisher-address',help='Mac-local publisher address, checked before signing')
+p.add_argument('--rpc',help='explicit single RPC for Mac-local zero-value locator publications')
 p.add_argument('--registry-owner',help='Initial publisher when deploying a registry')
 a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=True)
 def publish_broker():
@@ -46,8 +47,21 @@ def publisher():
 if a.action=='broker':publish_broker();sys.exit()
 if not a.key:raise ValueError('--key required for Base Sepolia writes')
 account=publisher()
+if a.rpc and (a.action!='publish' or not a.publisher_address or not a.rpc.startswith('https://')):
+ raise ValueError('--rpc requires a Mac-local locator publication and an HTTPS RPC')
 class PublicationRPC(Quorum):
+ def __init__(self):
+  if a.rpc:
+   self.urls=(a.rpc,)
+   (a.evidence/'publication-rpc.json').write_text(json.dumps({'url':a.rpc,'chainId':CHAIN_ID}))
+  else:super().__init__()
+ def finalized(self):
+  if not a.rpc:return super().finalized()
+  if self.read('eth_chainId',[])!=hex(CHAIN_ID):raise ValueError('publisher RPC is not Base Sepolia')
+  header=self.read('eth_getBlockByNumber',['finalized',False])
+  return {k:header[k] for k in ('number','hash','timestamp')}
  def read(self,method,params):
+  if a.rpc:return call(a.rpc,method,params)
   if method!='eth_gasPrice':return super().read(method,params)
   # Fee suggestions are volatile estimates, not consensus state. Use the largest
   # successful public quote; send() still enforces its fee/reserve caps.

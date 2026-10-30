@@ -159,7 +159,13 @@ pool stops rotation and returns a failure even if the host driver exited zero.
 `mac-pool.py` starts the capped loopback WebSocket relay, its outbound broker
 backhaul, a Cloudflare quick tunnel, a two-host opaque CONNECT helper and the
 warm pool. It publishes the relay locator to the HTTP index and Base Sepolia
-with a publisher key generated and retained on the Mac. No service is installed.
+with a publisher key generated and retained on the Mac. Locator transactions
+use one explicit public RPC (`--publication-rpc`, default PublicNode), verify
+chain 84532 and retain the transaction fee, gas and balance caps. Their hints
+remain untrusted; payment and attestation quorum verification is unchanged.
+No RPC fallback or transaction resubmission is performed. The HTTP index saves
+signed, expiring hints in its project data directory, preserving them across
+page redeploys. No service is installed.
 
 ```sh
 VENV/bin/python applications/compute-node/mac-pool.py \
@@ -175,4 +181,6 @@ Stop with `kill -TERM LAUNCHER_PID`. It stops rotation, drains guests, preserves
 their evidence and retires their temporary disks, clears both discovery sources,
 and stops its relay, tunnel and helper. Restart with a fresh short state path.
 The relay retains eight reservation/four circuit caps and the default two-minute,
-128-KiB-per-direction circuit budget.
+8-MiB-per-direction circuit budget; a verified model transcript is about
+3 MB after encryption/hex framing. The guest WebSocket gateway retains a
+32-MiB cumulative budget per direction and refunds unused reservations.

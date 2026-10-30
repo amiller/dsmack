@@ -150,7 +150,7 @@ func (g *gateway) index(name string) int {
 	}
 	return -1
 }
-func (g *gateway) reserve(i int, up int64) bool {
+func (g *gateway) reserve(i int, up int64, stream bool) (int64, int64, bool) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	r := g.policy.Rules[i]
@@ -165,14 +165,23 @@ func (g *gateway) reserve(i int, up int64) bool {
 		}
 	}
 	u.last = now
-	if u.tokens < 1 || u.requests >= r.Requests || up > r.UploadBytes-u.upload || r.MaxResponseBytes > r.DownloadBytes-u.download {
-		return false
+	down := r.MaxResponseBytes
+	if stream {
+		// Opaque upgrades consume the remaining measured stream budgets, rather
+		// than the much smaller HTTP body/header limits. Reserve before hijacking.
+		up, down = r.UploadBytes-u.upload, r.DownloadBytes-u.download
+		if up < r.MaxRequestBytes || down < r.MaxResponseBytes {
+			return 0, 0, false
+		}
+	}
+	if u.tokens < 1 || u.requests >= r.Requests || up > r.UploadBytes-u.upload || down > r.DownloadBytes-u.download {
+		return 0, 0, false
 	}
 	u.tokens--
 	u.requests++
 	u.upload += up
-	u.download += r.MaxResponseBytes
-	return true
+	u.download += down
+	return up, down, true
 }
 func (g *gateway) refundUpload(i int, unused int64) {
 	g.mu.Lock()
@@ -180,10 +189,10 @@ func (g *gateway) refundUpload(i int, unused int64) {
 	g.usage[i].upload -= unused
 }
 
-func (g *gateway) refundDownload(i int, used int64) {
+func (g *gateway) refundDownload(i int, reserved, used int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
-	g.usage[i].download -= g.policy.Rules[i].MaxResponseBytes - used
+	g.usage[i].download -= reserved - used
 }
 
 // Application-byte accounting includes names/values, method, target, authority,
@@ -283,11 +292,8 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(413, "request_bytes")
 		return
 	}
-	reservedUp := up
-	if isWS {
-		reservedUp = rule.MaxRequestBytes
-	}
-	if !g.reserve(i, reservedUp) {
+	reservedUp, reservedDown, allowed := g.reserve(i, up, isWS)
+	if !allowed {
 		deny(429, "budget_or_rate")
 		return
 	}
@@ -296,7 +302,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// The transport derives SNI from target.Host. Workloads never supply TLS.
 	resp, err := g.client.RoundTrip(out)
 	if err != nil {
-		g.refundDownload(i, 0)
+		g.refundDownload(i, reservedDown, 0)
 		g.event(i, "deny", "upstream_tls_or_io", up, 0)
 		http.Error(w, "upstream_tls_or_io", 502)
 		return
@@ -305,15 +311,15 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	down := headerBytes(resp.Header)
 	if isWS && resp.StatusCode == 101 {
 		g.event(i, "allow", "websocket_tls", up, down)
-		extraUp, extraDown := g.websocket(w, r, resp, duration, rule.MaxRequestBytes-up, rule.MaxResponseBytes-down)
+		extraUp, extraDown := g.websocket(w, r, resp, duration, reservedUp-up, reservedDown-down)
 		up += extraUp
 		down += extraDown
-		g.refundDownload(i, down)
+		g.refundDownload(i, reservedDown, down)
 		g.event(i, "complete", "websocket_tls", up, down)
 		return
 	}
 	if resp.StatusCode == 101 || down > rule.MaxResponseBytes {
-		g.refundDownload(i, rule.MaxResponseBytes)
+		g.refundDownload(i, reservedDown, reservedDown)
 		g.event(i, "deny", "response_bytes_or_upgrade", up, rule.MaxResponseBytes)
 		http.Error(w, "response_bytes_or_upgrade", 502)
 		return
@@ -321,12 +327,12 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	response, err := io.ReadAll(io.LimitReader(resp.Body, rule.MaxResponseBytes-down+1))
 	down += int64(len(response))
 	if err != nil || down > rule.MaxResponseBytes {
-		g.refundDownload(i, rule.MaxResponseBytes)
+		g.refundDownload(i, reservedDown, reservedDown)
 		g.event(i, "deny", "response_bytes_or_io", up, rule.MaxResponseBytes)
 		http.Error(w, "response_bytes_or_io", 502)
 		return
 	}
-	g.refundDownload(i, down)
+	g.refundDownload(i, reservedDown, down)
 	// Redirects are returned, never followed. Strip control and network hints.
 	for _, k := range []string{"Content-Type", "Location", "Retry-After"} {
 		for _, v := range resp.Header.Values(k) {

@@ -99,6 +99,23 @@ test("four rotating slots retain their signed proofs and all ten full error bodi
   assert.deepEqual(saved.slots, body.slots); assert.deepEqual(saved.errors, body.errors);
 });
 
+test("signed optional regions accept whole-degree opt-in and reject precise or unsigned location", async () => {
+  const wallet = Wallet.createRandom(), now = 1793372500;
+  await link(wallet);
+  const region = { name: "Michigan, US", lat: 42, lon: -84 };
+  const send = value => fleet(post(value), escrow, undefined, () => now);
+  const heartbeat = await sign(wallet, { ...status(wallet, now), region });
+  const response = await send(heartbeat);
+  assert.equal(response.status, 200); assert.deepEqual((await response.json()).region, region);
+  assert.equal((await send({ ...heartbeat, region: { ...region, lat: 43 } })).status, 400);
+  for (const bad of [{ ...region, lat: 42.1 }, { ...region, lon: 181 }, { ...region, name: "" },
+    { ...region, ip: "private" }, null]) {
+    assert.equal((await send(await sign(wallet, { ...status(wallet, now + 1), region: bad }))).status, 400);
+  }
+  const optedOut = await send(await sign(wallet, status(wallet, now + 2)));
+  assert.equal(optedOut.status, 200); assert(!("region" in await optedOut.json()));
+});
+
 test("guest workload counters require the attested receipt key signature", async () => {
   const key = await signingKey("61".repeat(32)), now = 1793372400;
   const value = { relay_peer: "guest", updated_at: now, busy: true, jobs_served: 4, last_error: "worker deadline_exceeded" };

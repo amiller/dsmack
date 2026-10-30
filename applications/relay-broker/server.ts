@@ -3,6 +3,7 @@ import { Continuity } from "./continuity.mjs";
 import { Workspaces } from "./workspaces.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { fleet, readFleet } from "./fleet.mjs";
+import { networkMonitor } from "./network.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
@@ -125,7 +126,8 @@ async function load(ctx: Context) {
       catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; return null; }
     },
   });
-  return Object.assign(broker, { workspaces, continuity, artifactShares: new ArtifactShares({ continuity,
+  const network = await networkMonitor(ctx.dataDir + "/fleet.json");
+  return Object.assign(broker, { network, workspaces, continuity, artifactShares: new ArtifactShares({ continuity,
     remote: artifactStoreRemote({ url: cfg.artifactShares?.store, key: payments?.key }) }) });
 }
 
@@ -220,6 +222,7 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/network" || path==="/network/history")return await (await networkMonitor(ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined)).response(req);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
     (origin === new URL(req.url).origin ||

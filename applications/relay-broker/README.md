@@ -7,6 +7,18 @@ Agent sessions reserve guest seconds from the same wallet credit.
 
 Live: <https://pod.dstack.soc1024.com/relay-broker>.
 
+`GET /network` returns each ownership-linked Mac's signed, reported capacity:
+operator address, optional coarse region, chip/RAM, logical guest slots,
+ready/busy counts and last heartbeat. Network totals include Macs whose signed
+heartbeat and broker receipt are both less than 60 seconds old. Rotation can
+report multiple guests for one logical slot; each slot counts once and busy
+takes precedence over ready.
+
+`GET /network/history` returns minute samples of ready slots, busy slots, total
+slots and online Macs from an in-memory 24-hour ring buffer. It starts when the
+broker loads, samples independently of readers and is lost on broker restart.
+Both endpoints allow public CORS reads.
+
 ## Configure and run
 
 Start with `config.example.json`; set the RPC, App Attest registries and approved

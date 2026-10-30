@@ -99,6 +99,7 @@ async function backend(page, kind) {
       );
     }
     if (path === "/sync/head") return respond({head:null});
+    if (path === "/workspaces/head") return respond({head:null});
     if (path.startsWith("/sync/")) return respond({ error: {
       code: "SYNTHETIC_SYNC_UNAVAILABLE",
       message: "Encrypted sync is unavailable in this inference fixture.",

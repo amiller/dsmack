@@ -134,6 +134,22 @@ clears its discovery hints, and stops its relay, tunnel and helper. Each
 `run-*/evidence/` directory retains the guest evidence and reclaimed-space record.
 No launchd or systemd service is installed.
 
+### Encrypted workspace store
+
+Run the loopback store with the existing Kubo API and an eth-account environment:
+
+```sh
+python3 workspace-store.py --state /path/to/workspace-store \
+  --publisher MAC_PUBLISHER_ADDRESS --broker-signer BROKER_PAYMENT_ADDRESS
+cloudflared tunnel --no-autoupdate --url http://127.0.0.1:15093
+```
+
+Configure the resulting HTTPS URL under the broker's `workspaces.stores` entry
+for this publisher. The store accepts only broker-signed ciphertext operations,
+spools chunks to disk, checks the ciphertext hash, and pins the encrypted archive
+on IPFS. Reads use the local cache or fetch and verify the CID through Kubo.
+Unused snapshots and incomplete uploads expire after 30 days. Retention removes
+only this store's files and recursive pins it created.
 
 ## Encrypted artifact pins
 

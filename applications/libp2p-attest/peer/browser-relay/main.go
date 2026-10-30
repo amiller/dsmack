@@ -64,7 +64,7 @@ func main() {
 	r := relay.DefaultResources()
 	r.MaxReservations = 8
 	r.MaxCircuits = 4
-	r.Limit.Data = 128 << 20 // bounded allowance for a conversation's inline tool output
+	r.Limit.Data = 1 << 30 // bounded allowance for workspace restore and an encrypted save
 	r.Limit.Duration = 35 * time.Minute
 	service, err := relay.New(h, relay.WithResources(r), relay.WithACL(logACL{}))
 	if err != nil {

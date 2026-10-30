@@ -1,5 +1,6 @@
 import { ArtifactShares, artifactStoreRemote } from "./artifact-shares.mjs";
 import { Continuity } from "./continuity.mjs";
+import { Workspaces } from "./workspaces.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { fleet, readFleet } from "./fleet.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
@@ -101,6 +102,12 @@ async function load(ctx: Context) {
   let syncState;
   try { syncState = JSON.parse(await Deno.readTextFile(syncPath)); }
   catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
+  const workspacePath = ctx.dataDir + "/workspaces.json";
+  let workspaceState;
+  try { workspaceState = JSON.parse(await Deno.readTextFile(workspacePath)); }
+  catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; }
+  const workspaces = new Workspaces({ broker, cfg: cfg.workspaces,
+    state: workspaceState, save: (v: object) => atomicSave(workspacePath, v) });
   const continuity = new Continuity({
     cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
     anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
@@ -118,7 +125,7 @@ async function load(ctx: Context) {
       catch (e) { if (!(e instanceof Deno.errors.NotFound)) throw e; return null; }
     },
   });
-  return Object.assign(broker, { continuity, artifactShares: new ArtifactShares({ continuity,
+  return Object.assign(broker, { workspaces, continuity, artifactShares: new ArtifactShares({ continuity,
     remote: artifactStoreRemote({ url: cfg.artifactShares?.store, key: payments?.key }) }) });
 }
 
@@ -246,7 +253,11 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     if (req.method === "OPTIONS") {
       return finish(new Response(null, { status: 204 }));
     }
-    if ((path === "/artifacts/share" && req.method === "POST") ||
+    if (path.startsWith("/workspaces/") && req.method === "POST") {
+      const workspaces = (b as Broker & { workspaces?: Workspaces }).workspaces;
+      if (!workspaces || !b.payments) throw new InferenceError("WORKSPACE_STORE_UNAVAILABLE", "workspace storage is not configured", 503);
+      response = Response.json(await workspaces.call(path.slice("/workspaces/".length), await body(req, 1024 * 1024)));
+    } else if ((path === "/artifacts/share" && req.method === "POST") ||
       (path.startsWith("/artifacts/share/") && req.method === "GET")) {
       const shares = (b as Broker & { artifactShares?: ArtifactShares }).artifactShares;
       if (!shares) throw new InferenceError("ARTIFACT_STORE_UNAVAILABLE", "artifact store is not configured", 503);

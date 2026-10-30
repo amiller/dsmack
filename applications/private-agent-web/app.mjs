@@ -835,6 +835,7 @@ async function checkSync() {
   }
 }
 async function main() {
+  require(window.top === window.self, "Open the private agent in its own tab to use your wallet.");
   require(
     !/^\/(ipfs|ipns)\//.test(window.location.pathname),
     "Open this app through a CID or IPNS subdomain gateway. Shared path gateways cannot isolate your wallet from other sites.",

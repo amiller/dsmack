@@ -1,4 +1,6 @@
 // Placement is a speed/capacity hint. Browsers still verify the selected guest.
+/** @param {any[]} nodes @param {any[]} fleet @param {(node: any) => boolean} available
+ * @param {{now?: number, snapshotOwner?: string}} options */
 export function rankNodes(nodes, fleet, available, { now = Math.floor(Date.now() / 1000), snapshotOwner } = {}) {
   const placement = new Map();
   for (const mac of fleet) {

@@ -338,7 +338,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         const hash = url.searchParams.get("hash");
         const snapshotOwner = workspaceId && workspaceId.length <= 128 && Number.isSafeInteger(version) && version > 0 &&
           /^[0-9a-f]{64}$/.test(hash ?? "")
-          ? await b.workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
+          ? await (b as Broker & {workspaces?: {snapshotOwner?: (ref: {workspaceId: string; version: number; hash: string | null}) => Promise<string | undefined>}})
+            .workspaces?.snapshotOwner?.({ workspaceId, version, hash }) : undefined;
         const ranked = rankNodes(nodes, await readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now()),
           node => sessions.available(node), { now: b.now(), snapshotOwner });
         if (ranked.some(node => node.available)) response = Response.json(ranked);

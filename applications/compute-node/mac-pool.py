@@ -108,6 +108,41 @@ def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_s
     raise RuntimeError('broker transport discovery unavailable after ' + str(budget_seconds) + ' seconds')
 
 
+def transport_group_running(pgid):
+    # A leader can exit before its Kubo/tunnel descendants. Zombies have already
+    # closed their descriptors and cannot retain the IPFS repository lock.
+    rows = subprocess.check_output(['ps', '-axo', 'pgid=,stat='], text=True)
+    return any(int(group) == pgid and not state.startswith('Z')
+               for group, state in (row.split()[:2] for row in rows.splitlines() if row.strip()))
+
+
+def stop_transports(processes, grace_seconds=60):
+    """Stop only setsid transport groups spawned by this launcher, never VMs."""
+    groups = [proc.pid for proc in processes]
+    for proc in reversed(processes):
+        if proc.poll() is None:
+            proc.terminate()  # Let pin-mac cancel publication and stop its children.
+    deadline = time.monotonic() + grace_seconds
+    while any(transport_group_running(group) for group in groups) and time.monotonic() < deadline:
+        for proc in processes:
+            proc.poll()
+        time.sleep(.1)
+    for group in groups:
+        if transport_group_running(group):
+            try:
+                os.killpg(group, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    for proc in processes:
+        proc.wait(timeout=5)
+    deadline = time.monotonic() + 5
+    while any(transport_group_running(group) for group in groups) and time.monotonic() < deadline:
+        time.sleep(.1)
+    if any(transport_group_running(group) for group in groups):
+        raise RuntimeError('owned transport descendants still active; inspect exact process groups')
+    return groups
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
@@ -130,7 +165,7 @@ def main():
     while True:
         try:preflight(a.state,[]);break
         except MacOccupied:print('waiting for the active Mac lane',flush=True);time.sleep(10)
-    stopping=False;children=[];logs=[];pool=None;published=False;failure=None;published_entries=[]
+    stopping=False;children=[];transports=[];logs=[];pool=None;published=False;failure=None;published_entries=[]
     def stop(*_):
         nonlocal stopping
         stopping=True
@@ -138,10 +173,12 @@ def main():
             try:pool.send_signal(signal.SIGTERM)
             except ProcessLookupError:pass
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
-    def start(command,name):
+    def start(command,name,transport=True):
         log=(a.state/name).open('w');logs.append(log)
-        proc=subprocess.Popen([str(x) for x in command],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT)
-        children.append(proc);return proc
+        proc=subprocess.Popen([str(x) for x in command],stdin=subprocess.DEVNULL,stdout=log,stderr=subprocess.STDOUT,start_new_session=transport)
+        children.append(proc)
+        if transport:transports.append(proc)
+        return proc
     def ready(path,pattern,seconds):
         deadline=time.monotonic()+seconds
         while not stopping and time.monotonic()<deadline:
@@ -208,7 +245,7 @@ def main():
         published=True;republish(publish,hint,False);last_http=time.monotonic()
         last_chain_attempt=0;published_entries=[]
         if stopping:return
-        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log')
+        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log',transport=False)
         draining=False
         while pool.poll() is None:
             for proc in children:
@@ -239,12 +276,10 @@ def main():
                 publish_directory(publish,[],published_entries,pending_path.exists())
                 publish([],False)
         finally:
-            for proc in reversed(children):
-                if proc.poll() is None:proc.terminate()
-            for proc in children:
-                try:proc.wait(timeout=15)
-                except subprocess.TimeoutExpired:proc.kill();proc.wait()
+            groups=stop_transports(transports)
             for log in logs:log.close()
-            (a.state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),ownedChildrenStopped=all(c.poll() is not None for c in children),pids=[c.pid for c in children])))
+            (a.state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),
+                ownedChildrenStopped=all(c.poll() is not None for c in children),
+                ownedTransportGroupsStopped=groups,pids=[c.pid for c in children])))
 
 if __name__=='__main__':main()

@@ -48,9 +48,10 @@ function networkCause(error, budget = { nodes: 0 }, seen = new Set(), depth = 0)
   return detail;
 }
 export class ForwardError extends Error {
-  constructor(code, cause) {
+  constructor(code, cause, progress = []) {
     super(code, { cause }); this.code = code; this.stage = code; this.status = 502;
     this.detail = networkCause(cause);
+    if (progress.length) this.detail.progress = progress;
   }
 }
 
@@ -100,7 +101,7 @@ async function sendFrame(stream, value, limit, signal) {
   }
 }
 
-export async function createDenoForwarder({ privateKey, signingKey, logger, backhaulPeers = [] } = {}) {
+export async function createDenoForwarder({ privateKey, signingKey, logger, backhaulPeers = [], onProgress } = {}) {
   if (signingKey) {
     // Noise signs its protocol-prefixed static key; grants sign canonical JSON.
     // Keep the project identity stable across shared-worker promotions.
@@ -148,7 +149,9 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
         channels.set(id, channel); touch(id, 30000);
         socket.addEventListener("message", (event) => {
           if (!(event.data instanceof ArrayBuffer) || channel.bytes + event.data.byteLength > 4194304) { closeChannel(id); return; }
-          channel.queue.push(new Uint8Array(event.data)); channel.bytes += event.data.byteLength; channel.wake?.();
+          if (event.data.byteLength) {
+            channel.queue.push(new Uint8Array(event.data)); channel.bytes += event.data.byteLength; channel.wake?.();
+          }
         });
         socket.addEventListener("close", () => closeChannel(id), { once: true });
         socket.addEventListener("error", () => closeChannel(id), { once: true });
@@ -192,8 +195,15 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
           });
           if (!channels.has(id)) return error("backhaul_closed", 404);
           if (!channel.queue.length) return new Response(null, { status: 204 });
-          const first = channel.queue[0], raw = first.subarray(0, 65536);
-          if (first.length <= 65536) channel.queue.shift(); else channel.queue[0] = first.subarray(65536);
+          // WebSocket messages carry one TCP byte stream. Drain every queued
+          // message that fits so small muxer frames do not each cost a WAN poll.
+          const raw = new Uint8Array(Math.min(65536, channel.bytes));
+          let offset = 0;
+          while (offset < raw.length) {
+            const first = channel.queue[0], count = Math.min(first.length, raw.length - offset);
+            raw.set(first.subarray(0, count), offset); offset += count;
+            if (count === first.length) channel.queue.shift(); else channel.queue[0] = first.subarray(count);
+          }
           channel.bytes -= raw.length; touch(id);
           return new Response(raw, { headers: { "content-type": "application/octet-stream", "cache-control": "no-store" } });
         } finally { channel.receiving = false; }
@@ -205,23 +215,49 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
     async forward(endpoint, payload, { signal: requestedSignal } = {}) {
       if (endpoint !== "attestation") throw new Error("forward endpoint");
       const scope = operationScope(30000, requestedSignal), { signal } = scope;
+      const protocol = payload.challenge
+        ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
+      const started = performance.now(), progress = [];
+      const record = (event, stage) => {
+        if (progress.length >= 48) return;
+        const entry = { event: event.slice(0, 96), elapsedMs: Math.round((performance.now() - started) * 10) / 10,
+          ...(stage ? { stage } : {}) };
+        progress.push(entry);
+        // Event names/timing are public; never forward libp2p event.detail,
+        // which can contain connections, protocol messages or key objects.
+        onProgress?.({ endpoint, peer: payload.target.split("/p2p/").at(-1), ...entry });
+      };
+      const dialProgress = event => {
+        const stage = event.type.startsWith("circuit-relay:") ? "hop"
+          : event.type.startsWith("upgrader:encrypt-") ? "noise"
+          : event.type.startsWith("upgrader:multiplex-") ? "muxer"
+          : event.type.startsWith("connection:") &&
+            (event.detail?.protocols?.includes(protocol) || event.detail?.stream?.protocol === protocol) ? "application" : undefined;
+        record(event.type, stage);
+      };
       let stream;
       let phase = "node_unreachable";
       try {
-        const protocol = payload.challenge ? "/dsmack/payments-attest/1" : "/dsmack/attest/1";
+        record("forward:start");
         stream = await node.dialProtocol(multiaddr(payload.target), protocol,
-          { signal, runOnLimitedConnection: true });
+          { signal, runOnLimitedConnection: true, onProgress: dialProgress });
+        record("application:ready", "application");
+        // Agent turns may be quiet for longer than libp2p's default 120 seconds.
         stream.inactivityTimeout = 30000;
         const abort = () => stream.abort(signal.reason instanceof Error ? signal.reason : new Error("request aborted"));
         signal.addEventListener("abort", abort, { once: true });
         try {
           signal.throwIfAborted();
           phase = "node_attestation";
+          record("attestation:request", "attestation");
           if (payload.challenge) await sendFrame(stream, { challenge: payload.challenge }, CONTROL_LIMIT, signal);
-          return await new Reader(stream).registration();
+          const registration = await new Reader(stream).registration();
+          record("attestation:received", "attestation");
+          return registration;
         } finally { signal.removeEventListener("abort", abort); }
       } catch (cause) {
-        throw new ForwardError(phase, cause);
+        record("forward:failed");
+        throw new ForwardError(phase, cause, progress);
       }
       finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
     },

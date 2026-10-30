@@ -21,7 +21,9 @@ import {
 import { brokerStream, PRIVACY } from "./inference.mjs";
 import * as sandbox from "@sandbox";
 import approvedSandboxPolicy from "./sandbox-policy.json";
-import { GuestSession } from "./agent-tools.mjs";
+import { GuestSession, createGuestPeer } from "./agent-tools.mjs";
+import { discoverChainNodes } from "./chain-directory.mjs";
+import { fetchDirectAttestation } from "./direct-attestation.mjs";
 import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-prompt.mjs";
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
@@ -95,7 +97,9 @@ async function api(path, body, opts = {}) {
       e = JSON.parse(raw).error;
     } catch {}
     const code = typeof e === "object" ? e?.code : e;
-    const friendly = code === "starter_sandbox_used"
+    const friendly = path.startsWith("/sandbox/nodes/") && path.includes("/attestation") && response.status >= 500
+      ? `The broker could not fetch the guest's fresh attestation (HTTP ${response.status}). Directory: broker.`
+      : code === "starter_sandbox_used"
       ? "Your starter sandbox allowance has already been used by this wallet. Additional starter time is not available for this trial."
       : code === "diagnostic_node_not_live"
       ? "The selected sandbox retired before your job was reserved. No repository or task was sent."
@@ -518,13 +522,29 @@ function loadPolicy(raw) {
   $("node-status").textContent =
     "Approved sandbox policy included. A guest will be verified before tools execute.";
 }
-async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim } = {}) {
-  await credit.checkBroker(api);
+function showDirectory(path, brokerFailure, chainFailure) {
+  let label = $("directory-status");
+  if (!label) {
+    label = document.createElement("p");
+    label.id = "directory-status";
+    label.className = "small";
+    label.setAttribute("role", "status");
+    $("node-status").before(label);
+  }
+  label.dataset.path = path;
+  label.textContent = `Directory: ${path}` + (brokerFailure ? ` · ${brokerFailure}` : "") +
+    (chainFailure ? ` · Chain directory failed: ${chainFailure}` : "");
+}
+function directoryFailure(e) {
+  return "Broker guest directory unavailable" + (e.status ? ` (HTTP ${e.status})` : "") +
+    (e.message && !e.message.startsWith("Broker /nodes") ? `: ${e.message}` : ".");
+}
+async function discover({ peer: browserPeer, wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim } = {}) {
   require(policy, "The bundled sandbox policy could not load. Refresh the page before sending a job.");
   const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
   const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
     version: String(workspace.version), hash: workspace.hash }) : "";
-  let lastRefusal;
+  let lastRefusal, chainDirectory, brokerFailure;
   const mark = (stage, detail) => performance.mark("dsmack:" + stage, { detail });
   const pause = milliseconds => new Promise((resolve, reject) => {
     const aborted = () => { clearTimeout(timer); reject(signal.reason); };
@@ -536,22 +556,37 @@ async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 
     signal?.throwIfAborted();
     mark("discovery:start");
     let nodes;
-    try { nodes = await api("/nodes" + query, undefined, { signal }); }
-    catch (e) {
+    try {
+      nodes = await api("/nodes" + query, undefined, { signal });
+      await credit.checkBroker(api);
+      showDirectory("broker");
+    } catch (e) {
       mark("discovery:end", { error: e.code || e.message });
-      if (e.code !== "FLEET_BUSY") throw e;
-      const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 15));
-      $("node-status").textContent = `Busy, retry in ${retry} seconds.`;
-      if (!wait || Date.now() + retry * 1000 > deadline) throw e;
-      await pause(retry * 1000);
-      continue;
+      if (signal?.aborted) throw e;
+      if (e.code === "FLEET_BUSY") {
+        const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 15));
+        showDirectory("broker");
+        $("node-status").textContent = `Busy, retry in ${retry} seconds.`;
+        if (!wait || Date.now() + retry * 1000 > deadline) throw e;
+        await pause(retry * 1000);
+        continue;
+      }
+      brokerFailure = directoryFailure(e);
+      showDirectory("chain", brokerFailure);
+      try {
+        chainDirectory = await discoverChainNodes({ config: cfg, signal });
+        nodes = chainDirectory.nodes;
+      } catch (chainError) {
+        showDirectory("chain", brokerFailure, chainError.message);
+        throw new Error(`${brokerFailure} Directory: chain. Chain directory failed: ${chainError.message}`);
+      }
     }
     mark("discovery:end", { candidates: nodes.length });
     // Keep the broker's order. Placement hints never replace these local pins.
     const candidates = nodes.filter(entry => entry.kind === "compute" &&
       entry.available !== false && !exclude.has(entry.relay_peer) &&
-      entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
-      Number(entry.admit_until) * 1000 >= Date.now() + 30000);
+      (chainDirectory || (entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
+      Number(entry.admit_until) * 1000 >= Date.now() + 30000)));
     for (const selected of candidates) {
       signal?.throwIfAborted();
       $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
@@ -561,18 +596,29 @@ async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 
       if (claim) {
         try { release = await claim(selected); }
         catch (e) {
-          if (!["GUEST_BUSY", "NODE_NOT_LIVE"].includes(e.code)) throw e;
+          if (!["GUEST_BUSY", "NODE_NOT_LIVE"].includes(e.code)) {
+            const path = chainDirectory ? `${brokerFailure} Directory: chain.` : "Directory: broker.";
+            throw new Error(`${path} The broker could not reserve the discovered guest` +
+              (e.status ? ` (HTTP ${e.status}).` : `: ${e.message}`));
+          }
           exclude.add(peer);
           mark("grant:unavailable", { peer, error: e.code });
           continue;
         }
       }
       mark("attestation:start", { peer });
+      let direct;
       try {
-        const registration = await api("/sandbox/nodes/" + encodeURIComponent(peer) +
+        if (chainDirectory) {
+          require(browserPeer, "Direct guest attestation needs a browser peer connection.");
+          mark("attestation:direct", { peer, challenge });
+          direct = await fetchDirectAttestation({ peer: browserPeer, selected, challenge, policy, signal });
+        }
+        const registration = direct ? direct.registration : await api("/sandbox/nodes/" + encodeURIComponent(peer) +
           "/attestation?challenge=" + challenge, undefined, { signal });
         mark("attestation:response", { peer });
         require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
+        if (chainDirectory) await chainDirectory.verifyRegistration(registration);
         const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
         require(!registration.payments || registration.payments.challenge === challenge,
           "Node challenge mismatch. Stale attestation refused.");
@@ -583,6 +629,11 @@ async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 
         // The attestation endpoint omits scheduler hints; retain them for sealed
         // workspace placement without treating them as verified evidence.
         checked.placement = selected.scheduler;
+        if (direct) {
+          checked.chainTunnels = direct.entries;
+          checked.connection = direct.connection;
+          checked.directory = "chain";
+        }
         node = checked;
         $("node-status").textContent = "Node verified · Apple enrollment (" +
           (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
@@ -592,14 +643,18 @@ async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 
       } catch (e) {
         // No MCP stream or private data exists yet. Revoke this unused grant
         // before trying another guest so failed attestations cannot hold credit.
+        await direct?.connection.close().catch(() => {});
         await release?.();
         if (signal?.aborted) throw e;
         mark("attestation:refused", { peer, error: e.message });
         exclude.add(peer);
-        lastRefusal = new Error("Node attestation refused: " + e.message + ". No repository or task was sent.");
+        lastRefusal = new Error((chainDirectory ? `${brokerFailure} Directory: chain. Direct guest verification failed: ` :
+          "Guest verification through the broker failed: ") + e.message + ". No repository or task was sent.");
+        if (chainDirectory) throw lastRefusal;
       }
     }
     if (lastRefusal) throw lastRefusal;
+    if (chainDirectory) throw new Error(`${brokerFailure} Directory: chain. No live approved guest was found on chain.`);
     require(wait && Date.now() + 2000 <= deadline,
       "No approved guest is available right now. Please try again shortly.");
     $("node-status").textContent = "Waiting for an approved guest; retry in 2 seconds…";
@@ -754,7 +809,11 @@ async function main() {
   });
   action("reconcile", () => usage());
   action("refund", refund);
-  action("discover", discover);
+  action("discover", async () => {
+    const peer = await createGuestPeer();
+    try { await discover({ peer }); }
+    finally { await peer.stop(); }
+  });
   action("end-session", () => guest.end());
   action("sample", resetSample);
   action("download", async () => {

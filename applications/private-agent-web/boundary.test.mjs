@@ -205,6 +205,30 @@ async function run(name, kind, fn) {
   console.log(result.status + ": " + name);
 }
 try {
+  await run("directory-outages-preserve-broker-and-chain-errors", "valid", async (page, calls) => {
+    let brokerReads = 0;
+    const rpcReads = [];
+    await page.route("**/relay-broker/nodes*", route => {
+      brokerReads++;
+      return route.fulfill({ status: 500, headers: publicHeaders, body: "{}" });
+    });
+    for (const host of ["sepolia.base.org", "base-sepolia-rpc.publicnode.com"]) {
+      await page.route(`https://${host}/**`, route => {
+        rpcReads.push(host);
+        return route.fulfill({ status: 503, headers: publicHeaders, body: "{}" });
+      });
+    }
+    await page.locator("#discover").evaluate(button => { button.closest("details").open = true; });
+    await page.locator("#discover").click();
+    await alert(page, "Chain directory failed");
+    const shown = await page.locator("#directory-status").innerText();
+    assert.match(shown, /Directory: chain/);
+    assert.match(shown, /Broker guest directory unavailable.*500/);
+    assert.match(shown, /Chain directory failed.*503/);
+    assert.equal(brokerReads, 1, "Outage discovery must not silently retry the broker");
+    assert(new Set(rpcReads).size === 2, "Both chain providers are checked");
+    assert(!calls.some(r => r.path === "/agent/open" || r.path.includes("/attestation")));
+  });
   await run("first-visit-creates-wallet", "valid", async (page, calls) => {
     const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
     assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);

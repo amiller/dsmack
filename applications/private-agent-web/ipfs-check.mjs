@@ -46,6 +46,7 @@ const report = {
   chainTransactionsAttempted: 0,
   requests: [],
   responses: [],
+  responseErrors: [],
   requestFailures: [],
   corsErrors: [],
   pageErrors: [],
@@ -56,6 +57,7 @@ const address = (url) => {
   const u = new URL(url);
   return { origin: u.origin, path: u.pathname };
 };
+const responseReads = [];
 const allowedOrigins = new Set([pageUrl.origin, alternateUrl.origin]);
 await context.route("**/*", async (route) => {
   const request = route.request();
@@ -78,6 +80,10 @@ context.on("request", (request) => {
 });
 context.on("response", (response) => {
   const headers = response.headers();
+  if (response.status() >= 400 && new URL(response.url()).origin === "https://pod.dstack.soc1024.com") {
+    responseReads.push(response.text().then((body) => report.responseErrors.push({ ...address(response.url()), status: response.status(), body: clean(body.slice(0, 8192)) }),
+      (error) => report.responseErrors.push({ ...address(response.url()), status: response.status(), readError: clean(error.message) })));
+  }
   report.responses.push({
     ...address(response.url()),
     method: response.request().method(),
@@ -220,6 +226,7 @@ try {
   await page.screenshot({ path: resolve(evidence, "failure.png"), fullPage: true }).catch((e) => { report.screenshotError = clean(e.message); });
   process.exitCode = 1;
 } finally {
+  await Promise.all(responseReads);
   await writeFile(resolve(evidence, "ipfs-browser.json"), JSON.stringify(report, null, 2) + "\n");
   console.log(JSON.stringify({ status: report.status, wallet: report.wallet, origins: report.origins, chat: report.chat, sandbox: report.sandbox, error: report.error }));
   await context.close();

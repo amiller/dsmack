@@ -247,6 +247,9 @@ export class GuestSession {
     this.environment = JSON.parse(env.contents[0].text);
     this.client = client;
     performance.mark("dsmack:mcp:ready");
+    // A prior stay can finish sealing while this browser waits for admission.
+    // Read its final head before releasing a workspace key to the next guest.
+    await this.workspace.latest();
     const restored = await this.workspace.bind(client, verified.registration, this.lease);
     if (!restored) {
       for (const [path, content] of this.repository()) {
@@ -269,7 +272,9 @@ export class GuestSession {
     if (this.lease?.sessionId !== sessionId) return result;
     Object.assign(this.lease, { handoverAt: result.handoverAt, seconds: result.seconds, grant: result.grant });
     if (result.credit) this.credit.chatCredit = result.credit;
-    this.changed({ ...result, state: result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
+    const sealing = result.usageUnresolved || (result.active && (result.endRequested || result.stopReason ||
+      result.handoverAt * 1000 <= Date.now()));
+    this.changed({ ...result, state: sealing ? "sealing" : result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
     if (!result.active && !result.usageUnresolved) {
       clearInterval(this.poll);
       await this.client?.close(); this.client = null;

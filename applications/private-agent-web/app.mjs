@@ -619,7 +619,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
     if (signal?.aborted) aborted();
     else signal?.addEventListener("abort", aborted, { once: true });
   });
-  for (;;) {
+  discovery: for (;;) {
     signal?.throwIfAborted();
     mark("discovery:start");
     let nodes;
@@ -663,6 +663,13 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       if (claim) {
         try { release = await claim(selected); }
         catch (e) {
+          if (e.code === "SESSION_SAVING") {
+            const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 5));
+            $("node-status").textContent = `Saving workspace. Retry in ${retry} seconds.`;
+            if (!wait || Date.now() + retry * 1000 > deadline) throw e;
+            await pause(retry * 1000);
+            continue discovery;
+          }
           if (!["GUEST_BUSY", "NODE_NOT_LIVE"].includes(e.code)) {
             const path = chainDirectory ? `${brokerFailure} Directory: chain.` : "Directory: broker.";
             throw new Error(`${path} The broker could not reserve the discovered guest` +
@@ -758,7 +765,10 @@ function renderGuest(status) {
     held: "Guest held for this conversation: " + status.node?.relay_peer,
     "disconnected-held": "Guest disconnected. The next tool call resumes this conversation’s saved workspace.",
     handover: "Saving workspace and moving to the next guest…",
-    released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call restores this conversation’s saved workspace.",
+    sealing: "Saving workspace and releasing the guest…",
+    released: status.closedReason === "credit" ? "Credit used up. Add credit to continue with your saved workspace."
+      : status.closedReason === "idle" ? "Workspace saved. Guest released after five idle minutes."
+      : "Guest released. The next tool call restores this conversation’s saved workspace.",
     ending: "Ending session; waiting for the guest’s signed final usage…",
     disconnected: "Guest stream closed.",
   }[status.state] || status.state);

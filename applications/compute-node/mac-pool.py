@@ -9,6 +9,16 @@ from pool import preflight,MacOccupied,hardware,operator_config,measured_size
 ROOT=Path(__file__).resolve().parents[2]
 
 
+def republish(publish,hint,chain):
+    try:
+        publish([hint],chain)
+        return True
+    except (subprocess.CalledProcessError,subprocess.TimeoutExpired) as error:
+        print(json.dumps(dict(event='periodic-publication-failed',error=type(error).__name__,
+                              chain=chain,retrySeconds=60)),flush=True)
+        return False
+
+
 def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
@@ -109,8 +119,9 @@ def main():
             now=time.monotonic()
             if now-last_http>=60:
                 hint['expiresAt']=int(time.time())+3300
-                chain=now-last_chain>=1200;publish([hint],chain);last_http=now
-                if chain:last_chain=now
+                chain=now-last_chain>=1200
+                updated=republish(publish,hint,chain);last_http=time.monotonic()
+                if updated and chain:last_chain=last_http
             time.sleep(2)
         if pool.returncode:raise RuntimeError('warm pool failed; inspect pool.log')
         if failure:raise RuntimeError(failure)

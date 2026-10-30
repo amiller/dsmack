@@ -28,7 +28,8 @@ conversation; the Apps button reopens the panel.
 
 Apps receive a frozen `window.dsmack` SDK. Call `await dsmack.ready()` and check
 `dsmack.capabilities.has(method)` before using `storage.get/put/list`,
-`agent.complete`, `credit.balance` or `diagnostics.log`. Storage is encrypted
+`agent.complete`, `credit.balance` or `diagnostics.log`. Storage values have a
+512 KiB UTF-8 quota per app and are encrypted
 under a key derived for the conversation and HTML filename, or the ciphertext
 CID when viewing a shared app. The viewer grants
 each app a model budget once in the host bar, starting at $0.02; the bar shows

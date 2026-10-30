@@ -97,7 +97,7 @@ export class ArtifactBridge {
           if (message.method === "storage.put") {
             let serialized;
             try { serialized = JSON.stringify(params.value); } catch { fail("INVALID_ARGS", "Storage value must be JSON."); }
-            if (serialized === undefined || serialized.length > 256 * 1024) fail("INVALID_ARGS", "Storage value must be JSON below 256 KiB.");
+            if (serialized === undefined || new TextEncoder().encode(serialized).length > 256 * 1024) fail("INVALID_ARGS", "Storage value must be JSON below 256 KiB.");
             const value = JSON.parse(serialized);
             await this.state.put(this.scope, params.key, value); result = value;
           }

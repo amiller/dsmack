@@ -1,19 +1,20 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { Wallet } from "../payments/schema.mjs";
+import { FetchRequest, JsonRpcProvider, Wallet } from "../payments/schema.mjs";
 import { canonical, signingKey } from "./grants.mjs";
-import { Continuity, cidFor, decode, headDigest } from "./continuity.mjs";
+import { Continuity, cidFor, decode, headDigest, anchorReceipt } from "./continuity.mjs";
 const encode = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 async function fixture() {
   const wallet=Wallet.createRandom(), stranger=Wallet.createRandom(),key=await signingKey("11".repeat(32));
   const pins=new Map(),chainState=new Map();let saved;
   const chain={
     async heads(wallet){return chainState.get(wallet)??{counter:0n,digest:"0x"+"00".repeat(32)};},
-    async commit(wallet,previous,digest){const head=await this.heads(wallet);assert.equal(Number(head.counter),previous);chainState.set(wallet,{counter:BigInt(previous+1),digest});return {hash:"0x"+"22".repeat(32),wait:async()=>({status:1})};},
+    async commit(wallet,previous,digest){const head=await this.heads(wallet);assert.equal(Number(head.counter),previous);chainState.set(wallet,{counter:BigInt(previous+1),digest});return {hash:"0x"+"22".repeat(32)};},
   };
-  const broker=new Continuity({cfg:{anchor:"0x"+"33".repeat(20)},key,anchorKey:{},chain,save:async s=>saved=structuredClone(s),put:async(k,v)=>pins.set(k,v),get:async k=>pins.get(k)});
+  let receipt=async()=>({status:1});
+  const broker=new Continuity({receipt:(hash)=>receipt(hash),cfg:{anchor:"0x"+"33".repeat(20)},key,anchorKey:{},chain,save:async s=>saved=structuredClone(s),put:async(k,v)=>pins.set(k,v),get:async k=>pins.get(k)});
   async function request(action,fields={},who=wallet){const r={action:"sync-"+action.replaceAll("/","-"),wallet:who.address,nonce:crypto.randomUUID().replaceAll("-",""),issuedAt:Math.floor(Date.now()/1000),...fields};r.sig=await who.signMessage(canonical(r));return r;}
-  return {wallet,stranger,key,broker,chain,chainState,pins,request,get saved(){return saved;}};
+  return {wallet,stranger,key,broker,chain,chainState,pins,request,setReceipt:(fn)=>{receipt=fn;},get saved(){return saved;}};
 }
 test("ciphertext pins verify CIDs, signatures prevent another wallet's commits, and head CAS prevents lost writes",async()=>{
  const f=await fixture(),ciphertext=encode(crypto.getRandomValues(new Uint8Array(64))),blob=await f.broker.call("blob",await f.request("blob",{ciphertext}));
@@ -38,10 +39,27 @@ test("on-chain state detects restored old broker heads and wrap writes require c
 });
 test("head reads wait for a pending anchor transaction instead of observing its unmined candidate",async()=>{
  const f=await fixture(),ciphertext=encode(crypto.getRandomValues(new Uint8Array(64))),blob=await f.broker.call("blob",await f.request("blob",{ciphertext}));
- let release,started;const mining=new Promise(r=>release=r),waiting=new Promise(r=>started=r),original=f.chain.commit.bind(f.chain);
- f.chain.commit=async(...args)=>{const tx=await original(...args);return {...tx,wait:async()=>{started();await mining;return {status:1};}};};
+ let release,started;const mining=new Promise(r=>release=r),waiting=new Promise(r=>started=r);
+ f.setReceipt(async()=>{started();await mining;return {status:1};});
  const committed=f.broker.call("commit",await f.request("commit",{previous:0,cid:blob.cid}));await waiting;
  let observed=false;const read=f.broker.call("head",await f.request("head")).then(r=>{observed=true;return r;});
  await new Promise(r=>setTimeout(r,10));assert.equal(observed,false);
  release();await committed;assert.equal((await read).head.counter,1);
+});
+
+test("anchor receipt polling awaits rate-limit recovery without block subscriptions and reports exhausted RPC errors", async()=>{
+ const hash="0x"+"55".repeat(32),calls=[],delays=[];let attempt=0;
+ const server=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},async request=>{
+   const r=await request.json();calls.push(r.method);assert.deepEqual(r.params,[hash]);attempt++;
+   return Response.json(attempt===1?{jsonrpc:"2.0",id:r.id,error:{code:-32007,message:"25/second request limit reached"}}:{jsonrpc:"2.0",id:r.id,result:attempt===2?null:{transactionHash:hash,status:"0x1"}});
+ });
+ const provider=new JsonRpcProvider(new FetchRequest("http://127.0.0.1:"+server.addr.port),84532,{staticNetwork:true,cacheTimeout:-1,batchMaxCount:1});
+ try {
+   const receipt=await anchorReceipt(provider,hash,{sleep:async ms=>delays.push(ms)});
+   assert.equal(receipt.status,"0x1");assert.deepEqual(calls,["eth_getTransactionReceipt","eth_getTransactionReceipt","eth_getTransactionReceipt"]);assert.deepEqual(delays,[2000,4000]);
+   assert.equal(await provider.listenerCount("block"),0);assert.equal(await provider.listenerCount(hash),0);
+ } finally { provider.destroy();await server.shutdown(); }
+ await assert.rejects(anchorReceipt({send:async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});}},hash,{attempts:2,sleep:async()=>{}}),error=>error.status===503&&error.message.includes("25/second request limit reached"));
+ const f=await fixture();f.chain.heads=async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});};
+ await assert.rejects(f.broker.call("head",await f.request("head")),error=>error.status===503&&error.message.includes("25/second request limit reached"));
 });

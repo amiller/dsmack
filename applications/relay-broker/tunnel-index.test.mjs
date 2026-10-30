@@ -46,3 +46,20 @@ test('a relay bootstrap hint needs no guest identity; peer browser discovery doe
  const original=globalThis.fetch,events=[];globalThis.fetch=async()=>Response.json([hint])
  try{const found=await discover({broker:'https://index.test',rpcs:[]},v=>events.push(v),()=>assert.fail('relay-only hint was dialed as guest'));assert.deepEqual(found,[]);assert(events.some(e=>e.status==='relay-only'))}finally{globalThis.fetch=original}
 })
+
+test('tunnel hints survive a handler reload and keep their expiry',async()=>{
+ const dir=await Deno.makeTempDir(),path=dir+'/tunnels.json';
+ try{
+  const {Wallet}=await import('../payments/schema.mjs'),wallet=Wallet.createRandom(),hash='';
+  const entry={url:'wss://durable.trycloudflare.com/',relayPeer:'12D3KooW'+'a'.repeat(44),expiresAt:Math.floor(Date.now()/1000)+600};
+  const unsigned={entries:[entry],expiresAt:entry.expiresAt,publisher:wallet.address.toLowerCase()};
+  const canonical=JSON.stringify(unsigned,(_,x)=>x&&typeof x==='object'&&!Array.isArray(x)?Object.fromEntries(Object.entries(x).sort(([a],[b])=>a.localeCompare(b))):x);
+  const signature=await wallet.signMessage('dsmack-tunnels/1\n'+canonical);
+  const post=new Request('https://index.test/tunnels',{method:'POST',body:JSON.stringify({...unsigned,signature})});
+  assert.equal((await tunnelIndex(post,hash,path)).status,200);
+  const reloaded=await import('./tunnel-index.mjs?reload='+Date.now());
+  assert.deepEqual(await (await reloaded.tunnelIndex(new Request('https://index.test/tunnels'),hash,path)).json(),[entry]);
+  const state=JSON.parse(await Deno.readTextFile(path));state.publishers[0][1].entries[0].expiresAt=1;await Deno.writeTextFile(path,JSON.stringify(state));
+  assert.deepEqual(await (await reloaded.tunnelIndex(new Request('https://index.test/tunnels'),hash,path)).json(),[]);
+ }finally{await Deno.remove(dir,{recursive:true})}
+})

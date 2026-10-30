@@ -163,7 +163,9 @@ with a publisher key generated and retained on the Mac. Locator transactions
 use one explicit public RPC (`--publication-rpc`, default PublicNode), verify
 chain 84532 and retain the transaction fee, gas and balance caps. Their hints
 remain untrusted; payment and attestation quorum verification is unchanged.
-No RPC fallback or transaction resubmission is performed. No service is installed.
+No RPC fallback or transaction resubmission is performed. The HTTP index saves
+signed, expiring hints in its project data directory, preserving them across
+page redeploys. No service is installed.
 
 ```sh
 VENV/bin/python applications/compute-node/mac-pool.py \

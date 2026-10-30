@@ -40,7 +40,9 @@ export async function* sse(body) {
 export function brokerStream(
   { credit, api, cfg, quote, evidence, usage, error },
 ) {
+  let conversationStarted;
   return (model, context, options = {}) => {
+    conversationStarted ??= new Date();
     const stream = new AssistantMessageEventStream();
     const answer = {
       role: "assistant",
@@ -90,9 +92,6 @@ export function brokerStream(
               : m.content.filter((c) => c.type === "text").map((c) => c.text)
                 .join("\n"),
           }));
-        if (context.systemPrompt) {
-          messages.unshift({ role: "system", content: context.systemPrompt });
-        }
         const started = Date.now();
         const attestationNonce = Array.from(
           crypto.getRandomValues(new Uint8Array(32)),
@@ -115,6 +114,19 @@ export function brokerStream(
           "Provider preparation has no session ID.",
         );
         evidence(checked);
+        const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+        const date = new Intl.DateTimeFormat(undefined, {
+          dateStyle: "full",
+          timeZone,
+        }).format(conversationStarted);
+        messages.unshift({
+          role: "system",
+          content: context.systemPrompt + "\n\n" + [
+            `Model: ${checked.model}`,
+            "Provider: NEAR AI Cloud (TEE)",
+            `Conversation started: ${date} (${timeZone})`,
+          ].join("\n"),
+        });
         const remaining = BigInt(session.remainingNanoUsd);
         const rate = BigInt(q.maxNanoUsdPerToken);
         const reservation = (body) => BigInt(
@@ -129,7 +141,7 @@ export function brokerStream(
               method: "POST",
               headers: { "content-type": "application/json" },
               body: JSON.stringify({
-                model: model.id,
+                model: checked.model,
                 messages,
                 max_tokens: maxTokens,
                 stream: true,

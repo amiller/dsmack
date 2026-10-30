@@ -74,5 +74,76 @@ class DstackAppCompose(unittest.TestCase):
         self.assertEqual(rendered["services"]["worker"]["image"], "127.0.0.1:5005/acme/worker@sha256:" + H("2"))
 
 
+class AgentSandboxProfile(unittest.TestCase):
+    def setUp(self):
+        doc = json.loads(COMPOSE)
+        doc["services"]["worker"].update({
+            "security_profile": "agent-sandbox-v1",
+            "volumes": ["/var/run/dstack.sock:/var/run/dstack.sock:ro"],
+        })
+        manifest, summary = validate_manifest_bytes(
+            app_compose(docker_compose_file=json.dumps(doc)))
+        self.lowered = lower(manifest, summary["manifest_sha256"],
+                             daemon_endpoint="unix:///run/d.sock", run_id="r" * 32,
+                             workspace_host_dir="/w")
+        self.rendered = json.loads(render_compose_file(manifest, self.lowered))
+        self.service = self.rendered["services"]["worker"]
+
+    def validate(self):
+        from types import SimpleNamespace
+        from dsmack_compose_runner.lifecycle import parser_validate
+        control = SimpleNamespace(project_dir="/ctl", control_dir="/ctl",
+                                  run=lambda *a, **kw: (0, json.dumps(self.rendered).encode(), b""))
+        return parser_validate(control, self.lowered, self.lowered["project_name"])
+
+    def test_agent_bootstrap_has_only_required_caps_and_private_socket(self):
+        # Root bootstraps the key/socket owner, then Go starts Node as uid 1000.
+        self.assertEqual(self.service["user"], "0:0")
+        self.assertIs(self.service["read_only"], True)
+        self.assertEqual(self.service["cap_drop"], ["ALL"])
+        self.assertEqual(set(self.service["cap_add"]),
+                         {"CHOWN", "FOWNER", "DAC_OVERRIDE", "SETUID", "SETGID", "KILL"})
+        self.assertEqual(self.service["tmpfs"],
+                         ["/workspace:rw,nosuid,nodev,size=268435456,uid=1000,gid=1000,mode=0700"])
+        socket = next(v for v in self.service["volumes"] if v["target"] == "/root/dstack.sock")
+        self.assertEqual(socket["source"], "/run/dsmack-agent/worker.sock")
+        self.assertIs(socket["read_only"], True)
+        self.assertFalse(any(v["target"] == "/var/run/dstack.sock" for v in self.service["volumes"]))
+        # Compose normalizes the option separator and byte limits to strings.
+        self.service["security_opt"] = ["no-new-privileges=true"]
+        for key in ("shm_size", "pids_limit", "mem_limit"):
+            self.service[key] = str(self.service[key])
+        self.assertEqual(self.validate(), {"services": ["worker"]})
+
+    def test_parser_refuses_privileged_agent(self):
+        from dsmack_compose_runner.errors import RunnerError
+        self.service["privileged"] = True
+        with self.assertRaises(RunnerError) as failure:
+            self.validate()
+        self.assertEqual(failure.exception.code, "config-privileged")
+
+    def test_parser_refuses_changed_bootstrap_user(self):
+        from dsmack_compose_runner.errors import RunnerError
+        self.service["user"] = "0:1000"
+        with self.assertRaises(RunnerError) as failure:
+            self.validate()
+        self.assertEqual(failure.exception.code, "config-user-drift")
+
+    def test_parser_refuses_exposing_attestation_socket_to_tool_user(self):
+        from dsmack_compose_runner.errors import RunnerError
+        socket = next(v for v in self.service["volumes"] if v["target"] == "/root/dstack.sock")
+        socket["target"] = "/var/run/dstack.sock"
+        with self.assertRaises(RunnerError) as failure:
+            self.validate()
+        self.assertEqual(failure.exception.code, "config-browser-preset-drift")
+
+    def test_parser_refuses_network_admin_capability(self):
+        from dsmack_compose_runner.errors import RunnerError
+        self.service["cap_add"].append("NET_ADMIN")
+        with self.assertRaises(RunnerError) as failure:
+            self.validate()
+        self.assertEqual(failure.exception.code, "config-browser-preset-drift")
+
+
 if __name__ == "__main__":
     unittest.main()

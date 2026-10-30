@@ -1,119 +1,53 @@
-# Compute jobs over libp2p
+# Attested Pi tools over MCP
 
-Protocol `/dsmack/job/1` uses a Noise-authenticated libp2p stream through a circuit
-relay. Every message is a four-byte unsigned big-endian byte length followed by
-UTF-8 JSON. Control frames are at most 4096 bytes; bundle/result frames at most
-48 MiB. JSON used for hashes or signatures has recursively sorted keys, no
-whitespace, literal UTF-8, and integer numbers. Hex is lowercase without `0x`.
+The browser runs Pi's agent loop and sends model requests encrypted to the NEAR
+model TEE. It exposes exactly Pi's `bash`, `read`, `write`, and `edit` tools.
+The guest runs Pi 1.4.0 tool factories using local filesystem/process operations.
 
-## Discover and verify before releasing inputs
+## Establish the connection
 
-`GET /nodes` on the broker lists compute registrations. For compatibility with
-relay grants, their address fields are `relay_peer` and `relay_maddr`; `kind` is
-`compute`. A node returns the same registration JSON on `/dsmack/attest/1`
-(unframed JSON, EOF terminated). Fields: `kind`, `relay_peer`, `relay_maddr`,
-`secret_key` (P-256 x||y, 64-byte hex), `receipt_key` (Ed25519, 32-byte hex),
-`attestation` (hex VersionedAttestation), `manifest_sha256`, `os_image_hash`,
-`cdhash`. Clients verify the Apple assertion, enrolled key, approved build,
-canary burns, expected compose/image/model, caller `node`, and report_data:
+The browser selects a node from `/nodes` and verifies its App Attest proof,
+measured compose and image, and bound libp2p PeerId and receipt key using the
+included policy. `/sandbox/nodes/PEER/attestation` supplies the node evidence.
+It then signs `/agent/open` with its wallet, naming the conversation, guest,
+and browser's Noise PeerId. The broker reserves guest seconds from that wallet's
+existing chat-credit account and issues its existing signed seconds grant.
 
-`SHA256(UTF8("dsmack-compute-node/1") || PeerId_multihash_bytes || secret_key_bytes || receipt_key_bytes) || zero[32]`.
+The browser dials the attested guest through the published Mac WebSocket circuit
+relay and checks the connection's remote PeerId. It opens
+`/dsmack/agent-mcp/1.0.0` and sends the existing admission control object
+`{job_id: grant.grant_id, grant}` as a four-byte big-endian length and UTF-8 JSON.
+The guest checks the broker signature, target, Noise owner, expiry and exclusive
+claim, and returns a similarly framed `{status:"ready"}` or refusal. This
+admission exchange establishes the authenticated transport.
 
-Broker discovery adds verification metadata in `attestation` and keeps the raw
-assertion hex in `proof`. The node stream uses `attestation` for that raw hex.
+## MCP messages
 
-The node creates all three keys at boot. Never accept the broker's verification
-label as a substitute for client verification.
+After ready, the stream carries exclusively newline-delimited UTF-8 JSON-RPC,
+with no length prefixes. Both endpoints use the official TypeScript MCP SDK's
+split packages 2.4.0, pinned to protocol 2026-07-28. Its discovery, per-request
+version/capabilities metadata, progress notifications and cancellation apply.
+The Go daemon only bridges these bytes to the measured Node Unix socket.
 
-## Signed grant request
+`tools/list` returns the factory schemas and descriptions. `tools/call` executes
+those tools; bash progress uses `notifications/progress`. Errors appear in the
+MCP result and Pi conversation. File paths and symlinks are workspace confined;
+commands run as uid 1000 in a read-only container with a writable `/workspace`.
+The `agent-sandbox-v1` base-runtime profile keeps the coordinator's attestation
+socket under `/root` and restricts bootstrap capabilities. The measured firewall
+and CONNECT proxy enforce outbound network policy.
 
-`POST /grant` takes `{client_peer, relay_peer, unit, amount, nonce, sig}`.
-`unit` is `seconds` for compute, `bytes` for a relay (default `bytes`). `nonce`
-is 16 random bytes in hex. `sig` is the client's libp2p Ed25519 signature over
-canonical `{amount,client_peer,nonce,relay_peer,unit}`. The inline Ed25519 key in
-the client PeerId authenticates it. A reused nonce is refused. Byte clients may
-use `bytes` in place of `amount`, but sign the normalized `amount` object.
+`resources/read` exposes `dsmack://environment` for actual runtime facts and
+`dsmack://workspace/patch` for a binary Git diff. Importing a repository uses the
+same write/bash tools and commits a baseline before the first model tool call.
 
-A grant is canonical `{client_peer,expires_at,grant_id,relay_peer,seconds,unit,v,sig}`
-for compute; a relay has `bytes` in place of `seconds`. `v=1`; `grant_id` is
-16-byte hex; `sig` signs the object without `sig` with the pinned broker
-Ed25519 key. The budget and expiry apply across jobs using that grant.
+## Meter and release
 
-## Browser forwarding
-
-`GET /sandbox/nodes/PEER/attestation?challenge=HEX` on the broker fetches a live
-registration over libp2p. For paid nodes, `challenge` is a fresh browser-generated
-32-byte hex value and the broker uses `/dsmack/payments-attest/1`; the node binds
-that challenge into its attested payment report. The browser verifies the proof
-and the expected challenge before sealing inputs.
-
-`POST /sandbox/jobs` takes
-`{node_peer,job_id,grant,sealed,client_peer,signature}`. `sealed` is the secret-box
-`{epk,iv,ct}` envelope described below. The broker selects the registered node
-address, forwards the public admission and encrypted envelope, and returns the
-node's sealed result synchronously. It stores neither jobs nor results. A
-registration's optional `admit_until` Unix timestamp excludes draining nodes
-from new grants and forwarding while their current jobs finish.
-
-The forwarding transport has its own libp2p identity. The browser authorizes
-its job with an Ed25519 signature over canonical
-`{bundle_sha256,client_peer,grant_sha256,job_id,node_peer}`. Hashes are lowercase
-SHA-256 hex of canonical `sealed` and canonical `grant`, including the grant's
-signature. `client_peer` must contain the inline Ed25519 public key that verifies
-this signature. The broker sends control
-`{job_id,grant,client_peer,signature,bundle_sha256}`. The node uses that verified
-buyer identity for grant checks and receipts, independently of the transport's
-Noise identity, and checks the encrypted envelope's hash after receiving it.
-The existing job-ID replay rule applies to forwarded and direct jobs alike.
-
-The broker runs the libp2p forwarding transport inside its CVM. The HTTP
-endpoints return `{error:CODE}` for failures. A missing live node is HTTP 404
-`node_not_live`; a transport failure is 502
-`node_unreachable` or `node_result_lost`. Node refusals preserve
-`{status:"refused",error:CODE}` with HTTP 409 for `busy`/`replay` and 403 for the
-other protocol refusals. A lost result is never automatically resubmitted.
-Browser access uses the broker's exact `browser_origins` allowlist.
-
-## Job exchange
-
-1. Client sends control `{job_id,grant}`. `job_id` is 16 random bytes in hex.
-   Node verifies broker signature, unit, authenticated client, target node,
-   expiry, remaining seconds, replay, and availability. It reserves the job ID
-   for this boot even if subsequent upload/decryption/execution fails.
-2. Node sends `{status:"ready"}` or `{status:"refused",error:CODE}` and closes.
-   Codes: `grant`, `replay`, `busy`, `bundle`, `execution`, `attestation`.
-   The client sends no bundle before `ready`.
-3. Client sends one frame `{epk,iv,ct}` in `dstack-compat/secret_box.py` format:
-   P-256 ephemeral-static ECDH; epk is x||y hex; HKDF-SHA256 with zero salt and
-   info `UTF8("dsmack.secret-release/1") || epk || recipient || UTF8(job_id)`;
-   AES-256-GCM, 12-byte IV, ciphertext followed by 16-byte tag, no AAD.
-   Plaintext is canonical `{job_id,grant_id,credential,repo_tar,prompt,output_pub}`.
-   `credential` is the `claude-subscription/1` JSON object (project the local
-   credential store to the validator’s `ACCEPTED_OAUTH_FIELDS` before sealing), `repo_tar` is base64 tar,
-   Alternatively, `credential` may be
-   `{schema:"dsmack-sealed-credential/1",box:{epk,iv,ct}}`. The credential-owning
-   client seals its ordinary credential JSON to this same node with task ID
-   `job_id + "/credential"`; the browser carries that opaque nested envelope
-   inside its outer job. The guest opens it before invoking the worker.
-   `prompt` is text, `output_pub` is 64-byte P-256 x||y hex. Both IDs must agree
-   with the control frame/grant. The pinned compose fixes the agent configuration. With measured `INFERENCE_PROVIDER`, credential is `{schema:"dsmack-broker-inference/1",token,job_id}` and the worker uses the pinned broker/model through the guest-local hostname gateway with `list_files`, `read_file`, and `write_file` tools. The broker capability is scoped to this job and its signed grant; the broker verifies NEAR gateway and per-model attestation before its encrypted model call. The broker CVM handles plaintext. The provider API key remains in that CVM. Without that configuration it uses the Claude credential path; provider errors fail the job.
-4. Node writes credential to tmpfs `/run/dsmack/credential`, runs one pinned
-   `agent-turns/find.py` edit turn with repo and outputs in tmpfs, and removes
-   the credential and work directory before accepting another job.
-5. Node sends `{status:"complete",outputs,statement,attestation,receipt}`.
-   `outputs` maps `patch`, `transcript`, `verdict` to independent secret_box
-   envelopes sealed to `output_pub`, with task IDs `job_id + "/" + name`.
-   `statement` is `{job_id,bundle_sha256,outputs,grant_id,seconds_used}` where
-   `outputs` maps those names to SHA256 of the plaintext bytes, `bundle_sha256`
-   hashes canonical encrypted input envelope, and `seconds_used` is positive
-   elapsed wall time rounded up, at most the admitted remaining budget.
-   The per-job `attestation` is hex; report_data is SHA256(canonical statement)
-   followed by 32 zero bytes. Receipt is canonical
-   `{client_peer,node_peer,run,report_sha256,grant_id,job_id,seconds_used,sig}`;
-   `sig` is Ed25519 over the receipt without `sig`.
-
-Verify the per-job assertion, same run/measurements/caller as discovery,
-statement report_data, receipt key/signature, both IDs, input envelope hash,
-and decrypted output hashes before accepting a patch. Failed jobs consume
-elapsed seconds and retain the job ID; a timeout kills the agent process group.
-Only public registration and usage metadata may go to result artifacts/console.
+Guest time starts when the signed grant is admitted. The guest's attested
+receipt key signs monotonic checkpoints to `/agent/receipt`, charging seconds
+from the same account as model tokens. Original receipts remain in guest
+artifacts. Browser-signed `/agent/status` reads its own lease and usage;
+`/agent/end` requests release. Five minutes without a tool call also releases
+it. On release the guest retires, so another conversation receives a fresh
+workspace. A missing final receipt retains its unresolved credit reservation
+until the original signed evidence is recovered.

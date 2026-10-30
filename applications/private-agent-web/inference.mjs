@@ -1,4 +1,4 @@
-import { AssistantMessageEventStream } from "@earendil-works/pi-ai";
+import { AssistantMessageEventStream, getSystemMessageText } from "@earendil-works/pi-ai";
 import { require, walletBody } from "./credit.mjs";
 import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
@@ -38,7 +38,7 @@ export async function* sse(body) {
   }
 }
 export function brokerStream(
-  { credit, api, cfg, quote, evidence, usage, error, startedAt },
+  { credit, api, cfg, quote, evidence, usage, error, startedAt, systemPrompt },
 ) {
   const conversationStarted = new Date(startedAt);
   return (model, context, options = {}) => {
@@ -81,16 +81,7 @@ export function brokerStream(
           BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
           "CREDIT_EXHAUSTED: Chat credit used up.",
         );
-        const messages = context.messages.filter((m) =>
-          m.role === "user" || m.role === "assistant"
-        )
-          .map((m) => ({
-            role: m.role,
-            content: typeof m.content === "string"
-              ? m.content
-              : m.content.filter((c) => c.type === "text").map((c) => c.text)
-                .join("\n"),
-          }));
+        const { messages, tools } = modelTranscript(context);
         const started = Date.now();
         const attestationNonce = Array.from(
           crypto.getRandomValues(new Uint8Array(32)),
@@ -118,13 +109,15 @@ export function brokerStream(
           dateStyle: "full",
           timeZone,
         }).format(conversationStarted);
+        const runtime = [
+          `Model: ${checked.model}`,
+          "Provider: NEAR AI Cloud (TEE)",
+          `Conversation started: ${date} (${timeZone})`,
+        ].join("\n");
         messages.unshift({
           role: "system",
-          content: context.systemPrompt + "\n\n" + [
-            `Model: ${checked.model}`,
-            "Provider: NEAR AI Cloud (TEE)",
-            `Conversation started: ${date} (${timeZone})`,
-          ].join("\n"),
+          content: systemPrompt ? systemPrompt({ checked, runtime }) :
+            context.messages.filter(m => m.role === "system").map(getSystemMessageText).join("\n\n") + "\n\n" + runtime,
         });
         const remaining = BigInt(session.remainingNanoUsd);
         const rate = BigInt(q.maxNanoUsdPerToken);
@@ -142,6 +135,7 @@ export function brokerStream(
               body: JSON.stringify({
                 model: checked.model,
                 messages,
+                ...(tools.length ? { tools, tool_choice: "auto" } : {}),
                 max_tokens: maxTokens,
                 stream: true,
                 stream_options: { include_usage: true },
@@ -180,7 +174,8 @@ export function brokerStream(
           signal: options.signal,
         });
         const decrypted = await prepared.decryptResponse(response);
-        let done = false;
+        let done = false, finishReason;
+        const toolCalls = new Map();
         stream.push({ type: "start", partial: answer });
         for await (const item of sse(decrypted.body)) {
           if (item.event === "error") {
@@ -204,34 +199,47 @@ export function brokerStream(
             answer.usage.output = chunk.usage.completion_tokens;
             answer.usage.totalTokens = chunk.usage.total_tokens;
           }
-          const delta = chunk.choices?.[0]?.delta?.content;
+          const choice = chunk.choices?.[0];
+          if (choice?.finish_reason) finishReason = choice.finish_reason;
+          const delta = choice?.delta?.content;
           if (typeof delta === "string" && delta) {
-            if (!answer.content[0].text) {
-              stream.push({
-                type: "text_start",
-                contentIndex: 0,
-                partial: answer,
-              });
-            }
+            if (!answer.content[0].text) stream.push({ type: "text_start", contentIndex: 0, partial: answer });
             answer.content[0].text += delta;
-            stream.push({
-              type: "text_delta",
-              contentIndex: 0,
-              delta,
-              partial: answer,
-            });
+            stream.push({ type: "text_delta", contentIndex: 0, delta, partial: answer });
+          }
+          for (const call of choice?.delta?.tool_calls || []) {
+            let current = toolCalls.get(call.index);
+            if (!current) {
+              current = { index: answer.content.length, json: "", block: { type: "toolCall", id: call.id || "", name: call.function?.name || "", arguments: {} } };
+              toolCalls.set(call.index, current);
+              answer.content.push(current.block);
+              stream.push({ type: "toolcall_start", contentIndex: current.index, partial: answer });
+            } else {
+              if (call.id) current.block.id += call.id;
+              if (call.function?.name) current.block.name += call.function.name;
+            }
+            const fragment = call.function?.arguments || "";
+            current.json += fragment;
+            stream.push({ type: "toolcall_delta", contentIndex: current.index, delta: fragment, partial: answer });
           }
         }
         require(
           done,
           "Inference transport ended before completion. Reconcile provider usage.",
         );
-        stream.push({
-          type: "text_end",
-          contentIndex: 0,
-          content: answer.content[0].text,
-          partial: answer,
-        });
+        if (answer.content[0].text) stream.push({ type: "text_end", contentIndex: 0, content: answer.content[0].text, partial: answer });
+        for (const current of toolCalls.values()) {
+          try {
+            current.block.arguments = JSON.parse(current.json || "{}");
+            require(current.block.arguments && !Array.isArray(current.block.arguments) && typeof current.block.arguments === "object", "Tool arguments must be a JSON object.");
+          } catch (e) {
+            current.block.arguments = {};
+            current.block.argumentsError = "Model returned invalid tool arguments: " + current.json;
+          }
+          require(current.block.id && current.block.name, "Incomplete tool call from model.");
+          stream.push({ type: "toolcall_end", contentIndex: current.index, toolCall: current.block, partial: answer });
+        }
+        answer.stopReason = toolCalls.size ? "toolUse" : finishReason === "length" ? "length" : "stop";
         try {
           const charged = await usage();
           answer.usage.totalTokens = Number(BigInt(charged.usedTokens) - BigInt(session.usedTokens));
@@ -239,7 +247,7 @@ export function brokerStream(
         } catch (e) {
           error(e);
         }
-        stream.push({ type: "done", reason: "stop", message: answer });
+        stream.push({ type: "done", reason: answer.stopReason, message: answer });
         stream.end(answer);
       } catch (e) {
         if (dispatched) {
@@ -262,4 +270,29 @@ export function brokerStream(
     })();
     return stream;
   };
+}
+
+// Preserve tool requests and results in the encrypted provider transcript. Pi 1.4
+// carries declarations in system messages, including changes during a session.
+export function modelTranscript(context) {
+  const declarations = new Map(), messages = [];
+  for (const message of context.messages) {
+    if (message.role === "system") {
+      for (const tool of message.toolsAdded || []) declarations.set(tool.name, tool);
+      for (const tool of message.toolsRemoved || []) declarations.delete(tool.name);
+    } else if (message.role === "toolResult") {
+      messages.push({ role: "tool", tool_call_id: message.toolCallId,
+        content: contentText(message.content) });
+    } else if (message.role === "assistant") {
+      // Failed transport attempts have no provider output to replay.
+      if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+      const calls = message.content.filter(c => c.type === "toolCall");
+      messages.push({ role: "assistant", content: contentText(message.content) || null,
+        ...(calls.length ? { tool_calls: calls.map(c => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) } : {}) });
+    } else if (message.role === "user") messages.push({ role: "user", content: contentText(message.content) });
+  }
+  return { messages, tools: [...declarations.values()].map(t => ({ type: "function", function: { name: t.name, description: t.description, parameters: t.parameters } })) };
+}
+function contentText(content) {
+  return typeof content === "string" ? content : content.filter(c => c.type === "text").map(c => c.text).join("\n");
 }

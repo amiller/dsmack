@@ -69,7 +69,7 @@ export class Inference {
       starterCreditNanoUsd: String(this.cfg.starterCreditNanoUsd),
       maxNanoUsdPerToken: String(this.cfg.maxNanoUsdPerToken),
       maxOutputTokens: this.cfg.maxOutputTokens,
-      maxRequestBytes: 32768,
+      maxRequestBytes: 262144,
       privacy: PRIVACY,
     };
   }
@@ -127,15 +127,18 @@ export class Inference {
     const reserved = pending && pending.status !== "charged"
       ? BigInt(pending.reservedNanoUsd)
       : 0n;
+    const guestReserved = Object.values(this.payments.state.agentSessions ?? {})
+      .filter((s) => s.wallet === wallet && !s.final)
+      .reduce((total, s) => total + BigInt(s.reservedNanoUsd), 0n);
     return {
       wallet,
       model: this.cfg.model,
       mode: "broker-e2ee",
       grantedNanoUsd: a.grantedNanoUsd,
       spentNanoUsd: a.spentNanoUsd,
-      reservedNanoUsd: String(reserved),
+      reservedNanoUsd: String(reserved + guestReserved),
       remainingNanoUsd: String(
-        BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) - reserved,
+        BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) - reserved - guestReserved,
       ),
       usedTokens: a.usedTokens,
       pendingInferenceId: pending?.inferenceId ?? null,
@@ -146,6 +149,10 @@ export class Inference {
       ? ["attestationNonce"]
       : action === "chat"
       ? ["sessionId", "body", "headers"]
+      : action === "agent-open"
+      ? ["conversationId", "client_peer", "node_peer"]
+      : ["agent-status", "agent-end"].includes(action)
+      ? ["sessionId"]
       : action === "sandbox-grant"
       ? ["client_peer", "node_peer", "job_id"]
       : [];
@@ -280,28 +287,26 @@ export class Inference {
   }
   encryptedRequest(r, session) {
     const b = r.body, h = r.headers;
+    const ciphertext = (v) => typeof v === "string" && /^04[0-9a-fA-F]{184,}$/.test(v) && v.length % 2 === 0;
+    const callId = (v) => typeof v === "string" && /^[a-zA-Z0-9_-]{1,256}$/.test(v);
+    const functionCall = (v) => fields(v, ["name", "arguments"]) && ciphertext(v.name) && ciphertext(v.arguments);
+    const message = (m) => fields(m, ["role", "content", "tool_calls", "tool_call_id"]) &&
+      ["user", "assistant", "system", "tool"].includes(m.role) &&
+      (ciphertext(m.content) || (m.role === "assistant" && m.content === null && Array.isArray(m.tool_calls) && m.tool_calls.length > 0)) &&
+      (m.tool_calls === undefined || (m.role === "assistant" && Array.isArray(m.tool_calls) && m.tool_calls.length <= 16 &&
+        m.tool_calls.every((c) => fields(c, ["id", "type", "function"]) && callId(c.id) && c.type === "function" && functionCall(c.function)))) &&
+      (m.role === "tool" ? callId(m.tool_call_id) : m.tool_call_id === undefined);
+    const tool = (t) => fields(t, ["type", "function"]) && t.type === "function" &&
+      fields(t.function, ["name", "description", "parameters"]) &&
+      ciphertext(t.function.name) && ciphertext(t.function.description) && ciphertext(t.function.parameters);
     check(
-      fields(b, [
-        "model",
-        "messages",
-        "stream",
-        "max_tokens",
-        "stream_options",
-      ]) && b.model === this.cfg.model &&
-        b.stream === true && Number.isSafeInteger(b.max_tokens) &&
+      fields(b, ["model", "messages", "stream", "max_tokens", "stream_options", "tools"]) &&
+        b.model === this.cfg.model && b.stream === true && Number.isSafeInteger(b.max_tokens) &&
         b.max_tokens > 0 && b.max_tokens <= this.cfg.maxOutputTokens &&
-        fields(b.stream_options, ["include_usage"]) &&
-        b.stream_options.include_usage === true &&
-        Array.isArray(b.messages) && b.messages.length > 0 &&
-        b.messages.length <= 128 &&
-        b.messages.every((m) =>
-          fields(m, ["role", "content"]) &&
-          ["user", "assistant", "system"].includes(m.role) &&
-          typeof m.content === "string" &&
-          /^04[0-9a-fA-F]{184,}$/.test(m.content) && m.content.length % 2 === 0
-        ),
-      "BAD_REQUEST",
-      "only bounded SDK-encrypted text messages are accepted",
+        fields(b.stream_options, ["include_usage"]) && b.stream_options.include_usage === true &&
+        Array.isArray(b.messages) && b.messages.length > 0 && b.messages.length <= 128 && b.messages.every(message) &&
+        (b.tools === undefined || (Array.isArray(b.tools) && b.tools.length <= 4 && b.tools.every(tool))),
+      "BAD_REQUEST", "only bounded SDK-encrypted messages and tool fields are accepted",
     );
     check(
       fields(h, [
@@ -323,9 +328,9 @@ export class Inference {
     );
     const size = enc.encode(JSON.stringify(b)).length;
     check(
-      size <= 32768,
+      size <= 262144,
       "BAD_REQUEST",
-      "encrypted inference request exceeds 32768 bytes",
+      "encrypted inference request exceeds 262144 bytes",
     );
     return BigInt(size + 256 + 64 * b.messages.length + b.max_tokens) *
       BigInt(this.cfg.maxNanoUsdPerToken);
@@ -352,7 +357,7 @@ export class Inference {
       );
       const reserve = this.encryptedRequest(r, session);
       check(
-        BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) >= reserve,
+        BigInt(this.summary(wallet).remainingNanoUsd) >= reserve,
         "CREDIT_EXHAUSTED",
         "wallet credit cannot cover this request's maximum cost",
         402,

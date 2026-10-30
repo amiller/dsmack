@@ -163,7 +163,7 @@ func (g *nodeGateways) start(name, listen string, policy map[string]any, hostnam
 
 func brokerGatewayPolicy(broker, index *url.URL) map[string]any {
 	base := strings.TrimRight(broker.Path, "/")
-	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/payments/receipts"}
+	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/payments/receipts", base + "/agent/receipt"}
 	return map[string]any{"rules": []any{map[string]any{
 		"name": broker.Hostname(), "port": 443, "methods": []string{"GET", "POST"}, "paths": paths,
 		"max_request_bytes": 256 << 10, "max_response_bytes": 256 << 10,
@@ -280,6 +280,9 @@ func startNodeGateways(relay, brokerURL, indexURL string) (_ *nodeGateways, publ
 		return nil, "", err
 	}
 	if err = os.Setenv("DSMACK_LOCAL_WS", "1"); err != nil {
+		return nil, "", err
+	}
+	if err = os.Setenv("AGENT_NETWORK_ALLOWLIST", string(canon([]string{broker.Hostname(), hostname}))); err != nil {
 		return nil, "", err
 	}
 	return g, "/dns4/" + hostname + "/tcp/443/wss/p2p/" + info.ID.String(), nil

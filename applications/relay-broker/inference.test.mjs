@@ -582,3 +582,45 @@ test("failed startup top-up persistence leaves the original grant available for 
     "490000000",
   );
 });
+
+test("SDK-encrypted tool schemas and tool results remain opaque at the broker", async () => {
+  const f = fixture();
+  await f.credit();
+  const session = await f.prepare();
+  const prepared = await prepareE2eeChatRequest({
+    request: new Request("https://cloud-api.near.ai/v1/chat/completions", {
+      method: "POST", headers: { "content-type": "application/json" },
+      body: JSON.stringify({ model: MODEL, stream: true, max_tokens: 128,
+        stream_options: { include_usage: true },
+        messages: [
+          { role: "user", content: PROMPT },
+          { role: "assistant", content: null, tool_calls: [{ id: "call_private", type: "function", function: { name: "bash", arguments: '{"command":"printf private-tool-marker"}' } }] },
+          { role: "tool", tool_call_id: "call_private", content: "private-tool-marker" },
+        ],
+        tools: [{ type: "function", function: { name: "bash", description: "private-description-marker", parameters: { type: "object", properties: { command: { type: "string" } } } } }],
+      }),
+    }),
+    modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
+  });
+  const request = { sessionId: session.sessionId, body: await prepared.request.json(), headers: Object.fromEntries(prepared.request.headers) };
+  assert(!JSON.stringify(request).includes("private-tool-marker"));
+  assert(!JSON.stringify(request).includes("private-description-marker"));
+  const internal = f.inference.sessions.get(session.sessionId);
+  assert(f.inference.encryptedRequest(request, internal) > 0n);
+  const plaintextSchema = structuredClone(request);
+  plaintextSchema.body.tools[0].function.parameters = { type: "object" };
+  assert.throws(() => f.inference.encryptedRequest(plaintextSchema, internal), code("BAD_REQUEST"));
+  const plaintextCall = structuredClone(request);
+  plaintextCall.body.messages[1].tool_calls[0].function.arguments = '{"command":"secret"}';
+  assert.throws(() => f.inference.encryptedRequest(plaintextCall, internal), code("BAD_REQUEST"));
+});
+
+test("model dispatch cannot spend credit already reserved by a held guest", async () => {
+  const f = fixture(); await f.credit();
+  f.payments.state.agentSessions = { held: {
+    wallet: f.wallet.address.toLowerCase(), final: false, reservedNanoUsd: "249999999",
+  } };
+  const session = await f.prepare();
+  await assert.rejects(f.inference.chat(await f.signed("chat", await f.encrypted(session))), code("CREDIT_EXHAUSTED"));
+  assert.equal(f.calls(), 0);
+});

@@ -1,10 +1,12 @@
-"""Closed measured browser preset; no caller supplied security options."""
+"""Measured container profiles; callers select names rather than security options."""
 import hashlib
 import os
 import stat
 from pathlib import Path
 
 PROFILE = 'browser-sandbox-v1'
+AGENT_PROFILE = 'agent-sandbox-v1'
+AGENT_SOCKET_TARGET = '/root/dstack.sock'
 POLICY_SHA256 = 'cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849'
 POLICY_PATH = '/usr/local/lib/dsmack/compose-runner/lib/dsmack_compose_contract/browser-sandbox-v1.json'
 
@@ -23,7 +25,22 @@ def verify_policy():
         os.close(fd)
 
 
-def preset_fields():
+def service_user(profile):
+    return '0:0' if profile == AGENT_PROFILE else '1000:1000'
+
+
+def preset_fields(profile=PROFILE):
+    if profile == AGENT_PROFILE:
+        return {
+            'user': service_user(profile),
+            'cap_drop': ['ALL'],
+            'cap_add': ['CHOWN', 'FOWNER', 'DAC_OVERRIDE', 'SETUID', 'SETGID', 'KILL'],
+            'security_opt': ['no-new-privileges:true'],
+            'tmpfs': ['/workspace:rw,nosuid,nodev,size=268435456,uid=1000,gid=1000,mode=0700'],
+            'shm_size': 67108864,
+            'pids_limit': 128,
+            'mem_limit': 2147483648,
+        }
     verify_policy()
     return {
         'cap_drop': ['ALL'],
@@ -40,6 +57,10 @@ def require_selection(service, manifest):
     profile = service.get('security_profile')
     if 'security_profile' not in service:
         return None
+    if profile == AGENT_PROFILE:
+        if manifest.get('credentials', {}).get('required'):
+            raise ValueError('agent preset refuses credential broker')
+        return profile
     if profile != PROFILE:
         raise ValueError('unknown security profile')
     if manifest.get('network', {}).get('mode') != 'none':
@@ -50,9 +71,9 @@ def require_selection(service, manifest):
     return profile
 
 
-def validate_normalized(service):
+def validate_normalized(service, profile=PROFILE):
     """Validate Docker Compose normalized values, never caller declarations."""
-    fields = preset_fields()
+    fields = preset_fields(profile)
     for name in ('cap_drop', 'cap_add'):
         if sorted(service.get(name) or []) != sorted(fields[name]):
             raise ValueError('browser normalized capability drift')
@@ -70,5 +91,8 @@ def validate_normalized(service):
         if not ((type(value) is int and value == fields[name]) or
                 (type(value) is str and value == str(fields[name]))):
             raise ValueError('browser normalized resource drift: ' + name)
-    if service.get('network_mode') != 'none' or service.get('read_only') is not True or service.get('privileged'):
+    if service.get('user') != service_user(profile):
+        raise ValueError('normalized profile user drift')
+    if ((profile == PROFILE and service.get('network_mode') != 'none') or
+            service.get('read_only') is not True or service.get('privileged')):
         raise ValueError('browser normalized isolation drift')

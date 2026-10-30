@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { randomUUID, createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
@@ -156,7 +156,7 @@ try {
     return { url: response.url, status: response.status, type: response.type, entries: entries.length };
   }, cfg.tunnels);
   await untouched();
-  assert.match(await page.locator("#job-prompt").inputValue(), /greet\.txt/);
+  assert.match(await page.locator("#repository-status").textContent(), /greet\.txt/);
   assert.match(await page.locator("#wallet").innerText(), /No wallet connected/);
   await page.screenshot({ path: resolve(evidence, "01-first-visit.png"), fullPage: true });
   await page.locator("#burner").click();
@@ -185,25 +185,27 @@ try {
   assert.equal(await editor.locator("textarea").inputValue(), "");
   report.chat = { completed: true, reply, quoteVerified: true, nonceAndEncryptionKeyChecked: true };
   await page.screenshot({ path: resolve(evidence, "03-attested-chat.png"), fullPage: true });
-  await page.locator("#run").click();
-  await page.waitForFunction(() => document.querySelector("#job-status").dataset.patchApplied === "true" || (document.querySelector("#alert") && !document.querySelector("#alert").hidden), null, { timeout: 360000 });
+  const before = await page.evaluate(() => document.querySelector("agent-interface").session.state.messages.length);
+  await editor.locator("textarea").fill("Edit greet.txt to contain exactly Hello from the IPFS agent. followed by a newline. Read the file back to check.");
+  await editor.locator("textarea").press("Enter");
+  await page.waitForFunction(before => {
+    const agent = document.querySelector("agent-interface").session;
+    return agent.state.messages.length > before && !agent.state.isStreaming && document.querySelector("#chat").dataset.saved === "true";
+  }, before, { timeout: 360000 });
   await throwAlert(page);
-  assert.equal(await page.locator('#updated-files pre[data-file="greet.txt"]').innerText(), "Hello from the private agent.\n");
-  await page.waitForFunction(() => document.querySelector("#sandbox-credit").dataset.status === "completed");
-  const job = JSON.parse(await page.locator("#job-evidence").textContent());
-  assert.match(await page.locator("#job-status").innerText(), /Verified job attestation and receipt.*Patch applied/);
-  const transcript = (await page.locator("#transcript").textContent()).trim().split("\n").filter(Boolean).map((s) => JSON.parse(s));
-  const providerAttestations = transcript.filter((e) => e.type === "provider_attestation").length;
-  assert(providerAttestations > 0);
+  const toolResults = await page.evaluate(() => document.querySelector("agent-interface").session.state.messages.filter(m => m.role === "toolResult"));
+  assert(toolResults.length && toolResults.some(m => !m.isError), "Conversation executed guest tools");
+  assert(await page.locator("tool-message").count() > 0, "Guest tool results appear inline");
   const [download] = await Promise.all([page.waitForEvent("download"), page.locator("#download").click()]);
   const patchPath = resolve(evidence, "patch.diff");
   await download.saveAs(patchPath);
   const { readFile } = await import("node:fs/promises");
-  assert.equal(createHash("sha256").update(await readFile(patchPath)).digest("hex"), job.statement.outputs.patch);
-  await writeFile(resolve(evidence, "job-evidence.json"), JSON.stringify(job, null, 2) + "\n");
-  report.sandbox = { jobId: job.statement.job_id, secondsUsed: job.statement.seconds_used, patchApplied: true, outputHashes: job.statement.outputs, providerAttestations, status: "completed" };
+  assert.match(await readFile(patchPath, "utf8"), /\+Hello from the IPFS agent\./);
+  report.sandbox = { seconds: await page.locator("#guest-seconds").textContent(), inlineToolResults: toolResults.length, patchDownloaded: true };
   await untouched();
-  await page.screenshot({ path: resolve(evidence, "04-verified-patch-applied.png"), fullPage: true });
+  await page.screenshot({ path: resolve(evidence, "04-agent-patch-downloaded.png"), fullPage: true });
+  await page.locator("#end-session").click();
+  await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "released");
   if (!publicGateway) {
   const alternate = await context.newPage();
   observe(alternate);
@@ -214,8 +216,8 @@ try {
   report.origins = { first: pageUrl.origin, alternate: new URL(alternate.url()).origin, sameCid: true, sameBrowserContext: true, secureContexts: true };
   await alternate.screenshot({ path: resolve(evidence, "05-other-gateway-isolated.png"), fullPage: true });
   }
-  const jobs = report.requests.filter((r) => r.method === "POST" && r.path.endsWith("/sandbox/jobs"));
-  assert.equal(jobs.length, 1, "the flow must not resubmit its sandbox job");
+  const sessions = report.requests.filter((r) => r.method === "POST" && r.path.endsWith("/agent/open"));
+  assert.equal(sessions.length, 1, "One conversation holds one guest session");
   assert.equal(report.chainTransactionsAttempted, 0);
   assert.deepEqual(report.navigationViolations, []);
   assert.deepEqual(report.pageErrors, []);

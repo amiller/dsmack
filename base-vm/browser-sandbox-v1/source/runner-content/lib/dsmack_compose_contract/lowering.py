@@ -432,8 +432,10 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
             {"create_host_path": False, "mode": "rw", "slot": "shared", "source": "%s/shared" % workspace_host_dir, "target": SHARED_ROOT, "type": "bind"}
         )
     if DSTACK_SOCK_VOLUME in _compose_doc(manifest)["services"][service_name].get("volumes", []):
+        from .security import AGENT_PROFILE, AGENT_SOCKET_TARGET
+        profile = _compose_doc(manifest)["services"][service_name].get("security_profile")
         mounts.append(
-            {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": "/var/run/dstack.sock", "type": "bind"}
+            {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": AGENT_SOCKET_TARGET if profile == AGENT_PROFILE else "/var/run/dstack.sock", "type": "bind"}
         )
     for volume in _compose_doc(manifest)["services"][service_name].get("volumes", []):
         if volume in DSMACK_RUNTIME_VOLUMES:
@@ -712,7 +714,7 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
         if lowered.get("security_profiles", {}).get(service_name):
             from .security import preset_fields
             try:
-                gen_service.update(preset_fields())
+                gen_service.update(preset_fields(lowered["security_profiles"][service_name]))
             except (ValueError, OSError) as exc:
                 raise LoweringError("browser policy refused: %s" % exc) from None
         if lowered["network_mode"] is not None:

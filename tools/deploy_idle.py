@@ -3,6 +3,7 @@ import json
 import math
 import time
 from urllib.request import urlopen
+from urllib.error import HTTPError, URLError
 
 
 def wait_for_idle(base, minutes=10, *, read=None, clock=time.monotonic, sleep=time.sleep):
@@ -14,7 +15,16 @@ def wait_for_idle(base, minutes=10, *, read=None, clock=time.monotonic, sleep=ti
     read = read or fetch
     deadline = clock() + minutes * 60
     while True:
-        network, inference = read('/network'), read('/inference/status')
+        try:
+            network, inference = read('/network'), read('/inference/status')
+        except (HTTPError, URLError, TimeoutError) as error:
+            remaining = deadline - clock()
+            detail = f"HTTP {error.code}" if isinstance(error, HTTPError) else type(error).__name__
+            print(f"Deploy guard: waiting for broker activity reports ({detail}; {max(0, int(remaining))}s left)", flush=True)
+            if remaining <= 0:
+                raise RuntimeError("Deploy guard timed out without an activity report; deployment cannot continue") from None
+            sleep(min(2, remaining))
+            continue
         busy = network['totals']['busy_slots']
         streams = inference.get('inFlightStreams')
         if type(busy) is not int or busy < 0 or type(streams) is not int or streams < 0:

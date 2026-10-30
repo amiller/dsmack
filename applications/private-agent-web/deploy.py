@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Deploy the built private-agent page to dstack-webhost's shared Deno runtime."""
 import argparse
+import fcntl
 import io
 import json
 import os
@@ -145,6 +146,12 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        # Shared Deno reloads affect both projects. Hold one upload/promote
+        # transaction at a time so another project cannot remove its key socket.
+        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a") as deployment_lock:
+            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
+            main()
     except (OSError, ValueError, RuntimeError, URLError) as error:
         raise SystemExit(str(error)) from None

@@ -38,7 +38,7 @@ export async function verifyGateAttestation(attestation,nonce,policy) {
 export function createEmailGate({base='',policy}) {
   const api=async(path,body,{signal}={})=>{
     const response=await fetch(base+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store',signal});
-    const result=await response.json();if(!response.ok)throw Error(result.error||'Email recovery failed');return result;
+    const result=await response.json().catch(()=>({}));if(!response.ok){const error=Error(result.error||'Email recovery failed (HTTP '+response.status+')');error.status=response.status;throw error;}return result;
   };
   let verified;
   return {
@@ -53,23 +53,41 @@ export function createEmailGate({base='',policy}) {
       const pair=await ephemeral(),userId=email,ts=Date.now();
       const nonce=await emailRecoveryNonce(pair.publicKey,userId,ts);
       return {...pair,email,userId,ts,nonce,purpose,gatePublicKey:verified.publicKey,
+        receiverAddress,subject:'dsmack-recover '+nonce,
         mailto:'mailto:'+receiverAddress+'?subject='+encodeURIComponent('dsmack-recover '+nonce)};
     },
     async waitDkim(context,{signal,onWaiting=()=>{}}={}) {
       require(context?.gatePublicKey,'Verify the email gate before sending recovery email');
-      const expires=Date.now()+15*60_000;
-      while(Date.now()<expires) {
+      const timeoutMessage="We didn't receive your email at recover@soc1024.com within 5 minutes. Check it was sent from "+context.email+".";
+      const expires=Date.now()+5*60_000;
+      const deadline=new AbortController();
+      const timer=setTimeout(()=>deadline.abort(),5*60_000);
+      const combined=signal?AbortSignal.any([signal,deadline.signal]):deadline.signal;
+      try {
+        while(Date.now()<expires) {
+          combined.throwIfAborted();
+          let result;
+          try { result=await api('/email-recovery/headers/'+context.nonce,undefined,{signal:combined}); }
+          catch(error) {
+            if(combined.aborted)throw error;
+            if(error.status!==404)throw Error("We couldn't check for your email. Try again.");
+          }
+          if(result?.headers)return result.headers;
+          onWaiting();
+          await new Promise((resolve,reject)=>{
+            const abort=()=>{clearTimeout(sleep);reject(combined.reason);};
+            const sleep=setTimeout(()=>{combined.removeEventListener('abort',abort);resolve();},Math.min(2000,Math.max(0,expires-Date.now())));
+            combined.addEventListener('abort',abort,{once:true});
+            if(combined.aborted)abort();
+          });
+        }
+        throw Error(timeoutMessage);
+      } catch(error) {
         if(signal?.aborted)throw new DOMException('Email recovery cancelled','AbortError');
-        const result=await api('/email-recovery/headers/'+context.nonce,undefined,{signal});
-        if(result.headers)return result.headers;
-        onWaiting();
-        await new Promise((resolve,reject)=>{
-          const abort=()=>{clearTimeout(timer);reject(new DOMException('Email recovery cancelled','AbortError'));};
-          const timer=setTimeout(()=>{signal?.removeEventListener('abort',abort);resolve();},2000);
-          signal?.addEventListener('abort',abort,{once:true});
-        });
-      }
-      throw Error('Recovery email expired. Send a new recovery email.');
+        if(deadline.signal.aborted||Date.now()>=expires)throw Error(timeoutMessage);
+        throw error;
+      } finally { clearTimeout(timer); }
+
     },
     async confirmDkim(context,headers,bundle) {
       require(context?.gatePublicKey,'Verify the email gate before sending recovery email');

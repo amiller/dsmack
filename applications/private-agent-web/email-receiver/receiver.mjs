@@ -12,9 +12,10 @@ export class HeaderCollector {
     const part = chunk.subarray(0, HEADER_LIMIT + 4 - this.header.length);
     const joined = new Uint8Array(this.header.length + part.length);
     joined.set(this.header); joined.set(part, this.header.length);
-    for (let i = Math.max(0, this.header.length - 3); i + 3 < joined.length; i++) {
-      if (joined[i] === 13 && joined[i+1] === 10 && joined[i+2] === 13 && joined[i+3] === 10) {
-        this.header = joined.slice(0, i); this.complete = true; return;
+    for (let i = Math.max(0, this.header.length - 3); i + 1 < joined.length; i++) {
+      if (joined[i] === 10 && (joined[i+1] === 10 || (joined[i+1] === 13 && joined[i+2] === 10))) {
+        const end = i > 0 && joined[i-1] === 13 ? i - 1 : i;
+        this.header = joined.slice(0, end); this.complete = true; return;
       }
     }
     this.header = joined;
@@ -22,7 +23,10 @@ export class HeaderCollector {
   }
   finish() {
     if (!this.complete) throw Error('Message has no header delimiter');
-    return new TextDecoder('utf-8', {fatal:true}).decode(this.header) + '\r\n';
+    // Exim pipe delivery uses LF and may prepend an mbox envelope. The envelope
+    // is not a signed header; restore RFC line endings without changing values.
+    return new TextDecoder('utf-8', {fatal:true}).decode(this.header)
+      .replace(/^From [^\r\n]*\r?\n/, '').replace(/\r?\n/g, '\r\n') + '\r\n';
   }
 }
 export class HeaderReceiver {

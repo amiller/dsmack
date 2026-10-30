@@ -15,8 +15,11 @@ def main():
         p.add_argument('--'+name,type=Path,required=True)
     p.add_argument('--broker',required=True);p.add_argument('--index',required=True)
     p.add_argument('--publication-rpc',default='https://base-sepolia-rpc.publicnode.com')
+    p.add_argument('--ipfs-bin',type=Path);p.add_argument('--ipfs-car',type=Path);p.add_argument('--ipfs-state',type=Path)
     p.add_argument('--registry',required=True);p.add_argument('--publisher-address',required=True)
-    a=p.parse_args();a.state.mkdir(parents=True,mode=0o700)
+    a=p.parse_args()
+    if any((a.ipfs_bin,a.ipfs_car,a.ipfs_state)) and not all((a.ipfs_bin,a.ipfs_car,a.ipfs_state)):p.error('IPFS needs --ipfs-bin, --ipfs-car and --ipfs-state')
+    a.state.mkdir(parents=True,mode=0o700)
     manifest=json.loads((a.workload/'compose-manifest.json').read_bytes())
     node=json.loads(manifest['docker_compose_file'])['services']['node']
     expected_peer=node['command'][1].rsplit('/',1)[1]
@@ -76,6 +79,7 @@ def main():
         if chain:cmd+=['--rpc',a.publication_rpc]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     try:
+        if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
         with urlopen(a.broker.rstrip('/')+'/sandbox/transport',timeout=30) as response:broker_peer=json.load(response)['peer_id']
         start([a.relay,a.relay_key,a.broker.rstrip('/')+'/sandbox/p2p',broker_peer],'relay.log')
         relay=ready(a.state/'relay.log',r'relay_peer=(12D3KooW\S+)',30)

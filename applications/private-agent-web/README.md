@@ -90,8 +90,9 @@ from static hosting.
 
 For a public release, recursively pin on an existing publicly reachable non-zed
 Kubo host with persistent storage, plus an independent peer. This needs no new
-pinning account; gateway caching alone does not retain a release. Public pinning
-requires Andrew’s separate approval. DNSLink on an already-owned domain is the
+pinning account; gateway caching alone does not retain a release. Add the final
+public gateway origin to the broker’s `browser_origins` before sharing it.
+DNSLink on an already-owned domain is the
 simplest stable friends link: update one TXT record, with no per-release protocol
 fee, and configure a compatible HTTPS gateway. IPNS has no protocol fee either,
 but needs regular republication (Kubo defaults to four hours; DHT records expire

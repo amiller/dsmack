@@ -334,7 +334,12 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	renew := func() error {
 		var out map[string]any
-		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", registration, &out)
+		snapshot := map[string]any{}
+		for k, v := range registration {
+			snapshot[k] = v
+		}
+		snapshot["telemetry"] = n.telemetry()
+		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 	}
 	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
 		return err
@@ -439,6 +444,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 				snapshot[k] = v
 			}
 			registrationMu.Unlock()
+			snapshot["telemetry"] = n.telemetry()
 			if err = os.WriteFile("/workspace/artifacts/registration", canon(snapshot), 0644); err != nil {
 				return err
 			}

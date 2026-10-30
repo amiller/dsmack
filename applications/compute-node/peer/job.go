@@ -186,7 +186,23 @@ type engine struct {
 	seen           map[string]bool
 	used           map[string]int64
 	busy           bool
+	jobsServed     int
+	lastError      string
 	attest         func([]byte) ([]byte, error)
+}
+
+func (n *engine) telemetry() map[string]any {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	var lastError any
+	if n.lastError != "" {
+		lastError = n.lastError
+	}
+	status := map[string]any{"relay_peer": n.node, "updated_at": time.Now().Unix(),
+		"busy": n.busy, "jobs_served": n.jobsServed, "last_error": lastError}
+	message := append([]byte("dsmack-node-status/1\n"), canon(status)...)
+	status["signature"] = hex.EncodeToString(ed25519.Sign(n.signer, message))
+	return status
 }
 
 func (n *engine) reserve(a admission, client string) (terms, int64, string) {
@@ -231,6 +247,12 @@ func (n *engine) handle(s interface {
 		if len(failure) == 1 {
 			frame["failure"] = failure[0]
 		}
+		n.mu.Lock()
+		n.lastError = code
+		if len(failure) == 1 {
+			n.lastError = string(canon(failure[0]))
+		}
+		n.mu.Unlock()
 		if paid != nil {
 			r, e := paid.finish()
 			frame["payment_receipt"] = r
@@ -285,6 +307,7 @@ func (n *engine) handle(s interface {
 		}
 		n.used[t.id] += used
 		n.busy = false
+		n.jobsServed++
 		n.mu.Unlock()
 	}()
 	s.SetDeadline(deadline)

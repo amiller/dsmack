@@ -23,25 +23,29 @@ window.addEventListener("message", (event) => {
   if (data.type === "open-external-url") { event.stopImmediatePropagation(); return; }
   if (!data.sandboxId) return;
   const frame = frames.get(data.sandboxId);
-  if (!frame || event.source !== frame.contentWindow || event.origin !== "null" || !["console", "execution-complete", "execution-error", "dsmack-request"].includes(data.type)) event.stopImmediatePropagation();
+  if (!frame || event.source !== frame.contentWindow || event.origin !== ARTIFACT_ORIGIN || !["console", "execution-complete", "execution-error", "dsmack-request"].includes(data.type)) event.stopImmediatePropagation();
 }, true);
 
-// Own the URL handshake so upstream's external-navigation handler is never
-// installed. No same-origin, popups, forms, downloads or modal permissions.
+// Only the trusted outer has its separate origin and service worker. Generated
+// code stays in its opaque child; upstream external-navigation handlers are absent.
 SandboxIframe.prototype.loadViaSandboxUrl = function(id, code) {
   this.artifactReadyCleanup?.();
   const frame = document.createElement("iframe");
-  frame.sandbox.add("allow-scripts");
+  frame.sandbox.add("allow-scripts", "allow-same-origin");
   frame.title = "Generated app";
   frame.style.cssText = "width:100%;height:100%;border:0;background:white";
   frame.src = `${ARTIFACT_ORIGIN}/loader.html`;
   this.iframe = frame;
   RUNTIME_MESSAGE_ROUTER.setSandboxIframe(id, frame);
   const ready = (event) => {
-    if (event.source !== frame.contentWindow || event.origin !== "null" || event.data?.type !== "sandbox-ready") return;
+    if (event.source !== frame.contentWindow || event.origin !== ARTIFACT_ORIGIN || !["sandbox-ready", "sandbox-unavailable"].includes(event.data?.type)) return;
     window.removeEventListener("message", ready);
     this.artifactReadyCleanup = undefined;
-    frame.contentWindow.postMessage({ type: "sandbox-load", sandboxId: id, code }, "*");
+    if (event.data.type === "sandbox-unavailable") {
+      this.dispatchEvent(new CustomEvent("artifact-unavailable", { bubbles: true, detail: event.data.error }));
+      return;
+    }
+    frame.contentWindow.postMessage({ type: "sandbox-load", sandboxId: id, code }, ARTIFACT_ORIGIN);
   };
   window.addEventListener("message", ready);
   this.artifactReadyCleanup = () => window.removeEventListener("message", ready);
@@ -55,6 +59,10 @@ SandboxIframe.prototype.disconnectedCallback = function() {
 
 export function createArtifacts(agent, { state, models, credit, share, scopeForFilename = filename => JSON.stringify(["preview", filename]), error = console.error } = {}) {
   const panel = new ArtifactsPanel();
+  panel.addEventListener("artifact-unavailable", event => {
+    const element = [...panel.artifactElements.values()].find(value => value.contains(event.target));
+    if (element) { element.logs = [...element.logs, { type: "error", text: String(event.detail) }]; element.requestUpdate(); }
+  });
   panel.agent = agent;
   panel.sandboxUrlProvider = () => `${ARTIFACT_ORIGIN}/loader.html`;
   let runtimeFilename;

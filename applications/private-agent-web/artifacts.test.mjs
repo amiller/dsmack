@@ -3,7 +3,7 @@ import { build } from 'esbuild';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { loader, security } from '../private-agent-artifacts/server.ts';
+import { loader } from '../private-agent-artifacts/server.ts';
 
 const evidence = resolve(process.env.EVIDENCE || 'local-data/artifacts');
 await mkdir(evidence, { recursive: true });
@@ -18,7 +18,9 @@ await page.route('**/*',async route=>{
   const url=route.request().url();
   if(url===host+'/')return route.fulfill({contentType:'text/html',headers:{'content-security-policy':`default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src ${sandbox}`},body:'<body><script type="module" src="/test.js"></script>'});
   if(url===host+'/test.js')return route.fulfill({contentType:'text/javascript',body:output.outputFiles[0].text});
-  if(url===sandbox+'/loader.html')return route.fulfill({headers:security,body:loader});
+  // The shared webhost strips response security headers. The early loader meta
+  // policy must supply the floor inherited by the generated blob document.
+  if(url===sandbox+'/loader.html')return route.fulfill({contentType:'text/html',body:loader});
   outgoing.push(url);return route.abort();
 });
 try {

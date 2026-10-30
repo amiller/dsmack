@@ -28,7 +28,7 @@ cloudflared tunnel --no-autoupdate --url http://127.0.0.1:4019
 ```
 
 The relay listens on loopback only. It accepts eight reservations and four
-circuits per peer, with two-minute and 128 KiB limits per circuit/direction.
+circuits per peer, with two-minute and 8 MiB limits per circuit/direction, allowing sealed model transcripts.
 
 Pack the guest with a base image that applies the measured egress policy:
 

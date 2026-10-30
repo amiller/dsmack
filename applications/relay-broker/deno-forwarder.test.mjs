@@ -9,7 +9,7 @@ import { yamux } from "npm:@chainsafe/libp2p-yamux@8.0.1";
 import { identify } from "npm:@libp2p/identify@4.1.14";
 import { byteStream } from "npm:@libp2p/utils@7.4.1";
 // Test either source or the deployment bundle, with identical peer fixtures.
-const { createDenoForwarder } = await import(Deno.args[0] || "./deno-forwarder.mjs");
+const { createDenoForwarder, ForwardError } = await import(Deno.args[0] || "./deno-forwarder.mjs");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
 async function makeNode(listen, services = {}) {
@@ -165,4 +165,19 @@ Deno.test("project signing identity keeps relay backhaul peer pins valid after p
   const restarted = await createDenoForwarder({ signingKey: key });
   try { assert.equal(first.peerId, restarted.peerId); }
   finally { await first.stop(); await restarted.stop(); }
+});
+
+Deno.test("forward errors retain bounded nested dial causes without stacks", () => {
+  const dial = new AggregateError([
+    new Error("connect ECONNREFUSED"),
+    new Error("circuit hop refused", { cause: new Error("reservation expired") }),
+  ], "All multiaddr dials failed");
+  const error = new ForwardError("node_unreachable", dial);
+  assert.equal(error.stage, "node_unreachable");
+  assert.deepEqual(error.detail, { name: "AggregateError", message: "All multiaddr dials failed", errors: [
+    { name: "Error", message: "connect ECONNREFUSED" },
+    { name: "Error", message: "circuit hop refused", cause: { name: "Error", message: "reservation expired" } },
+  ] });
+  assert.equal(JSON.stringify(error.detail).includes("stack"), false);
+  assert.equal(new ForwardError("node_result_lost", new Error("x".repeat(2000))).detail.message.length, 512);
 });

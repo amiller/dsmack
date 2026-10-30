@@ -27,8 +27,32 @@ function operationScope(milliseconds, external) {
   if (external?.aborted) abort(); else external?.addEventListener("abort", abort, { once: true });
   return { signal: controller.signal, clear() { clearTimeout(timeout); external?.removeEventListener("abort", abort); } };
 }
+function networkCause(error, budget = { nodes: 0 }, seen = new Set(), depth = 0) {
+  budget.nodes++;
+  const name = String(error?.name || "Error"), message = String(error?.message ?? error);
+  const detail = { name: name.slice(0, 64), message: message.slice(0, 512) };
+  if (name.length > 64 || message.length > 512) detail.truncated = true;
+  if (depth >= 4 || seen.has(error)) { detail.truncated = true; return detail; }
+  seen.add(error);
+  if (error?.cause != null) {
+    if (budget.nodes < 8) detail.cause = networkCause(error.cause, budget, seen, depth + 1);
+    else detail.truncated = true;
+  }
+  if (Array.isArray(error?.errors)) {
+    detail.errors = [];
+    for (const nested of error.errors.slice(0, 4)) {
+      if (budget.nodes >= 8) { detail.truncated = true; break; }
+      detail.errors.push(networkCause(nested, budget, seen, depth + 1));
+    }
+    if (detail.errors.length < error.errors.length) detail.truncated = true;
+  }
+  return detail;
+}
 export class ForwardError extends Error {
-  constructor(code, cause) { super(code, { cause }); this.code = code; this.status = 502; }
+  constructor(code, cause) {
+    super(code, { cause }); this.code = code; this.stage = code; this.status = 502;
+    this.detail = networkCause(cause);
+  }
 }
 
 class Reader {

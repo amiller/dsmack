@@ -3,8 +3,9 @@ import { build } from 'esbuild';
 import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
-import { loader } from '../private-agent-artifacts/server.ts';
 import { parseArtifactLink, openArtifact } from './artifact-share.mjs';
+import { artifactTestServer } from './artifact-test-server.mjs';
+import dgram from 'node:dgram';
 
 const evidence = resolve(process.env.EVIDENCE || 'local-data/artifacts');
 await mkdir(evidence, { recursive: true });
@@ -17,25 +18,29 @@ const models={grant:async(scope,limit)=>{await state.update(scope,record=>{if(re
 const x=createArtifacts(undefined,{state,models,share:async html=>{const sealed=await sealArtifact(html);window.shareCiphertext=sealed.ciphertext;return artifactLink(sealed)},credit:{address:'public-wallet',signer:{privateKey:'NEVER_EXPOSE'},chatCredit:{remainingNanoUsd:'100000000',spentNanoUsd:'1'}},scopeForFilename:filename=>JSON.stringify(['chat-a',filename])});document.body.append(x.budgetBar,x.shareBar,x.panel);window.artifacts=x;
 `, resolveDir: process.cwd() }, bundle:true,format:'esm',write:false,alias:{'@pi-components':pi},loader:{'.md':'text'} });
 const host='https://private-agent.dstack.soc1024.com', sandbox='https://artifacts.private-agent.dstack.soc1024.com';
-const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
+const tls=await artifactTestServer({ mainHtml: `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src ${sandbox}"><body><script type="module" src="/test.js"></script>`, mainScript:output.outputFiles[0].text });
+const udp=dgram.createSocket('udp4');let udpPackets=0;
+udp.on('message',()=>udpPackets++);await new Promise(resolve=>udp.bind(0,'127.0.0.1',resolve));
+const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox',...tls.args]});
 const page=await browser.newPage();
 await page.clock.install();
 const outgoing=[], errors=[];
 page.on('pageerror', e=>errors.push(String(e)));
 await page.route('**/*',async route=>{
   const url=route.request().url();
-  if(url===host+'/')return route.fulfill({contentType:'text/html',headers:{'content-security-policy':`default-src 'none'; script-src 'self'; style-src 'unsafe-inline'; frame-src ${sandbox}`},body:'<body><script type="module" src="/test.js"></script>'});
-  if(url===host+'/test.js')return route.fulfill({contentType:'text/javascript',body:output.outputFiles[0].text});
-  // The shared webhost strips response security headers. The early loader meta
-  // policy must supply the floor inherited by the generated blob document.
-  if(url===sandbox+'/loader.html')return route.fulfill({contentType:'text/html',body:loader});
+  if(url===host+'/'||url===host+'/test.js'||[sandbox+'/loader.html',sandbox+'/sandbox-sw.js',sandbox+'/native-loader.html'].includes(url))return route.continue();
   outgoing.push(url);return route.abort();
 });
 try {
   await page.goto(host+'/');await page.waitForFunction(()=>window.artifacts);
   const html=`<!doctype html><html><head><style>body{background:white;color:black}</style></head><body><parsererror hidden>&lt;img src="https://exfil.invalid/fallback"&gt;</parsererror><button id="count">0</button><script>document.querySelector('button').onclick=e=>e.target.textContent=Number(e.target.textContent)+1;console.log('runtime-ready');</script></body></html>`;
   await page.evaluate(async html=>window.artifacts.tool.execute('create1',{command:'create',filename:'test.html',content:html}),html);
-  let app=page.frames().find(f=>f.url().startsWith('blob:'));
+  let app;
+  for (let attempt=0; attempt<100&&!app; attempt++) {
+    for (const frame of page.frames()) if (frame.url().startsWith('blob:') && await frame.locator('#count').count().catch(()=>0)) app=frame;
+    if (!app) await page.waitForTimeout(100);
+  }
+  if (!app) console.log(await Promise.all(page.frames().map(async frame => ({url:frame.url(),body:await frame.locator('body').innerText().catch(()=>'?')}))));
   assert.ok(app,'artifact renders in a blob iframe');
   const acknowledgement = await app.evaluate(() => Promise.race([
     window.sendRuntimeMessage({type:'console',method:'log',text:'acknowledgement-probe'}),
@@ -88,6 +93,22 @@ try {
   for (const frame of page.frames()) if (frame.url().startsWith('blob:') && await frame.locator('#count').count()) app=frame;
   const denied=await page.evaluate(async()=>{try{await window.artifacts.tool.execute('svg',{command:'create',filename:'evil.svg',content:'<svg/>'});return false}catch{return true}});
   assert.ok(denied,'non-HTML never reaches the trusted parent renderer');
+  const nativeRtcStates=await app.evaluate(async port=>{
+    document.open();document.write('<body>After document replacement');document.close();
+    const states=[];
+    for(let i=0;i<3;i++){
+      const pc=new RTCPeerConnection({iceServers:[{urls:'stun:127.0.0.1:'+port}]});
+      try{
+        pc.createDataChannel('local-boundary-probe');await pc.setLocalDescription(await pc.createOffer());
+        await pc.setRemoteDescription({type:'answer',sdp:pc.localDescription.sdp.replace('a=setup:actpass','a=setup:active').replace(/a=ice-ufrag:[^\r\n]+/,'a=ice-ufrag:remoteProbe').replace(/a=ice-pwd:[^\r\n]+/,'a=ice-pwd:01234567890123456789012345678901')});
+        await pc.addIceCandidate({candidate:'candidate:1 1 udp 2130706431 127.0.0.1 '+port+' typ host',sdpMid:'0',sdpMLineIndex:0});
+        await new Promise(resolve=>setTimeout(resolve,200));states.push(pc.iceConnectionState);
+      }finally{pc.close()}
+    }
+    return states;
+  },udp.address().port);
+  assert.deepEqual(nativeRtcStates,['failed','failed','failed']);
+  assert.equal(udpPackets,0,'native policy must block STUN and remote ICE traffic after document.write');
   // Every request below is a concrete exfiltration route. The HTTP CSP inherited
   // by the blob must block them before any request reaches the network handler.
   await app.evaluate(async ({sandbox})=>{
@@ -107,8 +128,16 @@ try {
   },{sandbox});
   await page.waitForTimeout(250);
   assert.deepEqual(outgoing,[],'deny network includes navigation back to the loader origin');
-  assert.equal(page.frames().filter(f=>f.url()===sandbox+'/loader.html').length,2,'trusted loaders remain isolated');
+  assert.equal(page.frames().filter(f=>f.url()===sandbox+'/native-loader.html').length,2,'trusted loaders remain isolated');
   assert.deepEqual(errors,[]);
-  await writeFile(resolve(evidence,'results.json'),JSON.stringify({runtime:true,console:true,sdk:true,encryptedStorage:true,budgetGrant:true,modelResponseBeyond30s:true,spoofBlocked:true,htmlOnly:true,networkBlocked:true,outgoing,errors},null,2));
+  const unsupportedContext=await browser.newContext({userAgent:'Mozilla/5.0 Chrome/151.0.0.0 Safari/537.36'});
+  try{
+    const unsupported=await unsupportedContext.newPage();await unsupported.goto(host+'/');await unsupported.waitForFunction(()=>window.artifacts);
+    const result=await unsupported.evaluate(()=>artifacts.tool.execute('blocked',{command:'create',filename:'blocked.html',content:'<script>console.log("UNTRUSTED_CODE_RAN")</script>'}));
+    assert.match(JSON.stringify(result),/App preview unavailable/);
+    assert.doesNotMatch(JSON.stringify(result),/UNTRUSTED_CODE_RAN/);
+    assert.equal(unsupported.frames().filter(frame=>frame.url().startsWith('blob:')).length,0);
+  }finally{await unsupportedContext.close()}
+  await writeFile(resolve(evidence,'results.json'),JSON.stringify({browser:browser.version(),runtime:true,console:true,sdk:true,encryptedStorage:true,budgetGrant:true,modelResponseBeyond30s:true,spoofBlocked:true,htmlOnly:true,networkBlocked:true,nativeRtcStates,udpPackets,unsupportedBlocked:true,outgoing,errors},null,2));
   console.log('Artifact runtime, console source binding, HTML-only renderer and deny-network boundaries passed');
-} finally {await browser.close();}
+} finally {await browser.close();udp.close();await tls.close();}

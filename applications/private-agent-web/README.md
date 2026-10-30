@@ -128,13 +128,19 @@ A stable DNSLink/IPNS gateway origin preserves browser storage across releases.
 
 ## Public IPFS pin on the Mac
 
-Add `--ipfs-bin /absolute/path/to/ipfs --ipfs-car /absolute/path/to/page.car
---ipfs-state /absolute/path/to/retained-ipfs-state` to `compute-node/mac-pool.py`.
-The launcher owns Kubo and a second quick tunnel exposing only its Bitswap
+Run the publisher independently of the compute pool:
+
+```sh
+python3 pin-mac.py --ipfs /absolute/path/to/ipfs \
+  --cloudflared /absolute/path/to/cloudflared \
+  --car /absolute/path/to/page.car --state /absolute/path/to/retained-ipfs-state
+```
+
+The publisher owns Kubo and a quick tunnel exposing only its Bitswap
 WebSocket listener. The Kubo API and gateway bind to loopback. NAT port mapping
 is disabled. The recursive pin and locally generated `friends-page` IPNS key stay
 in the retained state directory; `published.json` records the CID, name and
-provider address. Kubo republishes IPNS while running. `kill -TERM LAUNCHER_PID`
-drains the guests and stops both the compute and IPFS transports, retaining the
-pin and key for the next launch. Never move the IPNS signing key between hosts.
+provider address. Kubo republishes IPNS while running. Compute pools can drain
+while this publisher keeps serving pins. `kill -TERM PUBLISHER_PID` stops its
+daemon and tunnel, retaining the repository, pins and key for the next launch.
 Use the final subdomain gateway origin in the broker allowlist.

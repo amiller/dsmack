@@ -38,6 +38,27 @@ class PoolTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, 'differs from measured resource profile'):
             pool.measured_size(manifest, config)
 
+    def test_restart_preserves_full_broker_429_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            config = {'max_guests': 4, 'guest': {'mem_mib': 4096, 'vcpus': 1},
+                      'reserve': {'mem_gb': 16, 'cores': 4}}
+            (root/'operator.json').write_text(json.dumps(config))
+            manifest = {'base_vm': {'os_image_hash': 'image', 'memory_mb': 4096, 'vcpus': 1},
+                        'resource_profiles': {'mini-4096-1': config['guest']},
+                        'docker_compose_file': json.dumps({'services': {'node': {'environment': {
+                            'PAYMENTS_CONFIG': json.dumps({'operator': 'payout', 'node': 'class'})}}}})}
+            (root/'compose-manifest.json').write_text(json.dumps(manifest))
+            args = SimpleNamespace(operator=root/'operator.json', workload=root, publisher_key=None)
+            error = {'at': 1793379629, 'slot_id': 2, 'stage': 'broker_registration', 'status': 429,
+                     'error': 'POST /nodes: HTTP 429', 'body': 'egress request rate exceeded'}
+            with patch.object(pool, 'hardware', return_value={'mem_bytes': 64 << 30, 'cores': 14}):
+                first = pool.Pool(args)
+                first.remember_error(error)
+                restarted = pool.Pool(args)
+            self.assertEqual(restarted.errors, [error])
+            self.assertEqual(json.loads((root/'operator-errors.json').read_bytes()), [error])
+
     def test_failed_slot_does_not_stop_other_slot_rotation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
@@ -90,6 +111,7 @@ class PoolTests(unittest.TestCase):
         instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
                                         debugfs=Path('/debugfs'))
         instance.active = []; instance.stopping = False; instance.failure = None
+        instance.errors_file = root/'operator-errors.json'
         instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'stopped': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
         instance.measurement = 'compose'; instance.image = 'image'; instance.last_status_poll = pool.time.monotonic()
         instance.event = Mock(); instance.launch = Mock()

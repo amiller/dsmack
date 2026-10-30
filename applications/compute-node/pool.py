@@ -245,7 +245,11 @@ class Pool:
         self.slots = [{'slot_id': i, 'consecutive_failures': 0, 'last_error': None,
                        'retry_pending': False, 'stopped': False, 'jobs_served': 0}
                       for i in range(self.config['max_guests'])]
-        self.errors = []
+        self.errors_file = args.operator.parent/'operator-errors.json'
+        try:
+            self.errors = json.loads(self.errors_file.read_bytes())[-10:]
+        except FileNotFoundError:
+            self.errors = []
         self.last_broker_error = None
         self.last_status_poll = 0
         self.manifest = args.workload/'compose-manifest.json'
@@ -259,6 +263,12 @@ class Pool:
             from heartbeat import Publisher
             self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
         self.started = time.monotonic()
+
+    def remember_error(self, record):
+        self.errors = (self.errors + [record])[-10:]
+        temporary = self.errors_file.with_suffix('.tmp')
+        temporary.write_text(json.dumps(self.errors, ensure_ascii=False))
+        temporary.replace(self.errors_file)
 
     def event(self, name, **fields):
         record = {'event': name, 'elapsed_seconds': round(time.monotonic()-self.started, 3), **fields}
@@ -330,8 +340,7 @@ class Pool:
                         if error and error != node['node'].get('telemetry', {}).get('last_error'):
                             slot = self.slots[node['slot_id']]
                             slot['last_error'] = {'stage': 'guest_job', 'error': error}
-                            self.errors.append({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
-                            self.errors = self.errors[-10:]
+                            self.remember_error({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
                         node['node'] = latest
         for node in self.active[:]:
             slot = self.slots[node['slot_id']]
@@ -355,8 +364,7 @@ class Pool:
                         'stage': 'guest_completion', 'error': 'guest exited without broker readiness and successful result closure',
                         'exit_code': result.get('outputs', {}).get('exit_code'), 'driver_exit_code': proc.returncode}
                     (node['path']/'evidence/guest-error.json').write_text(json.dumps(slot['last_error'])+'\n')
-                    self.errors.append({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
-                    self.errors = self.errors[-10:]
+                    self.remember_error({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
                     self.event('guest_failed', slot_id=slot['slot_id'], run=str(node['path']), consecutive_failures=slot['consecutive_failures'],
                                last_error=slot['last_error'], **cleanup)
                     if slot['consecutive_failures'] >= 3:
@@ -439,8 +447,7 @@ class Pool:
                 if record:
                     name = record.pop('event')
                     if name == 'heartbeat_error':
-                        self.errors.append({'at': int(time.time()), 'slot_id': None, 'stage': 'heartbeat', **record})
-                        self.errors = self.errors[-10:]
+                        self.remember_error({'at': int(time.time()), 'slot_id': None, 'stage': 'heartbeat', **record})
                     self.event(name, **record)
             if not self.active and (self.stopping or all(s['stopped'] for s in self.slots) or (self.args.cycles and self.launched >= self.args.cycles)):
                 break

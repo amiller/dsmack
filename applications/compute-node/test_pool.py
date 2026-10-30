@@ -77,3 +77,22 @@ class PoolTests(unittest.TestCase):
         self.assertGreater(node['readiness_deadline'], time.monotonic())
         instance.event.assert_called_once_with('broker_unavailable', error='HTTPError', status=500)
         instance.launch.assert_not_called()
+
+    def test_fatal_broker_readiness_response_drains_before_returning_error(self):
+        from urllib.error import HTTPError
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = object.__new__(pool.Pool)
+            instance.args = SimpleNamespace(state=Path(tmp), cycles=0)
+            instance.active = [object()]; instance.stopping = False; instance.failure = None
+            instance.event = Mock()
+            def tick():
+                if not instance.stopping:
+                    raise HTTPError('https://broker/nodes',404,'missing',None,None)
+                instance.active.clear()
+            instance.tick = tick
+            with patch.object(pool.time, 'sleep'):
+                with self.assertRaisesRegex(RuntimeError, 'broker readiness HTTP 404'):
+                    instance.run()
+            self.assertTrue(instance.stopping)
+            self.assertEqual(instance.active, [])
+            instance.event.assert_called_once_with('draining_after_error',error='broker readiness HTTP 404')

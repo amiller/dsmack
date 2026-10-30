@@ -191,3 +191,13 @@ test('operator-pinned compute nodes keep renewal while draining without acceptin
  await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,1);
  now+=2;await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,0);assert.equal(b.relays.size,1);
 });
+
+test("public WSS circuit locators retain the attested destination binding", async () => {
+  const b = broker();
+  const relay = r.relay_maddr.split('/p2p/')[1].split('/')[0];
+  const address = `/dns4/pool.trycloudflare.com/tcp/443/wss/p2p/${relay}/p2p-circuit/p2p/${r.relay_peer}`;
+  const registered = await b.register({...r,relay_maddr:address});
+  assert.equal(registered.attestation.status,'verified');
+  assert.equal(registered.relay_maddr,address);
+  await assert.rejects(b.register({...r,relay_maddr:address+'/ws'}),/circuit address/);
+});

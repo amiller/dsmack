@@ -163,7 +163,7 @@ def deploy(args):
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
     project = api("/_api/projects", method="POST", body=body,
-                  kind="multipart/form-data; boundary=" + boundary, auth=True)
+                  kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
     api("/_api/projects/relay-broker/promote", method="POST", auth=True)

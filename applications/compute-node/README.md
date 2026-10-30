@@ -150,9 +150,15 @@ owned by this pool; another session's VM blocks a new launch.
 waits for the owned VMs to finish. Each attempt preserves logs, launch assertions
 and a verified gzip of the original result disk under `run-*/evidence/`. The
 existing guarded cleanup checks open references before retiring that attempt's
-scratch and staged disks, recording retired allocated bytes and free space. A
-guest failure is recorded after preserving and retiring its owned disks; the
-pool stops rotation and returns a failure even if the host driver exited zero.
+scratch and staged disks, recording retired allocated bytes and free space.
+The pool reads receipt-bound gateway logs and captured completion stderr using
+`--debugfs /opt/homebrew/opt/e2fsprogs/sbin/debugfs`, preserving their original
+bytes under each attempt's evidence. Its failure log includes the guest's stage,
+HTTP status and response body. A failed guest is replaced after its stopped
+attempt is preserved and retired; other guests keep serving. Three consecutive
+guest failures stop rotation and return the last error. A verified broker-ready
+replacement resets the failure count. A readiness timeout logs the affected
+attempt and waits for that owned guest to finish before replacing it.
 
 ## Mac-owned tunnel lifetime
 

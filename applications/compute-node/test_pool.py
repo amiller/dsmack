@@ -1,4 +1,6 @@
 """Replacement readiness must not discard the serving warm node."""
+import hashlib
+import json
 from pathlib import Path
 from types import SimpleNamespace
 import unittest
@@ -47,19 +49,124 @@ class PoolTests(unittest.TestCase):
             console.write_text('DSMACK_SUPERVISOR_DONE runner_failures=0\nDSMACK_RESULT_CLOSED_V1 1234\n')
             self.assertTrue(pool.guest_closed(root))
 
-    def test_zero_host_exit_with_guest_failure_stops_rotation_after_cleanup(self):
+    def instance(self, root):
         instance = object.__new__(pool.Pool)
-        instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0)
-        instance.active = [{'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': Path('/owned'), 'node': None}]
-        instance.stopping = False; instance.failure = None
+        instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
+                                        debugfs=Path('/debugfs'))
+        instance.active = []; instance.stopping = False; instance.failure = None
+        instance.consecutive_failures = 0; instance.last_error = None; instance.retry_pending = False
+        instance.measurement = 'compose'; instance.image = 'image'
         instance.event = Mock(); instance.launch = Mock()
-        with patch.object(pool, 'preserve_and_retire', return_value={'retired_allocated_bytes': 123}) as retire:
-            instance.tick()
-        retire.assert_called_once_with(Path('/owned'), Path('/repo'))
-        instance.launch.assert_not_called()
-        self.assertTrue(instance.stopping)
-        self.assertIsNotNone(instance.failure)
-        self.assertEqual(instance.active, [])
+        return instance
+
+    def failed_node(self, root):
+        root.mkdir(exist_ok=True); (root/'evidence').mkdir(exist_ok=True)
+        return {'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
+
+    def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            healthy = {'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+                       'started': pool.time.monotonic(), 'admit_seconds': 570}
+            failed = self.failed_node(root/'failed')
+            instance.active = [healthy, failed]
+            failure = {'stage': 'broker lease renewal 3/3', 'status': 503, 'body': 'promotion', 'error': 'actual error'}
+            with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={'retired_allocated_bytes': 123}) as retire:
+                instance.tick()
+            retire.assert_called_once_with(failed['path'], Path('/repo'))
+            self.assertEqual(instance.active, [healthy]); self.assertFalse(instance.stopping)
+            instance.launch.assert_called_once()
+            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertEqual(json.loads((failed['path']/'evidence/guest-error.json').read_text()), failure)
+
+    def test_closed_result_with_failed_service_is_replaced_even_after_readiness(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            node = self.failed_node(root/'failed'); node['node'] = {'relay_peer': 'was-ready'}
+            instance.active = [node]
+            result = {'outputs': {'status': 'failed', 'exit_code': 1},
+                      'error': {'stage': 'broker lease renewal 3/3', 'error': 'lease failed', 'status': 403, 'body': 'refused'}}
+            with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                instance.tick()
+            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertFalse(instance.stopping); instance.launch.assert_called_once()
+
+    def test_three_consecutive_failures_stop_with_last_actual_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            for number in range(1, 4):
+                node = self.failed_node(root/str(number)); instance.active = [node]
+                failure = {'stage': 'broker registration', 'status': 403, 'body': 'refused-'+str(number), 'error': 'HTTP 403'}
+                with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
+            self.assertTrue(instance.stopping); self.assertEqual(instance.consecutive_failures, 3)
+            self.assertIn('refused-3', instance.failure)
+            self.assertEqual(instance.launch.call_count, 2)
+            self.assertEqual(instance.event.call_args.kwargs['last_error'], failure)
+
+    def test_broker_verified_ready_resets_consecutive_failures(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp)); instance.consecutive_failures = 2
+            now = pool.time.monotonic()
+            instance.active = [{'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
+                                'previous': set(), 'readiness_deadline': now+90, 'started': now, 'admit_seconds': 570}]
+            ready = {'kind': 'compute', 'relay_peer': 'new', 'manifest_sha256': 'compose', 'os_image_hash': 'image',
+                     'attestation': {'status': 'verified'}}
+            with patch.object(instance, 'nodes', return_value=[ready]):
+                instance.tick()
+            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.active[0]['node'], ready)
+
+    def test_readiness_timeout_waits_for_only_that_owned_guest(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp))
+            node = {'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
+                    'previous': set(), 'readiness_deadline': 0}
+            instance.active = [node]
+            with patch.object(instance, 'nodes', return_value=[]): instance.tick()
+            self.assertTrue(node['readiness_failed']); self.assertFalse(instance.stopping)
+            instance.launch.assert_not_called()
+
+    def test_guest_diagnostics_retain_receipt_bound_http_body_status_and_stage(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp); (run/'out').mkdir()
+            message = 'POST /relay-broker/nodes: HTTP 503 body="promotion\\nretry" read=<nil>'
+            gateway = (json.dumps({'event': 'registration_renewal_error', 'stage': 'broker lease renewal 3/3', 'error': message})+'\n').encode()
+            stderr = ('2026/10/30 12:00:00 '+message+'\n').encode()
+            declaration = lambda data: {'bytes': len(data), 'sha256': hashlib.sha256(data).hexdigest()}
+            outputs = {'status': 'failed', 'exit_code': 1, 'stderr': declaration(stderr),
+                       'artifacts': [dict(declaration(gateway), name='gateway-log')], 'missing': []}
+            files = {'receipt.json': json.dumps({'outputs': outputs}).encode(), 'outputs/streams/stderr': stderr,
+                     'outputs/artifacts/gateway-log': gateway}
+            def read(argv, **kwargs):
+                path = argv[2].removeprefix('cat /compute-node-v1/')
+                return SimpleNamespace(stdout=files[path], stderr=b'debugfs 1.47.0 (5-Feb-2023)\n')
+            with patch.object(pool, 'stopped_helper'), patch.object(pool.subprocess, 'run', side_effect=read):
+                result = pool.guest_result(run, Path('/debugfs'))
+            self.assertEqual(result['error']['status'], 503)
+            self.assertEqual(result['error']['body'], 'promotion\nretry')
+            self.assertEqual(result['error']['stage'], 'broker lease renewal 3/3')
+            self.assertEqual((run/'out/guest-stderr.log').read_bytes(), stderr)
+            self.assertEqual((run/'out/gateway-log.jsonl').read_bytes(), gateway)
+
+    def test_guest_gateway_error_is_available_when_old_manifest_did_not_capture_stderr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = Path(tmp); (run/'out').mkdir()
+            message = 'POST /relay-broker/nodes: HTTP 403 body="bad attestation" read=<nil>'
+            gateway = (json.dumps({'event': 'node_gateway_error', 'error': message})+'\n').encode()
+            receipt = {'outputs': {'status': 'failed', 'stderr': None, 'artifacts': [
+                {'name': 'gateway-log', 'bytes': len(gateway), 'sha256': hashlib.sha256(gateway).hexdigest()}]}}
+            responses = [json.dumps(receipt).encode(), gateway]
+            with patch.object(pool, 'stopped_helper'), patch.object(pool.subprocess, 'run', side_effect=[
+                    SimpleNamespace(stdout=raw, stderr=b'debugfs 1.47.0\n') for raw in responses]):
+                result = pool.guest_result(run, Path('/debugfs'))
+            self.assertEqual(result['error']['stage'], 'POST /relay-broker/nodes')
+            self.assertEqual(result['error']['body'], 'bad attestation')
+            self.assertEqual(result['error']['status'], 403)
+            self.assertFalse((run/'out/guest-stderr.log').exists())
 
     def test_broker_promotion_outage_keeps_booting_vm_and_reports_failure(self):
         import time

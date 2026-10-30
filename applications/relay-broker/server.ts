@@ -290,10 +290,10 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         }));
       } else if (
         req.method === "POST" &&
-        ["credit", "prepare", "chat", "usage"].includes(action)
+        ["credit", "prepare", "chat", "usage", "artifact-budget"].includes(action)
       ) {
         const request = await body(req);
-        const result = await b.inference[action](request);
+        const result = await b.inference[action === "artifact-budget" ? "artifactBudget" : action](request);
         response = result instanceof Response ? result : Response.json(result);
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/payments/key") {

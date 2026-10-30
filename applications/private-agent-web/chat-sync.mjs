@@ -1,6 +1,7 @@
 import { Contract, JsonRpcProvider, keccak256 } from "ethers";
 import { store, walletBody } from "./credit.mjs";
 import { newestWorkspace } from "./workspaces.mjs";
+import { encodeSyncJson, decodeSyncJson } from "./sync-codec.mjs";
 
 const encoder = new TextEncoder();
 const canonical = (o) => JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k,o[k]])));
@@ -44,7 +45,7 @@ export class ChatSync {
   async request(action,fields={}) { return this.api("/sync/"+action,await walletBody(this.credit,"sync-"+action.replaceAll("/","-"),fields)); }
   async seal(value,context) {
     const nonce=crypto.getRandomValues(new Uint8Array(12));
-    const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:nonce,additionalData:encoder.encode("dsmack-chat-v1:"+this.wallet+":"+context)},this.key,encoder.encode(JSON.stringify(value))));
+    const encrypted=new Uint8Array(await crypto.subtle.encrypt({name:"AES-GCM",iv:nonce,additionalData:encoder.encode("dsmack-chat-v1:"+this.wallet+":"+context)},this.key,await encodeSyncJson(value)));
     const bytes=new Uint8Array(12+encrypted.length);bytes.set(nonce);bytes.set(encrypted,12);
     const ciphertext=encode(bytes), result=await this.request("blob",{ciphertext});
     need(result.cid===await cidFor(bytes),"Broker returned a different ciphertext CID.");return result.cid;
@@ -53,7 +54,7 @@ export class ChatSync {
     const response=await this.request("read",{cid}),bytes=decode(response.ciphertext);
     need(await cidFor(bytes)===cid,"Encrypted chat CID mismatch.");
     const plain=await crypto.subtle.decrypt({name:"AES-GCM",iv:bytes.slice(0,12),additionalData:encoder.encode("dsmack-chat-v1:"+this.wallet+":"+context)},this.key,bytes.slice(12));
-    return JSON.parse(new TextDecoder().decode(plain));
+    return decodeSyncJson(plain);
   }
   async remote(attempt=0) {
     const envelope=await this.request("head"),head=envelope.head;

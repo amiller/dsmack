@@ -36,8 +36,9 @@ export async function verifyGateAttestation(attestation,nonce,policy) {
   return {publicKey:attestation.publicKey,status:result.status};
 }
 export function createEmailGate({base='',policy}) {
-  const api=async(path,body,{signal}={})=>{
+  const api=async(path,body,{signal,pending=false}={})=>{
     const response=await fetch(base+path,{method:body?'POST':'GET',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined,cache:'no-store',signal});
+    if(pending&&(response.status===202||response.status===404||(response.status>=500&&response.status<600)))return null;
     const result=await response.json().catch(()=>({}));if(!response.ok){const error=Error(result.error||'Email recovery failed (HTTP '+response.status+')');error.status=response.status;throw error;}return result;
   };
   let verified;
@@ -67,10 +68,10 @@ export function createEmailGate({base='',policy}) {
         while(Date.now()<expires) {
           combined.throwIfAborted();
           let result;
-          try { result=await api('/email-recovery/headers/'+context.nonce,undefined,{signal:combined}); }
+          try { result=await api('/email-recovery/headers/'+context.nonce,undefined,{signal:combined,pending:true}); }
           catch(error) {
             if(combined.aborted)throw error;
-            if(error.status!==404)throw Error("We couldn't check for your email. Try again.");
+            if(error.status>=400&&error.status<500&&error.status!==404)throw error;
           }
           if(result?.headers)return result.headers;
           onWaiting();

@@ -12,10 +12,10 @@ import { byteStream } from "npm:@libp2p/utils@7.4.1";
 const { createDenoForwarder, ForwardError } = await import(Deno.args[0] || "./deno-forwarder.mjs");
 const enc = new TextEncoder();
 const dec = new TextDecoder();
-async function makeNode(listen, services = {}) {
+async function makeNode(listen, services = {}, connectionManager = {}) {
   return await createLibp2p({ addresses: { listen }, transports: [tcp(), webSockets(), circuitRelayTransport()],
     connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify(), ...services },
-    connectionManager: { minConnections: 0 } });
+    connectionManager: { minConnections: 0, ...connectionManager } });
 }
 async function readFrame(s) {
   const prefix = (await s.read({ bytes: 4 })).subarray();
@@ -45,9 +45,12 @@ Deno.test("shared Deno fetches node attestations over Noise and a circuit relay"
   } finally { await forwarder?.stop(); await guest?.stop(); await relay.stop(); }
 });
 
-Deno.test("HTTP polling backhaul carries pinned relay Noise", async () => {
+Deno.test("HTTP polling backhaul carries four concurrent Noise attestations", async () => {
   const relay = await makeNode(["/ip4/127.0.0.1/tcp/0"], { relay: circuitRelayServer({ reservations: { defaultDurationLimit: 120000, defaultDataLimit: 8n << 20n } }) });
-  const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()] });
+  const progress = [];
+  const forwarder = await createDenoForwarder({ backhaulPeers: [relay.peerId.toString()], onProgress: record => progress.push(record) });
+  let sendDelayMs = 100, recvDelayMs = 0, sends = 0, receives = 0, measuring = false;
+  const carrierIds = new Set(), carrierFailures = [], concurrentGuests = [];
   const http = Deno.serve({ hostname: "127.0.0.1", port: 0, onListen() {} }, (req) => forwarder.acceptBackhaul(req));
   const base = "http://127.0.0.1:" + http.addr.port + "/sandbox/p2p";
   const listener = Deno.listen({ hostname: "127.0.0.1", port: 0 });
@@ -57,7 +60,7 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise", async () => {
     let id;
     try {
       const response = await fetch(base + "/open", { method: "POST", signal: controller.signal });
-      assert.equal(response.status, 200); id = (await response.json()).id;
+      assert.equal(response.status, 200); id = (await response.json()).id; carrierIds.add(id);
       const upload = async () => {
         const buffer = new Uint8Array(32768);
         while (true) {
@@ -70,14 +73,18 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise", async () => {
       const download = async () => {
         while (true) {
           const response = await fetch(base + "/" + id + "/recv", { signal: controller.signal });
+          receives++;
           if (response.status === 204) continue;
           if (response.status !== 200) throw new Error("backhaul closed");
           const bytes = new Uint8Array(await response.arrayBuffer());
+          if (recvDelayMs) await new Promise(resolve => setTimeout(resolve, recvDelayMs));
           for (let offset = 0; offset < bytes.length;) offset += await conn.write(bytes.subarray(offset));
         }
       };
       await Promise.race([upload(), download()]);
-    } catch (error) { if (!controller.signal.aborted && error.name !== "BadResource") { /* connection failure closes this transport */ } }
+    } catch (error) {
+      if (measuring && !controller.signal.aborted && error.name !== "BadResource") carrierFailures.push({ name: error.name, message: error.message });
+    }
     finally {
       controller.abort();
       try { conn.close(); } catch { /* peer already closed */ }
@@ -99,11 +106,51 @@ Deno.test("HTTP polling backhaul carries pinned relay Noise", async () => {
       stream.send(enc.encode('{"attestation":"backhaul-proof"}')); await stream.close();
     });
     assert.deepEqual(await forwarder.forward("attestation", { target: unreachableAddress }), { attestation: "backhaul-proof" });
+    // A single carrier multiplexes all four fresh guest Noise handshakes. The
+    // 400ms request delays match measured Mac-to-broker WAN round trips. Draining
+    // one tiny WebSocket message per poll made these handshakes expire in the
+    // live four-browser test despite each guest working by itself.
+    for (let index = 0; index < 4; index++) {
+      const node = await makeNode([relay.getMultiaddrs()[0].toString() + "/p2p-circuit"], {}, { inboundUpgradeTimeout: 15000 });
+      concurrentGuests.push(node);
+      await node.handle("/dsmack/payments-attest/1", async stream => {
+        const request = await readFrame(byteStream(stream));
+        stream.send(enc.encode(JSON.stringify({ attestation: "concurrent-proof", guest: node.peerId.toString(), challenge: request.challenge })));
+        await stream.close();
+      }, { runOnLimitedConnection: true });
+    }
+    assert.equal(carrierIds.size, 1, "The four guest handshakes must share one HTTP carrier");
+    sendDelayMs = recvDelayMs = 400;
+    measuring = true;
+    const phaseStarted = performance.now(), sendStart = sends, receiveStart = receives, progressStart = progress.length;
+    let completed;
+    try {
+      completed = await Promise.allSettled(concurrentGuests.map(async (node, index) => {
+        const startedAtMs = Math.round(performance.now() - phaseStarted);
+        const response = await forwarder.forward("attestation", {
+          target: unreachableAddress + "/p2p-circuit/p2p/" + node.peerId,
+          challenge: (index + 1).toString(16).padStart(64, "0"),
+        });
+        assert.deepEqual(response, { attestation: "concurrent-proof", guest: node.peerId.toString(), challenge: (index + 1).toString(16).padStart(64, "0") });
+        return { guest: node.peerId.toString(), startedAtMs, responseAtMs: Math.round(performance.now() - phaseStarted) };
+      }));
+      console.log(JSON.stringify({ phase: "four-concurrent-noise-attestations", sendDelayMs, recvDelayMs,
+        sends: sends - sendStart, receives: receives - receiveStart, carrierCount: carrierIds.size, carrierFailures,
+        elapsedMs: Math.round(performance.now() - phaseStarted), progress: progress.slice(progressStart),
+        results: completed.map(result => result.status === "fulfilled" ? result : { status: result.status,
+          reason: { code: result.reason.code, detail: result.reason.detail, message: result.reason.message } }) }));
+      assert(completed.every(result => result.status === "fulfilled"), "Four concurrent guest attestations must finish over the shared WAN carrier");
+      assert.deepEqual(carrierFailures, [], "Concurrent handshakes must not break the shared carrier");
+      assert.equal(carrierIds.size, 1, "Concurrent handshakes must retain the original carrier");
+    } finally {
+      measuring = false;
+      sendDelayMs = 100; recvDelayMs = 0;
+    }
     const stranger = await makeNode([]);
     try { await assert.rejects(stranger.dialProtocol(multiaddr(target), "/ipfs/id/1.0.0", { signal: AbortSignal.timeout(2000) })); }
     finally { await stranger.stop(); }
   } finally {
-    listener.close(); await relay.stop(); await forwarder.stop(); await accepting;
+    listener.close(); await Promise.all(concurrentGuests.map(node => node.stop())); await relay.stop(); await forwarder.stop(); await accepting;
     await Promise.all([...adapters]); await http.shutdown();
   }
 });

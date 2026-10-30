@@ -5,8 +5,8 @@ running in an attested Mac-hosted Linux guest. Tool calls and results appear
 inline. Model requests and responses remain encrypted between the browser and
 NEAR AI Cloud's model TEE; the broker forwards ciphertext and meters usage.
 
-The first visit generates a browser wallet and a random data key locally. The
-wallet receives $0.250000 credit for model tokens and guest seconds. The first
+Choose Start fresh to generate a browser wallet and a random data key locally.
+The wallet receives $0.250000 credit for model tokens and guest seconds. The first
 tool call claims a guest, verifies its Apple attestation and
 measured compose, and opens a Noise-authenticated libp2p stream to it. The page
 shows the guest, its attestation and seconds used. End session releases it;
@@ -29,7 +29,8 @@ conversation; the Apps button reopens the panel.
 Apps receive a frozen `window.dsmack` SDK. Call `await dsmack.ready()` and check
 `dsmack.capabilities.has(method)` before using `storage.get/put/list`,
 `agent.complete`, `credit.balance` or `diagnostics.log`. Storage is encrypted
-under a key derived for the conversation and HTML filename. The viewer grants
+under a key derived for the conversation and HTML filename, or the ciphertext
+CID when viewing a shared app. The viewer grants
 each app a model budget once in the host bar, starting at $0.02; the bar shows
 its limit, spent amount and pending reservation. Model requests use an isolated
 untrusted transcript and the viewer's credit. Amounts use nano-USD strings.

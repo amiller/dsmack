@@ -1,5 +1,6 @@
 import { Contract, JsonRpcProvider, keccak256 } from "ethers";
 import { store, walletBody } from "./credit.mjs";
+import { newestWorkspace } from "./workspaces.mjs";
 
 const encoder = new TextEncoder();
 const canonical = (o) => JSON.stringify(Object.fromEntries(Object.keys(o).sort().map(k => [k,o[k]])));
@@ -70,6 +71,16 @@ export class ChatSync {
     return manifest;
   }
   serial(fn) { const p=this.pending.then(fn);this.pending=p.catch(()=>{});return p; }
+  async preserveWorkspace(data, other) {
+    const floorKey="workspace-head:"+this.wallet+":"+data.id;
+    const head=newestWorkspace(newestWorkspace(data.dsmack?.workspace,other?.dsmack?.workspace),await store(floorKey));
+    if(head) {
+      need(head.workspaceId===data.id,"Encrypted workspace belongs to another conversation.");
+      await store(floorKey,head);
+      data={...data,dsmack:{...data.dsmack,workspace:head}};
+    }
+    return data;
+  }
   pull() { return this.serial(async()=>{
     if(!this.initialized)await this.init();
     const remote=await this.remote(), merged=mergeSessions(this.state.sessions,remote.sessions);
@@ -79,6 +90,7 @@ export class ChatSync {
       if(!local||local.cid!==entry.cid||!await this.storage.sessions.get(id)) {
         const record=await this.open(entry.cid,"session:"+id);
         need(record.data.id===id&&record.metadata.id===id,"Encrypted session id mismatch.");
+        record.data=await this.preserveWorkspace(record.data,await this.storage.sessions.get(id));
         await this.storage.sessions.save(record.data,record.metadata);
       }
     }
@@ -86,13 +98,17 @@ export class ChatSync {
   }); }
   push(id) { return this.serial(async()=>{
     await this.loadState();
-    const data=await this.storage.sessions.get(id),metadata=await this.storage.sessions.getMetadata(id);
+    let data=await this.storage.sessions.get(id);const metadata=await this.storage.sessions.getMetadata(id);
     need(data&&metadata,"Saved chat is missing.");
     if(!this.state.pending.includes(id))this.state.pending.push(id);await store(this.stateKey,this.state);
     if(!this.initialized)await this.init();
-    const cid=await this.seal({data,metadata},"session:"+id);
     for(let attempt=0;attempt<4;attempt++) {
       const remote=await this.remote(),sessions=mergeSessions(this.state.sessions,remote.sessions);
+      const other=remote.sessions[id]?await this.open(remote.sessions[id].cid,"session:"+id):null;
+      if(other)need(other.data.id===id,"Encrypted session id mismatch.");
+      data=await this.preserveWorkspace(data,other?.data);
+      await this.storage.sessions.save(data,metadata);
+      const cid=await this.seal({data,metadata},"session:"+id);
       sessions[id]={cid,counter:Math.max(remote.counter,sessions[id]?.counter??0)+1,writer:this.writer};
       const manifest={v:1,wallet:this.wallet,counter:remote.counter+1,sessions};
       const manifestCid=await this.seal(manifest,"manifest");

@@ -82,7 +82,7 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 	id, _ := body["grant_id"].(string)
 	seconds, sok := body["seconds"].(float64)
 	expiry, eok := body["expires_at"].(float64)
-	if body["v"] != float64(1) || body["unit"] != "seconds" || body["relay_peer"] != node || body["client_peer"] != client || !validID(id) || !sok || !eok || seconds < 1 || seconds > 1800 || math.Trunc(seconds) != seconds || math.Trunc(expiry) != expiry || expiry <= float64(now) {
+	if body["v"] != float64(1) || body["unit"] != "seconds" || body["relay_peer"] != node || body["client_peer"] != client || !validID(id) || !sok || !eok || seconds < 1 || seconds > 3600 || math.Trunc(seconds) != seconds || math.Trunc(expiry) != expiry || expiry <= float64(now) {
 		return fail()
 	}
 	return terms{id: id, seconds: int64(seconds), expires: int64(expiry)}, nil
@@ -101,6 +101,7 @@ type engine struct {
 	busy           bool
 	jobsServed     int
 	lastError      string
+	closedReason   string
 }
 
 func (n *engine) telemetry() map[string]any {
@@ -111,7 +112,7 @@ func (n *engine) telemetry() map[string]any {
 		lastError = n.lastError
 	}
 	status := map[string]any{"relay_peer": n.node, "updated_at": time.Now().Unix(),
-		"busy": n.busy, "jobs_served": n.jobsServed, "last_error": lastError}
+		"busy": n.busy, "jobs_served": n.jobsServed, "last_error": lastError, "closed_reason": n.closedReason}
 	message := append([]byte("dsmack-node-status/1\n"), canon(status)...)
 	status["signature"] = hex.EncodeToString(ed25519.Sign(n.signer, message))
 	return status

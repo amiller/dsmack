@@ -201,7 +201,7 @@ func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 				}
 				finalSeen = true
 			}
-			io.WriteString(w, `{"stop":false}`)
+			io.WriteString(w, `{"stop":false,"activeBudgetSeconds":20}`)
 			return
 		}
 		if finalSeen {

@@ -4,16 +4,17 @@ import { mkdir, writeFile } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { chromium } from 'playwright';
 import { loader } from '../private-agent-artifacts/server.ts';
+import { parseArtifactLink, openArtifact } from './artifact-share.mjs';
 
 const evidence = resolve(process.env.EVIDENCE || 'local-data/artifacts');
 await mkdir(evidence, { recursive: true });
 const pi = resolve('node_modules/@earendil-works/pi-web-ui/dist');
 const output = await build({ stdin: { contents: `
-import {createArtifacts} from './artifacts.mjs'; import {ArtifactState} from './artifact-state.mjs';
+import {createArtifacts} from './artifacts.mjs'; import {ArtifactState} from './artifact-state.mjs'; import {sealArtifact,artifactLink} from './artifact-share.mjs';
 const records = new Map(); window.records=records;
 const state=new ArtifactState({dataKey:btoa(String.fromCharCode(...new Uint8Array(32).fill(7))),getRecord:scope=>records.get(scope),saveRecord:(scope,envelope)=>records.set(scope,envelope)});
 const models={grant:async(scope,limit)=>{await state.update(scope,record=>{if(record.budget.limitNanoUsd!==null)throw Error('Already granted');record.budget.limitNanoUsd=limit});return (await state.read(scope)).budget},complete:async(scope,params)=>{const record=await state.read(scope);if(record.budget.limitNanoUsd===null)throw Object.assign(Error('Choose an app budget in the host bar'),{code:'NOT_AVAILABLE'});if(params.messages[0].content==='slow'){window.slowStarted=true;await new Promise(resolve=>setTimeout(resolve,31000))}return {text:'answer:'+params.messages[0].content,model:'test-model',usage:{},evidence:{}}}};
-const x=createArtifacts(undefined,{state,models,credit:{address:'public-wallet',signer:{privateKey:'NEVER_EXPOSE'},chatCredit:{remainingNanoUsd:'100000000',spentNanoUsd:'1'}},scopeForFilename:filename=>JSON.stringify(['chat-a',filename])});document.body.append(x.budgetBar,x.panel);window.artifacts=x;
+const x=createArtifacts(undefined,{state,models,share:async html=>{const sealed=await sealArtifact(html);window.shareCiphertext=sealed.ciphertext;return artifactLink(sealed)},credit:{address:'public-wallet',signer:{privateKey:'NEVER_EXPOSE'},chatCredit:{remainingNanoUsd:'100000000',spentNanoUsd:'1'}},scopeForFilename:filename=>JSON.stringify(['chat-a',filename])});document.body.append(x.budgetBar,x.shareBar,x.panel);window.artifacts=x;
 `, resolveDir: process.cwd() }, bundle:true,format:'esm',write:false,alias:{'@pi-components':pi},loader:{'.md':'text'} });
 const host='https://private-agent.dstack.soc1024.com', sandbox='https://artifacts.private-agent.dstack.soc1024.com';
 const browser=await chromium.launch({headless:true,executablePath:process.env.CHROMIUM_PATH,args:['--no-sandbox']});
@@ -60,6 +61,14 @@ try {
   await page.waitForFunction(()=>document.querySelector('.artifact-budget').textContent.includes('Limit $0.020000'));
   assert.match(await page.locator('.artifact-budget').textContent(),/Limit \$0\.020000/);
   assert.equal(await app.evaluate(async()=>(await dsmack.agent.complete({messages:[{role:'user',content:'after-grant'}]})).text),'answer:after-grant');
+  await page.locator('[data-artifact-share]').click();
+  await page.waitForFunction(()=>document.querySelector('[data-artifact-share-link]').value);
+  const shareLink=await page.locator('[data-artifact-share-link]').inputValue();
+  const parsed=parseArtifactLink(shareLink);
+  const shared=await openArtifact({...parsed,ciphertext:await page.evaluate(()=>window.shareCiphertext)});
+  assert.equal(shared.html,html);
+  assert.ok(!JSON.stringify(shared).includes('BROWSER_ONLY_ARTIFACT_STATE'),'sharing excludes live storage and UI state');
+  assert.equal(await app.evaluate(()=>typeof dsmack.share),'undefined','only trusted host UI can share');
   const slow=app.evaluate(()=>dsmack.agent.complete({messages:[{role:'user',content:'slow'}]}));
   await page.waitForFunction(()=>window.slowStarted);
   await page.clock.fastForward(31000);

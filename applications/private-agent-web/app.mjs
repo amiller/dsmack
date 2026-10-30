@@ -8,9 +8,11 @@ import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
 import { ArtifactState } from "./artifact-state.mjs";
 import { ArtifactModels } from "./artifact-models.mjs";
 import { createSessionPersistence } from "./artifact-persistence.mjs";
+import { sealArtifact, openArtifact, artifactLink, parseArtifactLink, sharedScope, viewerSessionId } from "./artifact-share.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
+import { SavedWorkspace } from "./workspaces.mjs";
 import { continuityUI } from "./continuity-ui.mjs";
 import {
   Credit,
@@ -30,7 +32,7 @@ import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-p
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   guests = new Map();
-let keys, sync, continuity, cfg,
+let keys, sync, continuity, cfg, sharedLink, sharedBundle, activeArtifactView,
   credit,
   quote,
   policy,
@@ -203,6 +205,7 @@ async function claimChatCredit() {
   );
   credit.chatCredit = result;
   render();
+  if (sharedLink) activeArtifactView?.refreshSelectedBudget().catch(error);
   if (guest) await guest.restore();
 }
 async function ensureWallet() {
@@ -356,10 +359,32 @@ async function useSession(data) {
     messages: [], dsmack: { evidence: [], wallet: credit.address?.toLowerCase() },
   };
   const conversationId = currentSession.id;
+  const sessionRecord = currentSession;
   guest = guests.get(conversationId);
   if (!guest) {
+    const workspace = new SavedWorkspace({
+      workspaceId: conversationId, credit, dataKey: () => keys.bundle?.dk,
+      request: async (operation, fields) => api("/workspaces/" + operation, await walletBody(credit, "workspace-" + operation, fields)),
+      head: sessionRecord.dsmack.workspace,
+      persist: async head => {
+        const held = guests.get(conversationId);
+        const record = held?.record;
+        require(record, "Conversation is not ready to save its workspace.");
+        record.session.dsmack.workspace = head;
+        const saved = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
+        lastSave = saved;
+        await saved;
+        require(sync, "Unlock chat sync before saving your workspace.");
+        await sync.push(conversationId);
+      },
+      changed: status => {
+        const held = guests.get(conversationId);
+        if (held) held.workspaceStatus = status;
+        if (currentSession.id === conversationId) renderWorkspace(status);
+      },
+    });
     guest = new GuestSession({
-      api, cfg, credit, conversationId, discover, savedLease: currentSession.dsmack.guest,
+      api, cfg, credit, conversationId, discover, workspace, savedLease: currentSession.dsmack.guest,
       changed: (status) => {
         const held = guests.get(conversationId);
         if (held) {
@@ -383,7 +408,9 @@ async function useSession(data) {
     guests.set(conversationId, guest);
   }
   renderGuest(guest.statusSnapshot || { state: "idle" });
+  renderWorkspace(guest.workspaceStatus || { head: sessionRecord.dsmack.workspace });
   let artifacts, artifactAgent;
+  activeArtifactView = undefined;
   const artifactHost = $("artifacts-host");
   artifactHost.replaceChildren();
   artifactHost.hidden = true;
@@ -414,9 +441,17 @@ async function useSession(data) {
       changed: scope => artifacts?.refreshBudget(scope).catch(error),
     });
     artifacts = createArtifacts(undefined, { state: artifactState, models: artifactModels, credit,
-      scopeForFilename: filename => JSON.stringify([artifactSession.id, filename]), error,
+      scopeForFilename: filename => filename === "shared.html" && artifactSession.dsmack.sharedArtifactCid
+        ? sharedScope(artifactSession.dsmack.sharedArtifactCid) : JSON.stringify([artifactSession.id, filename]), error,
+      share: async html => {
+        const sealed = await sealArtifact(html);
+        const result = await api("/artifacts/share", await walletBody(credit, "artifact-share", { ciphertext: sealed.ciphertext }));
+        require(result.cid === sealed.cid && result.pinned === true, "The encrypted app was not pinned with its expected CID.");
+        return artifactLink(sealed);
+      },
     });
-    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.panel);
+    activeArtifactView = artifacts;
+    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.shareBar, artifacts.panel);
     artifactHost.hidden = true;
     const openArtifacts = () => {
       artifactHost.hidden = false; artifacts.panel.collapsed = false;
@@ -450,9 +485,12 @@ async function useSession(data) {
   artifactAgent = agent;
   if (artifacts) {
     artifacts.panel.agent = agent;
-    await artifacts.panel.reconstructFromMessages(currentSession.messages.filter((message) =>
-      message.role !== "artifact" || /\.html$/i.test(message.filename || "")));
+    const imported = sharedBundle && sharedLink && currentSession.dsmack.sharedArtifactCid === sharedLink.cid
+      ? [{ role: "artifact", action: "create", filename: "shared.html", content: sharedBundle.html }] : [];
+    await artifacts.panel.reconstructFromMessages([...currentSession.messages.filter((message) =>
+      message.role !== "artifact" || /\.html$/i.test(message.filename || "")), ...imported]);
     $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
+    if (imported.length) { artifactHost.hidden = false; artifacts.panel.openArtifact("shared.html"); }
   }
   guest.record = { session: currentSession, agent };
   if (credit.signer) {
@@ -477,6 +515,19 @@ async function useSession(data) {
   });
   await saveCurrentChat();
   await storage.settings.set("chat.active", currentSession.id);
+}
+async function loadSharedViewer() {
+  if (!sharedLink || !keys.bundle || !credit.signer) return false;
+  if (!sharedBundle) {
+    const response = await api("/artifacts/share/" + encodeURIComponent(sharedLink.cid));
+    require(response.cid === sharedLink.cid, "The shared app response identifies a different CID.");
+    sharedBundle = await openArtifact({ ...response, key: sharedLink.key });
+  }
+  const id = viewerSessionId(credit.address, sharedLink.cid);
+  const saved = await storage.sessions.get(id);
+  await useSession(saved || { id, title: "Shared app", createdAt: new Date().toISOString(), messages: [],
+    dsmack: { evidence: [], wallet: credit.address.toLowerCase(), sharedArtifactCid: sharedLink.cid } });
+  return true;
 }
 async function initChat() {
   storage = createChatStorage();
@@ -519,7 +570,7 @@ async function initChat() {
   const active = await storage.settings.get("chat.active") || await storage.sessions.getLatestSessionId();
   const saved = active ? await storage.sessions.get(active) : null;
   const sameWallet = credit.address && (!saved?.dsmack?.wallet || saved.dsmack.wallet === credit.address.toLowerCase());
-  await useSession(sameWallet ? saved : null);
+  if (!await loadSharedViewer()) await useSession(sameWallet ? saved : null);
   await renderPersistence();
   action("new-chat", () => useSession());
   action("sessions", () => SessionListDialog.open(
@@ -586,6 +637,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
   const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
   const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
     version: String(workspace.version), hash: workspace.hash }) : "";
+  const setupSeconds = 30 + (workspace ? Math.ceil(workspace.size / (512 * 1024)) : 0);
   let lastRefusal, chainDirectory, brokerFailure;
   const mark = (stage, detail) => performance.mark("dsmack:" + stage, { detail });
   const pause = milliseconds => new Promise((resolve, reject) => {
@@ -628,7 +680,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
     const candidates = nodes.filter(entry => entry.kind === "compute" &&
       entry.available !== false && !exclude.has(entry.relay_peer) &&
       (chainDirectory || (entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
-      Number(entry.admit_until) * 1000 >= Date.now() + 30000)));
+      Number(entry.admit_until) * 1000 >= Date.now() + setupSeconds * 1000)));
     for (const selected of candidates) {
       signal?.throwIfAborted();
       $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
@@ -664,8 +716,8 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
         const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
         require(!registration.payments || registration.payments.challenge === challenge,
           "Node challenge mismatch. Stale attestation refused.");
-        require(Number(registration.admit_until) * 1000 >= Date.now() + 30000 &&
-          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + 30000),
+        require(Number(registration.admit_until) * 1000 >= Date.now() + setupSeconds * 1000 &&
+          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + setupSeconds * 1000),
           "Guest is too close to drain. Trying another approved guest.");
         mark("attestation:verified", { peer });
         // The attestation endpoint omits scheduler hints; retain them for sealed
@@ -721,6 +773,7 @@ function renderGuest(status) {
   const held = ["held", "connecting", "disconnected-held"].includes(status.state);
   $("end-session").disabled = !held;
   $("download").disabled = status.state !== "held";
+  $("save-workspace").disabled = status.state !== "held";
   $("repo").disabled = held;
   $("sample").disabled = held;
   $("guest-seconds").textContent = `${status.guestSeconds || 0} guest seconds`;
@@ -730,8 +783,8 @@ function renderGuest(status) {
     verifying: "Verifying an available guest…",
     connecting: "Connecting to the verified guest…",
     held: "Guest held for this conversation: " + status.node?.relay_peer,
-    "disconnected-held": "This conversation holds a disconnected guest. End session before starting a fresh workspace.",
-    released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call starts a fresh workspace.",
+    "disconnected-held": "This conversation holds a disconnected guest. End the guest stay to resume its saved workspace.",
+    released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call restores this conversation’s saved workspace.",
     ending: "Ending session; waiting for the guest’s signed final usage…",
     disconnected: "Guest stream closed.",
   }[status.state] || status.state);
@@ -740,6 +793,14 @@ function renderGuest(status) {
     $("guest-attestation").hidden = false;
   }
   if (credit) renderChatCredit();
+}
+function renderWorkspace(status) {
+  const messages = { saving: "Saving workspace…", restoring: "Restoring saved workspace…", opening: "Opening workspace…" };
+  $("workspace-status").textContent = messages[status.state] || (status.head
+    ? `Workspace version ${status.head.version} saved · Kept for 30 days after last use`
+    : "Files will be saved with this conversation.");
+  $("workspace-status").dataset.version = String(status.head?.version || 0);
+  $("workspace-status").dataset.state = status.state || "ready";
 }
 function resetSample() {
   repoFiles = new Map([["greet.txt", "Hello world.\n"]]);
@@ -818,7 +879,7 @@ async function checkSync() {
     await startupStep("sync-pull", () => checking.pull());
     // A recovered wallet may need to select its newest verified remote chat.
     const imported = await store("continuity.imported");
-    if (!chatBusy) {
+    if (!chatBusy && !sharedLink) {
       const remoteIds = new Set(Object.keys(checking.state?.sessions || {}));
       const all = await storage.sessions.getAllMetadata();
       const latest = all.filter(m => remoteIds.has(m.id)).sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0];
@@ -843,6 +904,7 @@ async function main() {
   const response = await startupStep("configuration", () => fetch("./config.json", { cache: "no-store" }));
   require(response.ok, "Page configuration could not load.");
   cfg = await response.json();
+  sharedLink = parseArtifactLink(window.location.href);
   for (const name of ["broker", "rpc"]) {
     require(/^https:\/\//.test(cfg[name]), `${name} must be an explicit HTTPS service address.`);
   }
@@ -869,7 +931,7 @@ async function main() {
     await credit.init();
     currentSession.dsmack.wallet = credit.address.toLowerCase();
     sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
-    await useSession(currentSession);
+    if (!await loadSharedViewer()) await useSession(currentSession);
     render();
     $("welcome").hidden = true;
     $("service").textContent = "Your wallet is ready. Checking your credit…";
@@ -902,6 +964,7 @@ async function main() {
     finally { await peer.stop(); }
   });
   action("end-session", () => guest.end());
+  action("save-workspace", () => guest.save());
   action("sample", resetSample);
   action("download", async () => {
     const patch = await guest.patch();

@@ -11,6 +11,7 @@ export const security = {
 };
 export const loader = `<!doctype html><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="${policy}"><meta http-equiv="x-dns-prefetch-control" content="off"><meta name="referrer" content="no-referrer"><title>Artifact</title><style>html,body,iframe{width:100%;height:100%;margin:0;border:0}iframe{display:block}</style><script>
 const host = ${JSON.stringify(parentOrigin)};
+const nativeNetworkReady = false;
 let inner, sandboxId, blob;
 function receive(event) {
   const data = event.data;
@@ -26,6 +27,12 @@ function receive(event) {
   }
   if (data.type !== 'sandbox-load' || typeof data.code !== 'string' || typeof data.sandboxId !== 'string') return;
   sandboxId = data.sandboxId;
+  if (!nativeNetworkReady) {
+    const message = 'App previews are being updated. Try again shortly.';
+    document.body.textContent = message;
+    parent.postMessage({type:'execution-error', sandboxId, error:{message}}, host);
+    return;
+  }
   inner = document.createElement('iframe');
   inner.sandbox.add('allow-scripts'); inner.title = 'Generated app';
   const guard = '<!doctype html><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy" content="frame-src &apos;none&apos;"><script>addEventListener("message",function(e){if(e.source!==parent||e.origin!=="null"||!e.data||e.data.sandboxId!==' + JSON.stringify(sandboxId) + '){e.stopImmediatePropagation()}},true);<' + '/script>';

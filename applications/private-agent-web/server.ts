@@ -17,7 +17,7 @@ const types: Record<string, string> = {
 };
 const security = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org https://base-sepolia.gateway.tenderly.co wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
@@ -42,6 +42,7 @@ export default async function handler(req: Request,ctx?: {env:Record<string,stri
     return new Response("Invalid path", { status: 400, headers: security });
   }
   const parts = path.split("/").filter(Boolean);
+  if (parts[0] === "a") parts.shift();
   if (parts.some((part) => part.startsWith(".") || /[\\\0]/.test(part))) {
     return new Response("Invalid path", { status: 400, headers: security });
   }

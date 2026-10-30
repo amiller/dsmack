@@ -4,7 +4,7 @@ import argparse,json,signal,subprocess,sys,time,re,socket,ssl,http.client,base64
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
-from pool import preflight,MacOccupied
+from pool import preflight,MacOccupied,hardware,operator_config,measured_size
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -13,14 +13,17 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
         p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--operator',type=Path,default=Path.home()/'.dsmack/operator.json')
     p.add_argument('--broker',required=True);p.add_argument('--index',required=True)
     p.add_argument('--publication-rpc',default='https://base-sepolia-rpc.publicnode.com')
     p.add_argument('--ipfs-bin',type=Path);p.add_argument('--ipfs-car',type=Path);p.add_argument('--ipfs-state',type=Path)
     p.add_argument('--registry',required=True);p.add_argument('--publisher-address',required=True)
     a=p.parse_args()
     if any((a.ipfs_bin,a.ipfs_car,a.ipfs_state)) and not all((a.ipfs_bin,a.ipfs_car,a.ipfs_state)):p.error('IPFS needs --ipfs-bin, --ipfs-car and --ipfs-state')
-    a.state.mkdir(parents=True,mode=0o700)
+    config=operator_config(a.operator,hardware())
     manifest=json.loads((a.workload/'compose-manifest.json').read_bytes())
+    measured_size(manifest,config)
+    a.state.mkdir(parents=True,mode=0o700)
     node=json.loads(manifest['docker_compose_file'])['services']['node']
     expected_peer=node['command'][1].rsplit('/',1)[1]
     seconds=int(node['command'][2]);admit=int(node['environment']['ADMIT_SECONDS'])
@@ -94,7 +97,7 @@ def main():
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
         published=True;publish([hint],True);last_http=last_chain=time.monotonic()
         if stopping:return
-        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90'],'pool.log')
+        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address],'pool.log')
         draining=False
         while pool.poll() is None:
             for proc in children:

@@ -12,6 +12,41 @@ import pool
 
 
 class PoolTests(unittest.TestCase):
+    def test_operator_capacity_accepts_four_guests_and_names_oversized_numbers(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'operator.json'
+            config = {'max_guests': 4, 'guest': {'mem_mib': 4096, 'vcpus': 1},
+                      'reserve': {'mem_gb': 16, 'cores': 4}}
+            host = {'mem_bytes': 64 << 30, 'cores': 14}
+            path.write_text(json.dumps(config))
+            self.assertEqual(pool.operator_config(path, host), config)
+            config['max_guests'] = 20
+            path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError, '81920 MiB.*physical 65536 MiB.*reserve 16384 MiB.*49152 MiB available.*20.*14 cores.*4.*10 available'):
+                pool.operator_config(path, host)
+            config['max_guests'] = 4; config['guest']['vcpus'] = 3
+            path.write_text(json.dumps(config))
+            with self.assertRaisesRegex(ValueError, '12.*14 cores.*4.*10 available'):
+                pool.operator_config(path, host)
+
+    def test_operator_size_must_match_attested_resource_profile(self):
+        config = {'guest': {'mem_mib': 8192, 'vcpus': 2}}
+        manifest = {'base_vm': {'memory_mb': 8192, 'vcpus': 2},
+                    'resource_profiles': {'mini-8192-2': {'mem_mib': 8192, 'vcpus': 2}}}
+        self.assertEqual(pool.measured_size(manifest, config), 'mini-8192-2')
+        manifest['base_vm']['memory_mb'] = 4096
+        with self.assertRaisesRegex(ValueError, 'differs from measured resource profile'):
+            pool.measured_size(manifest, config)
+
+    def test_failed_slot_does_not_stop_other_slot_rotation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            instance.slots[0]['stopped'] = True
+            instance.slots.append(dict(instance.slots[0], slot_id=1, stopped=False))
+            instance.tick()
+            instance.launch.assert_called_once_with(instance.slots[1])
+            self.assertFalse(instance.stopping)
+
     def test_replacement_starts_before_old_node_admission_closes(self):
         old = {'node': {'relay_peer': 'old'}, 'started': 0, 'admit_seconds': 570}
         self.assertFalse(pool.should_replace([old], 449, 450))
@@ -55,19 +90,19 @@ class PoolTests(unittest.TestCase):
         instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
                                         debugfs=Path('/debugfs'))
         instance.active = []; instance.stopping = False; instance.failure = None
-        instance.consecutive_failures = 0; instance.last_error = None; instance.retry_pending = False; instance.last_broker_error = None
-        instance.measurement = 'compose'; instance.image = 'image'
+        instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'stopped': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
+        instance.measurement = 'compose'; instance.image = 'image'; instance.last_status_poll = pool.time.monotonic()
         instance.event = Mock(); instance.launch = Mock()
         return instance
 
     def failed_node(self, root):
         root.mkdir(exist_ok=True); (root/'evidence').mkdir(exist_ok=True)
-        return {'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
+        return {'slot_id': 0, 'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
 
     def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
-            healthy = {'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
                        'started': pool.time.monotonic(), 'admit_seconds': 570}
             failed = self.failed_node(root/'failed')
             instance.active = [healthy, failed]
@@ -78,7 +113,7 @@ class PoolTests(unittest.TestCase):
             retire.assert_called_once_with(failed['path'], Path('/repo'))
             self.assertEqual(instance.active, [healthy]); self.assertFalse(instance.stopping)
             instance.launch.assert_called_once()
-            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
             self.assertEqual(json.loads((failed['path']/'evidence/guest-error.json').read_text()), failure)
 
     def test_closed_result_with_failed_service_is_replaced_even_after_readiness(self):
@@ -91,10 +126,10 @@ class PoolTests(unittest.TestCase):
             with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
                     patch.object(pool, 'preserve_and_retire', return_value={}):
                 instance.tick()
-            self.assertEqual(instance.consecutive_failures, 1)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
             self.assertFalse(instance.stopping); instance.launch.assert_called_once()
 
-    def test_three_consecutive_failures_stop_with_last_actual_error(self):
+    def test_three_consecutive_failures_stop_only_that_slot(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
             for number in range(1, 4):
@@ -103,28 +138,29 @@ class PoolTests(unittest.TestCase):
                 with patch.object(pool, 'guest_result', return_value={'error': failure}), \
                         patch.object(pool, 'preserve_and_retire', return_value={}):
                     instance.tick()
-            self.assertTrue(instance.stopping); self.assertEqual(instance.consecutive_failures, 3)
-            self.assertIn('refused-3', instance.failure)
+            self.assertFalse(instance.stopping); self.assertTrue(instance.slots[0]['stopped'])
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 3)
+            self.assertIn('refused-3', instance.slots[0]['last_error']['body'])
             self.assertEqual(instance.launch.call_count, 2)
             self.assertEqual(instance.event.call_args.kwargs['last_error'], failure)
 
-    def test_broker_verified_ready_resets_consecutive_failures(self):
+    def test_readiness_does_not_erase_failed_guest_history(self):
         with tempfile.TemporaryDirectory() as tmp:
-            instance = self.instance(Path(tmp)); instance.consecutive_failures = 2
+            instance = self.instance(Path(tmp)); instance.slots[0]['consecutive_failures'] = 2
             now = pool.time.monotonic()
-            instance.active = [{'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
+            instance.active = [{'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
                                 'previous': set(), 'readiness_deadline': now+90, 'started': now, 'admit_seconds': 570}]
             ready = {'kind': 'compute', 'relay_peer': 'new', 'manifest_sha256': 'compose', 'os_image_hash': 'image',
                      'attestation': {'status': 'verified'}}
             with patch.object(instance, 'nodes', return_value=[ready]):
                 instance.tick()
-            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 2)
             self.assertEqual(instance.active[0]['node'], ready)
 
     def test_readiness_timeout_waits_for_only_that_owned_guest(self):
         with tempfile.TemporaryDirectory() as tmp:
             instance = self.instance(Path(tmp))
-            node = {'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
+            node = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
                     'previous': set(), 'readiness_deadline': 0}
             instance.active = [node]
             with patch.object(instance, 'nodes', return_value=[]): instance.tick()
@@ -173,12 +209,12 @@ class PoolTests(unittest.TestCase):
     def test_broker_promotion_outage_keeps_booting_vm_and_reports_failure(self):
         import time
         from urllib.error import HTTPError
-        instance = object.__new__(pool.Pool)
+        instance = self.instance(Path('/unused'))
         instance.args = SimpleNamespace(broker='https://broker', readiness_timeout=90, cycles=0, replace_after=450)
-        node = {'process': Mock(poll=Mock(return_value=None)), 'node': None,
+        node = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': None,
                 'path': Path('/owned'), 'previous': set(), 'readiness_deadline': 0, 'started': time.monotonic()}
         instance.active = [node]; instance.stopping = False; instance.failure = None
-        instance.measurement = 'compose'; instance.image = 'image'
+        instance.measurement = 'compose'; instance.image = 'image'; instance.last_status_poll = pool.time.monotonic()
         instance.event = Mock(); instance.launch = Mock()
         with patch.object(pool, 'urlopen', side_effect=HTTPError('https://broker',500,'unavailable',None,None)):
             instance.tick()
@@ -196,7 +232,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root); instance.args.broker = 'https://broker'
             now = pool.time.monotonic()
-            healthy = {'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
                        'started': now, 'admit_seconds': 570}
             booting = self.failed_node(root/'booting'); booting.update(process=Mock(poll=Mock(return_value=None)),
                 previous=set(), started=now, admit_seconds=570, readiness_deadline=0)
@@ -204,15 +240,15 @@ class PoolTests(unittest.TestCase):
             error = HTTPError('https://broker/nodes', 404, 'missing', None, io.BytesIO(b'actual missing route'))
             with patch.object(pool, 'urlopen', side_effect=error): instance.tick()
             self.assertEqual(instance.active, [healthy, booting]); self.assertFalse(instance.stopping)
-            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
             self.assertEqual(booting['readiness_error']['status'], 404)
             self.assertEqual(booting['readiness_error']['body'], 'actual missing route')
             booting['process'] = Mock(poll=Mock(return_value=0), returncode=0)
             with patch.object(pool, 'guest_result', return_value={'outputs': {'status': 'failed'}}), \
                     patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
-            self.assertEqual(instance.consecutive_failures, 1)
-            self.assertEqual(instance.last_error['status'], 404)
-            self.assertEqual(instance.last_error['stage'], 'broker_readiness')
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
+            self.assertEqual(instance.slots[0]['last_error']['status'], 404)
+            self.assertEqual(instance.slots[0]['last_error']['stage'], 'broker_readiness')
             self.assertEqual(instance.active, [healthy]); instance.launch.assert_called_once()
 
     def test_broker_error_response_body_is_bounded_and_malformed_200_is_visible(self):
@@ -236,7 +272,7 @@ class PoolTests(unittest.TestCase):
             result = {'outputs': {'status': 'cancelled', 'exit_code': None, 'cancel': {'reason': 'timeout'}}, 'error': None}
             with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
                     patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
-            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
             self.assertFalse(instance.stopping)
             self.assertEqual(instance.event.call_args.args, ('retired',))
 
@@ -249,7 +285,7 @@ class PoolTests(unittest.TestCase):
                       'error': {'stage': 'broker lease renewal 1/3', 'error': 'transient HTTP 503', 'terminal': False}}
             with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
                     patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
-            self.assertEqual(instance.consecutive_failures, 0)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
             self.assertEqual(instance.event.call_args.args, ('retired',))
 
     def test_timeout_with_actual_guest_error_is_a_failure(self):
@@ -261,8 +297,8 @@ class PoolTests(unittest.TestCase):
                       'error': {'stage': 'broker_registration', 'status': 403, 'body': 'refused', 'error': 'actual refusal'}}
             with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
                     patch.object(pool, 'preserve_and_retire', return_value={}): instance.tick()
-            self.assertEqual(instance.consecutive_failures, 1)
-            self.assertEqual(instance.last_error['body'], 'refused')
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
+            self.assertEqual(instance.slots[0]['last_error']['body'], 'refused')
 
     def test_uncertain_live_helper_blocks_extraction_and_retirement(self):
         with tempfile.TemporaryDirectory() as tmp:

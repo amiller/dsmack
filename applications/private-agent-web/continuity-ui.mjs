@@ -4,7 +4,7 @@ import { createEmailGate } from "./email-gate-client.mjs";
 
 export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   const $ = (id) => document.getElementById(id);
-  let receiver, emailRequest, emailPurpose, dkimRequest, dkimPoll;
+  let receiver, emailRequest, emailPurpose, dkimPoll;
   const status = (text) => { $("continuity-status").textContent = text; };
   const onCode = (code) => { $("continuity-panel").hidden = false; $("link-code").textContent = code; };
   const confirm = async (code) => {
@@ -36,43 +36,88 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     location.reload();
   });
   const emailGate = createEmailGate({ base: "", policy: cfg.emailGate });
+  const emailInstructions = document.createElement("div");
+  emailInstructions.id = "recovery-email-instructions";
+  emailInstructions.hidden = true;
+  $("send-recovery-email").after(emailInstructions);
+  const showEmailInstructions = (request) => {
+    emailInstructions.replaceChildren();
+    const instruction = document.createElement("p");
+    instruction.textContent = "Send this email from " + request.email + " to finish this step.";
+    emailInstructions.append(instruction);
+    for (const [label, value] of [["To", request.receiverAddress], ["Subject", request.subject]]) {
+      const row = document.createElement("p");
+      const field = document.createElement("input");
+      field.readOnly = true; field.value = value; field.setAttribute("aria-label", label);
+      const copy = document.createElement("button");
+      copy.type = "button"; copy.textContent = "Copy " + label;
+      copy.onclick = async () => {
+        try { await navigator.clipboard.writeText(value); copy.textContent = "Copied " + label; }
+        catch { field.focus(); field.select(); copy.textContent = "Select and copy " + label; }
+      };
+      row.append(label + ": ", field, copy); emailInstructions.append(row);
+    }
+    const to = encodeURIComponent(request.receiverAddress), subject = encodeURIComponent(request.subject);
+    const providers = [
+      ["Gmail", "https://mail.google.com/mail/?view=cm&to=" + to + "&su=" + subject],
+      ["Outlook", "https://outlook.live.com/mail/0/deeplink/compose?to=" + to + "&subject=" + subject],
+      ["iCloud", "https://www.icloud.com/mail/"],
+    ];
+    const domain = request.email.split("@")[1];
+    const preferred = domain === "gmail.com" ? "Gmail" :
+      ["outlook.com", "hotmail.com", "live.com"].includes(domain) ? "Outlook" :
+      ["icloud.com", "me.com", "mac.com"].includes(domain) ? "iCloud" : "";
+    providers.sort((a, b) => Number(b[0] === preferred) - Number(a[0] === preferred));
+    for (const [label, href] of providers) {
+      const link = document.createElement("a");
+      link.textContent = "Open in " + label;
+      link.setAttribute("role", "button");
+      Object.assign(link.style, { display: "inline-block", padding: "10px 14px", border: "1px solid var(--line)", borderRadius: "7px", textDecoration: "none", margin: "4px 0" }); link.href = href; link.target = "_blank"; link.rel = "noopener noreferrer";
+      emailInstructions.append(link, " ");
+    }
+    const icloudHelp = document.createElement("p");
+    icloudHelp.textContent = "In iCloud, choose Compose, then paste the To and Subject above.";
+    emailInstructions.append(icloudHelp);
+    $("send-recovery-email").textContent = "Open email app ↗";
+    $("send-recovery-email").href = request.mailto;
+    $("send-recovery-email").hidden = false;
+    emailInstructions.hidden = false;
+  };
   const requestDkim = async (purpose) => {
+    $("alert").hidden = true;
     dkimPoll?.abort();
-    dkimPoll = undefined;
-    dkimRequest = undefined;
+    const poll = new AbortController();
+    dkimPoll = poll;
+    emailInstructions.hidden = true;
     $("send-recovery-email").hidden = true;
     status("Verifying the recovery gate’s attestation…");
     if (purpose === "enroll") await beforeExport();
-    dkimRequest = await emailGate.requestDkim($("recovery-email").value, purpose);
-    $("send-recovery-email").href = dkimRequest.mailto;
-    $("send-recovery-email").hidden = false;
-    status("Send the prepared message from " + dkimRequest.email + ". This page will wait for it.");
-  };
-  bind("enroll-email", () => requestDkim("enroll"));
-  bind("request-email", () => requestDkim("recover"));
-  $("send-recovery-email").onclick = () => {
-    if (!dkimRequest || dkimPoll) return;
-    const request = dkimRequest;
-    dkimPoll = new AbortController();
-    const poll = dkimPoll;
-    status("Waiting for your recovery email…");
+    const request = await emailGate.requestDkim($("recovery-email").value, purpose);
+    if (poll.signal.aborted) return;
+    showEmailInstructions(request);
+    status("Waiting for your email to arrive…");
     (async () => {
       const headers = await emailGate.waitDkim(request, { signal: poll.signal });
+      if (poll.signal.aborted) return;
       status("Checking your email signature in the attested gate…");
       const result = await emailGate.confirmDkim(request, headers,
         request.purpose === "enroll" ? keys.bundle : undefined);
+      if (poll.signal.aborted) return;
+      emailInstructions.hidden = true;
+      $("send-recovery-email").hidden = true;
       if (request.purpose === "enroll") {
-        dkimRequest = undefined;
-        $("send-recovery-email").hidden = true;
         status("Recovery email added. Use Recover with email on another device.");
       } else {
         await imported(result);
+        status("Email verified. Your wallet and chats are recovered. Loading…");
         location.reload();
       }
     })().catch((e) => {
-      if (e.name !== "AbortError") { status(e.message); error(e); }
+      if (e.name !== "AbortError" && dkimPoll === poll) { status(e.message); error(e); }
     }).finally(() => { if (dkimPoll === poll) dkimPoll = undefined; });
   };
+  bind("enroll-email", () => requestDkim("enroll"));
+  bind("request-email", () => requestDkim("recover"));
   const requestEmail = async (purpose) => {
     emailPurpose = purpose;
     status("Verifying the recovery gate’s attestation…");

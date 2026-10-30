@@ -6,7 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"math"
 	"net"
 	"net/http"
@@ -141,6 +140,31 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		return
 	}
 	defer conn.Close()
+	workspace := &workspaceSession{}
+	// Save while the grant is still non-final; retirement and its final signed
+	// receipt happen only after this deferred ciphertext transfer finishes.
+	defer func() {
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			err = workspace.save(n, socket, brokerURL, t.id, client)
+			if err == nil {
+				return
+			}
+			if time.Until(n.until) <= time.Second {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		n.recordError("workspace autosave failed: " + err.Error())
+		fmt.Fprintln(os.Stderr, "workspace autosave failed:", err)
+	}()
+	var outputMu sync.Mutex
+	send := func(line []byte) error {
+		outputMu.Lock()
+		defer outputMu.Unlock()
+		_, err := s.Write(append(append([]byte(nil), line...), '\n'))
+		return err
+	}
 	if writeFrame(s, map[string]string{"status": "ready"}) != nil {
 		return
 	}
@@ -205,13 +229,33 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 				lastActivity = time.Now()
 				activityMu.Unlock()
 			}
-			if _, err := conn.Write(append(append([]byte(nil), line...), '\n')); err != nil {
+			forwarded, err := workspace.request(n, t.id, line)
+			if err != nil {
+				var request struct {
+					ID json.RawMessage `json:"id"`
+				}
+				json.Unmarshal(line, &request)
+				if send(canon(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32602, "message": err.Error()}})) != nil {
+					break
+				}
+				continue
+			}
+			if _, err := conn.Write(append(append([]byte(nil), forwarded...), '\n')); err != nil {
 				break
 			}
 		}
 		conn.Close()
 	}()
-	io.Copy(s, conn)
+	responses := bufio.NewScanner(conn)
+	responses.Buffer(make([]byte, 64<<10), 8<<20)
+	for responses.Scan() {
+		line := responses.Bytes()
+		workspace.observe(line)
+		if send(line) != nil {
+			break
+		}
+	}
+	conn.Close()
 	s.SetDeadline(time.Now())
 	<-incomingDone
 	// A dropped browser stream does not end a conversation lease. Keep

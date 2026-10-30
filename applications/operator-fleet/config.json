@@ -6,6 +6,9 @@
   "broker": "https://pod.dstack.soc1024.com/relay-broker",
   "rpc": "https://base-sepolia-rpc.publicnode.com",
   "classesByPublisher": {
-    "0xa43f9f32411358c1319cb36027650a206644c131": ["0xbe885f5e92711be153e63cfa978aa9693b9caf8434b463b5f27496ef8b2342bb"]
+    "0xa43f9f32411358c1319cb36027650a206644c131": [
+      "0x13e199198dc292c9e82e31597225755287833cf6a5b78506ce429d8bc4e8d34d",
+      "0xbe885f5e92711be153e63cfa978aa9693b9caf8434b463b5f27496ef8b2342bb"
+    ]
   }
 }

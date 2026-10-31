@@ -69,8 +69,11 @@ counter and digest to the pinned Base Sepolia SyncHeads contract. Each browser
 checks the contract code, on-chain head, signature and ciphertext CID before
 loading remote sessions. Refresh loads changes made on another device.
 
-Email recovery verifies the gate's Intel TDX quote and approved boot measurements
-in the browser before sending keys sealed to its quoted ECDH key. Enter your
+Email recovery verifies the gate's Intel TDX quote, OS boot measurements, event
+log and quoted ECDH key in the browser. It checks the webhost app's live Base
+mainnet DstackApp/KMS authorization through two independent public RPCs at one
+matching block, caching successful decisions for thirty seconds. The KMS checks
+the OS image, registered app, allowed compose and device. Enter your
 address and send the prepared recovery email from that account. The page polls
 for its headers; the gate verifies the DKIM signature and browser-bound subject
 nonce, then stores or releases the labelled encrypted recovery wrap. Passkeys

@@ -5,6 +5,7 @@ import { createEmailGate } from "./email-gate-client.mjs";
 
 export function recoveryMessage(e) {
   const message = String(e?.message || "");
+  if (e?.code === 'RECOVERY_NOT_AUTHORIZED' || e?.code === 'RECOVERY_CHAIN_UNAVAILABLE') return message;
   if (e?.status >= 400 && e?.status < 500 && e?.status !== 404) return message;
   if (/^We (?:didn.t receive your email|couldn.t check for your email)/.test(message)) return message;
   if (e?.name === "NotAllowedError" || e?.name === "AbortError") return "That request was cancelled or timed out. Try again when you’re ready.";

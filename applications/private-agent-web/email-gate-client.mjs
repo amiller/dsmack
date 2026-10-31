@@ -1,11 +1,13 @@
-import {verify} from '@phala/dcap-qvl';
+import {verify,Quote,utils,oids} from '@phala/dcap-qvl';
+import {createGateAuthorization,unauthorizedGate} from './gate-authorization.mjs';
 import {bytes,random,ephemeral,seal,open,quoteBinding,emailRecoveryLabel,emailRecoveryNonce} from './email-gate-crypto.mjs';
 const hex=(value)=>Array.from(new Uint8Array(value),b=>b.toString(16).padStart(2,'0')).join('');
 const unhex=(value)=>{if(!/^(?:[0-9a-f]{2})*$/i.test(value))throw Error('Invalid attestation hex');return Uint8Array.from(value.match(/../g)||[],x=>parseInt(x,16));};
 const cat=(...parts)=>new Uint8Array(parts.flatMap(p=>Array.from(p)));
 const require=(ok,message)=>{if(!ok)throw Error(message);};
+const authorizeGate=createGateAuthorization();
 export async function replayGateEvents(eventLog) {
-  let mr=new Uint8Array(48),ready=false;const boot={};
+  let mr=new Uint8Array(48),ready=false,bootMr;const boot={};
   for(const event of eventLog) {
     if(event.imr!==3)continue;
     const eventType=new Uint8Array(4);new DataView(eventType.buffer).setUint32(0,event.event_type,true);
@@ -13,27 +15,50 @@ export async function replayGateEvents(eventLog) {
     const digest=new Uint8Array(await crypto.subtle.digest('SHA-384',preimage));
     require(!event.digest||hex(digest)===event.digest,'Email gate event digest differs');
     mr=new Uint8Array(await crypto.subtle.digest('SHA-384',cat(mr,digest)));
-    if(!ready&&['app-id','compose-hash'].includes(event.event)) {
+    if(!ready&&['app-id','compose-hash','instance-id','os-image-hash'].includes(event.event)) {
+      require(event.event==='os-image-hash'||!bootMr,'Email gate boot identity follows its boot boundary');
       require(!boot[event.event],'Duplicate email gate boot identity');boot[event.event]=event.event_payload;
     }
+    if(event.event==='boot-mr-done') {require(!bootMr&&!ready,'Invalid email gate boot boundary');bootMr=mr.slice();}
     if(event.event==='system-ready')ready=true;
   }
-  return {mr,ready,boot};
+  return {mr,ready,boot,bootMr};
 }
 export async function verifyGateAttestation(attestation,nonce,policy) {
-  require(policy?.appId&&policy?.composeHash&&policy?.mrtd&&policy?.rtmr?.length===3,'Email gate attestation policy is not configured');
+  require(policy?.appId&&policy?.kms&&policy?.mrtd&&policy?.rtmr?.length===3,'Email gate attestation policy is not configured');
   require(attestation.nonce===nonce,'Email gate returned a stale nonce');
-  const result=await verify(unhex(attestation.quote),attestation.collateral,Math.floor(Date.now()/1000));
+  const quoteBytes=unhex(attestation.quote);
+  const result=await verify(quoteBytes,attestation.collateral,Math.floor(Date.now()/1000));
   require(['UpToDate','SWHardeningNeeded'].includes(result.status),'Email gate TDX TCB status refused: '+result.status);
   const report=result.report.asTd10()||result.report.asTd15()?.base;
   require(report,'Email gate requires a TDX quote');
   require(hex(report.reportData)===hex(await quoteBinding(nonce,attestation.publicKey)),'Email gate key or challenge is not bound to its quote');
+  // SDK 0.6.5's combined PCK-extension helper swallows an unrelated SGX_TYPE
+  // decoding error and returns an empty PPID. Read only PPID, strictly, from
+  // the same PCK leaf that verify() authenticated (collateral takes priority).
+  const pckChain=attestation.collateral.pck_certificate_chain||Quote.parse(quoteBytes).rawCertChain();
+  const pck=utils.extractCerts(pckChain)[0];
+  const ppid=utils.findExtension([oids.PPID],utils.getIntelExtension(pck));
+  require(ppid.length===16,'Email gate attestation has no verified device identity');
   require(hex(report.mrTd)===policy.mrtd,'Email gate OS measurement differs');
   for(let i=0;i<3;i++)require(hex(report['rtMr'+i])===policy.rtmr[i],'Email gate boot measurement differs');
-  const {mr,ready,boot}=await replayGateEvents(attestation.eventLog);
+  const {mr,ready,boot,bootMr}=await replayGateEvents(attestation.eventLog);
   require(hex(mr)===hex(report.rtMr3),'Email gate event log does not match its quote');
-  require(ready&&boot['app-id']===policy.appId&&boot['compose-hash']===policy.composeHash,'Email gate app or compose is not approved');
-  return {publicKey:attestation.publicKey,status:result.status};
+  require(ready&&bootMr,'Email gate boot event log is incomplete');
+  if(boot['app-id']!==policy.appId)throw unauthorizedGate();
+  require(/^[0-9a-f]{64}$/.test(boot['compose-hash'])&&/^[0-9a-f]{40}$/.test(boot['instance-id'])&&/^[0-9a-f]{64}$/.test(boot['os-image-hash']),'Email gate boot identity is incomplete');
+  const sha256=async(...parts)=>'0x'+hex(await crypto.subtle.digest('SHA-256',cat(...parts)));
+  const system=[report.mrTd,report.rtMr0,report.rtMr1,report.rtMr2];
+  const owner=[report.mrConfigId,report.mrOwner,report.mrOwnerConfig];
+  const authorization=await authorizeGate({
+    appId:'0x'+boot['app-id'],composeHash:'0x'+boot['compose-hash'],instanceId:'0x'+boot['instance-id'],
+    // dstack 0.5.8 authorizes SHA-256 of the verifier's authenticated PCK PPID.
+    deviceId:await sha256(ppid),
+    mrSystem:await sha256(...system,new Uint8Array(32)),
+    mrAggregated:await sha256(...system,bootMr,...(owner.some(part=>part.some(b=>b!==0))?owner:[])),
+    osImageHash:'0x'+boot['os-image-hash'],tcbStatus:result.status,advisoryIds:result.advisory_ids,
+  },policy);
+  return {publicKey:attestation.publicKey,status:result.status,authorization};
 }
 export function createEmailGate({base='',policy}) {
   const api=async(path,body,{signal,pending=false}={})=>{

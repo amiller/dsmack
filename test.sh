@@ -2,7 +2,7 @@
 set -euo pipefail
 cd "$(dirname "$0")"
 # Same-named test modules live in different directories, so collect each separately.
-for d in tests tools base-vm runner-vm applications/{agent-turns,bounties,bounty-dashboard,pilot-client,compute-node} contracts/payments dstack-compat; do
+for d in tests tools base-vm runner-vm applications/{agent-turns,bounties,bounty-dashboard,pilot-client,compute-node,mac-ownership} contracts/payments dstack-compat; do
     python3 -m pytest -q -p no:cacheprovider "$d"
 done
 node --test $(find applications dstack-compat \( -name node_modules -o -name primary-original -o -path applications/relay-broker -o -path applications/payments -o -path applications/private-agent-web \) -prune -o \( -name '*.test.mjs' -o -name '*.test.cjs' -o -name 'test_*.mjs' \) -print)

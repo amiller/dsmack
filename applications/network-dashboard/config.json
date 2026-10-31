@@ -1,0 +1,9 @@
+{
+  "chainId": 84532,
+  "escrow": "0x927202770c0e2bc30B2aee82Ef58229AD89e72F2",
+  "deploymentBlock": 51436111,
+  "broker": "https://pod.dstack.soc1024.com/relay-broker",
+  "rpcs": ["https://base-sepolia-rpc.publicnode.com", "https://base-sepolia.gateway.tenderly.co"],
+  "fleet": "../fleet/index.html",
+  "agent": "../"
+}

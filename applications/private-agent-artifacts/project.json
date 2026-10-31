@@ -1,0 +1,6 @@
+{
+  "runtime": "deno",
+  "entry": "server.ts",
+  "isolation": "shared",
+  "description": "Isolated single-file HTML artifacts"
+}

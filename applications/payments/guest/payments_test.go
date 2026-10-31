@@ -18,9 +18,12 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 	buyer, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	id, _ := peer.IDFromPrivateKey(buyer)
 	pub, _ := buyer.GetPublic().Raw()
-	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 660})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 3600})
 	if e != nil {
 		t.Fatal(e)
+	}
+	if m.RunExpires < time.Now().Unix()+3598 {
+		t.Fatal("hour-long paid run expired before its configured lifetime")
 	}
 	g := Grant{"1", m.Node, m.RunID, hexed(pub), 1, "4", time.Now().Unix(), time.Now().Unix() + 60, hexed(make([]byte, 32))}
 	d, _ := g.Digest(m.Escrow)

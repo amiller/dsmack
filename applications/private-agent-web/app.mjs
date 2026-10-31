@@ -1,13 +1,18 @@
-import "./theme.mjs";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import { renderToolProgress } from "./tool-renderers.mjs";
 import { AgentInterface } from "@pi-components/components/AgentInterface.js";
 import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { PersistentStorageDialog } from "@pi-components/dialogs/PersistentStorageDialog.js";
 import { Agent } from "@earendil-works/pi-agent-core";
+import { createArtifacts, ARTIFACT_PROMPT } from "./artifacts.mjs";
+import { ArtifactState } from "./artifact-state.mjs";
+import { ArtifactModels } from "./artifact-models.mjs";
+import { createSessionPersistence } from "./artifact-persistence.mjs";
+import { sealArtifact, openArtifact, artifactLink, parseArtifactLink, sharedScope, viewerSessionId } from "./artifact-share.mjs";
 import { createChatStorage, saveChat } from "./chat-storage.mjs";
 import { DeviceKeys } from "./keys.mjs";
 import { ChatSync } from "./chat-sync.mjs";
+import { SavedWorkspace } from "./workspaces.mjs";
 import { continuityUI } from "./continuity-ui.mjs";
 import {
   Credit,
@@ -18,14 +23,17 @@ import {
   walletBody,
 } from "./credit.mjs";
 import { brokerStream, PRIVACY } from "./inference.mjs";
+import { replyFailure, retryCandidate, meteredReply, settleInterruptedReply } from "./reply-recovery.mjs";
 import * as sandbox from "@sandbox";
 import approvedSandboxPolicy from "./sandbox-policy.json";
-import { GuestSession } from "./agent-tools.mjs";
+import { GuestSession, createGuestPeer } from "./agent-tools.mjs";
+import { discoverChainNodes } from "./chain-directory.mjs";
+import { fetchDirectAttestation } from "./direct-attestation.mjs";
 import { piToolCatalog, defaultAgentEnvironment, buildAgentPrompt } from "./pi-prompt.mjs";
 const $ = (id) => document.getElementById(id),
   decode = new TextDecoder(),
   guests = new Map();
-let keys, sync, cfg,
+let keys, sync, continuity, cfg, sharedLink, sharedBundle, activeArtifactView,
   credit,
   quote,
   policy,
@@ -35,12 +43,20 @@ let keys, sync, cfg,
   agent,
   chat,
   storage,
+  persistSession,
   currentSession,
   unsubscribeChat,
   lastSave = Promise.resolve(),
   chatBusy = false;
+async function startupStep(name, task) {
+  const start = performance.now();
+  try { return await task(); }
+  finally { performance.measure("startup:" + name, { start, end: performance.now() }); }
+}
 function error(e) {
-  $("alert").textContent = e.message || String(e);
+  const message = e.message || String(e);
+  $("alert").textContent = e.replyFailure?.message ||
+    (/network error|failed to fetch|load failed/i.test(message) ? replyFailure(e).message : message);
   $("alert").hidden = false;
 }
 function clearError() {
@@ -94,7 +110,9 @@ async function api(path, body, opts = {}) {
       e = JSON.parse(raw).error;
     } catch {}
     const code = typeof e === "object" ? e?.code : e;
-    const friendly = code === "starter_sandbox_used"
+    const friendly = path.startsWith("/sandbox/nodes/") && path.includes("/attestation") && response.status >= 500
+      ? `The broker could not fetch the guest's fresh attestation (HTTP ${response.status}). Directory: broker.`
+      : code === "starter_sandbox_used"
       ? "Your starter sandbox allowance has already been used by this wallet. Additional starter time is not available for this trial."
       : code === "diagnostic_node_not_live"
       ? "The selected sandbox retired before your job was reserved. No repository or task was sent."
@@ -103,12 +121,15 @@ async function api(path, body, opts = {}) {
       ? [e?.code, e?.message].filter(Boolean).join(": ")
       : e) ||
       `Broker ${path}: HTTP ${response.status}`;
-    throw Object.assign(new Error(message), { code, status: response.status });
+    throw Object.assign(new Error(message), { code, status: response.status,
+      retryAfterSeconds: typeof e === "object" ? e?.retryAfterSeconds : undefined });
   }
   return opts.stream ? response : response.json();
 }
 function render() {
-  $("wallet").textContent = credit.address || "No wallet connected";
+  $("wallet").textContent = credit.address || "Choose Start fresh or recover your wallet.";
+  document.documentElement.dataset.walletLoaded = "true";
+  continuity?.update({ hasValue: BigInt(credit.chatCredit?.remainingNanoUsd || "0") > 0n || currentSession?.messages?.some(m => m.role === "user") || agent?.state.messages.some(m => m.role === "user") }).catch(error);
   $("wallet-tools").hidden = !credit.address;
   const list = $("purchases");
   list.replaceChildren();
@@ -164,12 +185,12 @@ function renderChatCredit() {
   $("chat-credit").dataset.spentNanoUsd = c?.spentNanoUsd || "";
   $("chat-credit").textContent = c
     ? "Chat credit " + formatNanoUsd(c.remainingNanoUsd)
-    : "Chat credit · Create or connect a wallet";
+    : credit.address ? "Chat credit · Checking balance…" : "Chat credit · Choose how to begin";
   $("chat-credit-status").textContent = c
     ? `${c.usedTokens} tokens · ${c.spentNanoUsd} nano-USD charged${
       c.pendingInferenceId ? " · Usage pending" : ""
     }`
-    : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
+    : credit.address ? "Your wallet is loaded. Checking your current credit…" : "Receive $0.250000 credit for model tokens and guest seconds. No testnet ETH needed.";
 }
 async function claimChatCredit() {
   require(
@@ -186,16 +207,18 @@ async function claimChatCredit() {
     "Chat credit belongs to another wallet.",
   );
   credit.chatCredit = result;
-  if (guest) await guest.restore();
   render();
+  if (sharedLink) activeArtifactView?.refreshSelectedBudget().catch(error);
+  if (guest) await guest.restore();
 }
 async function ensureWallet() {
-  if (!credit.signer) await credit.burner();
-  if (!credit.chatCredit) await claimChatCredit();
+  require(credit.signer, "Choose Start fresh or recover your wallet before chatting.");
+  await claimChatCredit();
 }
 async function refreshServices() {
-  await credit.checkBroker(api);
-  quote = await api("/inference/quote");
+  $("service").textContent = "Checking the broker…";
+  await startupStep("broker-identity", () => credit.checkBroker(api));
+  quote = await startupStep("inference-quote", () => api("/inference/quote"));
   require(
     quote.mode === "broker-e2ee" && quote.provider === "near" &&
       typeof quote.model === "string",
@@ -205,7 +228,7 @@ async function refreshServices() {
   $("service").textContent = quote.configured
     ? "Chat ready · " + PRIVACY
     : "Private inference is not configured.";
-  if (credit.signer && quote.configured) await claimChatCredit();
+  if (credit.signer && quote.configured) await startupStep("wallet-credit", claimChatCredit);
   $("pins").textContent = JSON.stringify(
     {
       chainId: 84532,
@@ -286,7 +309,7 @@ async function saveCurrentChat(publish = false) {
   const session = currentSession;
   chat.dataset.saved = "false";
   $("chat-status").textContent = "Saving chat…";
-  const task = saveChat(storage, session, agent);
+  const task = persistSession(session, agent);
   lastSave = task;
   try {
     const data = await task;
@@ -294,8 +317,9 @@ async function saveCurrentChat(publish = false) {
       $("session-title").textContent = data.title;
       $("chat-status").textContent = "Saved on this device";
       chat.dataset.saved = "true";
+      continuity?.update({ hasValue: data.messages.some(m => m.role === "user") || BigInt(credit.chatCredit?.remainingNanoUsd || "0") > 0n }).catch(error);
     }
-    if (publish) {
+    if (publish && sync) {
       try {
         chat.dataset.synced = "false";
         await sync.push(data.id);
@@ -323,6 +347,44 @@ function setChatBusy(busy) {
   chatBusy = busy;
   $("new-chat").disabled = busy;
   $("sessions").disabled = busy;
+  renderReplyRecovery();
+}
+function renderReplyRecovery() {
+  const panel = $("reply-recovery");
+  if (!panel) return;
+  const reply = retryCandidate(agent?.state.messages || []);
+  panel.hidden = !reply;
+  if (!reply) return;
+  panel.dataset.category = reply.failure.category;
+  $("reply-recovery-message").textContent = reply.failure.message;
+  $("reply-recovery-charge").textContent = meteredReply(reply.billing);
+  $("retry-reply").disabled = chatBusy || agent.state.isStreaming;
+}
+async function retryReply() {
+  const originalAgent = agent, reply = retryCandidate(agent.state.messages);
+  if (!reply || chatBusy || agent.state.isStreaming) return;
+  setChatBusy(true);
+  clearError();
+  try {
+    $("reply-recovery-charge").textContent = "Checking the broker's metered charge before retrying…";
+    const ledger = await usage();
+    require(!ledger.pendingInferenceId, "USAGE_PENDING: Provider cost is still pending.");
+    if (settleInterruptedReply(reply, ledger)) await saveCurrentChat();
+    await chat.onBeforeSend();
+    require(agent === originalAgent && retryCandidate(agent.state.messages) === reply,
+      "This conversation changed. Select its latest interrupted reply before retrying.");
+    // Pi accepts an empty prompt list. No duplicate user message is appended:
+    // inference.modelTranscript omits the failed assistant and resends the last
+    // user/tool context while preserving the interrupted text in local history.
+    $("reply-recovery").hidden = true;
+    await agent.prompt([]);
+  } catch (e) {
+    const failure = replyFailure(e);
+    error(Object.assign(new Error(failure.message), { replyFailure: failure }));
+  } finally {
+    setChatBusy(false);
+    chat.requestUpdate();
+  }
 }
 async function renderPersistence() {
   const persisted = await navigator.storage?.persisted?.();
@@ -335,13 +397,35 @@ async function useSession(data) {
   unsubscribeChat?.();
   currentSession = data || {
     id: crypto.randomUUID(), title: "New chat", createdAt: new Date().toISOString(),
-    messages: [], dsmack: { evidence: [], wallet: credit.address.toLowerCase() },
+    messages: [], dsmack: { evidence: [], wallet: credit.address?.toLowerCase() },
   };
   const conversationId = currentSession.id;
+  const sessionRecord = currentSession;
   guest = guests.get(conversationId);
   if (!guest) {
+    const workspace = new SavedWorkspace({
+      workspaceId: conversationId, credit, dataKey: () => keys.bundle?.dk,
+      request: async (operation, fields) => api("/workspaces/" + operation, await walletBody(credit, "workspace-" + operation, fields)),
+      head: sessionRecord.dsmack.workspace,
+      persist: async head => {
+        const held = guests.get(conversationId);
+        const record = held?.record;
+        require(record, "Conversation is not ready to save its workspace.");
+        record.session.dsmack.workspace = head;
+        const saved = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
+        lastSave = saved;
+        await saved;
+        require(sync, "Unlock chat sync before saving your workspace.");
+        await sync.push(conversationId);
+      },
+      changed: status => {
+        const held = guests.get(conversationId);
+        if (held) held.workspaceStatus = status;
+        if (currentSession.id === conversationId) renderWorkspace(status);
+      },
+    });
     guest = new GuestSession({
-      api, cfg, credit, conversationId, discover, savedLease: currentSession.dsmack.guest,
+      api, cfg, credit, conversationId, discover, workspace, savedLease: currentSession.dsmack.guest,
       changed: (status) => {
         const held = guests.get(conversationId);
         if (held) {
@@ -355,7 +439,7 @@ async function useSession(data) {
               environment: status.environment || held.environment,
               guestSeconds: status.guestSeconds || 0,
             };
-            lastSave = lastSave.catch(() => {}).then(() => saveChat(storage, record.session, record.agent));
+            lastSave = lastSave.catch(() => {}).then(() => persistSession(record.session, record.agent));
           }
         }
         if (currentSession.id === conversationId) renderGuest(status);
@@ -365,12 +449,66 @@ async function useSession(data) {
     guests.set(conversationId, guest);
   }
   renderGuest(guest.statusSnapshot || { state: "idle" });
+  renderWorkspace(guest.workspaceStatus || { head: sessionRecord.dsmack.workspace });
+  let artifacts, artifactAgent;
+  activeArtifactView = undefined;
+  const artifactHost = $("artifacts-host");
+  artifactHost.replaceChildren();
+  artifactHost.hidden = true;
+  $("open-artifacts").hidden = true;
+  $("open-artifacts").onclick = null;
+  if (keys.bundle && credit.signer) {
+    const artifactSession = currentSession;
+    const saveArtifact = async (scope, envelope) => {
+      const task = persistSession(artifactSession, artifactAgent, { scope, envelope });
+      lastSave = task;
+      await task;
+      try { await sync.push(artifactSession.id); }
+      catch (e) { error(e); }
+    };
+    const artifactState = new ArtifactState({ dataKey: keys.bundle.dk,
+      getRecord: async scope => (await storage.sessions.get(artifactSession.id))?.dsmack?.artifactState?.[scope],
+      saveRecord: saveArtifact,
+    });
+    const artifactModels = new ArtifactModels({ state: artifactState, credit, api, cfg, quote: () => quote, usage,
+      evidence: async evidence => {
+        artifactSession.dsmack.evidence.push(evidence);
+        if (currentSession === artifactSession) renderEvidence(evidence);
+        const task = persistSession(artifactSession, artifactAgent);
+        lastSave = task;
+        await task;
+        try { await sync.push(artifactSession.id); } catch (e) { error(e); }
+      },
+      changed: scope => artifacts?.refreshBudget(scope).catch(error),
+    });
+    artifacts = createArtifacts(undefined, { state: artifactState, models: artifactModels, credit,
+      scopeForFilename: filename => filename === "shared.html" && artifactSession.dsmack.sharedArtifactCid
+        ? sharedScope(artifactSession.dsmack.sharedArtifactCid) : JSON.stringify([artifactSession.id, filename]), error,
+      share: async html => {
+        const sealed = await sealArtifact(html);
+        const result = await api("/artifacts/share", await walletBody(credit, "artifact-share", { ciphertext: sealed.ciphertext }));
+        require(result.cid === sealed.cid && result.pinned === true, "The encrypted app was not pinned with its expected CID.");
+        return artifactLink(sealed);
+      },
+    });
+    activeArtifactView = artifacts;
+    artifactHost.replaceChildren(artifacts.budgetBar, artifacts.shareBar, artifacts.panel);
+    artifactHost.hidden = true;
+    const openArtifacts = () => {
+      artifactHost.hidden = false; artifacts.panel.collapsed = false;
+      artifacts.refreshSelectedBudget().catch(error);
+    };
+    artifacts.panel.onOpen = openArtifacts;
+    artifacts.panel.onClose = () => { artifactHost.hidden = true; };
+    artifacts.panel.onArtifactsChange = () => { $("open-artifacts").hidden = !artifacts.panel.artifacts.size; };
+    $("open-artifacts").onclick = openArtifacts;
+  }
   agent = new Agent({
     initialState: {
       systemPrompt: "You are the dsmack private agent. Use your tools to inspect and change the attested workspace.",
       messages: currentSession.messages,
       thinkingLevel: "off",
-      tools: guest.tools(),
+      tools: [...guest.tools(), ...(artifacts ? [artifacts.tool] : [])],
     },
     toolExecution: "sequential",
     getApiKey: () => undefined,
@@ -382,9 +520,19 @@ async function useSession(data) {
         environment: guest.environment || measuredEnvironment(),
         attestation: guest.node ? { verification: "Browser verified Apple enrollment, build, measured compose and bound Noise peer", guestPeer: guest.node.registration.relay_peer, manifestHash: guest.node.registration.manifest_sha256, imageHash: guest.node.registration.os_image_hash, cdhash: guest.node.registration.cdhash } : { status: "Guest attestation will be verified before the first tool call.", cdhash: policy.cdhash },
         repository: "Initial repository snapshot; use the read tool for current workspace contents.\n" + [...repoFiles].map(([name, text]) => `${name}\n${text.length < 4096 ? text : "Read this file with the read tool."}`).join("\n"),
-      }),
+      }) + "\n\n" + ARTIFACT_PROMPT,
     }),
   });
+  artifactAgent = agent;
+  if (artifacts) {
+    artifacts.panel.agent = agent;
+    const imported = sharedBundle && sharedLink && currentSession.dsmack.sharedArtifactCid === sharedLink.cid
+      ? [{ role: "artifact", action: "create", filename: "shared.html", content: sharedBundle.html }] : [];
+    await artifacts.panel.reconstructFromMessages([...currentSession.messages.filter((message) =>
+      message.role !== "artifact" || /\.html$/i.test(message.filename || "")), ...imported]);
+    $("open-artifacts").hidden = !artifacts.panel.artifacts.size;
+    if (imported.length) { artifactHost.hidden = false; artifacts.panel.openArtifact("shared.html"); }
+  }
   guest.record = { session: currentSession, agent };
   if (credit.signer) {
     try { await guest.restore(); }
@@ -397,28 +545,68 @@ async function useSession(data) {
   chat.dataset.sessionId = currentSession.id;
   if (!chat.isConnected) $("chat-host").append(chat);
   await chat.updateComplete;
+  let firstPartial = true;
   unsubscribeChat = agent.subscribe((event) => {
     renderToolProgress(chat, agent, event);
+    if (event.type === "message_start") firstPartial = true;
+    if (firstPartial && event.type === "message_update" && event.message.role === "assistant" &&
+      event.message.content.some(part => part.type === "text" && part.text)) {
+      firstPartial = false;
+      // Pi 0.75's clear-before-stream flag drops its first batched partial. Core
+      // 1.4 keeps it in streamingMessage until message_end. Show the first text
+      // immediately in Pi's component, leaving later deltas to native batching.
+      const container = chat.querySelector("streaming-message-container");
+      container.isStreaming = agent.state.isStreaming;
+      container.setMessage({ ...event.message }, true);
+    }
     // Pi's message list observes array references; the agent appends in place.
     if (event.type === "message_end") {
       agent.state.messages = [...agent.state.messages];
       chat.requestUpdate();
+      renderReplyRecovery();
     }
     if (event.type === "message_end" || event.type === "agent_end") return saveCurrentChat(event.type === "agent_end");
   });
   await saveCurrentChat();
   await storage.settings.set("chat.active", currentSession.id);
+  renderReplyRecovery();
+}
+async function loadSharedViewer() {
+  if (!sharedLink || !keys.bundle || !credit.signer) return false;
+  if (!sharedBundle) {
+    const response = await api("/artifacts/share/" + encodeURIComponent(sharedLink.cid));
+    require(response.cid === sharedLink.cid, "The shared app response identifies a different CID.");
+    sharedBundle = await openArtifact({ ...response, key: sharedLink.key });
+  }
+  const id = viewerSessionId(credit.address, sharedLink.cid);
+  const saved = await storage.sessions.get(id);
+  await useSession(saved || { id, title: "Shared app", createdAt: new Date().toISOString(), messages: [],
+    dsmack: { evidence: [], wallet: credit.address.toLowerCase(), sharedArtifactCid: sharedLink.cid } });
+  return true;
 }
 async function initChat() {
   storage = createChatStorage();
-  sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
-  try { await sync.pull(); await sync.flush(); }
-  catch (e) { error(e); }
+  persistSession = createSessionPersistence({ storage, save: saveChat });
+  if (keys.bundle) sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
   chat = new AgentInterface();
   chat.id = "chat";
   chat.enableAttachments = false;
   chat.enableModelSelector = false;
   chat.enableThinkingSelector = false;
+  const recoveryPanel = document.createElement("div");
+  recoveryPanel.id = "reply-recovery";
+  recoveryPanel.className = "reply-recovery";
+  recoveryPanel.hidden = true;
+  recoveryPanel.setAttribute("role", "status");
+  const message = document.createElement("p"), charge = document.createElement("p"), retry = document.createElement("button");
+  message.id = "reply-recovery-message";
+  charge.id = "reply-recovery-charge";
+  charge.className = "small muted";
+  retry.id = "retry-reply";
+  retry.textContent = "Retry";
+  retry.addEventListener("click", retryReply);
+  recoveryPanel.append(message, charge, retry);
+  $("chat-host").before(recoveryPanel);
   // The broker authenticates the wallet and holds the provider key in its CVM.
   chat.onApiKeyRequired = async () => true;
   chat.onBeforeSend = async () => {
@@ -440,7 +628,10 @@ async function initChat() {
   chat.sendMessage = async (...args) => {
     if (chatBusy) return;
     setChatBusy(true);
-    try { await sendMessage(...args); } catch (e) { error(e); }
+    try { await sendMessage(...args); } catch (e) {
+      const failure = replyFailure(e);
+      error(Object.assign(new Error(failure.message), { replyFailure: failure }));
+    }
     finally {
       setChatBusy(false);
       // The agent becomes idle after its final event listeners have settled.
@@ -448,17 +639,10 @@ async function initChat() {
     }
   };
   chat.onCostClick = () => usage().catch(error);
-  const imported = await store("continuity.imported");
-  let active = await storage.settings.get("chat.active");
-  if (imported) {
-    const remoteIds = new Set(Object.keys(sync.state?.sessions || {}));
-    const saved = await storage.sessions.getAllMetadata();
-    active = saved.filter((m) => remoteIds.has(m.id))
-      .sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0]?.id;
-    if (remoteIds.size) await store("continuity.imported", false);
-  }
-  active ||= await storage.sessions.getLatestSessionId();
-  await useSession(active ? await storage.sessions.get(active) : null);
+  const active = await storage.settings.get("chat.active") || await storage.sessions.getLatestSessionId();
+  const saved = active ? await storage.sessions.get(active) : null;
+  const sameWallet = credit.address && (!saved?.dsmack?.wallet || saved.dsmack.wallet === credit.address.toLowerCase());
+  if (!await loadSharedViewer()) await useSession(sameWallet ? saved : null);
   await renderPersistence();
   action("new-chat", () => useSession());
   action("sessions", () => SessionListDialog.open(
@@ -503,63 +687,152 @@ function loadPolicy(raw) {
   $("node-status").textContent =
     "Approved sandbox policy included. A guest will be verified before tools execute.";
 }
-async function discover({ wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal } = {}) {
-  await credit.checkBroker(api);
-  require(
-    policy,
-    "The bundled sandbox policy could not load. Refresh the page before sending a job.",
-  );
-  const manifestHash = sandbox.hex(
-    new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)),
-  );
-  let selected;
-  do {
-    signal?.throwIfAborted();
-    const nodes = await api("/nodes", undefined, { signal });
-    selected = nodes.filter((entry) =>
-      entry.kind === "compute" &&
-      entry.available !== false && !exclude.has(entry.relay_peer) &&
-      entry.manifest_sha256 === manifestHash &&
-      entry.cdhash === policy.cdhash &&
-      Number(entry.admit_until) * 1000 >= Date.now() + 30000
-    )
-      .sort((a, b) => b.admit_until - a.admit_until)[0];
-    if (selected || Date.now() >= deadline) break;
-    $("node-status").textContent = "Waiting for an approved guest to become available…";
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-  } while (true);
-  require(
-    selected,
-    "No approved guest is available right now. Please try again shortly.",
-  );
-  $("node-status").textContent =
-    "Checking the sandbox's Apple attestation, approved build and bound keys…";
-  const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
-  const registration = await api(
-    "/sandbox/nodes/" + encodeURIComponent(selected.relay_peer) +
-      "/attestation?challenge=" + challenge,
-    undefined, { signal },
-  );
-  const resolved = { ...policy, challenge };
-  let checked;
-  try {
-    checked = await sandbox.verifyNode(registration, resolved);
-  } catch (e) {
-    throw new Error(
-      "Node attestation refused: " + e.message +
-        ". No repository or task was sent.",
-    );
+function showDirectory(path, brokerFailure, chainFailure) {
+  let label = $("directory-status");
+  if (!label) {
+    label = document.createElement("p");
+    label.id = "directory-status";
+    label.className = "small";
+    label.setAttribute("role", "status");
+    $("node-status").before(label);
   }
-  require(
-    !registration.payments || registration.payments.challenge === challenge,
-    "Node challenge mismatch. Stale attestation refused.",
-  );
-  node = checked;
-  $("node-status").textContent = "Node verified · Apple enrollment (" +
-    (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
-    "), approved build, compose, image, broker and bound keys";
-  $("node-evidence").textContent = JSON.stringify(registration, null, 2);
-  return checked;
+  label.dataset.path = path;
+  label.textContent = `Directory: ${path}` + (brokerFailure ? ` · ${brokerFailure}` : "") +
+    (chainFailure ? ` · Chain directory failed: ${chainFailure}` : "");
+}
+function directoryFailure(e) {
+  return "Broker guest directory unavailable" + (e.status ? ` (HTTP ${e.status})` : "") +
+    (e.message && !e.message.startsWith("Broker /nodes") ? `: ${e.message}` : ".");
+}
+async function discover({ peer: browserPeer, wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim } = {}) {
+  require(policy, "The bundled sandbox policy could not load. Refresh the page before sending a job.");
+  const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
+  const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
+    version: String(workspace.version), hash: workspace.hash }) : "";
+  const setupSeconds = 30 + (workspace ? Math.ceil(workspace.size / (512 * 1024)) : 0);
+  let lastRefusal, chainDirectory, brokerFailure;
+  const mark = (stage, detail) => performance.mark("dsmack:" + stage, { detail });
+  const pause = milliseconds => new Promise((resolve, reject) => {
+    const aborted = () => { clearTimeout(timer); reject(signal.reason); };
+    const timer = setTimeout(() => { signal?.removeEventListener("abort", aborted); resolve(); }, milliseconds);
+    if (signal?.aborted) aborted();
+    else signal?.addEventListener("abort", aborted, { once: true });
+  });
+  discovery: for (;;) {
+    signal?.throwIfAborted();
+    mark("discovery:start");
+    let nodes;
+    try {
+      nodes = await api("/nodes" + query, undefined, { signal });
+      await credit.checkBroker(api);
+      showDirectory("broker");
+    } catch (e) {
+      mark("discovery:end", { error: e.code || e.message });
+      if (signal?.aborted) throw e;
+      if (e.code === "FLEET_BUSY") {
+        const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 15));
+        showDirectory("broker");
+        $("node-status").textContent = `Busy, retry in ${retry} seconds.`;
+        if (!wait || Date.now() + retry * 1000 > deadline) throw e;
+        await pause(retry * 1000);
+        continue;
+      }
+      brokerFailure = directoryFailure(e);
+      showDirectory("chain", brokerFailure);
+      try {
+        chainDirectory = await discoverChainNodes({ config: cfg, signal });
+        nodes = chainDirectory.nodes;
+      } catch (chainError) {
+        showDirectory("chain", brokerFailure, chainError.message);
+        throw new Error(`${brokerFailure} Directory: chain. Chain directory failed: ${chainError.message}`);
+      }
+    }
+    mark("discovery:end", { candidates: nodes.length });
+    // Keep the broker's order. Placement hints never replace these local pins.
+    const candidates = nodes.filter(entry => entry.kind === "compute" &&
+      entry.available !== false && !exclude.has(entry.relay_peer) &&
+      (chainDirectory || (entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
+      Number(entry.admit_until) * 1000 >= Date.now() + setupSeconds * 1000)));
+    for (const selected of candidates) {
+      signal?.throwIfAborted();
+      $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
+      const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
+      const peer = selected.relay_peer;
+      let release;
+      if (claim) {
+        try { release = await claim(selected); }
+        catch (e) {
+          if (e.code === "SESSION_SAVING") {
+            const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 5));
+            $("node-status").textContent = `Saving workspace. Retry in ${retry} seconds.`;
+            if (!wait || Date.now() + retry * 1000 > deadline) throw e;
+            await pause(retry * 1000);
+            continue discovery;
+          }
+          if (!["GUEST_BUSY", "NODE_NOT_LIVE"].includes(e.code)) {
+            const path = chainDirectory ? `${brokerFailure} Directory: chain.` : "Directory: broker.";
+            throw new Error(`${path} The broker could not reserve the discovered guest` +
+              (e.status ? ` (HTTP ${e.status}).` : `: ${e.message}`));
+          }
+          exclude.add(peer);
+          mark("grant:unavailable", { peer, error: e.code });
+          continue;
+        }
+      }
+      mark("attestation:start", { peer });
+      let direct;
+      try {
+        if (chainDirectory) {
+          require(browserPeer, "Direct guest attestation needs a browser peer connection.");
+          mark("attestation:direct", { peer, challenge });
+          direct = await fetchDirectAttestation({ peer: browserPeer, selected, challenge, policy, signal });
+        }
+        const registration = direct ? direct.registration : await api("/sandbox/nodes/" + encodeURIComponent(peer) +
+          "/attestation?challenge=" + challenge, undefined, { signal });
+        mark("attestation:response", { peer });
+        require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
+        if (chainDirectory) await chainDirectory.verifyRegistration(registration);
+        const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
+        require(!registration.payments || registration.payments.challenge === challenge,
+          "Node challenge mismatch. Stale attestation refused.");
+        require(Number(registration.admit_until) * 1000 >= Date.now() + setupSeconds * 1000 &&
+          (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + setupSeconds * 1000),
+          "Guest is too close to drain. Trying another approved guest.");
+        mark("attestation:verified", { peer });
+        // The attestation endpoint omits scheduler hints; retain them for sealed
+        // workspace placement without treating them as verified evidence.
+        checked.placement = selected.scheduler;
+        if (direct) {
+          checked.chainTunnels = direct.entries;
+          checked.connection = direct.connection;
+          checked.directory = "chain";
+        }
+        node = checked;
+        $("node-status").textContent = "Node verified · Apple enrollment (" +
+          (checked.enrollmentMode || checked.policy.enrollmentMode || "on-chain") +
+          "), approved build, compose, image, broker and bound keys";
+        $("node-evidence").textContent = JSON.stringify(registration, null, 2);
+        return checked;
+      } catch (e) {
+        // No MCP stream or private data exists yet. Revoke this unused grant
+        // before trying another guest so failed attestations cannot hold credit.
+        await direct?.connection.close().catch(() => {});
+        await release?.();
+        if (signal?.aborted) throw e;
+        mark("attestation:refused", { peer, error: e.message });
+        exclude.add(peer);
+        lastRefusal = new Error((chainDirectory ? `${brokerFailure} Directory: chain. Direct guest verification failed: ` :
+          "Guest verification through the broker failed: ") + e.message + ". No repository or task was sent.");
+        if (chainDirectory) throw lastRefusal;
+      }
+    }
+    if (lastRefusal) throw lastRefusal;
+    if (chainDirectory) throw new Error(`${brokerFailure} Directory: chain. No live approved guest was found on chain.`);
+    require(wait && Date.now() + 2000 <= deadline,
+      "No approved guest is available right now. Please try again shortly.");
+    $("node-status").textContent = "Waiting for an approved guest; retry in 2 seconds…";
+    await pause(2000);
+  }
 }
 function measuredEnvironment() {
   if (!policy) return {};
@@ -576,9 +849,10 @@ function measuredEnvironment() {
   };
 }
 function renderGuest(status) {
-  const held = ["held", "connecting", "disconnected-held"].includes(status.state);
+  const held = ["held", "connecting", "disconnected-held", "handover"].includes(status.state);
   $("end-session").disabled = !held;
   $("download").disabled = status.state !== "held";
+  $("save-workspace").disabled = status.state !== "held";
   $("repo").disabled = held;
   $("sample").disabled = held;
   $("guest-seconds").textContent = `${status.guestSeconds || 0} guest seconds`;
@@ -588,8 +862,12 @@ function renderGuest(status) {
     verifying: "Verifying an available guest…",
     connecting: "Connecting to the verified guest…",
     held: "Guest held for this conversation: " + status.node?.relay_peer,
-    "disconnected-held": "This conversation holds a disconnected guest. End session before starting a fresh workspace.",
-    released: status.usageUnresolved ? "Guest disconnected. Final metering receipt is unresolved." : "Guest released. The next tool call starts a fresh workspace.",
+    "disconnected-held": "Guest disconnected. The next tool call resumes this conversation’s saved workspace.",
+    handover: "Saving workspace and moving to the next guest…",
+    sealing: "Saving workspace and releasing the guest…",
+    released: status.closedReason === "credit" ? "Credit used up. Add credit to continue with your saved workspace."
+      : status.closedReason === "idle" ? "Workspace saved. Guest released after five idle minutes."
+      : "Guest released. The next tool call restores this conversation’s saved workspace.",
     ending: "Ending session; waiting for the guest’s signed final usage…",
     disconnected: "Guest stream closed.",
   }[status.state] || status.state);
@@ -598,6 +876,14 @@ function renderGuest(status) {
     $("guest-attestation").hidden = false;
   }
   if (credit) renderChatCredit();
+}
+function renderWorkspace(status) {
+  const messages = { saving: "Saving workspace…", restoring: "Restoring saved workspace…", opening: "Opening workspace…" };
+  $("workspace-status").textContent = messages[status.state] || (status.head
+    ? `Workspace version ${status.head.version} saved · Kept for 30 days after last use`
+    : "Files will be saved with this conversation.");
+  $("workspace-status").dataset.version = String(status.head?.version || 0);
+  $("workspace-status").dataset.state = status.state || "ready";
 }
 function resetSample() {
   repoFiles = new Map([["greet.txt", "Hello world.\n"]]);
@@ -668,29 +954,75 @@ async function refund() {
   $("service").textContent =
     "Unused testnet credit withdrawn. View the refund in your purchase card.";
 }
+async function checkSync() {
+  if (!sync) { $("sync-status").textContent = "Choose how to begin. Chats save on this device."; return; }
+  const checking = sync;
+  $("sync-status").textContent = "Checking sync… Your saved chats are ready on this device.";
+  try {
+    await startupStep("sync-pull", () => checking.pull());
+    // A recovered wallet may need to select its newest verified remote chat.
+    const imported = await store("continuity.imported");
+    if (!chatBusy && !sharedLink) {
+      const remoteIds = new Set(Object.keys(checking.state?.sessions || {}));
+      const all = await storage.sessions.getAllMetadata();
+      const latest = all.filter(m => remoteIds.has(m.id)).sort((a, b) => b.lastModified.localeCompare(a.lastModified))[0];
+      const id = (imported || !agent.state.messages.some(m => m.role === "user")) && latest ? latest.id : currentSession.id;
+      const data = await storage.sessions.get(id);
+      if (data && (id !== currentSession.id || JSON.stringify(data.messages) !== JSON.stringify(agent.state.messages))) await useSession(data);
+      if (imported && latest) await store("continuity.imported", false);
+    }
+    await startupStep("sync-flush", () => checking.flush());
+    $("sync-status").textContent = "Chats checked and synced.";
+  } catch (e) {
+    $("sync-status").textContent = "Chats are saved here. Sync couldn’t finish; check your connection and try again.";
+    $("sync-status").title = e.message;
+  }
+}
 async function main() {
+  require(window.top === window.self, "Open the private agent in its own tab to use your wallet.");
   require(
     !/^\/(ipfs|ipns)\//.test(window.location.pathname),
     "Open this app through a CID or IPNS subdomain gateway. Shared path gateways cannot isolate your wallet from other sites.",
   );
-  const response = await fetch("./config.json", { cache: "no-store" });
+  const response = await startupStep("configuration", () => fetch("./config.json", { cache: "no-store" }));
   require(response.ok, "Page configuration could not load.");
   cfg = await response.json();
+  sharedLink = parseArtifactLink(window.location.href);
   for (const name of ["broker", "rpc"]) {
     require(/^https:\/\//.test(cfg[name]), `${name} must be an explicit HTTPS service address.`);
   }
   cfg.sandboxPolicy = { ...approvedSandboxPolicy, registry: cfg.registry, rpc: cfg.rpc };
   require(cfg.chainId === 84532, "This page is restricted to Base Sepolia.");
-  let client = await store("client");
+  keys = await startupStep("local-wallet", () => new DeviceKeys().init());
+  $("wallet").textContent = keys.address || "Choose Start fresh or recover your wallet.";
+  document.documentElement.dataset.walletLoaded = "true";
+  let client = await startupStep("local-client", () => store("client"));
   if (!client) {
     client = await sandbox.createClient();
     await store("client", client);
   }
-  keys = await new DeviceKeys().init();
-  credit = await new Credit(cfg, client, render).init();
-  continuityUI({ keys, credit, cfg, api, error, beforeExport: () => sync.flush() });
-  await initChat();
+  credit = await startupStep("local-credit", () => new Credit(cfg, client, render).init());
+  continuity = continuityUI({ keys, credit, cfg, api, error, beforeExport: async () => {
+    require(sync, "Start fresh or recover your wallet first.");
+    await sync.flush();
+  } });
   render();
+  await startupStep("local-chat", initChat);
+  render();
+  action("start-fresh", async () => {
+    await keys.create();
+    await credit.init();
+    currentSession.dsmack.wallet = credit.address.toLowerCase();
+    sync = new ChatSync({ cfg, credit, keys: keys.bundle, storage, api });
+    if (!await loadSharedViewer()) await useSession(currentSession);
+    render();
+    $("welcome").hidden = true;
+    $("service").textContent = "Your wallet is ready. Checking your credit…";
+    refreshServices().catch(error);
+    checkSync().catch(error);
+  });
+  $("start-fresh").disabled = false;
+  $("used-before").disabled = false;
   action("copy-address", async () => {
     require(credit.address, "Create or connect a wallet first.");
     await navigator.clipboard.writeText(credit.address);
@@ -709,8 +1041,13 @@ async function main() {
   });
   action("reconcile", () => usage());
   action("refund", refund);
-  action("discover", discover);
+  action("discover", async () => {
+    const peer = await createGuestPeer();
+    try { await discover({ peer }); }
+    finally { await peer.stop(); }
+  });
   action("end-session", () => guest.end());
+  action("save-workspace", () => guest.save());
   action("sample", resetSample);
   action("download", async () => {
     const patch = await guest.patch();
@@ -742,7 +1079,9 @@ async function main() {
   loadPolicy(cfg.sandboxPolicy);
   resetSample();
   document.documentElement.dataset.ready = "true";
-  await refreshServices();
+  // Network verification follows local rendering and never gates the wallet.
+  refreshServices().catch(error);
+  checkSync().catch(error);
 }
 main().catch((e) => {
   error(e);

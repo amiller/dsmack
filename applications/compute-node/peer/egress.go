@@ -185,19 +185,19 @@ func (g *nodeGateways) start(name, listen string, policy map[string]any, hostnam
 
 func brokerGatewayPolicy(broker, index *url.URL) map[string]any {
 	base := strings.TrimRight(broker.Path, "/")
-	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/payments/receipts", base + "/agent/receipt"}
+	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/payments/receipts", base + "/agent/receipt", base + "/workspaces/begin", base + "/workspaces/chunk", base + "/workspaces/commit"}
 	return map[string]any{"rules": []any{map[string]any{
 		"name": broker.Hostname(), "port": 443, "methods": []string{"GET", "POST"}, "paths": paths,
-		"max_request_bytes": 256 << 10, "max_response_bytes": 256 << 10,
-		"upload_bytes": 8 << 20, "download_bytes": 8 << 20, "requests": 512, "requests_per_minute": 120,
+		"max_request_bytes": 1 << 20, "max_response_bytes": 1 << 20,
+		"upload_bytes": 1 << 30, "download_bytes": 8 << 20, "requests": 4096, "requests_per_minute": 120,
 	}}}
 }
 
 func websocketGatewayPolicy() map[string]any {
 	return map[string]any{"rules": []any{map[string]any{
 		"name": "*.trycloudflare.com", "port": 443, "methods": []string{"GET"}, "paths": []string{"/"},
-		"websocket_seconds": 960, "max_request_bytes": 1 << 20, "max_response_bytes": 4 << 20,
-		"upload_bytes": 32 << 20, "download_bytes": 32 << 20, "requests": 8, "requests_per_minute": 8,
+		"websocket_seconds": 3600, "max_request_bytes": 1 << 20, "max_response_bytes": 4 << 20,
+		"upload_bytes": 1 << 30, "download_bytes": 1 << 30, "requests": 8, "requests_per_minute": 8,
 	}}}
 }
 

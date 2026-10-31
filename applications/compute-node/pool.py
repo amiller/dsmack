@@ -42,6 +42,8 @@ def hardware():
 
 def operator_config(path, host):
     config = json.loads(path.read_bytes())
+    from heartbeat import operator_region
+    operator_region(path)
     fields = [('max_guests', config.get('max_guests'), 1),
               ('guest.mem_mib', config.get('guest', {}).get('mem_mib'), 1),
               ('guest.vcpus', config.get('guest', {}).get('vcpus'), 1),
@@ -261,7 +263,7 @@ class Pool:
         self.publisher = None
         if args.publisher_key:
             from heartbeat import Publisher
-            self.publisher = Publisher(args.publisher_key, args.publisher_address, self.payments['operator'], args.broker, args.pool_version)
+            self.publisher = Publisher(args.publisher_key, args.publisher_address, args.broker, args.pool_version, args.operator)
         self.started = time.monotonic()
 
     def remember_error(self, record):
@@ -280,7 +282,7 @@ class Pool:
         raw = b''
         status = None
         try:
-            with urlopen(self.args.broker.rstrip('/')+'/nodes', timeout=20) as response:
+            with urlopen(self.args.broker.rstrip('/')+'/nodes?all=1', timeout=20) as response:
                 status = response.status
                 raw = response.read((1 << 20) + 1)
             if len(raw) > 1 << 20:
@@ -442,8 +444,12 @@ class Pool:
         self.event('capacity', config=self.config, hardware=self.hardware)
         while True:
             self.tick()
+            snapshot = self.snapshot()
+            temporary = self.args.state/'directory.tmp'
+            temporary.write_text(json.dumps(snapshot))
+            temporary.replace(self.args.state/'directory.json')
             if self.publisher:
-                record = self.publisher.tick(self.snapshot())
+                record = self.publisher.tick(snapshot)
                 if record:
                     name = record.pop('event')
                     if name == 'heartbeat_error':
@@ -467,20 +473,22 @@ def main():
     parser.add_argument('--broker', required=True)
     parser.add_argument('--debugfs', type=Path, default=Path('/opt/homebrew/opt/e2fsprogs/sbin/debugfs'),
                         help='read-only result diagnostic extractor')
-    parser.add_argument('--seconds', type=int, default=840)
-    parser.add_argument('--drain-seconds', type=int, default=270)
-    parser.add_argument('--replace-after', type=int, default=450)
+    parser.add_argument('--seconds', type=int, default=3600)
+    parser.add_argument('--drain-seconds', type=int, default=480)
+    parser.add_argument('--replace-after', type=int, default=None)
     parser.add_argument('--readiness-timeout', type=int, default=90)
     parser.add_argument('--cycles', type=int, default=0, help='0 rotates continuously')
     args = parser.parse_args()
+    if args.replace_after is None:
+        args.replace_after = args.seconds//2 + 30
     if bool(args.publisher_key) != bool(args.publisher_address):
         parser.error('--publisher-key and --publisher-address are required together')
     if args.publisher_key and not args.pool_version:
         parser.error('--pool-version is required for published heartbeats')
-    if (not 1 <= args.seconds <= 840 or not 1 <= args.drain_seconds < args.seconds
+    if (not 1 <= args.seconds <= 3600 or not 1 <= args.drain_seconds < args.seconds
             or not 1 <= args.replace_after < args.seconds
             or max(args.replace_after, args.seconds-args.replace_after) + args.readiness_timeout >= args.seconds-args.drain_seconds):
-        parser.error('two-slot replacement must attest before admission closes, lifetime <=840s')
+        parser.error('two-slot replacement must attest before admission closes, lifetime <=3600s')
     args.runner, args.workload, args.state, args.repo = [p.resolve() for p in (args.runner, args.workload, args.state, args.repo)]
     measured = json.loads(json.loads((args.workload/'compose-manifest.json').read_bytes())['docker_compose_file'])['services']['node']
     if int(measured['command'][2]) != args.seconds or int(measured['environment']['ADMIT_SECONDS']) != args.seconds-args.drain_seconds:

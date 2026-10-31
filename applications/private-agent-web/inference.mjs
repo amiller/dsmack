@@ -2,6 +2,7 @@ import { AssistantMessageEventStream, getSystemMessageText } from "@earendil-wor
 import { require, walletBody } from "./credit.mjs";
 import { prepareE2eeChatRequest } from "@nearai/inference-sdk";
 import { checkEvidence, PRIVACY } from "./evidence.mjs";
+import { replyFailure } from "./reply-recovery.mjs";
 export { checkEvidence, PRIVACY };
 export async function* sse(body) {
   const reader = body.getReader(), decoder = new TextDecoder();
@@ -37,6 +38,20 @@ export async function* sse(body) {
     reader.releaseLock();
   }
 }
+// Main chat and artifact calls share a wallet ledger. Hold the lock until usage
+// is reconciled so another caller cannot change the attribution baseline.
+const walletCalls = new Map();
+export function withInferenceWallet(credit, operation) {
+  const key = `dsmack/inference/${credit.address?.toLowerCase() || "unconnected"}`;
+  const prior = walletCalls.get(key) || Promise.resolve();
+  const next = prior.catch(() => {}).then(() => globalThis.navigator?.locks
+    ? navigator.locks.request(key, operation) : operation());
+  walletCalls.set(key, next);
+  const clear = () => { if (walletCalls.get(key) === next) walletCalls.delete(key); };
+  next.then(clear, clear);
+  return next;
+}
+
 export function brokerStream(
   { credit, api, cfg, quote, evidence, usage, error, startedAt, systemPrompt },
 ) {
@@ -60,15 +75,48 @@ export function brokerStream(
       stopReason: "stop",
       timestamp: Date.now(),
     };
-    (async () => {
-      let dispatched = false;
+    withInferenceWallet(credit, async () => {
+      let session;
+      const billing = answer.billing = { dispatched: false, settled: false, reservedNanoUsd: "0" };
+      const reportError = error || (() => {});
+      const reconcile = async () => {
+        const charged = await usage();
+        if (options.artifactId) billing.artifactBudget = charged.artifactBudgets?.[options.artifactId];
+        require(!charged.pendingInferenceId, "USAGE_PENDING: Provider cost is still pending.");
+        const exact = session.modelSpentNanoUsd !== undefined && charged.modelSpentNanoUsd !== undefined;
+        require(!options.requireModelCost || exact, "MODEL_COST_UNAVAILABLE: Broker must report model-only cost.");
+        let cost;
+        if (options.artifactId) {
+          const budget = billing.artifactBudget;
+          require(budget && BigInt(budget.reservedNanoUsd) === 0n, "USAGE_PENDING: Artifact model cost is still pending.");
+          cost = budget.lastSessionId === session.sessionId && typeof budget.lastCostNanoUsd === "string"
+            ? BigInt(budget.lastCostNanoUsd) : null;
+        } else if (Object.hasOwn(charged, "lastModelCharge")) {
+          const charge = charged.lastModelCharge;
+          cost = charge?.sessionId === session.sessionId && typeof charge.costNanoUsd === "string"
+            ? BigInt(charge.costNanoUsd) : null;
+        } else {
+          const before = BigInt(exact ? session.modelSpentNanoUsd : session.spentNanoUsd);
+          const after = BigInt(exact ? charged.modelSpentNanoUsd : charged.spentNanoUsd);
+          cost = after - before;
+        }
+        require(cost === null || cost >= 0n && (!exact || cost <= BigInt(billing.reservedNanoUsd)),
+          "USAGE_MISMATCH: Model cost differs from its reservation.");
+        // Token counts belong to this encrypted stream, never a wallet-wide
+        // counter that another device's inference could have advanced.
+        answer.usage.cost.total = cost === null ? 0 : Number(cost) / 1e9;
+        Object.assign(billing, { settled: true, exactModelCost: exact && cost !== null,
+          costNanoUsd: cost === null ? null : String(cost), costUnknown: cost === null });
+      };
       try {
+        require(!options.signal?.aborted, "Inference request was aborted.");
         const q = quote();
         require(
           q?.configured,
           "Private inference is not configured on this broker.",
         );
         await credit.checkBroker(api);
+        await options.beforePrepare?.();
         require(
           credit.signer && credit.chatCredit,
           "Create or connect a wallet to receive starter chat credit.",
@@ -87,9 +135,10 @@ export function brokerStream(
           crypto.getRandomValues(new Uint8Array(32)),
           (b) => b.toString(16).padStart(2, "0"),
         ).join("");
-        const session = await api(
+        session = await api(
           "/inference/prepare",
-          await walletBody(credit, "prepare", { attestationNonce }),
+          await walletBody(credit, "prepare", { attestationNonce,
+            ...(options.artifactId ? { artifactId: options.artifactId } : {}) }),
           { signal: options.signal },
         );
         const checked = checkEvidence(
@@ -119,13 +168,27 @@ export function brokerStream(
           content: systemPrompt ? systemPrompt({ checked, runtime }) :
             context.messages.filter(m => m.role === "system").map(getSystemMessageText).join("\n\n") + "\n\n" + runtime,
         });
-        const remaining = BigInt(session.remainingNanoUsd);
+        require(!options.requireModelCost || typeof session.modelSpentNanoUsd === "string",
+          "MODEL_COST_UNAVAILABLE: Broker must report model-only cost.");
+        const walletRemaining = BigInt(session.remainingNanoUsd);
+        const ceiling = options.maxNanoUsd === undefined ? walletRemaining : BigInt(typeof options.maxNanoUsd === "function" ? await options.maxNanoUsd() : options.maxNanoUsd);
+        require(ceiling > 0n, "ARTIFACT_BUDGET_EXHAUSTED: Artifact budget used up.");
+        let remaining = walletRemaining < ceiling ? walletRemaining : ceiling;
+        if (options.artifactId) {
+          const budget = session.artifactBudgets?.[options.artifactId];
+          require(budget, "ARTIFACT_BUDGET_REQUIRED: Allow this artifact a model budget first.");
+          const allowed = BigInt(budget.limitNanoUsd) - BigInt(budget.spentNanoUsd) - BigInt(budget.reservedNanoUsd);
+          require(allowed > 0n, "ARTIFACT_BUDGET_EXHAUSTED: Artifact budget used up.");
+          if (allowed < remaining) remaining = allowed;
+        }
         const rate = BigInt(q.maxNanoUsdPerToken);
         const reservation = (body) => BigInt(
           new TextEncoder().encode(JSON.stringify(body)).length + 256 +
             64 * body.messages.length + body.max_tokens,
         ) * rate;
-        let maxTokens = q.maxOutputTokens, prepared, body;
+        if (options.maxTokens !== undefined) require(Number.isSafeInteger(options.maxTokens) && options.maxTokens >= 64,
+          "INVALID_ARGS: maxTokens must be an integer of at least 64.");
+        let maxTokens = Math.min(q.maxOutputTokens, options.maxTokens ?? q.maxOutputTokens), prepared, body;
         for (;;) {
           const request = new Request(
             new URL("/v1/chat/completions", window.location.origin),
@@ -147,6 +210,8 @@ export function brokerStream(
             modelKey: { signingAlgo: "ecdsa", publicKey: session.modelPublicKey },
           });
           body = await prepared.request.json();
+          require(!q.maxRequestBytes || new TextEncoder().encode(JSON.stringify(body)).length <= q.maxRequestBytes,
+            "INVALID_ARGS: Encrypted model request exceeds the broker byte limit.");
           if (reservation(body) <= remaining) break;
           // Include the serialized token limit itself in the broker's byte cost.
           // Re-encrypt the chosen limit and check the actual wire body again.
@@ -158,7 +223,9 @@ export function brokerStream(
               low = candidate + 1;
             } else high = candidate - 1;
           }
-          require(affordable >= 64, "CREDIT_EXHAUSTED: Chat credit used up.");
+          require(affordable >= 64, remaining < walletRemaining
+            ? "ARTIFACT_BUDGET_EXHAUSTED: Artifact budget cannot cover the encrypted request."
+            : "CREDIT_EXHAUSTED: Chat credit used up.");
           maxTokens = affordable;
         }
         const headers = Object.fromEntries(prepared.request.headers);
@@ -167,7 +234,12 @@ export function brokerStream(
           body,
           headers,
         });
-        dispatched = true;
+        Object.assign(billing, { reservedNanoUsd: String(reservation(body)),
+          baselineModelSpentNanoUsd: session.modelSpentNanoUsd, wallet: credit.address.toLowerCase(),
+          sessionId: session.sessionId });
+        await options.onReserve?.({ ...billing });
+        require(!options.signal?.aborted, "Inference request was aborted.");
+        billing.dispatched = true;
         credit.chatCredit.pendingInferenceId = "awaiting-provider-response";
         const response = await api("/inference/chat", signed, {
           stream: true,
@@ -180,10 +252,10 @@ export function brokerStream(
         for await (const item of sse(decrypted.body)) {
           if (item.event === "error") {
             const e = JSON.parse(item.data).error;
-            throw new Error(
+            throw Object.assign(new Error(
               (e?.code || "INFERENCE_ERROR") + ": " +
                 (e?.message || "Stream failed. Reconcile usage."),
-            );
+            ), { code: e?.code || "INFERENCE_ERROR" });
           }
           if (item.data === "[DONE]") {
             done = true;
@@ -240,34 +312,45 @@ export function brokerStream(
           stream.push({ type: "toolcall_end", contentIndex: current.index, toolCall: current.block, partial: answer });
         }
         answer.stopReason = toolCalls.size ? "toolUse" : finishReason === "length" ? "length" : "stop";
-        try {
-          const charged = await usage();
-          answer.usage.totalTokens = Number(BigInt(charged.usedTokens) - BigInt(session.usedTokens));
-          answer.usage.cost.total = Number(BigInt(charged.spentNanoUsd) - BigInt(session.spentNanoUsd)) / 1e9;
-        } catch (e) {
-          error(e);
-        }
-        stream.push({ type: "done", reason: answer.stopReason, message: answer });
-        stream.end(answer);
+        try { await reconcile(); } catch (e) { billing.pendingReason = e.message; reportError(e); }
       } catch (e) {
-        if (dispatched) {
-          try {
-            await usage();
-          } catch (usageError) {
-            error(usageError);
+        // Publish the interruption immediately. Ledger reconciliation can take
+        // time after a broker restart, but it must not hide the partial answer.
+        if (!options.signal?.aborted) {
+          answer.failure = replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+          answer.stopReason = "error";
+          answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+          if (answer.failure.interrupted) stream.push({ type: "text_delta", contentIndex: 0, delta: "", partial: answer });
+          reportError(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
+        }
+        if (billing.dispatched && !billing.settled) {
+          try { await reconcile(); } catch (usageError) {
+            billing.pendingReason = usageError.message;
           }
         }
         answer.stopReason = options.signal?.aborted ? "aborted" : "error";
-        answer.errorMessage = e.message;
-        error(e);
-        stream.push({
-          type: "error",
-          reason: answer.stopReason,
-          error: answer,
-        });
-        stream.end(answer);
+        answer.errorMessage = answer.failure
+          ? (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message : e.message;
+        answer.errorCode = e.code;
       }
-    })();
+      try { await options.onBilling?.({ ...billing }); } catch (e) {
+        answer.stopReason = "error";
+        answer.failure ||= replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+        answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+        answer.errorCode ||= e.code;
+        reportError(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
+      }
+    }).catch(e => {
+      answer.stopReason = options.signal?.aborted ? "aborted" : "error";
+      answer.failure = replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
+      answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
+      error?.(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
+    }).finally(() => {
+      stream.push(answer.stopReason === "error" || answer.stopReason === "aborted"
+        ? { type: "error", reason: answer.stopReason, error: answer }
+        : { type: "done", reason: answer.stopReason, message: answer });
+      stream.end(answer);
+    });
     return stream;
   };
 }
@@ -284,7 +367,8 @@ export function modelTranscript(context) {
       messages.push({ role: "tool", tool_call_id: message.toolCallId,
         content: contentText(message.content) });
     } else if (message.role === "assistant") {
-      // Failed transport attempts have no provider output to replay.
+      // Keep failed attempts in the page, but never replay a partial answer as
+      // completed model output when the user retries or sends another turn.
       if (message.stopReason === "error" || message.stopReason === "aborted") continue;
       const calls = message.content.filter(c => c.type === "toolCall");
       messages.push({ role: "assistant", content: contentText(message.content) || null,

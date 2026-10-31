@@ -6,18 +6,28 @@
   "rpc": "https://base-sepolia-rpc.publicnode.com",
   "brokerKey": "2276041fc1337a93b8ad5731796030e1d90e71906e40f7958ea43a3df9977c62",
   "grantSigner": "0xd3DD9f6ff4AC0e2d4B7A833F645085EB5C1e03E7",
-  "registry": "0xF7Bbd6DbB5708D3470940dcC19E2b2c75706ee8E",
+  "registry": "0x14b569c5D81d42621c5C0d4d62185239C86D8d20",
   "tunnels": "https://pod.dstack.soc1024.com/private-agent/tunnels",
   "syncAnchor": "0x04EE64A2C22e6E0d48F2ca05eF4086E2aaAc9c3b",
   "syncAnchorCodeHash": "0xa92abf9ca5d270b88627c8a2723696e962d31e79864dcc80595cf8480dbdeec5",
   "emailGate": {
     "appId": "3ab6b2ac28625aaaff0943cb4fd0cf13227760e1",
-    "composeHash": "6b221c5abd5d486e1262a3a6a24cdb3943312e4ab0835e6261cf3e006212731d",
+    "chainId": 8453,
+    "kms": "0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C",
+    "rpcs": ["https://mainnet.base.org", "https://base-rpc.publicnode.com"],
     "mrtd": "f06dfda6dce1cf904d4e2bab1dc370634cf95cefa2ceb2de2eee127c9382698090d7a4a13e14c536ec6c9c3c8fa87077",
     "rtmr": [
       "027b610ab0555482f8a3868524093bdf3cdbe2539f81dfeeb886864654cb2fe3422f7fc36d4bab6fa46683aad11d1ba7",
       "b598fde9491427341bc4683b75d10d3e36770af3a36a6954d8b6b7b22aa66358f13e1f172e51b7d6e6710d99a8d8532f",
       "9284cde236231d5ddace01104a440fd504df5182a2ad1ac3d2138b80c6a7864bd2c30f69041d8264217f3d24541580cf"
+    ]
+  },
+  "chainDirectory": {
+    "registry": "0xc70110193b4760e939b8dfa22650e0a48c8d5b59",
+    "publisher": "0xa43f9f32411358c1319cb36027650a206644c131",
+    "rpcs": [
+      "https://sepolia.base.org",
+      "https://base-sepolia-rpc.publicnode.com"
     ]
   }
 }

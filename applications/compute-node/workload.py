@@ -43,9 +43,9 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
                    'AGENT_NETWORK_ALLOWLIST':canonical([url.hostname, 'attested relay hostname from '+tunnel_index]).decode()},
                'read_only':True, 'security_profile':'agent-sandbox-v1',
                'volumes':['artifacts:/workspace/artifacts:rw','/var/run/dstack.sock:/var/run/dstack.sock:ro']}
-    if not 1 <= seconds <= 840:
-        raise ValueError('compute lifetime must be 1..840 seconds')
-    admit_seconds = max(1, seconds - 270) if admit_seconds is None else admit_seconds
+    if not 1 <= seconds <= 3600:
+        raise ValueError('compute lifetime must be 1..3600 seconds')
+    admit_seconds = max(1, seconds - 480) if admit_seconds is None else admit_seconds
     if not 1 <= admit_seconds < seconds:
         raise ValueError('admission cutoff must precede compute lifetime')
     service['environment']['ADMIT_SECONDS'] = str(admit_seconds)
@@ -60,8 +60,10 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
              docker_compose_file=canonical({'services':{'node':service}}).decode(),
              outputs={'capture':['stderr'], 'artifacts':[
                  *[{'name':n,'path':'/workspace/artifacts/'+n} for n in artifacts],
-                 {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'}]})
-    m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20)
+                 {'name':'tool-server-log','path':'/workspace/artifacts/tool-server.log'},
+                 {'name':'workspace-seal','path':'/workspace/artifacts/workspace-seal.bin'},
+                 {'name':'workspace-seal-meta','path':'/workspace/artifacts/workspace-seal.json'}]})
+    m['limits'] = dict(m.get('limits',{}), timeout_s=seconds, workspace_max_bytes=256<<20, output_max_bytes=232<<20)
     return canonical(m)
 
 if __name__ == '__main__':

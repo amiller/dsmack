@@ -97,22 +97,30 @@ async function admission(stream, session) {
     joined.set(pending); joined.set(data, pending.length); pending = joined;
   }
 }
+export function createGuestPeer() {
+  return createLibp2p({
+    addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
+    connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
+  });
+}
 export class GuestSession {
-  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease }) {
-    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease });
+  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace }) {
+    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace });
   }
   tools() {
     return this.catalog.map(tool => ({
       name: tool.name, label: tool.name, description: tool.description,
       parameters: tool.inputSchema,
       execute: async (_id, args, signal, onUpdate) => {
-        const client = await this.ensure(signal);
+        const client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
+        performance.mark("dsmack:tool:start", { detail: tool.name });
         const result = await client.callTool({ name: tool.name, arguments: args }, {
           signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
           onprogress: p => {
             if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress } });
           },
         });
+        performance.mark("dsmack:tool:end", { detail: tool.name });
         this.lastActivity = Date.now();
         await this.status();
         return { content: result.content, isError: !!result.isError, details: result._meta?.["dsmack/piDetails"] || result.structuredContent || {} };
@@ -130,57 +138,92 @@ export class GuestSession {
     await this.status();
     if (this.lease) this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "disconnected-held", lease: this.lease, node: this.node?.registration, active: true, error: e.message })), 10000);
   }
-  async ensure(signal) {
-    await this.restore();
-    require(!this.lease || this.client, "This conversation still holds a disconnected guest. Choose End session before starting a fresh workspace.");
-    if (this.client) return this.client;
-    if (!this.opening) this.opening = this.open(signal).catch(async e => {
+  async ensure(signal, commandSeconds = 120) {
+    if (!this.opening) this.opening = (async () => {
+      let moved = false;
+      await this.restore();
+      if (this.lease) await this.status();
+      const cutoff = Number(this.lease?.handoverAt || this.node?.registration.admit_until || 0) * 1000;
+      if (this.lease && (!this.client || (cutoff && cutoff <= Date.now() + (Math.min(120, commandSeconds) + 5) * 1000))) {
+        performance.mark("dsmack:handover:start");
+        moved = true;
+        this.changed({ state: "handover", lease: this.lease, node: this.node?.registration });
+        await this.end();
+        await this.waitForRelease(signal);
+      }
+      if (this.client) return this.client;
+      const client = await this.open(signal);
+      if (moved) performance.mark("dsmack:handover:ready");
+      return client;
+    })().catch(async e => {
+      // Admission failures can leave an unused claim. Never retry a tool whose
+      // result was lost: its edits may already be present in the saved version.
       await this.end().catch(() => {});
       throw e;
     }).finally(() => { this.opening = null; });
     return this.opening;
   }
-  async open(signal) {
-    this.changed({ state: "verifying" });
-    const deadline = Date.now() + 90000, exclude = new Set();
-    let verified = await this.discover({ wait: true, deadline, exclude, signal });
-    const peer = await createLibp2p({
-      addresses: { listen: [] }, transports: [webSockets(), circuitRelayTransport()],
-      connectionEncrypters: [noise()], streamMuxers: [yamux()], services: { identify: identify() },
-    });
-    this.peer = peer;
-    for (;;) {
+  async waitForRelease(signal) {
+    const deadline = Date.now() + 150000;
+    while (this.lease) {
       signal?.throwIfAborted();
-      this.node = verified;
-      try {
-        this.lease = await this.api("/agent/open", await walletBody(this.credit, "agent-open", {
-          conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: verified.registration.relay_peer,
-        }), { signal });
-        break;
-      } catch (e) {
-        if (e.code !== "GUEST_BUSY" || Date.now() >= deadline) throw e;
-        exclude.add(verified.registration.relay_peer);
-        this.changed({ state: "verifying", error: "That guest was claimed by another conversation. Finding another approved guest…" });
-        verified = await this.discover({ wait: true, deadline, exclude, signal });
-      }
+      require(Date.now() < deadline, "The guest is still saving its workspace. Retry when it has released.");
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.status();
     }
+  }
+  async open(signal) {
+    performance.mark("dsmack:guest:start");
+    this.changed({ state: "verifying" });
+    const head = await this.workspace.latest();
+    const deadline = Date.now() + 90000, exclude = new Set();
+    this.workspaceReady = false;
+    const peer = await createGuestPeer();
+    this.peer = peer;
+    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal, workspace: head,
+      claim: async selected => {
+        // Claim capacity before expensive verification to avoid four browsers
+        // all attesting the first guest. Only verified guests receive MCP/data.
+        performance.mark("dsmack:grant:start", { detail: selected.relay_peer });
+        this.lease = await this.api("/agent/open", await walletBody(this.credit, "agent-open", {
+          conversationId: this.conversationId, client_peer: peer.peerId.toString(), node_peer: selected.relay_peer,
+        }), { signal });
+        performance.mark("dsmack:grant:end", { detail: this.lease.sessionId });
+        return async () => {
+          const result = await this.api("/agent/end", await walletBody(this.credit, "agent-end", { sessionId: this.lease.sessionId }));
+          require(!result.active, "Unverified guest grant could not be released.");
+          if (result.credit) this.credit.chatCredit = result.credit;
+          this.lease = null;
+        };
+      },
+    });
+    this.node = verified;
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
-    const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
-    require(response.ok, "Guest relay discovery failed: HTTP " + response.status);
+    performance.mark("dsmack:tunnels:start");
+    let tunnelEntries = verified.chainTunnels;
+    if (!tunnelEntries) {
+      const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
+      require(response.ok, "Guest relay discovery through the broker failed (HTTP " + response.status + "). Directory: broker.");
+      tunnelEntries = await response.json();
+    }
     const measured = JSON.parse(new TextDecoder().decode(verified.policy.manifest));
     const relayPeer = JSON.parse(measured.docker_compose_file).services.node.command[1].split("/").at(-1);
-    const entries = (await response.json()).map(tunnel).filter(t =>
+    const entries = tunnelEntries.map(tunnel).filter(t =>
       t.relayPeer === relayPeer && (!t.guestPeer || t.guestPeer === verified.registration.relay_peer) &&
       t.expiresAt * 1000 > Date.now()
     ).map(t => ({ ...t, guestPeer: verified.registration.relay_peer }));
+    performance.mark("dsmack:tunnels:end");
     require(entries.length, "No live browser relay advertises the verified guest.");
-    let connection, failure;
-    for (const entry of entries) {
+    performance.mark("dsmack:dial:start");
+    let connection = verified.connection, failure;
+    for (const entry of connection ? [] : entries) {
       try { connection = await connecting(20000, signal, scoped => peer.dial(multiaddr(address(entry)), { signal: scoped })); break; }
       catch (e) { failure = e; }
     }
     if (!connection) throw failure;
     require(connection.remotePeer.toString() === verified.registration.relay_peer, "Noise peer differs from attested guest.");
+    performance.mark("dsmack:dial:end");
+    performance.mark("dsmack:mcp:start");
     const stream = await connecting(30000, signal, scoped => connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: scoped }));
     stream.inactivityTimeout = Math.max(330000, this.lease.seconds * 1000 + 15000);
     const admissionTimer = setTimeout(() => stream.abort(new Error("Guest session admission timed out.")), 30000);
@@ -203,12 +246,20 @@ export class GuestSession {
     const env = await client.readResource({ uri: "dsmack://environment" });
     this.environment = JSON.parse(env.contents[0].text);
     this.client = client;
-    for (const [path, content] of this.repository()) {
-      const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
-      require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
+    performance.mark("dsmack:mcp:ready");
+    // A prior stay can finish sealing while this browser waits for admission.
+    // Read its final head before releasing a workspace key to the next guest.
+    await this.workspace.latest();
+    const restored = await this.workspace.bind(client, verified.registration, this.lease);
+    if (!restored) {
+      for (const [path, content] of this.repository()) {
+        const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
+        require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
+      }
+      const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
+      require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
     }
-    const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
-    require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
+    this.workspaceReady = true;
     this.lastActivity = Date.now();
     await this.status();
     this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 10000);
@@ -216,15 +267,22 @@ export class GuestSession {
   }
   async status() {
     if (!this.lease) return;
-    const result = await this.api("/agent/status", await walletBody(this.credit, "agent-status", { sessionId: this.lease.sessionId }));
+    const sessionId = this.lease.sessionId;
+    const result = await this.api("/agent/status", await walletBody(this.credit, "agent-status", { sessionId }));
+    if (this.lease?.sessionId !== sessionId) return result;
+    Object.assign(this.lease, { handoverAt: result.handoverAt, seconds: result.seconds, grant: result.grant });
     if (result.credit) this.credit.chatCredit = result.credit;
-    this.changed({ ...result, state: result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
-    if (!result.active) {
+    const sealing = result.usageUnresolved || (result.active && (result.endRequested || result.stopReason ||
+      result.handoverAt * 1000 <= Date.now()));
+    this.changed({ ...result, state: sealing ? "sealing" : result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
+    if (!result.active && !result.usageUnresolved) {
       clearInterval(this.poll);
       await this.client?.close(); this.client = null;
       await this.peer?.stop(); this.peer = null;
       this.lease = null;
       this.savedLease = null;
+      this.workspaceReady = false;
+      await this.workspace.latest();
     }
     return result;
   }
@@ -234,7 +292,12 @@ export class GuestSession {
     const content = result.contents[0];
     return content.blob ? Uint8Array.from(atob(content.blob), c => c.charCodeAt(0)) : encoder.encode(content.text);
   }
+  async save() {
+    require(this.client && this.workspaceReady, "Run a tool in this conversation before saving its workspace.");
+    return this.workspace.save(this.client, this.lease);
+  }
   async end() {
+    if (this.client && this.workspaceReady) await this.save();
     clearInterval(this.poll);
     await this.client?.close(); this.client = null;
     await this.peer?.stop(); this.peer = null;
@@ -247,7 +310,10 @@ export class GuestSession {
       }
       if (result.credit) this.credit.chatCredit = result.credit;
       this.changed({ ...result, state: result.active ? "ending" : "released", lease: this.lease });
-      if (!result.active) { this.lease = null; this.savedLease = null; }
+      if (!result.active && !result.usageUnresolved) {
+        this.lease = null; this.savedLease = null; this.workspaceReady = false;
+        await this.workspace.latest();
+      }
       else this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 5000);
     }
   }

@@ -2,8 +2,9 @@
 import { json, require } from "./schema.mjs";
 import { sender } from "./submit.mjs";
 import { confirmedTransactions, Quorum } from "./quorum.mjs";
-const [config, key, manifestPath] = Deno.args;
-require(manifestPath, "usage: register-class.mjs CONFIG FUNDING_KEY MANIFEST");
+import { linkedOperator } from "./mac-operator.mjs";
+const [config, key, manifestPath, brokerUrl, publisher] = Deno.args;
+require(publisher, "usage: register-class.mjs CONFIG FUNDING_KEY MANIFEST BROKER PUBLISHER");
 const cfg = JSON.parse(await Deno.readTextFile(config));
 const raw = await Deno.readFile(manifestPath),
   manifest = JSON.parse(new TextDecoder().decode(raw));
@@ -16,6 +17,12 @@ require(
     cfg.classes.includes(measured.node),
   "class configuration",
 );
+const kid = "0x" + measured.enrollmentKeyId.replace(/^0x/, "");
+const ownership = await fetch(brokerUrl.replace(/\/$/, "") + "/fleet/ownership?" +
+  new URLSearchParams({ publisher: publisher.toLowerCase(), kid }));
+require(ownership.ok, "Mac ownership lookup failed");
+const operator = linkedOperator(await ownership.json(), cfg.escrow, publisher, kid);
+require(operator === measured.operator.toLowerCase(), "guest class differs from linked Mac operator; pack a new class");
 const s = await new Quorum(cfg).snapshot(),
   { wallet, contract } = await sender(cfg, key);
 require(
@@ -42,7 +49,7 @@ const imageHash = manifest.base_vm.os_image_hash;
 require(/^(0x)?[0-9a-f]{64}$/.test(imageHash), "base image hash");
 const tx = await contract.registerNode(
   measured.node,
-  measured.operator,
+  operator,
   1,
   10000000000n,
   30,

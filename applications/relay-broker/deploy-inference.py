@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Prepare and explicitly apply a relay-broker update to shared Deno."""
 import argparse
+import fcntl
 import io
 import json
 import os
@@ -9,6 +10,7 @@ import re
 import secrets
 import shlex
 import subprocess
+import sys
 import tarfile
 import tempfile
 import time
@@ -17,6 +19,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
+sys.path.insert(0, str(REPO / "tools"))
+from deploy_idle import wait_for_idle
 SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
 
@@ -57,7 +61,7 @@ def prepare(args):
         raise ValueError("operator token SHA256 must be 64 lowercase hex characters")
     manifest = {"name": "relay-broker", "source": "tarball://relay-broker",
                 "ref": subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip(),
-                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "shared",
+                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "shared", "mode": "attested",
                 "env": {"OPERATOR_TOKEN_SHA256": args.operator_token_sha256}}
     if args.encrypted_env:
         manifest["env"]["NEAR_ENCRYPTED_ENV"] = json.dumps(envelope(json.loads(args.encrypted_env.read_text())))
@@ -141,9 +145,9 @@ def client(url, admin=None):
 def deploy(args):
     manifest = json.loads((args.prepared / "relay-broker.manifest.json").read_text())
     required = {"name": "relay-broker", "runtime": "deno", "entry": "applications/relay-broker/server.ts",
-                "isolation": "shared", "source": "tarball://relay-broker"}
+                "isolation": "shared", "source": "tarball://relay-broker", "mode": "attested"}
     if any(manifest.get(key) != value for key, value in required.items()):
-        raise ValueError("prepared project must be relay-broker shared Deno")
+        raise ValueError("prepared project must be attested relay-broker shared Deno")
     if set(manifest.get("env", {})) - {"OPERATOR_TOKEN_SHA256", "NEAR_ENCRYPTED_ENV"}:
         raise ValueError("prepared environment contains unsupported fields")
     if "NEAR_ENCRYPTED_ENV" in manifest["env"]:
@@ -161,11 +165,17 @@ def deploy(args):
             + json.dumps(manifest).encode()
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
+    wait_for_idle(args.url, args.wait_idle_minutes)
     project = api("/_api/projects", method="POST", body=body,
                   kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "shared":
         raise ValueError("deployed broker did not select shared Deno")
-    api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
+    if project.get("mode") != "attested":
+        # A dev-mode fallback cannot load the CVM-only key or activity report.
+        # The pre-upload idle check and shared lock cover its promotion.
+        project = api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
+    if project.get("mode") != "attested":
+        raise ValueError("deployed broker did not enter attested mode")
     deadline = time.monotonic() + 30
     while True:
         try:
@@ -193,6 +203,7 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(run=prepare)
     p = sub.add_parser("deploy", help="upload and promote only with --apply")
+    p.add_argument("--wait-idle-minutes", type=float, default=10)
     p.add_argument("--prepared", type=Path, required=True)
     p.add_argument("--url", required=True)
     p.add_argument("--evidence", type=Path, required=True)
@@ -204,7 +215,13 @@ def main():
 
 if __name__ == "__main__":
     try:
-        main()
+        # Shared Deno reloads affect both projects. Hold one upload/promote
+        # transaction at a time so another project cannot remove its key socket.
+        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
+        lock_path.parent.mkdir(parents=True, exist_ok=True)
+        with lock_path.open("a") as deployment_lock:
+            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
+            main()
     except (ValueError, RuntimeError) as error:
         raise SystemExit(str(error)) from None
     except (OSError, subprocess.CalledProcessError, tarfile.TarError):

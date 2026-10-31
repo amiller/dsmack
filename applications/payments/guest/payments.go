@@ -123,8 +123,8 @@ func New(cfg Config) (*Meter, error) {
 			return nil, e
 		}
 	}
-	if cfg.RunSeconds < 1 || cfg.RunSeconds > 660 {
-		return nil, fmt.Errorf("paid run seconds must be 1..660")
+	if cfg.RunSeconds < 1 || cfg.RunSeconds > 3600 {
+		return nil, fmt.Errorf("paid run seconds must be 1..3600")
 	}
 	key, e := secp.GeneratePrivateKey()
 	if e != nil {

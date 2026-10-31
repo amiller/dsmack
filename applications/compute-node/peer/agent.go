@@ -6,8 +6,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
-	"math"
 	"net"
 	"net/http"
 	"os"
@@ -66,7 +64,8 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	defer retire()
 	defer func() { n.mu.Lock(); n.busy = false; n.mu.Unlock() }()
 	start := time.Now()
-	used := func() int64 { return min(left, max(0, int64(math.Ceil(time.Since(start).Seconds())))) }
+	meter := newAgentMeter(start, t.seconds)
+	used := func() int64 { return meter.used(time.Now()) }
 	var receiptMu sync.Mutex
 	finalized := false
 	receipt := func(final bool) (bool, error) {
@@ -79,6 +78,14 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			finalized = true
 		}
 		body := map[string]any{"sessionId": t.id, "node_peer": n.node, "guestSeconds": used(), "final": final}
+		if final {
+			n.mu.Lock()
+			reason := n.closedReason
+			n.mu.Unlock()
+			if reason != "" {
+				body["closedReason"] = reason
+			}
+		}
 		body["sig"] = hex.EncodeToString(ed25519.Sign(n.signer, canon(body)))
 		// Retain the signed original before submitting, including when the broker
 		// is unavailable during shutdown. It can be replayed idempotently.
@@ -99,7 +106,9 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			return true, err
 		}
 		var result struct {
-			Stop bool `json:"stop"`
+			Stop                bool   `json:"stop"`
+			Reason              string `json:"reason"`
+			ActiveBudgetSeconds *int64 `json:"activeBudgetSeconds"`
 		}
 		var err error
 		attempts := 1
@@ -113,6 +122,18 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			}
 		}
 
+		if err == nil {
+			if result.ActiveBudgetSeconds == nil {
+				err = fmt.Errorf("broker omitted active guest budget")
+			} else {
+				err = meter.allow(*result.ActiveBudgetSeconds)
+			}
+		}
+		if result.Stop && result.Reason != "" {
+			n.mu.Lock()
+			n.closedReason = result.Reason
+			n.mu.Unlock()
+		}
 		return result.Stop, err
 	}
 	defer func() {
@@ -141,44 +162,103 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		return
 	}
 	defer conn.Close()
+	workspace := &workspaceSession{}
+	// Save while the grant is still non-final; retirement and its final signed
+	// receipt happen only after this deferred ciphertext transfer finishes.
+	defer func() {
+		var err error
+		for attempt := 0; attempt < 3; attempt++ {
+			err = workspace.save(n, socket, brokerURL, t.id, client)
+			if err == nil {
+				return
+			}
+			if time.Until(n.until) <= time.Second {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		n.recordError("workspace autosave failed: " + err.Error())
+		fmt.Fprintln(os.Stderr, "workspace autosave failed:", err)
+	}()
+	var outputMu sync.Mutex
+	send := func(line []byte) error {
+		outputMu.Lock()
+		defer outputMu.Unlock()
+		_, err := s.Write(append(append([]byte(nil), line...), '\n'))
+		return err
+	}
 	if writeFrame(s, map[string]string{"status": "ready"}) != nil {
 		return
 	}
 	s.SetDeadline(start.Add(time.Duration(left) * time.Second))
-	var activityMu sync.Mutex
-	lastActivity := time.Now()
+	var inputMu sync.Mutex
+	writeInput := func(line []byte) error {
+		inputMu.Lock()
+		defer inputMu.Unlock()
+		_, err := conn.Write(append(append([]byte(nil), line...), '\n'))
+		return err
+	}
+	cancelActive := func() {
+		for _, id := range meter.freeze(time.Now()) {
+			writeInput(canon(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": id, "reason": "guest stay ended"}}))
+		}
+	}
 	done := make(chan struct{})
 	leaseEnded := make(chan struct{})
 	defer close(done)
+	var endOnce sync.Once
+	shutdown := func(reason string) {
+		endOnce.Do(func() {
+			n.mu.Lock()
+			if n.closedReason == "" {
+				n.closedReason = reason
+			}
+			n.mu.Unlock()
+			cancelActive()
+			s.SetDeadline(time.Now())
+			conn.Close()
+			close(leaseEnded)
+		})
+	}
+	// This timer remains independent of HTTP checkpoints: a stalled broker must
+	// never let a running command exceed the last authenticated credit window.
 	go func() {
-		defer close(leaseEnded)
-		tick := time.NewTicker(time.Second)
+		wall := start.Add(time.Duration(left) * time.Second)
+		for {
+			deadline, _ := meter.deadline(time.Now(), wall, n.admissionUntil, idleTimeout)
+			timer := time.NewTimer(max(0, time.Until(deadline)))
+			select {
+			case <-done:
+				timer.Stop()
+				return
+			case <-meter.changed:
+				timer.Stop()
+			case <-timer.C:
+				// An acknowledgement can extend credit as a timer fires.
+				// Re-read the current state before cancelling a tool.
+				actual, currentReason := meter.deadline(time.Now(), wall, n.admissionUntil, idleTimeout)
+				if !actual.After(time.Now()) {
+					shutdown(currentReason)
+					return
+				}
+			}
+		}
+	}()
+	go func() {
+		tick := time.NewTicker(5 * time.Second)
 		defer tick.Stop()
-		checkpoint := time.Now()
 		for {
 			select {
 			case <-done:
 				return
+			case <-leaseEnded:
+				return
 			case <-tick.C:
-				activityMu.Lock()
-				idle := time.Since(lastActivity) >= idleTimeout
-				activityMu.Unlock()
-				if idle || time.Since(start) >= time.Duration(left)*time.Second {
-					s.SetDeadline(time.Now())
-					conn.Close()
-					return
-				}
-				if time.Since(checkpoint) < 5*time.Second {
-					continue
-				}
-				checkpoint = time.Now()
 				if stop, err := receipt(false); err != nil || stop {
 					if err != nil {
 						n.recordError("agent receipt checkpoint: " + err.Error())
-						fmt.Fprintln(os.Stderr, "agent receipt checkpoint:", err)
 					}
-					s.SetDeadline(time.Now())
-					conn.Close()
+					shutdown("credit")
 					return
 				}
 			}
@@ -194,27 +274,65 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		for scanner.Scan() {
 			line := scanner.Bytes()
 			var message struct {
-				Method string `json:"method"`
+				ID     json.RawMessage `json:"id"`
+				Method string          `json:"method"`
+				Params struct {
+					Name string `json:"name"`
+				} `json:"params"`
 			}
 			if json.Unmarshal(line, &message) != nil {
 				n.recordError("agent MCP invalid JSON")
 				break
 			}
-			if message.Method == "tools/call" {
-				activityMu.Lock()
-				lastActivity = time.Now()
-				activityMu.Unlock()
+			normal := message.Method == "tools/call" && message.Params.Name != workspaceTool
+			if normal {
+				if err := meter.begin(message.ID, time.Now(), n.admissionUntil); err != nil {
+					send(canon(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32000, "message": err.Error()}}))
+					continue
+				}
 			}
-			if _, err := conn.Write(append(append([]byte(nil), line...), '\n')); err != nil {
+			forwarded, err := workspace.request(n, t.id, line)
+			if err != nil {
+				if normal {
+					meter.finish(message.ID, time.Now())
+				}
+				var request struct {
+					ID json.RawMessage `json:"id"`
+				}
+				json.Unmarshal(line, &request)
+				if send(canon(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32602, "message": err.Error()}})) != nil {
+					break
+				}
+				continue
+			}
+			if err := writeInput(forwarded); err != nil {
 				break
 			}
 		}
+		cancelActive()
 		conn.Close()
 	}()
-	io.Copy(s, conn)
+	responses := bufio.NewScanner(conn)
+	responses.Buffer(make([]byte, 64<<10), 8<<20)
+	for responses.Scan() {
+		line := responses.Bytes()
+		var response struct {
+			ID     json.RawMessage `json:"id"`
+			Result json.RawMessage `json:"result"`
+			Error  json.RawMessage `json:"error"`
+		}
+		if json.Unmarshal(line, &response) == nil && (len(response.Result) > 0 || len(response.Error) > 0) {
+			meter.finish(response.ID, time.Now())
+		}
+		workspace.observe(line)
+		if send(line) != nil {
+			break
+		}
+	}
+	conn.Close()
 	s.SetDeadline(time.Now())
 	<-incomingDone
-	// A dropped browser stream does not end a conversation lease. Keep
-	// metering until the idle deadline or a signed owner end request.
+	// A dropped browser stream retains the workspace until idle or owner end.
+	// Cancelled tools stop the active meter immediately; this wait is unbilled.
 	<-leaseEnded
 }

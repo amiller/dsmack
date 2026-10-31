@@ -7,6 +7,18 @@ Agent sessions reserve guest seconds from the same wallet credit.
 
 Live: <https://pod.dstack.soc1024.com/relay-broker>.
 
+`GET /network` returns each ownership-linked Mac's signed, reported capacity:
+operator address, optional coarse region, chip/RAM, logical guest slots,
+ready/busy counts and last heartbeat. Network totals include Macs whose signed
+heartbeat and broker receipt are both less than 60 seconds old. Rotation can
+report multiple guests for one logical slot; each slot counts once and busy
+takes precedence over ready.
+
+`GET /network/history` returns minute samples of ready slots, busy slots, total
+slots and online Macs from an in-memory 24-hour ring buffer. It starts when the
+broker loads, samples independently of readers and is lost on broker restart.
+Both endpoints allow public CORS reads.
+
 ## Configure and run
 
 Start with `config.example.json`; set the RPC, App Attest registries and approved
@@ -80,6 +92,14 @@ python3 applications/relay-broker/deploy-inference.py deploy \
 
 Preparation bundles the npm dependencies with Deno. Apply uses the configured
 webhost admin credential, updates only `relay-broker`, and promotes shared Deno.
+Deployment waits up to ten minutes for `/network` busy slots and
+`/inference/status` `inFlightStreams` to reach zero before the upload/promotion transaction.
+Set `--wait-idle-minutes N` to change the wait. Disconnected browser requests
+count until their provider streams have drained; queued ciphertext stays counted
+until the HTTP consumer reaches EOF. Interrupted requests with a
+known NEAR billing ID settle once against that exact provider cost record;
+missing token totals remain explicitly unreported.
+
 The deployment manifest contains the operator hash and ciphertext envelope.
 
 ## HTTP API
@@ -97,12 +117,34 @@ The deployment manifest contains the operator hash and ciphertext envelope.
 - `GET /sandbox/nodes/PEER/attestation?challenge=HEX`: fresh node evidence.
 - `/sandbox/p2p/*`: bounded HTTPS backhaul to the native libp2p transport.
 - `GET/POST /tunnels`: discover and publish expiring browser tunnel hints.
-- `GET /fleet`: signed Mac capacity, slots and errors, optionally filtered by
-  `?payout=ADDRESS`. A Mac becomes offline after 60 seconds without a heartbeat.
-  `POST /fleet` accepts EIP-191 messages signed by the Mac's tunnel publisher key
-  over `dsmack-fleet/1\n` and the recursively sorted JSON payload. Configure
-  `fleet_publishers` as a map from lowercase publisher addresses to lowercase
-  payout addresses before starting the Mac pool.
+- `GET /fleet`: signed Mac capacity, slots and errors, filtered with
+  `?operator=ADDRESS`. Operators come from signed ownership links; capacity is
+  labeled `reported`. A Mac becomes offline after 60 seconds without a heartbeat.
+  `POST /fleet` accepts EIP-191 messages signed by the Mac publisher key over
+  `dsmack-fleet/1\n` and the recursively sorted JSON payload. Heartbeats contain
+  neither `operator` nor `payout`.
+- `GET /fleet/ownership`: EIP-712 domain, active links, provisioner revocations
+  and nonce highwaters. Filter links with `?publisher=ADDRESS&kid=BYTES32`.
+- `POST /fleet/link`: `{link, publisherSignature, operatorSignature}` or
+  `{link, publisherSignature, authorization: {authorization, signature},
+  provisionerSignature}`. `link` is `MacLink(bytes32 kid,address publisher,
+  address operator,uint64 nonce)`. The operator signs either the link or
+  `ProvisioningAuthorization(address operator,address provisioner,uint64 nonce)`;
+  its provisioner then signs the same MacLink as the publisher. A higher Mac
+  nonce supersedes the previous publisher link; an exact replay is idempotent.
+- `POST /fleet/revoke-provisioner`: `{revocation,signature}`, operator-signed
+  `ProvisionerRevocation(address operator,address provisioner,uint64 nonce)`.
+  Revocation permanently retires that provisioner for the operator. Existing Mac
+  links remain active; authorize a fresh provisioner key to add more Macs.
+- `POST /fleet/unlink`: `{unlink,publisherSignature}`, Mac-signed
+  `MacUnlink(bytes32 kid,address publisher,address operator,uint64 nonce)`.
+  The higher nonce is retained after removal to refuse stale links.
+
+Ownership uses domain `DsmackMacOwnership`, version `1`, chain ID `84532`, and
+`payments.escrow` as the verifying contract. Nonces are uint64 decimal strings.
+Links, revocations and heartbeat records persist atomically in `fleet.json`.
+The CLI is documented under [Add a Mac](../mac-ownership/README.md#add-a-mac).
+
 
 See [the compute protocol](../compute-node/PROTOCOL.md) for admission and wire
 formats. `verify-grant.py` independently verifies an HTTP grant with Python
@@ -138,3 +180,38 @@ Run the network boundary tests with:
 ```sh
 deno test --allow-read --allow-write --allow-net --allow-env continuity.test.mjs
 ```
+
+## Saved workspaces
+
+Set `workspaces.stores` to a map from Mac publisher addresses to their workspace
+store HTTPS URLs. Wallet-signed `/workspaces/{head,begin,chunk,commit,read,history}`
+POSTs use `action: "workspace-OP"` and a conversation `workspaceId`. The guest can
+use its stay ID and attested Ed25519 receipt key to seal before its final receipt;
+its conversation ID selects the workspace and its recorded placement selects the
+Mac. The broker retains version/hash pointers in `workspaces.json`.
+
+`begin` takes `version`, `previousHash`, `hash`, `size`, and optionally `mac`, and
+returns `uploadId` and `offset`. `chunk` takes that upload ID, a byte offset and
+at most 512 KiB of standard base64 ciphertext. `commit` returns the new `head`.
+A head contains `workspaceId`, `version`, `previousHash`, `hash`, `size`, `cid`,
+and `mac`. `read` takes the trusted version/hash and a bounded byte range;
+`history` returns ascending heads after `afterVersion`. Identical uploads and
+commits can resume after interrupted responses.
+
+## Operator credit gifts
+
+The configured `payments.fundingAddress` can add NanoUSD credit to a new or existing
+wallet with a signed gift. Include the broker's pinned Ed25519 `brokerKey` in the
+full broker configuration, then run:
+
+```sh
+deno run --allow-read --allow-write --allow-net \
+  applications/payments/grant-credit.mjs FULL_BROKER_CONFIG FUNDING_KEY \
+  BROKER_URL RECIPIENT_ADDRESS NANO_USD VOUCHER_JSON --send
+```
+
+The CLI saves the signed voucher before submitting it. Repeat the same command
+and voucher file to recover an interrupted response. The broker applies each
+nonce once; the recipient refreshes credit to continue its saved conversation.
+A new wallet starts with its gifted amount; refreshing credit preserves it.
+Existing grants and spending survive broker restarts unchanged.

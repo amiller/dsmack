@@ -398,9 +398,17 @@ test("browser disconnect still drains the encrypted provider stream for billing 
       },
     );
   const response = await f.send();
-  await response.body.cancel();
+  assert.equal(f.inference.status().inFlightStreams, 1);
+  const consumer = response.body.getReader();
+  await consumer.read();
+  const pendingRead = consumer.read();
+  await consumer.cancel();
+  await pendingRead;
+  assert.equal(f.inference.status().inFlightStreams, 1, "disconnected browser still has a metered provider stream");
   finishSource();
   await stored;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.inference.status().inFlightStreams, 0);
   const result = await f.inference.usage(await f.signed("usage"));
   assert.equal(result.spentNanoUsd, "300");
   assert.equal(result.usedTokens, "12");
@@ -467,120 +475,23 @@ test("prepared sessions are wallet-bound and expire before any paid call", async
   assert.equal(f.calls(), 0);
 });
 
-test("startup tops up every old account once while preserving spend and pending requests", async () => {
-  const wallet = Wallet.createRandom(), inactive = Wallet.createRandom();
-  const activeKey = wallet.address.toLowerCase(),
-    inactiveKey = inactive.address.toLowerCase();
-  const account = {
-    grantedNanoUsd: "10000000",
-    spentNanoUsd: "9000000",
-    usedTokens: "1234",
-    pending: "pending-request",
-    nonces: { ["ab".repeat(16)]: 2000000000 },
-  };
-  const pending = {
-    wallet: activeKey,
-    status: "sent",
-    reservedNanoUsd: "500000",
-    inferenceId: null,
-    createdAt: 1999999999,
-  };
-  const history = { status: "charged", costNanoUsd: "9000000" };
-  const f = fixture({
-    state: {
-      grants: { existing: { retained: true } },
-      receipts: {},
-      inferenceCredit: {
-        [activeKey]: account,
-        [inactiveKey]: { ...account, pending: null },
-        alreadyAbove: { ...account, grantedNanoUsd: "300000000" },
-      },
-      inferenceRequests: { "pending-request": pending, old: history },
-    },
-  });
-  let finishSave, saving;
-  const gate = new Promise((resolve) => finishSave = resolve),
-    started = new Promise((resolve) => saving = resolve);
-  const save = f.payments.save;
-  f.payments.save = async (next) => {
-    saving();
-    await gate;
-    await save(next);
-  };
-  const recovery = f.inference.recover();
-  await started;
-  assert.equal(
-    f.payments.state.inferenceCredit[activeKey].grantedNanoUsd,
-    "10000000",
-  );
-  const claim = f.inference.credit(await f.signed("credit", {}, wallet));
-  finishSave();
-  assert.equal((await recovery).pendingRequests, 1);
-  assert.equal((await claim).remainingNanoUsd, "240500000");
-  for (const key of [activeKey, inactiveKey]) {
-    const migrated = f.saved().inferenceCredit[key];
-    assert.equal(migrated.grantedNanoUsd, "250000000");
-    assert.equal(migrated.spentNanoUsd, account.spentNanoUsd);
-    assert.equal(migrated.usedTokens, account.usedTokens);
-    assert.equal(migrated.pending, key === activeKey ? account.pending : null);
-    assert.equal(migrated.nonces["ab".repeat(16)], 2000000000);
-    assert.deepEqual(migrated.starterTopUps, [{
-      amountNanoUsd: "240000000",
-      grantedNanoUsd: "250000000",
-      grantedAt: 2000000000,
-    }]);
-  }
-  assert.deepEqual(f.saved().inferenceRequests, {
-    "pending-request": pending,
-    old: history,
-  });
-  assert.deepEqual(f.saved().grants, { existing: { retained: true } });
-  assert.equal(
-    f.saved().inferenceCredit.alreadyAbove.grantedNanoUsd,
-    "300000000",
-  );
-  assert.equal(f.saved().inferenceCredit.alreadyAbove.starterTopUps, undefined);
-  const restarted = fixture({ state: f.saved() });
-  await restarted.inference.recover();
-  assert.equal(restarted.records.length, 0);
-  const repeated = await restarted.inference.credit(
-    await restarted.signed("credit", {}, wallet),
-  );
-  assert.equal(repeated.grantedNanoUsd, "250000000");
-  assert.equal(
-    restarted.saved().inferenceCredit[activeKey].starterTopUps.length,
-    1,
-  );
-  await restarted.inference.recover();
-  assert.equal(restarted.records.length, 1);
-});
-
-test("failed startup top-up persistence leaves the original grant available for retry", async () => {
-  const original = {
-    grantedNanoUsd: "10000000",
-    spentNanoUsd: "100",
-    usedTokens: "3",
-    pending: null,
-    nonces: {},
-  };
-  const f = fixture({
-    state: { inferenceCredit: { wallet: original } },
-    cfg: { starterCreditNanoUsd: "500000000" },
-  });
-  const save = f.payments.save;
-  f.payments.save = async () => {
-    throw new Error("disk write failed");
-  };
-  await assert.rejects(f.inference.recover(), /disk write failed/);
-  assert.deepEqual(f.payments.state.inferenceCredit.wallet, original);
-  f.payments.save = save;
-  await f.inference.recover();
-  assert.equal(f.saved().inferenceCredit.wallet.grantedNanoUsd, "500000000");
-  assert.equal(f.saved().inferenceCredit.wallet.starterTopUps.length, 1);
-  assert.equal(
-    f.saved().inferenceCredit.wallet.starterTopUps[0].amountNanoUsd,
-    "490000000",
-  );
+test("broker restart preserves existing grants, spending and pending work without issuing another signup gift",async()=>{
+ const wallet=Wallet.createRandom(),key=wallet.address.toLowerCase();
+ const account={grantedNanoUsd:"200000",spentNanoUsd:"190000",usedTokens:"12",pending:"model",nonces:{}};
+ const state={inferenceCredit:{[key]:account},inferenceRequests:{model:{wallet:key,status:"sent",reservedNanoUsd:"5000",inferenceId:null}},
+  agentSessions:{held:{wallet:key,final:false,reservedNanoUsd:"1000"}},grants:{old:{retained:true}}};
+ const f=fixture({state,cfg:{starterCreditNanoUsd:"250000000"}});
+ assert.equal((await f.inference.recover()).pendingRequests,1);
+ assert.equal(f.records.length,0);
+ assert.deepEqual(f.payments.state,state);
+ const credit=await f.credit(wallet);
+ assert.equal(credit.grantedNanoUsd,"200000");assert.equal(credit.spentNanoUsd,"190000");
+ assert.equal(credit.remainingNanoUsd,"4000");
+ const restarted=fixture({state:f.saved(),cfg:{starterCreditNanoUsd:"500000000"}});
+ await restarted.inference.recover();
+ assert.equal(restarted.records.length,0);
+ assert.equal(restarted.inference.summary(key).grantedNanoUsd,"200000");
+ assert.deepEqual(restarted.payments.state.inferenceRequests,state.inferenceRequests);
 });
 
 test("SDK-encrypted tool schemas and tool results remain opaque at the broker", async () => {
@@ -597,7 +508,7 @@ test("SDK-encrypted tool schemas and tool results remain opaque at the broker", 
           { role: "assistant", content: null, tool_calls: [{ id: "call_private", type: "function", function: { name: "bash", arguments: '{"command":"printf private-tool-marker"}' } }] },
           { role: "tool", tool_call_id: "call_private", content: "private-tool-marker" },
         ],
-        tools: [{ type: "function", function: { name: "bash", description: "private-description-marker", parameters: { type: "object", properties: { command: { type: "string" } } } } }],
+        tools: ["bash", "read", "write", "edit", "artifacts"].map(name => ({ type: "function", function: { name, description: "private-description-marker", parameters: { type: "object", properties: { command: { type: "string" } } } } })),
         tool_choice: "auto",
       }),
     }),
@@ -627,4 +538,108 @@ test("model dispatch cannot spend credit already reserved by a held guest", asyn
   const session = await f.prepare();
   await assert.rejects(f.inference.chat(await f.signed("chat", await f.encrypted(session))), code("CREDIT_EXHAUSTED"));
   assert.equal(f.calls(), 0);
+});
+
+const artifactId = 'a1'.repeat(32);
+async function artifactPrepare(f) {
+  return f.inference.prepare(await f.signed('prepare', { attestationNonce: 'cd'.repeat(32), artifactId }));
+}
+async function artifactGrant(f, limitNanoUsd) {
+  return f.inference.artifactBudget(await f.signed('artifact-budget', { artifactId, limitNanoUsd }));
+}
+test('artifact grants persist spent charges across regrant and restart without counting guest charges', async () => {
+  const f = fixture(); await f.credit();
+  await assert.rejects(artifactPrepare(f), code('BUDGET_EXHAUSTED'));
+  await artifactGrant(f, '20000000');
+  const session = await artifactPrepare(f);
+  const response = await f.inference.chat(await f.signed('chat', await f.encrypted(session)));
+  await response.text();
+  const wallet = f.wallet.address.toLowerCase();
+  const held = f.inference.summary(wallet).artifactBudgets[artifactId];
+  assert(BigInt(held.reservedNanoUsd) > 0n);
+  await assert.rejects(artifactGrant(f, '0'), code('BUDGET_ALREADY_SET'));
+  const usage = await f.inference.usage(await f.signed('usage'));
+  assert.equal(usage.artifactBudgets[artifactId].spentNanoUsd, '300');
+  assert.equal(usage.artifactBudgets[artifactId].lastSessionId, session.sessionId);
+  assert.equal(usage.artifactBudgets[artifactId].lastCostNanoUsd, '300');
+  assert.equal(usage.artifactBudgets[artifactId].reservedNanoUsd, '0');
+  await f.inference.usage(await f.signed('usage'));
+  assert.equal((await artifactGrant(f, '20000000')).artifactBudgets[artifactId].spentNanoUsd, '300');
+  // Guest charges share wallet credit but must not consume model-only meters.
+  f.payments.state.inferenceCredit[wallet].spentNanoUsd = '900';
+  const restored = fixture({ state: structuredClone(f.payments.state) });
+  const summary = await restored.inference.credit(await restored.signed('credit', {}, f.wallet));
+  assert.equal(summary.spentNanoUsd, '900');
+  assert.equal(summary.modelSpentNanoUsd, '300');
+  assert.equal(summary.artifactBudgets[artifactId].spentNanoUsd, '300');
+  await assert.rejects(restored.inference.artifactBudget(await restored.signed('artifact-budget', { artifactId, limitNanoUsd: '300' }, f.wallet)), code('BUDGET_ALREADY_SET'));
+  assert.equal(restored.inference.summary(wallet).artifactBudgets[artifactId].limitNanoUsd, '20000000');
+  assert.equal(f.calls(), 1);assert.equal(restored.calls(), 0);
+});
+
+test('artifact reserve enforces its cap independently of wallet credit', async () => {
+  const f = fixture();await f.credit();await artifactGrant(f, '1');
+  const session = await artifactPrepare(f);
+  await assert.rejects(f.inference.chat(await f.signed('chat', await f.encrypted(session))), code('BUDGET_EXHAUSTED'));
+  assert.equal(f.calls(), 0);assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, '0');
+});
+
+test('settled artifact cost exhausts its grant before another provider request', async () => {
+  const f = fixture();await f.credit();
+  const legacy = await f.prepare(), request = await f.encrypted(legacy);
+  const maximum = f.inference.encryptedRequest(request, f.inference.sessions.get(legacy.sessionId));
+  await artifactGrant(f, String(maximum));f.cost(String(maximum));
+  const session = await artifactPrepare(f);
+  const response = await f.inference.chat(await f.signed('chat', await f.encrypted(session)));
+  await response.text();await f.inference.usage(await f.signed('usage'));
+  await assert.rejects(artifactPrepare(f), code('BUDGET_EXHAUSTED'));
+  assert.equal(f.calls(), 1);
+});
+
+
+test("restart reconciles interrupted known billing ID exactly once without inventing token counts", async () => {
+  const f = fixture();
+  await f.credit();
+  await (await f.send()).text();
+  const state = structuredClone(f.saved());
+  const [id, request] = Object.entries(state.inferenceRequests)[0];
+  state.inferenceRequests[id] = { ...request, status: "streaming", usedTokens: null, streamCompleted: false };
+  const payments = new Payments({ cfg: {}, key: {}, state, quorum: {}, save: async () => {} });
+  const restarted = new Inference({ payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  await restarted.recover();
+  assert.equal(restarted.status().inFlightStreams, 0);
+  assert.equal(payments.state.inferenceRequests[id].interrupted, true);
+  f.cost("0");
+  await assert.rejects(restarted.usage(await f.signed("usage")), code("USAGE_PENDING"));
+  assert.equal(restarted.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "0");
+  f.cost("300");
+  const first = await restarted.usage(await f.signed("usage"));
+  assert.equal(first.spentNanoUsd, "300");
+  assert.deepEqual(first.lastModelCharge, { sessionId: request.sessionId, inferenceId: request.inferenceId, costNanoUsd: "300" });
+  assert.equal(first.reservedNanoUsd, "0");
+  assert.equal(first.usedTokens, "0");
+  assert.equal(first.unreportedTokenRequests, 1);
+  assert.equal(payments.state.inferenceRequests[id].usedTokens, null);
+  const second = await restarted.usage(await f.signed("usage"));
+  assert.equal(second.spentNanoUsd, "300");
+  assert.equal(f.costsCalls(), 2);
+  assert.equal(f.calls(), 1, "reconciliation never resends the interrupted model request");
+});
+
+
+test("completed provider reply stays busy while ciphertext is queued for its HTTP consumer", async () => {
+  const f = fixture();
+  await f.credit();
+  let responded;
+  const stored = new Promise(resolve => responded = resolve), save = f.payments.save;
+  f.payments.save = async next => {
+    await save(next);
+    if (Object.values(next.inferenceRequests ?? {}).some(r => r.status === "responded")) responded();
+  };
+  const response = await f.send();
+  await stored;
+  await new Promise(resolve => setTimeout(resolve, 0));
+  assert.equal(f.inference.status().inFlightStreams, 1, "provider EOF alone cannot permit a deploy over queued ciphertext");
+  await response.text();
+  assert.equal(f.inference.status().inFlightStreams, 0);
 });

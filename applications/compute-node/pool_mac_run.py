@@ -23,8 +23,8 @@ mem_mib, vcpus = compose['base_vm']['memory_mb'], compose['base_vm']['vcpus']
 resources = {'mem_mib': mem_mib, 'vcpus': vcpus, 'basis': f'warm compute node:{mem_mib}MiB/{vcpus}vCPU'}
 if profile != f'mini-{mem_mib}-{vcpus}':
     raise ValueError('launch resource profile differs from measured compose size')
-if not 1 <= seconds <= 840:
-    raise ValueError('pool runtime must be 1..840 seconds')
+if not 1 <= seconds <= 3600:
+    raise ValueError('pool runtime must be 1..3600 seconds')
 
 
 def canon(v):
@@ -61,9 +61,9 @@ image = {'schema': 'dsmack-general-launcher/image-manifest/1', 'arch': 'aarch64'
          'provenance': {'profile_id': 'warm-compute-node-v1', 'os_image_hash': osh}}
 ir = canon(image)
 (t/'image-manifest.json').write_bytes(ir)
-(t/'policy.json').write_bytes(canon({'schema': 'dsmack-general-launcher/admission-policy/1', 'policy_id': f'warm-compute-node-{mem_mib}-{vcpus}-900',
+(t/'policy.json').write_bytes(canon({'schema': 'dsmack-general-launcher/admission-policy/1', 'policy_id': f'warm-compute-node-{mem_mib}-{vcpus}-3600',
     'notes': 'warm compute node', 'admitted_images': [{'image_id': osh, 'manifest_sha256': hashlib.sha256(ir).hexdigest(), 'admitted_by': 'local:warm-compute-pool'}],
-    'resource_limits': {'max_mem_mib': mem_mib, 'max_vcpus': vcpus, 'max_runtime_seconds': 900},
+    'resource_limits': {'max_mem_mib': mem_mib, 'max_vcpus': vcpus, 'max_runtime_seconds': 3600},
     'device_contract': {'system': 'vda', 'scratch': 'vdb', 'workload': 'vdc'}}))
 (t/'admission.json').write_bytes(canon({'admission_version': 1, 'allowed_os_image_hashes': [osh]}))
 (t/'challenge.bin').write_bytes(secrets.token_bytes(32))
@@ -71,7 +71,7 @@ ir = canon(image)
     'image_manifest_path': str(t/'image-manifest.json'), 'checksum_manifest_path': str(b/'sha256sum.txt'),
     'metadata_path': str(b/'metadata.json'), 'admission_path': str(t/'admission.json'),
     'compose_manifest_path': str(t/'compose-manifest.json'), 'profile': profile, 'workload_disk_path': str(t/'workload.img'),
-    'workload_sha256': fsha(t/'workload.img'), 'workload_id': 'compute-node-v1', 'runtime_seconds': 900,
+    'workload_sha256': fsha(t/'workload.img'), 'workload_id': 'compute-node-v1', 'runtime_seconds': 3600,
     'private_input_path': '', 'net_socket_path': str(t/'net.sock'), **template('scratch'), **template('result')}))
 net = subprocess.Popen([str(rt/'helper/gvproxy-darwin'), '-listen-qemu', 'unix://%s' % (t/'net.sock'), '-ssh-port', '-1',
                         '-log-file', str(t/'gvproxy.log')])
@@ -82,7 +82,7 @@ while not (t/'net.sock').exists():
 try:
     subprocess.run(['/usr/bin/open', '-n', '-W', '--stdout', str(t/'stdout.txt'), '--stderr', str(t/'stderr.txt'),
                     str(d/'DsmackRunner.app'), '--args', 'hvf-v3', str(t/'out'), str(t/'session.json'), str(t/'challenge.bin'),
-                    str(d/'enrollment/keyId.txt')], check=True, timeout=940)
+                    str(d/'enrollment/keyId.txt')], check=True, timeout=4300)
 finally:
     net.terminate()
     net.wait()

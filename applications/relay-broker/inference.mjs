@@ -2,10 +2,11 @@ import { verifyMessage } from "../payments/schema.mjs";
 import { canonical } from "./grants.mjs";
 
 export class InferenceError extends Error {
-  constructor(code, message, status = 400) {
+  constructor(code, message, status = 400, retryAfterSeconds = undefined) {
     super(message);
     this.code = code;
     this.status = status;
+    this.retryAfterSeconds = retryAfterSeconds;
   }
 }
 const check = (ok, code, message, status = 400) => {
@@ -21,6 +22,7 @@ const uint = (v) =>
 const fields = (value, allowed) =>
   value && typeof value === "object" && !Array.isArray(value) &&
   Object.keys(value).every((k) => allowed.includes(k));
+export const creditGrantPrefix = "dsmack-agent-credit-grant/1\n";
 export const PRIVACY =
   "Browser-encrypted prompts and replies; broker forwards ciphertext to NEAR TEE model";
 
@@ -51,6 +53,7 @@ export class Inference {
       "model and integer inference limits are required",
     );
     this.sessions = new Map();
+    this.activeRequests = new Set();
   }
   configured() {
     check(
@@ -74,29 +77,19 @@ export class Inference {
     };
   }
   status() {
-    return this.quote();
+    return { ...this.quote(), inFlightStreams: this.activeRequests.size };
   }
   async recover() {
     await this.payments.serial(async () => {
       const state = this.payments.state;
-      const starter = BigInt(this.cfg.starterCreditNanoUsd);
-      const accounts = { ...state.inferenceCredit };
+      const requests = { ...state.inferenceRequests };
       let changed = false;
-      for (const [wallet, account] of Object.entries(accounts)) {
-        const granted = BigInt(account.grantedNanoUsd);
-        if (granted >= starter) continue;
-        accounts[wallet] = {
-          ...account,
-          grantedNanoUsd: String(starter),
-          starterTopUps: [...(account.starterTopUps ?? []), {
-            amountNanoUsd: String(starter - granted),
-            grantedNanoUsd: String(starter),
-            grantedAt: this.now(),
-          }],
-        };
+      for (const [id, request] of Object.entries(requests)) {
+        if (request.status !== "streaming" || !request.inferenceId) continue;
+        requests[id] = { ...request, status: "responded", interrupted: true };
         changed = true;
       }
-      if (changed) await this.save({ ...state, inferenceCredit: accounts });
+      if (changed) await this.save({ ...state, inferenceRequests: requests });
     });
     // A persisted dispatch without a billing ID is ambiguous. Keep its credit
     // reserved: restarting must never send another request on its behalf.
@@ -140,13 +133,23 @@ export class Inference {
       remainingNanoUsd: String(
         BigInt(a.grantedNanoUsd) - BigInt(a.spentNanoUsd) - reserved - guestReserved,
       ),
+      unreportedTokenRequests: Object.values(this.payments.state.inferenceRequests ?? {})
+        .filter(r => r.wallet === wallet && r.status === "charged" && !uint(r.usedTokens)).length,
+      modelSpentNanoUsd: String(Object.values(this.payments.state.inferenceRequests ?? {})
+        .filter(r => r.wallet === wallet && r.status === "charged")
+        .reduce((sum, r) => sum + BigInt(r.costNanoUsd), 0n)),
+      artifactBudgets: Object.fromEntries(Object.entries(a.artifactBudgets ?? {}).map(([id, budget]) =>
+        [id, { ...budget, reservedNanoUsd: pending?.artifactId === id && pending.status !== "charged" ? pending.reservedNanoUsd : "0" }])),
       usedTokens: a.usedTokens,
+      lastModelCharge: a.lastModelCharge ?? null,
       pendingInferenceId: pending?.inferenceId ?? null,
     };
   }
   async authorized(r, action) {
     const extra = action === "prepare"
-      ? ["attestationNonce"]
+      ? ["attestationNonce", "artifactId"]
+      : action === "artifact-budget"
+      ? ["artifactId", "limitNanoUsd"]
       : action === "chat"
       ? ["sessionId", "body", "headers"]
       : action === "agent-open"
@@ -221,6 +224,61 @@ export class Inference {
     const wallet = await this.authorized(r, "credit");
     return this.summary(wallet);
   }
+  async grantCredit(r, { issuer, escrow, brokerKey }) {
+    check(/^0x[0-9a-fA-F]{40}$/.test(issuer ?? "") && /^0x[0-9a-fA-F]{40}$/.test(escrow ?? "") &&
+      /^[0-9a-f]{64}$/.test(brokerKey ?? ""), "CREDIT_GIFT_NOT_CONFIGURED", "operator credit gifts are not configured", 503);
+    const g = r.grant;
+    check(fields(r, ["grant", "signature"]) && fields(g, ["v", "chainId", "escrow", "brokerKey", "wallet", "amountNanoUsd", "nonce", "expiresAt"]) &&
+      Object.keys(g).length === 8 && g.v === 1 && g.chainId === 84532 &&
+      typeof g.escrow === "string" && g.escrow.toLowerCase() === escrow.toLowerCase() && g.brokerKey === brokerKey &&
+      typeof g.wallet === "string" && /^0x[0-9a-fA-F]{40}$/.test(g.wallet) && typeof g.amountNanoUsd === "string" && /^[1-9][0-9]*$/.test(g.amountNanoUsd) &&
+      g.amountNanoUsd.length <= 39 && BigInt(g.amountNanoUsd) < (1n << 128n) && typeof g.nonce === "string" && /^[0-9a-f]{64}$/.test(g.nonce) &&
+      Number.isSafeInteger(g.expiresAt),
+      "CREDIT_GIFT_REQUEST", "bounded, unexpired credit gift for this broker required", 403);
+    check(typeof r.signature === "string" && /^0x[0-9a-fA-F]{130}$/.test(r.signature), "CREDIT_GIFT_SIGNATURE", "funding wallet signature required", 403);
+    let signer;
+    try { signer = verifyMessage(creditGrantPrefix + canonical(g), r.signature).toLowerCase(); } catch { /* refused below */ }
+    check(signer === issuer.toLowerCase(), "CREDIT_GIFT_SIGNATURE", "credit gift is not signed by the configured funding wallet", 403);
+    return this.payments.serial(async () => {
+      const state = this.payments.state, old = state.inferenceGifts?.[g.nonce], wallet = g.wallet.toLowerCase();
+      if (old) {
+        check(canonical(old.grant) === canonical(g), "CREDIT_GIFT_REPLAY", "credit gift nonce was already used for different terms", 409);
+        return { wallet, amountNanoUsd: g.amountNanoUsd, nonce: g.nonce, applied: false };
+      }
+      check(g.expiresAt > this.now() && g.expiresAt <= this.now() + 86400,
+        "CREDIT_GIFT_REQUEST", "bounded, unexpired credit gift for this broker required", 403);
+      const account = state.inferenceCredit?.[wallet] ?? {
+        grantedNanoUsd: "0", spentNanoUsd: "0", usedTokens: "0", pending: null, nonces: {},
+      };
+      await this.save({ ...state,
+        inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...account,
+          grantedNanoUsd: String(BigInt(account.grantedNanoUsd) + BigInt(g.amountNanoUsd)) } },
+        inferenceGifts: { ...state.inferenceGifts, [g.nonce]: { grant: g, issuer: signer, signature: r.signature, appliedAt: this.now() } },
+      });
+      return { wallet, amountNanoUsd: g.amountNanoUsd, nonce: g.nonce, applied: true };
+    });
+  }
+  async artifactBudget(r) {
+    const wallet = await this.authorized(r, "artifact-budget");
+    check(typeof r.artifactId === "string" && /^[0-9a-f]{64}$/.test(r.artifactId) && typeof r.limitNanoUsd === "string" && r.limitNanoUsd.length <= 24 && uint(r.limitNanoUsd),
+      "BAD_REQUEST", "artifact hash and integer budget limit required");
+    await this.payments.serial(async () => {
+      const a = this.account(wallet), old = this.summary(wallet).artifactBudgets[r.artifactId];
+      check(!old || old.limitNanoUsd === r.limitNanoUsd,
+        "BUDGET_ALREADY_SET", "artifact budget limit is already set", 409);
+      if (old) return;
+      await this.save({ ...this.payments.state, inferenceCredit: { ...this.payments.state.inferenceCredit,
+        [wallet]: { ...a, artifactBudgets: { ...a.artifactBudgets,
+          [r.artifactId]: { limitNanoUsd: r.limitNanoUsd, spentNanoUsd: "0" } } } } });
+    });
+    return this.summary(wallet);
+  }
+  artifactRemaining(wallet, artifactId) {
+    check(typeof artifactId === "string" && /^[0-9a-f]{64}$/.test(artifactId), "BAD_REQUEST", "artifact identity must be a SHA256 hash");
+    const budget = this.summary(wallet).artifactBudgets[artifactId];
+    check(budget, "BUDGET_EXHAUSTED", "set an artifact budget before making model calls", 402);
+    return BigInt(budget.limitNanoUsd) - BigInt(budget.spentNanoUsd) - BigInt(budget.reservedNanoUsd);
+  }
   async prepare(r) {
     const wallet = await this.authorized(r, "prepare");
     this.configured();
@@ -241,6 +299,8 @@ export class Inference {
       "wallet has no available inference credit",
       402,
     );
+    if (r.artifactId !== undefined) check(this.artifactRemaining(wallet, r.artifactId) > 0n,
+      "BUDGET_EXHAUSTED", "artifact model budget is exhausted", 402);
     const checked = await this.provider.attest({
       model: this.cfg.model,
       nonce: r.attestationNonce,
@@ -274,6 +334,7 @@ export class Inference {
       expiresAt,
       attestation: checked,
       consumed: false,
+      artifactId: r.artifactId,
     });
     return {
       ...this.summary(wallet),
@@ -303,7 +364,7 @@ export class Inference {
         b.max_tokens > 0 && b.max_tokens <= this.cfg.maxOutputTokens &&
         fields(b.stream_options, ["include_usage"]) && b.stream_options.include_usage === true &&
         Array.isArray(b.messages) && b.messages.length > 0 && b.messages.length <= 128 && b.messages.every(message) &&
-        (b.tools === undefined || (Array.isArray(b.tools) && b.tools.length <= 4 && b.tools.every(tool))) &&
+        (b.tools === undefined || (Array.isArray(b.tools) && b.tools.every(tool))) &&
         (b.tool_choice === undefined || (b.tool_choice === "auto" && b.tools?.length > 0)),
       "BAD_REQUEST", "only bounded SDK-encrypted messages and tool fields are accepted",
     );
@@ -361,6 +422,8 @@ export class Inference {
         "wallet credit cannot cover this request's maximum cost",
         402,
       );
+      if (session.artifactId !== undefined) check(this.artifactRemaining(wallet, session.artifactId) >= reserve,
+        "BUDGET_EXHAUSTED", "artifact budget cannot cover this request's maximum cost", 402);
       localId = randomId();
       const state = this.payments.state;
       await this.save({
@@ -373,7 +436,9 @@ export class Inference {
           ...state.inferenceRequests,
           [localId]: {
             wallet,
+            sessionId: r.sessionId,
             status: "sent",
+            ...(session.artifactId !== undefined ? { artifactId: session.artifactId } : {}),
             reservedNanoUsd: String(reserve),
             inferenceId: null,
             usedTokens: null,
@@ -385,6 +450,7 @@ export class Inference {
       session.consumed = true;
       this.sessions.delete(r.sessionId);
     });
+    this.activeRequests.add(localId);
     let response;
     try {
       response = await this.provider.chatEncrypted({
@@ -428,12 +494,13 @@ export class Inference {
         });
       });
     } catch (error) {
+      this.activeRequests.delete(localId);
       await response?.body?.cancel();
       session.attestation.transport?.close?.();
       throw error;
     }
     const inference = this, decoder = new TextDecoder();
-    let disconnected = false;
+    let disconnected = false, upstreamDone = false;
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "", tokens = null, done = false, failure = false;
@@ -497,6 +564,7 @@ export class Inference {
                     status: "responded",
                     usedTokens: tokens,
                     streamCompleted: done && !failure,
+                    interrupted: failure,
                   },
                 },
               });
@@ -504,6 +572,8 @@ export class Inference {
           } catch {
             failure = true;
           }
+          upstreamDone = true;
+          if (disconnected) inference.activeRequests.delete(localId);
           if (!disconnected) {
             if (failure) {
               controller.error(
@@ -521,7 +591,32 @@ export class Inference {
         disconnected = true;
       },
     });
-    return new Response(stream, {
+    // Keep queued ciphertext counted until the HTTP consumer reaches EOF.
+    // A disconnected browser still leaves its provider drain counted above.
+    const reader = stream.getReader();
+    let consumerCancelled = false;
+    const tracked = new ReadableStream({
+      async pull(controller) {
+        try {
+          const { value, done } = await reader.read();
+          if (consumerCancelled) return;
+          if (done) {
+            inference.activeRequests.delete(localId);
+            controller.close();
+          } else controller.enqueue(value);
+        } catch (error) {
+          if (consumerCancelled) return;
+          inference.activeRequests.delete(localId);
+          controller.error(error);
+        }
+      },
+      async cancel(reason) {
+        consumerCancelled = true;
+        try { await reader.cancel(reason); }
+        finally { if (upstreamDone) inference.activeRequests.delete(localId); }
+      },
+    });
+    return new Response(tracked, {
       headers: {
         "content-type": "text/event-stream",
         "cache-control": "no-store",
@@ -538,7 +633,7 @@ export class Inference {
       ledger = this.payments.state.inferenceRequests[localId];
     check(
       ledger.inferenceId && ledger.status === "responded" &&
-        uint(ledger.usedTokens),
+        (uint(ledger.usedTokens) || ledger.interrupted === true),
       "USAGE_PENDING",
       "provider request or billing evidence is still pending",
       409,
@@ -586,9 +681,14 @@ export class Inference {
           [wallet]: {
             ...account,
             pending: null,
+            lastModelCharge: { sessionId: current.sessionId, inferenceId: current.inferenceId, costNanoUsd: String(cost) },
+            ...(current.artifactId !== undefined ? { artifactBudgets: { ...account.artifactBudgets,
+              [current.artifactId]: { ...account.artifactBudgets[current.artifactId],
+                spentNanoUsd: String(BigInt(account.artifactBudgets[current.artifactId].spentNanoUsd) + cost),
+                lastSessionId: current.sessionId, lastCostNanoUsd: String(cost) } } } : {}),
             spentNanoUsd: String(BigInt(account.spentNanoUsd) + cost),
             usedTokens: String(
-              BigInt(account.usedTokens) + BigInt(current.usedTokens),
+              BigInt(account.usedTokens) + (uint(current.usedTokens) ? BigInt(current.usedTokens) : 0n),
             ),
           },
         },

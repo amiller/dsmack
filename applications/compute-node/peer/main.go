@@ -245,7 +245,29 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	var registrationMu sync.Mutex
 	registration := map[string]any{"kind": "compute", "relay_peer": h.ID().String(), "relay_maddr": publicRelay + "/p2p-circuit/p2p/" + h.ID().String(), "secret_key": hex.EncodeToString(public(secret)), "receipt_key": hex.EncodeToString(receipt), "manifest_sha256": info["compose_hash"], "os_image_hash": info["os_image_hash"], "cdhash": cdhash, "attestation": hex.EncodeToString(att)}
-	n := &engine{signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(time.Duration(seconds) * time.Second), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	// The measured native watchdog starts at vCPU boot, before this process.
+	// Keep shutdown/export inside that same lifetime rather than restarting it.
+	uptimeRaw, err := os.ReadFile("/proc/uptime")
+	if err != nil {
+		return err
+	}
+	uptimeFields := strings.Fields(string(uptimeRaw))
+	if len(uptimeFields) == 0 {
+		return fmt.Errorf("missing Linux uptime")
+	}
+	uptimeSeconds, err := strconv.ParseFloat(uptimeFields[0], 64)
+	if err != nil || uptimeSeconds < 0 {
+		return fmt.Errorf("invalid Linux uptime")
+	}
+	remaining := time.Duration(seconds)*time.Second - time.Duration(uptimeSeconds*float64(time.Second)) - 30*time.Second
+	if remaining <= 480*time.Second {
+		return fmt.Errorf("insufficient measured guest lifetime")
+	}
+	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	if paid != nil && paid.RunExpires > n.until.Unix() {
+		paid.RunExpires = n.until.Unix()
+	}
+
 	if value := os.Getenv("ADMIT_SECONDS"); value != "" {
 		admit, err := strconv.Atoi(value)
 		if err != nil {
@@ -256,8 +278,9 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		}
 		n.admissionUntil = time.Now().Add(time.Duration(admit) * time.Second)
 	}
-	if n.admissionUntil.IsZero() {
-		n.admissionUntil = n.until
+	cutoff := n.until.Add(-480 * time.Second)
+	if n.admissionUntil.IsZero() || n.admissionUntil.After(cutoff) {
+		n.admissionUntil = cutoff
 	}
 	registration["admit_until"] = n.admissionUntil.Unix()
 	h.SetStreamHandler("/dsmack/attest/1", func(s network.Stream) {
@@ -304,6 +327,14 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	}
 	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
 		return err
+	}
+	for _, file := range []struct {
+		path string
+		data []byte
+	}{{"workspace-seal.bin", nil}, {"workspace-seal.json", []byte("null")}} {
+		if err := os.WriteFile("/workspace/artifacts/"+file.path, file.data, 0600); err != nil {
+			return err
+		}
 	}
 	if err := os.WriteFile("/workspace/artifacts/last-result", canon(map[string]string{"status": "idle"}), 0644); err != nil {
 		return err
@@ -421,7 +452,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		fmt.Fprintln(os.Stderr, "awaiting paid admission:", err)
 	}
 	fmt.Println("compute node registered", h.ID())
-	tick := time.NewTicker(25 * time.Second)
+	tick := time.NewTicker(90 * time.Second)
 	defer tick.Stop()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
@@ -468,7 +499,7 @@ func main() {
 	}
 	seconds, e := strconv.Atoi(a[2])
 	must(e)
-	if seconds < 1 || seconds > 86400 {
+	if seconds < 1 || seconds > 3600 {
 		log.Fatal("duration")
 	}
 	must(serve(a[1], a[3], a[4], a[5], a[6], seconds))

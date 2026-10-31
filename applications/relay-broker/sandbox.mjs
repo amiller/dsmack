@@ -26,8 +26,20 @@ export async function sandbox(req, broker, transport = nativeTransport) {
   let forwarder;
   try { forwarder = await transport(broker.cfg, broker.key); }
   catch { throw new Refused("sandbox_transport_unavailable", 503); }
-  try { return Response.json(await forwarder.forward("attestation", payload, { signal: req.signal })); }
-  catch (error) {
+  // Both idempotent reads share the existing 30-second operation deadline.
+  const signal = AbortSignal.any([req.signal, AbortSignal.timeout(30000)]);
+  try {
+    let attestation;
+    try { attestation = await forwarder.forward("attestation", payload, { signal }); }
+    catch (error) {
+      if (signal.aborted || error.stage !== "node_attestation" ||
+        error.cause?.code !== "EMPTY_ATTESTATION_RESPONSE") throw error;
+      // The guest can close cleanly when its host attestation API is briefly
+      // unavailable. Retry one empty response with the identical challenge.
+      attestation = await forwarder.forward("attestation", payload, { signal });
+    }
+    return Response.json(attestation);
+  } catch (error) {
     const code = error.code || "node_unreachable", status = error.status || 502;
     if (error.detail) return Response.json({ error: code, stage: error.stage || code, detail: error.detail }, { status });
     throw new Refused(code, status);

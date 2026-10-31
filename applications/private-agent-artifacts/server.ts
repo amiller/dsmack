@@ -2,7 +2,7 @@ const parentOrigin = "https://private-agent.dstack.soc1024.com";
 const artifactOrigin = "https://artifacts.private-agent.dstack.soc1024.com";
 const policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; img-src data: blob:; font-src data: blob:; connect-src 'none'; media-src 'none'; object-src 'none'; frame-src blob:; worker-src 'self'; base-uri 'none'; form-action 'none'";
 export const security = {
-  "content-security-policy": policy + "; frame-ancestors " + parentOrigin + "; sandbox allow-scripts allow-same-origin",
+  "content-security-policy": policy + "; frame-ancestors " + parentOrigin + "; sandbox allow-scripts allow-same-origin allow-forms",
   "content-type": "text/html; charset=utf-8", "x-content-type-options": "nosniff",
   "x-dns-prefetch-control": "off", "referrer-policy": "no-referrer",
   "permissions-policy": "camera=(), microphone=(), geolocation=(), payment=(), usb=()", "cache-control": "no-store",
@@ -42,7 +42,7 @@ function receive(event){const data=event.data;if(!data||typeof data!=='object')r
  if(event.source!==parent||event.origin!==host||!nativeNetworkReady)return;
  if(inner){if((data.type==='runtime-response'||data.type==='dsmack-response')&&data.sandboxId===sandboxId)inner.contentWindow.postMessage(data,'*');return}
  if(data.type!=='sandbox-load'||typeof data.code!=='string'||typeof data.sandboxId!=='string')return;
- sandboxId=data.sandboxId;inner=document.createElement('iframe');inner.sandbox.add('allow-scripts');inner.title='Generated app';
+ sandboxId=data.sandboxId;inner=document.createElement('iframe');inner.sandbox.add('allow-scripts','allow-forms');inner.title='Generated app';
  const guard='<!doctype html><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy" content="worker-src &apos;none&apos;; frame-src &apos;none&apos;"><script>addEventListener("message",function(e){if(e.source!==parent||e.origin!=='+JSON.stringify(${JSON.stringify(artifactOrigin)})+'||!e.data||e.data.sandboxId!=='+JSON.stringify(sandboxId)+'){e.stopImmediatePropagation()}},true);<'+'/script>';
  blob=URL.createObjectURL(new Blob([guard,data.code],{type:'text/html'}));inner.src=blob;document.body.append(inner);
 }

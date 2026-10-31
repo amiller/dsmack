@@ -1,6 +1,7 @@
 import { ArtifactsPanel } from "@pi-components/tools/artifacts/artifacts.js";
 import { SandboxIframe } from "@pi-components/components/SandboxedIframe.js";
 import { RUNTIME_MESSAGE_ROUTER } from "@pi-components/components/sandbox/RuntimeMessageRouter.js";
+import { RuntimeMessageBridge } from "@pi-components/components/sandbox/RuntimeMessageBridge.js";
 import { ArtifactBridge } from "./artifact-bridge.mjs";
 
 export const ARTIFACT_ORIGIN = "https://artifacts.private-agent.dstack.soc1024.com";
@@ -17,6 +18,16 @@ RUNTIME_MESSAGE_ROUTER.unregisterSandbox = (id) => { frames.delete(id); unregist
 // HTML's parser already repairs malformed markup. Skip upstream's parsererror
 // fallback, which inserts generated error text into an unsandboxed srcdoc.
 SandboxIframe.prototype.validateHtml = () => null;
+// Pi's capture-phase submit interceptor stops an app's own form handler. Use
+// its standalone runtime (no navigation interceptor), restoring only its bridge.
+// The browser's immutable CSP and native allowlist enforce network restrictions.
+const runtimeScript = SandboxIframe.prototype.getRuntimeScript;
+SandboxIframe.prototype.getRuntimeScript = function(id, providers, standalone) {
+  const runtime = runtimeScript.call(this, id, providers, true);
+  if (standalone) return runtime;
+  const bridge = RuntimeMessageBridge.generateBridgeCode({ context: "sandbox-iframe", sandboxId: id });
+  return "<script>" + bridge.replace(/<\/script/gi, "<\\/script") + "</script>" + runtime;
+};
 window.addEventListener("message", (event) => {
   const data = event.data;
   if (!data || typeof data !== "object") { event.stopImmediatePropagation(); return; }
@@ -31,7 +42,7 @@ window.addEventListener("message", (event) => {
 SandboxIframe.prototype.loadViaSandboxUrl = function(id, code) {
   this.artifactReadyCleanup?.();
   const frame = document.createElement("iframe");
-  frame.sandbox.add("allow-scripts", "allow-same-origin");
+  frame.sandbox.add("allow-scripts", "allow-same-origin", "allow-forms");
   frame.title = "Generated app";
   frame.style.cssText = "width:100%;height:100%;border:0;background:white";
   frame.src = `${ARTIFACT_ORIGIN}/loader.html`;

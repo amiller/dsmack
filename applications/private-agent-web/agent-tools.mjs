@@ -112,7 +112,7 @@ export class GuestSession {
       name: tool.name, label: tool.name, description: tool.description,
       parameters: tool.inputSchema,
       execute: async (_id, args, signal, onUpdate) => {
-        const client = await this.ensure(signal);
+        const client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
         performance.mark("dsmack:tool:start", { detail: tool.name });
         const result = await client.callTool({ name: tool.name, arguments: args }, {
           signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
@@ -138,15 +138,39 @@ export class GuestSession {
     await this.status();
     if (this.lease) this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "disconnected-held", lease: this.lease, node: this.node?.registration, active: true, error: e.message })), 10000);
   }
-  async ensure(signal) {
-    await this.restore();
-    require(!this.lease || this.client, "This conversation still holds a disconnected guest. Choose End session before starting a fresh workspace.");
-    if (this.client) return this.client;
-    if (!this.opening) this.opening = this.open(signal).catch(async e => {
+  async ensure(signal, commandSeconds = 120) {
+    if (!this.opening) this.opening = (async () => {
+      let moved = false;
+      await this.restore();
+      if (this.lease) await this.status();
+      const cutoff = Number(this.lease?.handoverAt || this.node?.registration.admit_until || 0) * 1000;
+      if (this.lease && (!this.client || (cutoff && cutoff <= Date.now() + (Math.min(120, commandSeconds) + 5) * 1000))) {
+        performance.mark("dsmack:handover:start");
+        moved = true;
+        this.changed({ state: "handover", lease: this.lease, node: this.node?.registration });
+        await this.end();
+        await this.waitForRelease(signal);
+      }
+      if (this.client) return this.client;
+      const client = await this.open(signal);
+      if (moved) performance.mark("dsmack:handover:ready");
+      return client;
+    })().catch(async e => {
+      // Admission failures can leave an unused claim. Never retry a tool whose
+      // result was lost: its edits may already be present in the saved version.
       await this.end().catch(() => {});
       throw e;
     }).finally(() => { this.opening = null; });
     return this.opening;
+  }
+  async waitForRelease(signal) {
+    const deadline = Date.now() + 150000;
+    while (this.lease) {
+      signal?.throwIfAborted();
+      require(Date.now() < deadline, "The guest is still saving its workspace. Retry when it has released.");
+      await new Promise(resolve => setTimeout(resolve, 500));
+      await this.status();
+    }
   }
   async open(signal) {
     performance.mark("dsmack:guest:start");
@@ -223,6 +247,9 @@ export class GuestSession {
     this.environment = JSON.parse(env.contents[0].text);
     this.client = client;
     performance.mark("dsmack:mcp:ready");
+    // A prior stay can finish sealing while this browser waits for admission.
+    // Read its final head before releasing a workspace key to the next guest.
+    await this.workspace.latest();
     const restored = await this.workspace.bind(client, verified.registration, this.lease);
     if (!restored) {
       for (const [path, content] of this.repository()) {
@@ -240,10 +267,15 @@ export class GuestSession {
   }
   async status() {
     if (!this.lease) return;
-    const result = await this.api("/agent/status", await walletBody(this.credit, "agent-status", { sessionId: this.lease.sessionId }));
+    const sessionId = this.lease.sessionId;
+    const result = await this.api("/agent/status", await walletBody(this.credit, "agent-status", { sessionId }));
+    if (this.lease?.sessionId !== sessionId) return result;
+    Object.assign(this.lease, { handoverAt: result.handoverAt, seconds: result.seconds, grant: result.grant });
     if (result.credit) this.credit.chatCredit = result.credit;
-    this.changed({ ...result, state: result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
-    if (!result.active) {
+    const sealing = result.usageUnresolved || (result.active && (result.endRequested || result.stopReason ||
+      result.handoverAt * 1000 <= Date.now()));
+    this.changed({ ...result, state: sealing ? "sealing" : result.active ? (this.client ? "held" : "disconnected-held") : "released", lease: this.lease, node: this.node?.registration, environment: this.environment });
+    if (!result.active && !result.usageUnresolved) {
       clearInterval(this.poll);
       await this.client?.close(); this.client = null;
       await this.peer?.stop(); this.peer = null;
@@ -265,8 +297,8 @@ export class GuestSession {
     return this.workspace.save(this.client, this.lease);
   }
   async end() {
-    clearInterval(this.poll);
     if (this.client && this.workspaceReady) await this.save();
+    clearInterval(this.poll);
     await this.client?.close(); this.client = null;
     await this.peer?.stop(); this.peer = null;
     if (this.lease) {
@@ -278,7 +310,7 @@ export class GuestSession {
       }
       if (result.credit) this.credit.chatCredit = result.credit;
       this.changed({ ...result, state: result.active ? "ending" : "released", lease: this.lease });
-      if (!result.active) {
+      if (!result.active && !result.usageUnresolved) {
         this.lease = null; this.savedLease = null; this.workspaceReady = false;
         await this.workspace.latest();
       }

@@ -197,3 +197,21 @@ A head contains `workspaceId`, `version`, `previousHash`, `hash`, `size`, `cid`,
 and `mac`. `read` takes the trusted version/hash and a bounded byte range;
 `history` returns ascending heads after `afterVersion`. Identical uploads and
 commits can resume after interrupted responses.
+
+## Operator credit gifts
+
+The configured `payments.fundingAddress` can add NanoUSD credit to a new or existing
+wallet with a signed gift. Include the broker's pinned Ed25519 `brokerKey` in the
+full broker configuration, then run:
+
+```sh
+deno run --allow-read --allow-write --allow-net \
+  applications/payments/grant-credit.mjs FULL_BROKER_CONFIG FUNDING_KEY \
+  BROKER_URL RECIPIENT_ADDRESS NANO_USD VOUCHER_JSON --send
+```
+
+The CLI saves the signed voucher before submitting it. Repeat the same command
+and voucher file to recover an interrupted response. The broker applies each
+nonce once; the recipient refreshes credit to continue its saved conversation.
+A new wallet starts with its gifted amount; refreshing credit preserves it.
+Existing grants and spending survive broker restarts unchanged.

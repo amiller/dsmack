@@ -239,8 +239,8 @@ def main():
         ready(a.state/'tunnel.log',r'(Registered tunnel connection)',90)
         tunnel_address=public_ready(host)
         broker_host=urlsplit(a.broker).hostname;broker_address=resolve(broker_host)
-        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18484','--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','960','--resolve',host+'='+tunnel_address,'--resolve',broker_host+'='+broker_address],'proxy.log')
-        hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
+        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18484','--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','3600','--resolve',host+'='+tunnel_address,'--resolve',broker_host+'='+broker_address],'proxy.log')
+        hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3600)
         (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
         published=True;republish(publish,hint,False);last_http=time.monotonic()
         last_chain_attempt=0;published_entries=[]
@@ -261,7 +261,7 @@ def main():
                 last_chain_attempt=now
                 published_entries=publish_directory(publish,entries,published_entries,pending_path.exists())
             if now-last_http>=60:
-                hint['expiresAt']=int(time.time())+3300
+                hint['expiresAt']=int(time.time())+3600
                 republish(publish,hint,False);last_http=time.monotonic()
             time.sleep(2)
         if pool.returncode:raise RuntimeError('warm pool failed; inspect pool.log')
@@ -269,7 +269,7 @@ def main():
     finally:
         if pool and pool.poll() is None:
             pool.send_signal(signal.SIGTERM)
-            try:pool.wait(timeout=1000)
+            try:pool.wait(timeout=4300)
             except subprocess.TimeoutExpired:raise RuntimeError('warm guests still active; owned transport retained')
         try:
             if published:

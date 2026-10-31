@@ -297,6 +297,10 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(b.inference.status());
       } else if (req.method === "GET" && action === "quote") {
         response = Response.json(await b.inference.quote());
+      } else if (req.method === "POST" && action === "grant-credit") {
+        response = Response.json(await b.inference.grantCredit(await body(req), {
+          issuer: b.cfg.payments?.fundingAddress, escrow: b.cfg.payments?.escrow, brokerKey: b.key.public_key,
+        }));
       } else if (
         req.method === "POST" &&
         ["credit", "prepare", "chat", "usage", "artifact-budget"].includes(action)
@@ -386,9 +390,12 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
     return finish(response);
   } catch (e) {
     if (e instanceof InferenceError || e instanceof NearError) {
+      const retryAfterSeconds = e instanceof InferenceError ? e.retryAfterSeconds : undefined;
       return finish(
-        Response.json({ error: { code: e.code, message: e.message } }, {
+        Response.json({ error: { code: e.code, message: e.message,
+          ...(retryAfterSeconds !== undefined ? { retryAfterSeconds } : {}) } }, {
           status: e.status,
+          ...(retryAfterSeconds !== undefined ? { headers: { "retry-after": String(retryAfterSeconds) } } : {}),
         }),
       );
     }

@@ -68,3 +68,19 @@ test("session conflict merging preserves the newest workspace and refuses a same
   assert.equal(newestWorkspace(second.head, first.head), second.head);
   assert.throws(() => newestWorkspace(first.head, { ...first.head, hash: "f".repeat(64) }), /Conflicting/);
 });
+test("a different selected Mac fetches the snapshot instead of reusing the prior Mac's discovery download", async () => {
+  const item = await snapshot(1); item.head.mac = "mac-a";
+  let reads = 0;
+  const { controller } = workspace(async (operation, args) => {
+    assert.equal(operation, "read"); reads++;
+    return { head: item.head, offset: args.offset, nextOffset: item.bytes.length,
+      data: Buffer.from(item.bytes).toString("base64"), source: "ipfs", ipfsFetched: true };
+  }, item.head);
+  await controller.init(); controller.downloaded = item;
+  const recipient = await crypto.subtle.generateKey({ name: "ECDH", namedCurve: "P-256" }, true, ["deriveBits"]);
+  const pub = new Uint8Array(await crypto.subtle.exportKey("raw", recipient.publicKey)).slice(1);
+  const client = { callTool: async () => ({ structuredContent: {} }) };
+  await controller.bind(client, { secret_key: hex(pub) }, { sessionId: "stay-b", placement: { publisher: "mac-b" } });
+  assert.equal(reads, 1);
+  assert.equal(controller.lastDownload.ipfsFetched, true);
+});

@@ -24,3 +24,17 @@ func TestExpiredGrantRefused(t *testing.T) {
 		t.Fatal("expired grant accepted")
 	}
 }
+
+func TestOneHourSignedGrantAndCeiling(t *testing.T) {
+	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
+	for _, seconds := range []float64{3600, 3601} {
+		grant := grantFor(priv)
+		delete(grant, "sig")
+		grant["seconds"] = seconds
+		grant["sig"] = hex.EncodeToString(ed25519.Sign(priv, canon(grant)))
+		_, err := checkGrant(grant, pub, "node", "client", time.Now().Unix())
+		if (err == nil) != (seconds == 3600) {
+			t.Fatal("one-hour grant ceiling", seconds, err)
+		}
+	}
+}

@@ -473,20 +473,22 @@ def main():
     parser.add_argument('--broker', required=True)
     parser.add_argument('--debugfs', type=Path, default=Path('/opt/homebrew/opt/e2fsprogs/sbin/debugfs'),
                         help='read-only result diagnostic extractor')
-    parser.add_argument('--seconds', type=int, default=840)
-    parser.add_argument('--drain-seconds', type=int, default=270)
-    parser.add_argument('--replace-after', type=int, default=450)
+    parser.add_argument('--seconds', type=int, default=3600)
+    parser.add_argument('--drain-seconds', type=int, default=480)
+    parser.add_argument('--replace-after', type=int, default=None)
     parser.add_argument('--readiness-timeout', type=int, default=90)
     parser.add_argument('--cycles', type=int, default=0, help='0 rotates continuously')
     args = parser.parse_args()
+    if args.replace_after is None:
+        args.replace_after = args.seconds//2 + 30
     if bool(args.publisher_key) != bool(args.publisher_address):
         parser.error('--publisher-key and --publisher-address are required together')
     if args.publisher_key and not args.pool_version:
         parser.error('--pool-version is required for published heartbeats')
-    if (not 1 <= args.seconds <= 840 or not 1 <= args.drain_seconds < args.seconds
+    if (not 1 <= args.seconds <= 3600 or not 1 <= args.drain_seconds < args.seconds
             or not 1 <= args.replace_after < args.seconds
             or max(args.replace_after, args.seconds-args.replace_after) + args.readiness_timeout >= args.seconds-args.drain_seconds):
-        parser.error('two-slot replacement must attest before admission closes, lifetime <=840s')
+        parser.error('two-slot replacement must attest before admission closes, lifetime <=3600s')
     args.runner, args.workload, args.state, args.repo = [p.resolve() for p in (args.runner, args.workload, args.state, args.repo)]
     measured = json.loads(json.loads((args.workload/'compose-manifest.json').read_bytes())['docker_compose_file'])['services']['node']
     if int(measured['command'][2]) != args.seconds or int(measured['environment']['ADMIT_SECONDS']) != args.seconds-args.drain_seconds:

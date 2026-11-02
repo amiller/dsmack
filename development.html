@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<link rel="icon" type="image/png" sizes="32x32" href="assets/favicon-nacre-32.png">
+<link rel="icon" type="image/png" sizes="16x16" href="assets/favicon-nacre-16.png">
+<link rel="shortcut icon" href="assets/favicon-nacre.ico">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="description" content="How the Dsmack repository is divided into platform, network, apps and ops, how issues and decisions are tracked, and how each part is released.">
+<title>Development · Dsmack</title>
+<link rel="stylesheet" href="assets/operator.css">
+</head>
+<body>
+<header>
+<nav class="wrap" aria-label="Main">
+<a class="brand" href="index.html">dsmack</a>
+<div class="links">
+<a href="index.html">Overview</a>
+<a href="architecture.html">Architecture</a>
+<a href="bounties.html">Bounties</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
+<a href="development.html" aria-current="page">Development</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
+</div>
+</nav>
+</header>
+<main class="wrap">
+<section class="pagehero architecture-hero">
+<h1>Developing<br>Dsmack.</h1>
+<p class="lead">The repository holds four streams of work that change at different speeds. The platform is what a third party checks, so it is versioned carefully and in public. Apps built on it ship often.</p>
+<p><a href="#streams">Streams</a> · <a href="#platform">Platform areas</a> · <a href="#issues">Issues and labels</a> · <a href="#decisions">Decisions</a> · <a href="#releases">Releases</a></p>
+</section>
+<section class="section" id="streams">
+<h2>Four streams</h2>
+<div class="tablewrap"><table><thead><tr><th>Stream</th><th>What it is</th><th>Released as</th></tr></thead><tbody>
+<tr><td data-label="Stream">Platform</td><td data-label="What it is">The Mac app, the Linux image it boots, the guest API, App Attest verification and the evidence formats</td><td data-label="Released as"><code>vX.Y.Z</code>, see <a href="https://github.com/amiller/dsmack/blob/main/docs/versioning.md">versioning</a></td></tr>
+<tr><td data-label="Stream">Network</td><td data-label="What it is">Macs serving guests to browsers: pool, broker, payments, Mac ownership, egress, directory</td><td data-label="Released as">With the app that deploys it</td></tr>
+<tr><td data-label="Stream">Apps</td><td data-label="What it is">The private agent and the bounty app</td><td data-label="Released as">Own tags, e.g. <code>private-agent-v0.4.0</code></td></tr>
+<tr><td data-label="Stream">Ops</td><td data-label="What it is">Monitoring, dashboards and deploy tooling</td><td data-label="Released as">Not versioned</td></tr>
+</tbody></table></div>
+<p>Apps pin the platform release they run on. Workloads belong to the app that uses them and are named by image digest.</p>
+</section>
+<section class="section" id="platform">
+<h2>Platform areas</h2>
+<p>Each area has its own identity. Changing one does not force a new version of the others.</p>
+<div class="tablewrap"><table><thead><tr><th>Area</th><th>What it is</th><th>Identity</th><th>Breaking when</th></tr></thead><tbody>
+<tr><td data-label="Area">Runner</td><td data-label="What it is">DsmackRunner: Swift app and its libkrun/Apple Hypervisor backend (<code>runner-vm/</code>)</td><td data-label="Identity">Code signature: Team ID, bundle ID, cdhash</td><td data-label="Breaking when">It is re-signed, so every Mac re-enrolls</td></tr>
+<tr><td data-label="Area">Base image</td><td data-label="What it is">Kernel, initramfs, verity root, container runtime, task start and result export (<code>base-vm/</code>). <a href="base-image.html">Inside the base image</a></td><td data-label="Identity">Image hash in the signed release inventory</td><td data-label="Breaking when">An admitted image is dropped, or the task interface changes. Adding an image is not breaking</td></tr>
+<tr><td data-label="Area">Guest API</td><td data-label="What it is">dstack's guest API v1 on <code>/var/run/dstack.sock</code>, so one compose file runs on dstack and on a Mac (<code>dstack-compat/</code>)</td><td data-label="Identity">API version</td><td data-label="Breaking when">A call or response changes</td></tr>
+<tr><td data-label="Area">Attestation</td><td data-label="What it is">App Attest verification in Solidity and Noir, the approved-code and key registries, Apple's root (<code>app-attest/</code>, <code>trust/</code>). <a href="app-attest.html">App Attest</a></td><td data-label="Identity">Contract address, circuit</td><td data-label="Breaking when">An address or interface changes</td></tr>
+<tr><td data-label="Area">Evidence</td><td data-label="What it is">Statement, receipt, envelope and signed report, and the Python verifier (<code>verifier/</code>)</td><td data-label="Identity">Format name and number, e.g. <code>dsmack.statement/1</code></td><td data-label="Breaking when">The verifier rejects evidence an older release wrote</td></tr>
+</tbody></table></div>
+</section>
+<section class="section" id="issues">
+<h2>Issues and labels</h2>
+<p>Platform and network issues are filed in the <a href="https://github.com/amiller/dsmack/issues">public repository</a>. A label exists to route a decision: which platform area and release (<code>platform:runner</code>, <code>platform:base-image</code>, <code>platform:guest-api</code>, <code>platform:attestation</code>, <code>platform:evidence</code>), which stream (<code>network</code>, <code>app:private-agent</code>, <code>app:bounties</code>, <code>ops</code>), whether it needs a careful review (<code>trust-boundary</code>), and whether it collects on the next minor release (<code>breaking</code>). <code>blocked</code> always comes with what it waits on and a date to check again. Milestones are releases or sprints, such as Platform v0.2.0.</p>
+</section>
+<section class="section" id="decisions">
+<h2>Decisions</h2>
+<p>Each design decision is a short file in <a href="https://github.com/amiller/dsmack/blob/main/docs/decisions/README.md">docs/decisions</a> with its status, date and the decision it builds on, so the reasoning behind the current design can be followed back.</p>
+</section>
+<section class="section" id="releases">
+<h2>Releases</h2>
+<p>A release starts as an issue from a checklist. A platform release follows <a href="https://github.com/amiller/dsmack/blob/main/docs/release/releasing.md">releasing</a>: tag, reproducible build, signing, the signed release inventory, notarization and publication with provenance. An app release goes through staging, browser journeys in Chromium and Firefox, a tag, the live testnet deploy, a Mac pool restart and green health checks. The closed issue is the record of the release.</p>
+<div class="buttons"><a class="button primary" href="https://github.com/amiller/dsmack/blob/main/docs/development.md">Read the full guide</a><a class="button" href="base-image.html">Inside the base image</a></div>
+</section>
+</main>
+<footer>
+<div class="wrap">
+<p>Dsmack · App Attest verification and Mac execution · Alpha.</p>
+
+<a href="index.html">Overview</a>
+<a href="architecture.html">Architecture</a>
+<a href="bounties.html">Bounties</a>
+<a href="build.html">Setup</a>
+<a href="app-attest.html">App Attest</a>
+<a href="development.html">Development</a>
+<a href="https://github.com/amiller/dsmack">Source</a>
+</div>
+</footer>
+</body>
+</html>

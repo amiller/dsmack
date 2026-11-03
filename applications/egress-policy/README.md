@@ -26,6 +26,23 @@ for example `*.trycloudflare.com`. The application uses HTTP on port 8080 with
 that hostname; the gateway authenticates upstream TLS before sending its request.
 Only the measured endpoint is reachable through the compute node's CONNECT proxy.
 
+Fetch workloads can add optional fields to a rule:
+
+- `path_prefixes`: canonical paths that also allow everything below them.
+  `/products/` allows `/products/` and `/products/a/b`, but not `/productsx`.
+- `path_globs`: `path.Match` patterns, for example `/c/*/list`. `*` does not cross `/`.
+- `query: true`: forwards the query string verbatim. Without it, a request with a query is refused.
+- `headers`: fixed values for `User-Agent`, `Accept` or `Accept-Language`. They replace the client's
+  values and the default `User-Agent: dsmack-egress/1`.
+- `drop_credentials: true`: never forwards `Authorization` or `X-Api-Key`.
+
+Request paths and policy paths may end in one `/`.
+
+Every allowed response carries evidence from the gateway's own upstream connection. The workload gets
+`X-Dsmack-Cert-Sha256` (SHA-256 of the leaf certificate DER that TLS verified), `X-Dsmack-Body-Sha256`
+and `X-Dsmack-Body-Bytes`. The audit line adds `status`, `cert_sha256`, `body_sha256` and `body_bytes`.
+It still contains no request data, so no host, path or query.
+
 A positive `websocket_seconds` enables WebSocket upgrades for that rule. The
 browser peer starts the gateway with `-websocket-host TUNNEL_HOST`, which maps
 loopback WebSocket requests to the measured TLS hostname. Each stream has a

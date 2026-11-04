@@ -19,9 +19,11 @@ import (
 	"net/url"
 	"os"
 	"path"
+	"reflect"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -45,6 +47,37 @@ type Rule struct {
 	Query           bool              `json:"query,omitempty"`
 	Headers         map[string]string `json:"headers,omitempty"`
 	DropCredentials bool              `json:"drop_credentials,omitempty"`
+	// Optional, for logged-in sessions: Cookie and Set-Cookie pass through, the
+	// named client headers are forwarded verbatim, the origin may negotiate
+	// HTTP/2, and account counters carry caps that the gateway enforces.
+	Cookies       bool     `json:"cookies,omitempty"`
+	ClientHeaders []string `json:"client_headers,omitempty"`
+	HTTP2         bool     `json:"http2,omitempty"`
+	Account       *Account `json:"account,omitempty"`
+}
+
+// Account counters are shared by every rule with the same group (default: the
+// rule name). A session is the SHA-256 of the named cookies present in a request;
+// a request carrying none of them is anonymous. Login, signup and post patterns
+// are path.Match globs that count only methods other than GET and HEAD.
+type Account struct {
+	Group           string   `json:"group,omitempty"`
+	SessionCookies  []string `json:"session_cookies,omitempty"`
+	MaxSessions     int      `json:"max_sessions,omitempty"`
+	LoginPaths      []string `json:"login_paths,omitempty"`
+	SignupPaths     []string `json:"signup_paths,omitempty"`
+	Signup          bool     `json:"signup,omitempty"`
+	PostPaths       []string `json:"post_paths,omitempty"`
+	MaxPostsPerHour int      `json:"max_posts_per_hour,omitempty"`
+}
+type counter struct {
+	sessions        map[string]bool
+	logins, signups int
+	posts           []time.Time
+}
+type hit struct {
+	session             string
+	login, signup, post bool
 }
 type Policy struct {
 	Rules []Rule `json:"rules"`
@@ -56,12 +89,16 @@ type usage struct {
 	last             time.Time
 }
 type gateway struct {
-	policy  Policy
-	client  *http.Transport
-	mu      sync.Mutex
-	usage   []usage
-	audit   *log.Logger
-	timeout time.Duration
+	policy   Policy
+	client   *http.Transport
+	mu       sync.Mutex
+	usage    []usage
+	counters map[string]*counter
+	audit    *log.Logger
+	timeout  time.Duration
+	h2once   sync.Once
+	h2       *http.Transport
+	streams  atomic.Int64
 }
 
 func validName(s string) bool {
@@ -83,6 +120,13 @@ func validName(s string) bool {
 func validPath(s string) bool {
 	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.ContainsAny(s, "%?#\\\r\n") && (path.Clean(s) == s || path.Clean(s)+"/" == s)
 }
+func validGlob(s string) bool {
+	_, err := path.Match(s, "/")
+	return err == nil && strings.HasPrefix(s, "/") && !strings.ContainsAny(s, "%?#\\\r\n")
+}
+func validToken(s string) bool {
+	return s != "" && strings.Trim(strings.ToLower(s), "abcdefghijklmnopqrstuvwxyz0123456789-") == ""
+}
 func loadPolicy(b []byte) (Policy, error) {
 	var p Policy
 	d := json.NewDecoder(bytes.NewReader(b))
@@ -96,7 +140,7 @@ func loadPolicy(b []byte) (Policy, error) {
 	if len(p.Rules) == 0 || len(p.Rules) > 64 {
 		return p, errors.New("rule count")
 	}
-	seen := map[string]bool{}
+	seen, groups := map[string]bool{}, map[string]*Account{}
 	for _, r := range p.Rules {
 		if !(validName(r.Name) || (strings.HasPrefix(r.Name, "*.") && validName(strings.TrimPrefix(r.Name, "*.")))) || seen[r.Name] || r.Port != 443 {
 			return p, errors.New("DNS name or one-label wildcard and TLS port 443 required")
@@ -111,9 +155,42 @@ func loadPolicy(b []byte) (Policy, error) {
 			}
 		}
 		for _, s := range r.PathGlobs {
-			if _, err := path.Match(s, "/"); err != nil || !strings.HasPrefix(s, "/") || strings.ContainsAny(s, "%?#\\\r\n") {
+			if !validGlob(s) {
 				return p, errors.New("valid path glob required")
 			}
+		}
+		for _, k := range r.ClientHeaders {
+			k = http.CanonicalHeaderKey(k)
+			if !validToken(k) || contains(controlled, k) || contains(forwarded, k) || strings.HasPrefix(k, "Proxy-") || strings.HasPrefix(k, "X-Forwarded-") || strings.HasPrefix(k, "Sec-Websocket-") {
+				return p, errors.New("client header " + k + " is controlled by the gateway")
+			}
+			for h := range r.Headers {
+				if http.CanonicalHeaderKey(h) == k {
+					return p, errors.New("client header " + k + " is also a fixed header")
+				}
+			}
+		}
+		if a := r.Account; a != nil {
+			if a.Group == "" {
+				a.Group = r.Name
+			}
+			if len(a.SessionCookies) > 0 && a.MaxSessions < 1 || len(a.PostPaths) > 0 && a.MaxPostsPerHour < 1 {
+				return p, errors.New("session_cookies need max_sessions and post_paths need max_posts_per_hour")
+			}
+			for _, c := range a.SessionCookies {
+				if c == "" || strings.ContainsAny(c, "=;, \t\r\n\"") {
+					return p, errors.New("valid session cookie name required")
+				}
+			}
+			for _, s := range append(append(append([]string{}, a.LoginPaths...), a.SignupPaths...), a.PostPaths...) {
+				if !validGlob(s) {
+					return p, errors.New("valid account path glob required")
+				}
+			}
+			if g, ok := groups[a.Group]; ok && !reflect.DeepEqual(*g, *a) {
+				return p, errors.New("rules in one account group need the same account settings")
+			}
+			groups[a.Group] = a
 		}
 		for k, v := range r.Headers {
 			if !contains(settable, http.CanonicalHeaderKey(k)) || strings.ContainsAny(v, "\r\n") || len(v) > 512 {
@@ -140,7 +217,7 @@ func loadPolicy(b []byte) (Policy, error) {
 	return p, nil
 }
 func newGateway(p Policy, logger *log.Logger) *gateway {
-	return &gateway{policy: p, usage: make([]usage, len(p.Rules)), audit: logger, timeout: 15 * time.Second, client: &http.Transport{
+	return &gateway{policy: p, usage: make([]usage, len(p.Rules)), counters: map[string]*counter{}, audit: logger, timeout: 15 * time.Second, client: &http.Transport{
 		Proxy: nil, TLSClientConfig: &tls.Config{MinVersion: tls.VersionTLS12},
 		DialContext:         (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
 		TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 10 * time.Second,
@@ -148,6 +225,16 @@ func newGateway(p Policy, logger *log.Logger) *gateway {
 		// HTTP/1.1 only. No cross-authority connection coalescing.
 		ForceAttemptHTTP2: false,
 	}}
+}
+
+// The HTTP/2 transport copies the HTTP/1.1 one on first use, after main or a test configured it.
+// WebSocket upgrades on it still use HTTP/1.1 (net/http requiresHTTP1).
+func (g *gateway) http2() *http.Transport {
+	g.h2once.Do(func() {
+		g.h2 = g.client.Clone()
+		g.h2.ForceAttemptHTTP2 = true
+	})
+	return g.h2
 }
 func contains(ss []string, s string) bool {
 	for _, x := range ss {
@@ -173,6 +260,7 @@ type evidence struct {
 	CertSHA256 string `json:"cert_sha256,omitempty"`
 	BodySHA256 string `json:"body_sha256,omitempty"`
 	BodyBytes  int    `json:"body_bytes,omitempty"`
+	Stream     int64  `json:"stream,omitempty"`
 }
 
 func (g *gateway) record(e evidence) {
@@ -189,12 +277,32 @@ func pathAllowed(r Rule, p string) bool {
 			return true
 		}
 	}
-	for _, glob := range r.PathGlobs {
+	return matchAny(r.PathGlobs, p)
+}
+func matchAny(globs []string, p string) bool {
+	for _, glob := range globs {
 		if ok, _ := path.Match(glob, p); ok {
 			return true
 		}
 	}
 	return false
+}
+func classify(a *Account, r *http.Request) hit {
+	var b strings.Builder
+	for _, name := range a.SessionCookies {
+		if c, err := r.Cookie(name); err == nil {
+			fmt.Fprintf(&b, "%s=%s\x00", name, c.Value)
+		}
+	}
+	h, write := hit{}, r.Method != "GET" && r.Method != "HEAD"
+	if b.Len() > 0 {
+		sum := sha256.Sum256([]byte(b.String()))
+		h.session = hex.EncodeToString(sum[:])
+	}
+	h.login = write && matchAny(a.LoginPaths, r.URL.Path)
+	h.signup = write && matchAny(a.SignupPaths, r.URL.Path)
+	h.post = write && matchAny(a.PostPaths, r.URL.Path)
+	return h
 }
 func (g *gateway) index(name string) int {
 	for i, r := range g.policy.Rules {
@@ -204,7 +312,10 @@ func (g *gateway) index(name string) int {
 	}
 	return -1
 }
-func (g *gateway) reserve(i int, up int64, stream bool) (int64, int64, bool) {
+
+// reserve charges budgets and account counters together, or neither. It returns
+// a refusal reason, empty when allowed, and the account counters afterwards.
+func (g *gateway) reserve(i int, up int64, stream bool, h hit) (int64, int64, string, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	r := g.policy.Rules[i]
@@ -225,17 +336,57 @@ func (g *gateway) reserve(i int, up int64, stream bool) (int64, int64, bool) {
 		// than the much smaller HTTP body/header limits. Reserve before hijacking.
 		up, down = r.UploadBytes-u.upload, r.DownloadBytes-u.download
 		if up < r.MaxRequestBytes || down < r.MaxResponseBytes {
-			return 0, 0, false
+			return 0, 0, "budget_or_rate", ""
 		}
 	}
 	if u.tokens < 1 || u.requests >= r.Requests || up > r.UploadBytes-u.upload || down > r.DownloadBytes-u.download {
-		return 0, 0, false
+		return 0, 0, "budget_or_rate", ""
+	}
+	a, c := r.Account, (*counter)(nil)
+	if a != nil {
+		if c = g.counters[a.Group]; c == nil {
+			c = &counter{sessions: map[string]bool{}}
+			g.counters[a.Group] = c
+		}
+		for len(c.posts) > 0 && now.Sub(c.posts[0]) >= time.Hour {
+			c.posts = c.posts[1:]
+		}
+		reason := ""
+		switch {
+		case h.session != "" && !c.sessions[h.session] && len(c.sessions) >= a.MaxSessions:
+			reason = "account_session_cap"
+		case h.signup && !a.Signup:
+			reason = "account_signup_policy"
+		case h.post && len(c.posts) >= a.MaxPostsPerHour:
+			reason = "account_post_rate"
+		}
+		if reason != "" {
+			return 0, 0, reason, c.String()
+		}
+		if h.session != "" {
+			c.sessions[h.session] = true
+		}
+		if h.login {
+			c.logins++
+		}
+		if h.signup {
+			c.signups++
+		}
+		if h.post {
+			c.posts = append(c.posts, now)
+		}
 	}
 	u.tokens--
 	u.requests++
 	u.upload += up
 	u.download += down
-	return up, down, true
+	return up, down, "", c.String()
+}
+func (c *counter) String() string {
+	if c == nil {
+		return ""
+	}
+	return fmt.Sprintf("sessions=%d logins=%d signups=%d posts_last_hour=%d", len(c.sessions), c.logins, c.signups, len(c.posts))
 }
 func (g *gateway) refundUpload(i int, unused int64) {
 	g.mu.Lock()
@@ -264,6 +415,7 @@ func headerBytes(h http.Header) int64 {
 var forwarded = []string{"Accept", "Content-Type", "Authorization", "X-Api-Key", "Anthropic-Version", "Anthropic-Beta"}
 var credentials = []string{"Authorization", "X-Api-Key"}
 var settable = []string{"User-Agent", "Accept", "Accept-Language"}
+var controlled = []string{"Host", "Connection", "Keep-Alive", "Upgrade", "Te", "Trailer", "Transfer-Encoding", "Content-Length", "Cookie", "Accept-Encoding", "Forwarded", "Via", "X-Real-Ip"}
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i := -1
@@ -340,6 +492,16 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	out.Header.Set("User-Agent", "dsmack-egress/1")
+	if rule.Cookies {
+		for _, v := range r.Header.Values("Cookie") {
+			out.Header.Add("Cookie", v)
+		}
+	}
+	for _, k := range rule.ClientHeaders {
+		if vs := r.Header.Values(k); len(vs) > 0 {
+			out.Header[http.CanonicalHeaderKey(k)] = append([]string(nil), vs...)
+		}
+	}
 	for k, v := range rule.Headers {
 		out.Header.Set(k, v)
 	}
@@ -354,15 +516,30 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(413, "request_bytes")
 		return
 	}
-	reservedUp, reservedDown, allowed := g.reserve(i, up, isWS)
-	if !allowed {
-		deny(429, "budget_or_rate")
+	var h hit
+	if rule.Account != nil {
+		h = classify(rule.Account, r)
+	}
+	reservedUp, reservedDown, refused, counts := g.reserve(i, up, isWS, h)
+	if counts != "" {
+		w.Header().Set("X-Dsmack-Account", counts)
+	}
+	if refused == "budget_or_rate" {
+		deny(429, refused)
+		return
+	}
+	if refused != "" {
+		deny(403, refused)
 		return
 	}
 	defer func() { g.refundUpload(i, reservedUp-up) }()
 	// TLS verifies the certificate chain and DNS name before sending HTTP bytes.
 	// The transport derives SNI from target.Host. Workloads never supply TLS.
-	resp, err := g.client.RoundTrip(out)
+	transport := g.client
+	if rule.HTTP2 {
+		transport = g.http2()
+	}
+	resp, err := transport.RoundTrip(out)
 	if err != nil {
 		g.refundDownload(i, reservedDown, 0)
 		g.event(i, "deny", "upstream_tls_or_io", up, 0)
@@ -372,12 +549,13 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	down := headerBytes(resp.Header)
 	if isWS && resp.StatusCode == 101 {
-		g.event(i, "allow", "websocket_tls", up, down)
-		extraUp, extraDown := g.websocket(w, r, resp, duration, reservedUp-up, reservedDown-down)
+		stream := g.streams.Add(1)
+		g.record(evidence{Rule: i, Decision: "allow", Reason: "websocket_tls", Upload: up, Download: down, Stream: stream})
+		extraUp, extraDown := g.websocket(w, r, resp, duration, reservedUp-up, reservedDown-down, stream)
 		up += extraUp
 		down += extraDown
 		g.refundDownload(i, reservedDown, down)
-		g.event(i, "complete", "websocket_tls", up, down)
+		g.record(evidence{Rule: i, Decision: "complete", Reason: "websocket_tls", Upload: up, Download: down, Stream: stream})
 		return
 	}
 	if resp.StatusCode == 101 || down > rule.MaxResponseBytes {
@@ -396,7 +574,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	g.refundDownload(i, reservedDown, down)
 	// Redirects are returned, never followed. Strip control and network hints.
-	for _, k := range []string{"Content-Type", "Location", "Retry-After"} {
+	returned := []string{"Content-Type", "Location", "Retry-After"}
+	if rule.Cookies {
+		returned = append(returned, "Set-Cookie")
+	}
+	for _, k := range returned {
 		for _, v := range resp.Header.Values(k) {
 			w.Header().Add(k, v)
 		}
@@ -419,7 +601,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // WebSocket payload stays opaque. Reserve each direction's full byte budget
 // before the upgrade; refund unused bytes after both copy loops have stopped.
-func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.Response, duration time.Duration, upCap, downCap int64) (int64, int64) {
+func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.Response, duration time.Duration, upCap, downCap, stream int64) (int64, int64) {
 	upstream, ok := resp.Body.(io.ReadWriteCloser)
 	hj, canHijack := w.(http.Hijacker)
 	if !ok || !canHijack || upCap < 0 || downCap < 0 {
@@ -443,6 +625,9 @@ func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.R
 				return 0, 0
 			}
 		}
+	}
+	if _, err = fmt.Fprintf(buffer, "X-Dsmack-Stream: %d\r\n", stream); err != nil {
+		return 0, 0
 	}
 	if _, err = buffer.WriteString("\r\n"); err != nil {
 		return 0, 0

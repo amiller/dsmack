@@ -43,6 +43,47 @@ Every allowed response carries evidence from the gateway's own upstream connecti
 and `X-Dsmack-Body-Bytes`. The audit line adds `status`, `cert_sha256`, `body_sha256` and `body_bytes`.
 It still contains no request data, so no host, path or query.
 
+Rules for logged-in sessions can add:
+
+- `cookies: true`: forwards the client's `Cookie` and returns the origin's `Set-Cookie`.
+- `client_headers`: header names forwarded verbatim from the client, for example
+  `["User-Agent", "Origin", "Referer"]`. A client `User-Agent` replaces `dsmack-egress/1`; without one the
+  default stays. A name may not also be in `headers`. Headers the gateway controls are refused at load:
+  hop-by-hop and framing headers, `Host`, `Cookie`, `Accept-Encoding`, the forwarded set (`Accept`,
+  `Content-Type`, the credential and Anthropic headers), `Forwarded`, `Via`, `X-Real-Ip`, `Proxy-*`,
+  `X-Forwarded-*` and `Sec-WebSocket-*`.
+- `http2: true`: offers HTTP/2 to the origin by ALPN. WebSocket upgrades still use HTTP/1.1. The client
+  side of the gateway stays HTTP/1.1, since only a local client talks to it.
+- `account`: counters and caps that the gateway enforces.
+
+```json
+"account": {
+  "group": "example.com",
+  "session_cookies": ["user_id"],
+  "max_sessions": 1,
+  "login_paths": ["/login", "/session"],
+  "signup_paths": ["/signup", "/join/*"],
+  "signup": false,
+  "post_paths": ["/api/posts", "/*/comment"],
+  "max_posts_per_hour": 10
+}
+```
+
+Rules with the same `group` share one set of counters and must have identical `account` settings. The
+group defaults to the rule name, so `example.com` and `*.example.com` count separately unless they name
+a group. A session is the SHA-256 of `name=value` for each `session_cookies` cookie present in the request.
+A request with none of them is anonymous and is not counted. Name cookies that identify the logged-in
+account and stay fixed for it: a session ID that the site rotates counts as a new session each time it
+changes. Login, signup and post patterns are `path.Match` globs and count only methods other than GET and
+HEAD. `session_cookies` needs `max_sessions` and `post_paths` needs `max_posts_per_hour`, each at least 1.
+
+The gateway refuses a request with 403 and reason `account_session_cap` if it carries a new session once
+`max_sessions` are known, `account_signup_policy` if it matches a signup pattern and `signup` is not true,
+and `account_post_rate` if it matches a post pattern after `max_posts_per_hour` posts in the last hour.
+A refused request uses no budget and changes no counter. Counters change when the gateway sends a request,
+whatever the origin answers. Responses on an account rule carry the counters after the request, for example
+`X-Dsmack-Account: sessions=1 logins=1 signups=0 posts_last_hour=3`.
+
 A positive `websocket_seconds` enables WebSocket upgrades for that rule. The
 browser peer starts the gateway with `-websocket-host TUNNEL_HOST`, which maps
 loopback WebSocket requests to the measured TLS hostname. Each stream has a
@@ -51,6 +92,9 @@ the opaque stream reserves the rule’s remaining `upload_bytes` and
 `download_bytes`, then refunds unused bytes after closing. This carries model
 transcripts larger than an ordinary HTTP body while retaining the measured
 cumulative limits.
+The `101` response carries `X-Dsmack-Stream: N`, and the audit lines for that
+stream (`allow` at the upgrade, `complete` at close, with byte counts in each
+direction) carry `"stream": N`.
 
 Optional `-dns :53 -answer-ip GATEWAY_IP` starts a non-recursive DNS stub. It
 answers allowed A queries with that private address, returns no AAAA records

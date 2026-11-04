@@ -661,7 +661,7 @@ def validate_manifest(manifest):
     required_envs = manifest["required_envs"]
     _validate_env_lists(allowed_envs, required_envs, manifest, compose_doc, errors)
     _validate_runtime_inputs_decl(manifest["runtime_inputs"], allowed_envs, required_envs, compose_doc, errors)
-    _validate_network(manifest["network"], manifest["runner"], errors)
+    _validate_network(manifest["network"], manifest["runner"], _service_names(compose_doc) if isinstance(compose_doc, dict) else [], errors)
     _validate_outputs(manifest["outputs"], compose_doc, errors)
     _validate_credentials(manifest.get("credentials"), allowed_envs, manifest["allowed_files"], errors)
     _validate_limits(manifest.get("limits"), errors)
@@ -1674,35 +1674,49 @@ def _validate_runtime_inputs_decl(decl, allowed_envs, required_envs, compose_doc
                     )
 
 
-def _validate_network(network, runner, errors):
+def _validate_egress(egress, path, mode, errors):
+    if not _check_type(egress, list, path, errors):
+        return
+    if len(egress) > 256:
+        errors.append(ManifestError("%s exceeds 256 destinations" % path))
+    if mode == "none" and egress:
+        errors.append(ManifestError("manifest.network.mode 'none' forbids egress"))
+    for entry in egress:
+        if not _check_type(entry, dict, path + "[]", errors):
+            continue
+        _object_keys(entry, {"destination", "protocol", "port"}, path + "[]", errors)
+        destination = entry.get("destination")
+        try:
+            if not isinstance(destination, str) or "%" in destination:
+                raise ValueError()
+            ipaddress.ip_network(destination, strict=True)
+        except ValueError:
+            errors.append(ManifestError(path + "[].destination must be an IP address or network CIDR"))
+        if entry.get("protocol") not in ("tcp", "udp"):
+            errors.append(ManifestError(path + "[].protocol must be 'tcp' or 'udp'"))
+        port = entry.get("port")
+        if not (_is_int(port) and 1 <= port <= 65535):
+            errors.append(ManifestError(path + "[].port must be an integer in [1, 65535]"))
+
+
+def _validate_network(network, runner, services, errors):
     if not _check_type(network, dict, "manifest.network", errors):
         return
-    _object_keys(network, {"mode", "listen_ports", "egress"}, "manifest.network", errors)
+    _object_keys(network, {"mode", "listen_ports", "egress", "service_egress"}, "manifest.network", errors)
     mode = network.get("mode")
     if mode not in ("none", "nat", "hostnet"):
         errors.append(ManifestError("manifest.network.mode must be 'none', 'nat' or 'hostnet'"))
-    egress = network.get("egress", [])
-    if _check_type(egress, list, "manifest.network.egress", errors):
-        if len(egress) > 256:
-            errors.append(ManifestError("manifest.network.egress exceeds 256 destinations"))
-        if mode == "none" and egress:
-            errors.append(ManifestError("manifest.network.mode 'none' forbids egress"))
-        for entry in egress:
-            if not _check_type(entry, dict, "manifest.network.egress[]", errors):
-                continue
-            _object_keys(entry, {"destination", "protocol", "port"}, "manifest.network.egress[]", errors)
-            destination = entry.get("destination")
-            try:
-                if not isinstance(destination, str) or "%" in destination:
-                    raise ValueError()
-                ipaddress.ip_network(destination, strict=True)
-            except ValueError:
-                errors.append(ManifestError("manifest.network.egress[].destination must be an IP address or network CIDR"))
-            if entry.get("protocol") not in ("tcp", "udp"):
-                errors.append(ManifestError("manifest.network.egress[].protocol must be 'tcp' or 'udp'"))
-            port = entry.get("port")
-            if not (_is_int(port) and 1 <= port <= 65535):
-                errors.append(ManifestError("manifest.network.egress[].port must be an integer in [1, 65535]"))
+    _validate_egress(network.get("egress", []), "manifest.network.egress", mode, errors)
+    service_egress = network.get("service_egress")
+    if service_egress is not None and _check_type(service_egress, dict, "manifest.network.service_egress", errors):
+        if mode != "nat":
+            errors.append(ManifestError("manifest.network.service_egress requires mode 'nat'"))
+        if network.get("listen_ports"):
+            errors.append(ManifestError("manifest.network.service_egress forbids listen_ports"))
+        if not set(service_egress) <= set(services):
+            errors.append(ManifestError("manifest.network.service_egress names a service the compose does not declare"))
+        for egress in service_egress.values():
+            _validate_egress(egress, "manifest.network.service_egress.<service>", mode, errors)
     runtime = runner.get("container_runtime") if isinstance(runner, dict) else None
     runtime_name = runner.get("runtime_name") if isinstance(runner, dict) else None
     runsc_network = None

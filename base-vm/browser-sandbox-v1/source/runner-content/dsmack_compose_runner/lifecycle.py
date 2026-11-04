@@ -381,11 +381,12 @@ def _compose_ps(control, project_name) -> list:
     )
     if rc != 0:
         return []
+    # compose 2.21+ prints one JSON object per line; older versions print one array.
     try:
-        data = json.loads(out.decode("utf-8") or "[]")
+        data = [json.loads(line) for line in out.decode("utf-8").splitlines() if line.strip()]
     except ValueError:
         return []
-    return data if isinstance(data, list) else [data]
+    return data[0] if len(data) == 1 and isinstance(data[0], list) else data
 
 
 def _ps_containers(control, lowered, project_name):

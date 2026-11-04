@@ -64,8 +64,8 @@ no verifier can tell.
 
 **What changing the attested parts costs.** `mar` is the only process whose
 claims verify. Any change to its code is a new CDHash: a signature from Andrew,
-`setBuild` on the CDRegistry (`CDRegistry.sol:144`), which voids the previous
-build's registrations, and a new enrollment pinned by consumers (resip
+`setBuild` on the CDRegistry (`CDRegistry.sol:144`), which changes the build
+the App Attest RP ID resolves to (old builds stay registrable, `:21-23`), and a new enrollment pinned by consumers (resip
 `web/verify.ts:39-40` refuses any other CDHash). Any change to the base image moves `os_image_hash`,
 which every consumer's policy pins (`applications/compute-node/browser/sandbox.mjs:135-138`).
 Paying either cost for each new question is what Andrew ruled out: the base
@@ -82,7 +82,8 @@ which may not be the line in question.
 **B. One runner op per measurement.** PR #82 adds a `netprobe` op that measures
 the Mac's line and returns a `behind_cgnat` verdict computed inside `mar`
 (`runner-vm/control-src/Sources/marAttest/HostNetprobe.swift` `cgnatVerdict` on
-`work/host-netprobe`). It works, and it is the first of these. The second
+`work/host-netprobe`). Its tests pass and an unsigned harness ran it on the Mini;
+the op has not run in a signed runner. It is the first of these. The second
 question, or a fix to the verdict rule, is another re-sign. The rule is new, and
 the obvious version of it gets the line below wrong.
 
@@ -95,7 +96,7 @@ integer RTTs, salted address commitments; no raw addresses), and answers with a
 guest Attest whose `report_data = sha256(plan) || sha256(report)` and whose
 `caller = sha256("dsmack.host-measure/1\0")`. Compose service names can't hold a
 NUL, so no `sha256(service name)` from `dstack-compat/agent.py` can collide with
-it. Verdicts such as "CGNAT or not" are computed by the verifier from the
+it, and the `attest` op refuses this caller, as #82's does. Verdicts such as "CGNAT or not" are computed by the verifier from the
 observations, not by `mar`.
 
 Allow-listing works the way guest images already do: the runner admits any
@@ -128,9 +129,8 @@ so that is a base change. The ctl op is not.
 **D. Give the guest a real network path.** Attach vmnet (shared or bridged), or
 VZ's NAT, so a container sees TTLs and ICMP. The backend has no such device and
 the runner holds only `com.apple.security.hypervisor` (`DsmackRunner.entitlements:18`),
-so this is a runner change. vmnet's shared and bridged modes need root or
-Apple's restricted `com.apple.vm.networking` entitlement (Apple's vmnet
-documentation; not tested here). The guest's static gvproxy profile and every
+so this is a runner change, and CDRegistry pins entitlements, so any new one is
+a `setBuild`. The guest's static gvproxy profile and every
 manifest that uses `192.168.127.254` would change, so it is a base change too.
 The owner's LAN would then be one hop away, and LAN isolation would rest on the guest's egress list alone, or on pf rules on the Mac
 that nothing attests. The guest's measurement is no stronger than C's: the
@@ -191,8 +191,7 @@ NAT-PMP from the inner router returns result 3, UPnP `GetExternalIPAddress` is
 empty, and neither router reports a WAN address.
 
 - Route A against the ISP, as observed on 2026-11-04. The gateway serves
-  publicly trusted HTTPS (a Sectigo OV certificate issued to the ISP for its
-  router hostname), but its status pages return "Access Denied": they are
+  publicly trusted HTTPS for its router hostname, but its status pages return "Access Denied": they are
   managed from the ISP's phone app, and the ISP's web portal for them is
   retired. So there is no TLS page to read on the LAN. A guest browser reading
   the account's WAN address from the ISP's web origin is a spike, blocked on

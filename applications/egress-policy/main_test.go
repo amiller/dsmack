@@ -203,7 +203,7 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if _, _, refused, _ := g.reserve(0, 100, false, hit{}); refused == "" {
+				if _, refused, _ := g.reserve(0, 100, hit{}); refused == "" {
 					accepted.Add(1)
 				}
 			}()
@@ -217,8 +217,8 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 		p := policy()
 		p.Rules[0].RequestsPerMinute = 1
 		g := newGateway(p, log.New(io.Discard, "", 0))
-		_, _, first, _ := g.reserve(0, 1, false, hit{})
-		_, _, second, _ := g.reserve(0, 1, false, hit{})
+		_, first, _ := g.reserve(0, 1, hit{})
+		_, second, _ := g.reserve(0, 1, hit{})
 		if first != "" || second == "" {
 			t.Fatal("initial burst is one request")
 		}

@@ -38,6 +38,7 @@ type Rule struct {
 	DownloadBytes     int64    `json:"download_bytes"`
 	Requests          int      `json:"requests"`
 	RequestsPerMinute int      `json:"requests_per_minute"`
+	Burst             int      `json:"burst,omitempty"`
 	WebSocketSeconds  int      `json:"websocket_seconds,omitempty"`
 	// Optional, for fetch workloads: path prefixes and path.Match globs besides
 	// exact paths, query strings forwarded verbatim, fixed request headers that
@@ -207,6 +208,9 @@ func loadPolicy(b []byte) (Policy, error) {
 				return p, errors.New("canonical exact path required")
 			}
 		}
+		if r.Burst < 0 || r.Burst > r.Requests {
+			return p, errors.New("burst must be 0..requests")
+		}
 		if r.WebSocketSeconds < 0 || r.WebSocketSeconds > 3600 {
 			return p, errors.New("websocket_seconds must be 0..3600")
 		}
@@ -314,33 +318,24 @@ func (g *gateway) index(name string) int {
 }
 
 // reserve charges budgets and account counters together, or neither. It returns
-// a refusal reason, empty when allowed, and the account counters afterwards.
-func (g *gateway) reserve(i int, up int64, stream bool, h hit) (int64, int64, string, string) {
+// the reserved download bytes, a refusal reason, empty when allowed, and the
+// account counters afterwards. The token bucket holds max(burst, 1) requests.
+func (g *gateway) reserve(i int, up int64, h hit) (int64, string, string) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
 	r := g.policy.Rules[i]
 	u := &g.usage[i]
 	now := time.Now()
+	capacity := float64(max(r.Burst, 1))
 	if u.last.IsZero() {
-		u.tokens = 1
+		u.tokens = capacity
 	} else {
-		u.tokens += now.Sub(u.last).Seconds() * float64(r.RequestsPerMinute) / 60
-		if u.tokens > 1 {
-			u.tokens = 1
-		}
+		u.tokens = min(capacity, u.tokens+now.Sub(u.last).Seconds()*float64(r.RequestsPerMinute)/60)
 	}
 	u.last = now
 	down := r.MaxResponseBytes
-	if stream {
-		// Opaque upgrades consume the remaining measured stream budgets, rather
-		// than the much smaller HTTP body/header limits. Reserve before hijacking.
-		up, down = r.UploadBytes-u.upload, r.DownloadBytes-u.download
-		if up < r.MaxRequestBytes || down < r.MaxResponseBytes {
-			return 0, 0, "budget_or_rate", ""
-		}
-	}
 	if u.tokens < 1 || u.requests >= r.Requests || up > r.UploadBytes-u.upload || down > r.DownloadBytes-u.download {
-		return 0, 0, "budget_or_rate", ""
+		return 0, "budget_or_rate", ""
 	}
 	a, c := r.Account, (*counter)(nil)
 	if a != nil {
@@ -361,7 +356,7 @@ func (g *gateway) reserve(i int, up int64, stream bool, h hit) (int64, int64, st
 			reason = "account_post_rate"
 		}
 		if reason != "" {
-			return 0, 0, reason, c.String()
+			return 0, reason, c.String()
 		}
 		if h.session != "" {
 			c.sessions[h.session] = true
@@ -380,7 +375,7 @@ func (g *gateway) reserve(i int, up int64, stream bool, h hit) (int64, int64, st
 	u.requests++
 	u.upload += up
 	u.download += down
-	return up, down, "", c.String()
+	return down, "", c.String()
 }
 func (c *counter) String() string {
 	if c == nil {
@@ -388,12 +383,6 @@ func (c *counter) String() string {
 	}
 	return fmt.Sprintf("sessions=%d logins=%d signups=%d posts_last_hour=%d", len(c.sessions), c.logins, c.signups, len(c.posts))
 }
-func (g *gateway) refundUpload(i int, unused int64) {
-	g.mu.Lock()
-	defer g.mu.Unlock()
-	g.usage[i].upload -= unused
-}
-
 func (g *gateway) refundDownload(i int, reserved, used int64) {
 	g.mu.Lock()
 	defer g.mu.Unlock()
@@ -520,7 +509,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if rule.Account != nil {
 		h = classify(rule.Account, r)
 	}
-	reservedUp, reservedDown, refused, counts := g.reserve(i, up, isWS, h)
+	reservedDown, refused, counts := g.reserve(i, up, h)
 	if counts != "" {
 		w.Header().Set("X-Dsmack-Account", counts)
 	}
@@ -532,7 +521,6 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(403, refused)
 		return
 	}
-	defer func() { g.refundUpload(i, reservedUp-up) }()
 	// TLS verifies the certificate chain and DNS name before sending HTTP bytes.
 	// The transport derives SNI from target.Host. Workloads never supply TLS.
 	transport := g.client
@@ -550,11 +538,11 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	down := headerBytes(resp.Header)
 	if isWS && resp.StatusCode == 101 {
 		stream := g.streams.Add(1)
+		g.refundDownload(i, reservedDown, down)
 		g.record(evidence{Rule: i, Decision: "allow", Reason: "websocket_tls", Upload: up, Download: down, Stream: stream})
-		extraUp, extraDown := g.websocket(w, r, resp, duration, reservedUp-up, reservedDown-down, stream)
+		extraUp, extraDown := g.websocket(w, r, resp, duration, i, stream)
 		up += extraUp
 		down += extraDown
-		g.refundDownload(i, reservedDown, down)
 		g.record(evidence{Rule: i, Decision: "complete", Reason: "websocket_tls", Upload: up, Download: down, Stream: stream})
 		return
 	}
@@ -599,12 +587,46 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(response)
 }
 
-// WebSocket payload stays opaque. Reserve each direction's full byte budget
-// before the upgrade; refund unused bytes after both copy loops have stopped.
-func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.Response, duration time.Duration, upCap, downCap, stream int64) (int64, int64) {
+// meter charges one WebSocket direction's bytes to the rule's budget as they
+// flow, so concurrent requests share what remains. It stops at the budget.
+type meter struct {
+	g  *gateway
+	i  int
+	up bool
+	w  io.Writer
+	n  int64
+}
+
+var errStreamBudget = errors.New("stream_budget")
+
+func (m *meter) Write(p []byte) (int, error) {
+	m.g.mu.Lock()
+	used, limit := &m.g.usage[m.i].download, m.g.policy.Rules[m.i].DownloadBytes
+	if m.up {
+		used, limit = &m.g.usage[m.i].upload, m.g.policy.Rules[m.i].UploadBytes
+	}
+	k := min(int64(len(p)), limit-*used)
+	*used += k
+	m.g.mu.Unlock()
+	n, err := m.w.Write(p[:k])
+	m.n += int64(n)
+	if int64(n) < k {
+		m.g.mu.Lock()
+		*used -= k - int64(n)
+		m.g.mu.Unlock()
+	}
+	if err == nil && k < int64(len(p)) {
+		err = errStreamBudget
+	}
+	return n, err
+}
+
+// WebSocket payload stays opaque. Each direction is metered against the rule's
+// remaining byte budgets; the stream closes when either is spent.
+func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.Response, duration time.Duration, i int, stream int64) (int64, int64) {
 	upstream, ok := resp.Body.(io.ReadWriteCloser)
 	hj, canHijack := w.(http.Hijacker)
-	if !ok || !canHijack || upCap < 0 || downCap < 0 {
+	if !ok || !canHijack {
 		http.Error(w, "websocket_upstream", 502)
 		return 0, 0
 	}
@@ -635,26 +657,15 @@ func (g *gateway) websocket(w http.ResponseWriter, r *http.Request, resp *http.R
 	if err = buffer.Flush(); err != nil {
 		return 0, 0
 	}
-	type count struct {
-		up bool
-		n  int64
-	}
-	done := make(chan count, 2)
-	go func() { n, _ := io.CopyN(upstream, buffer, upCap); done <- count{true, n} }()
-	go func() { n, _ := io.CopyN(local, upstream, downCap); done <- count{false, n} }()
-	first := <-done
+	up, down := &meter{g: g, i: i, up: true, w: upstream}, &meter{g: g, i: i, w: local}
+	done := make(chan struct{}, 2)
+	go func() { io.Copy(up, buffer); done <- struct{}{} }()
+	go func() { io.Copy(down, upstream); done <- struct{}{} }()
+	<-done
 	local.Close()
 	upstream.Close()
-	second := <-done
-	var up, down int64
-	for _, c := range []count{first, second} {
-		if c.up {
-			up = c.n
-		} else {
-			down = c.n
-		}
-	}
-	return up, down
+	<-done
+	return up.n, down.n
 }
 
 // A non-recursive DNS stub: synthesize allowed A records, refuse every other

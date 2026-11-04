@@ -55,8 +55,9 @@ class Workspace:
         self.inputs = os.path.join(self.path, "inputs")
         self.state = os.path.join(self.path, "state")
         self.artifacts = os.path.join(self.path, "artifacts")
+        self.shared = os.path.join(self.path, "shared")  # lowering binds it into every service of a multi-service manifest
         self.control = os.path.join(self.path, "control")  # runner-private; never mounted
-        for d in (self.inputs, self.state, self.artifacts, self.control):
+        for d in (self.inputs, self.state, self.artifacts, self.shared, self.control):
             os.mkdir(d, 0o700)
             os.chmod(d, 0o700)
         self._mounted_tmpfs = False
@@ -70,7 +71,7 @@ class Workspace:
         subpath (ENOSPC by construction). Unprivileged: poll+cancel."""
         total = self.cap_bytes
         if os.geteuid() == 0:
-            for sub in subpaths:
+            for sub in [*subpaths, "shared"]:
                 target = getattr(self, sub)
                 rc = os.system("mount -t tmpfs -o size=%d,mode=0700,uid=%d,gid=%d tmpfs %s"
                                % (total, WORKLOAD_UID, WORKLOAD_GID, json_escape(target)))
@@ -166,7 +167,7 @@ class Workspace:
         if not os.path.lexists(self.path):
             return removed
         if self._mounted_tmpfs:
-            for sub in ("inputs", "state", "artifacts", "control"):
+            for sub in ("inputs", "state", "artifacts", "shared", "control"):
                 os.system("umount %s 2>/dev/null" % json_escape(os.path.join(self.path, sub)))
         # Bottom-up lstat walk: directories are emptied then rmdir'd; links
         # and files are unlinked in place (never descended into).

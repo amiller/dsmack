@@ -17,7 +17,7 @@ func fetchPolicy() Policy {
 	return Policy{Rules: []Rule{{Name: "shop.test", Port: 443, Methods: []string{"GET"}, Paths: []string{"/exact"},
 		PathPrefixes: []string{"/products/"}, PathGlobs: []string{"/c/*/list"}, Query: true, DropCredentials: true,
 		Headers:         map[string]string{"user-agent": "Mozilla/5.0 resip", "Accept-Language": "en-US"},
-		MaxRequestBytes: 4096, MaxResponseBytes: 1024, UploadBytes: 1 << 16, DownloadBytes: 1 << 16, Requests: 32, RequestsPerMinute: 60000}}}
+		MaxRequestBytes: 4096, MaxResponseBytes: 1024, UploadBytes: 1 << 16, DownloadBytes: 1 << 16, Requests: 32, RequestsPerMinute: unpaced}}}
 }
 
 func TestPathPrefixesGlobsAndQuery(t *testing.T) {

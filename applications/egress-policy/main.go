@@ -531,7 +531,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		g.refundDownload(i, reservedDown, 0)
 		g.event(i, "deny", "upstream_tls_or_io", up, 0)
-		http.Error(w, "upstream_tls_or_io", 502)
+		http.Error(w, "upstream_tls_or_io: "+err.Error(), 502)
 		return
 	}
 	defer resp.Body.Close()

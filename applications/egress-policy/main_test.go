@@ -112,8 +112,8 @@ func TestHostControlledRoutingCannotReplaceTLSIdentity(t *testing.T) {
 				g.client.TLSClientConfig.RootCAs = x509.NewCertPool()
 			}
 			r := call(g, "GET", "/", "allowed.test", "", nil)
-			if r.Code != 502 || hits.Load() != 0 {
-				t.Fatalf("status=%d hits=%d", r.Code, hits.Load())
+			if r.Code != 502 || hits.Load() != 0 || !strings.Contains(r.Body.String(), "upstream_tls_or_io: ") || !strings.Contains(r.Body.String(), "x509") {
+				t.Fatalf("status=%d hits=%d body=%q", r.Code, hits.Load(), r.Body.String())
 			}
 		})
 	}

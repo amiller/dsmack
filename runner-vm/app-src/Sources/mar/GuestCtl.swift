@@ -2,7 +2,9 @@
 // guest runs. Frames are uint32_be(len) || JSON, at most 4 KiB, one request at
 // a time; the guest agent (dstack-compat/agent.py) is the only peer and speaks
 // first: the guest kernel drops port input that arrives before the port is
-// opened. The app answers hello, and grant/event/seal/attest under GuestEventLog's seal rule.
+// opened. The app answers hello, and grant/event/seal/attest/netprobe under GuestEventLog's seal rule.
+// netprobe (after seal) measures the host's network (HostNetprobeIO.swift) and answers an attest whose caller
+// is hostNetprobeCaller over report_data = sha256(report) || 0^32, plus the report and the salt of its address commitment.
 // grant (before seal, once) hands the guest the run's worker grant, fetched by
 // fetchWorkerGrant and held only in this process, and logs its digest as worker-grant.
 // The log starts with the app's canary-runner-key event: a P-256 key made here, kept
@@ -49,6 +51,18 @@ func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: 
         guard let s = m[k] as? String else { throw GuestAttestRefusal("missing string field \(k)") }
         return s
     }
+    func attest(_ caller: Data, _ reportData: Data) async throws -> [String: Any] {
+        let clientData = try guestAttestClientData(osImageHash: osImageHash, manifestSha256: manifestSha256,
+                                                   run: run, head: try log.attest(), caller: caller, reportData: reportData)
+        let assertion: Data
+        do {
+            assertion = try await DCAppAttestService.shared.generateAssertion(keyId, clientDataHash: Data(SHA256.hash(data: clientData)))
+        } catch {
+            throw GuestAttestRefusal("App Attest: \(error)")
+        }
+        return ["key_id": hex(keyIdBytes), "assertion": hex(assertion),
+                "events": log.events.map { ["name": $0.name, "payload": hex($0.payload)] }]
+    }
     while let m = try readGuestFrame(fd) {
         var reply: [String: Any]
         do {
@@ -62,19 +76,14 @@ func serveGuestCtl(fd: Int32, keyId: String, osImageHash: Data, manifestSha256: 
             case "seal": reply = ["head": hex(try log.seal())]
             case "attest":
                 let caller = try guestHex(try field(m, "caller"))
-                let reportData = try guestHex(try field(m, "report_data"))
-                let clientData = try guestAttestClientData(osImageHash: osImageHash, manifestSha256: manifestSha256,
-                                                           run: run, head: try log.attest(),
-                                                           caller: caller, reportData: reportData)
-                let assertion: Data
-                do {
-                    assertion = try await DCAppAttestService.shared.generateAssertion(
-                        keyId, clientDataHash: Data(SHA256.hash(data: clientData)))
-                } catch {
-                    throw GuestAttestRefusal("App Attest: \(error)")
-                }
-                reply = ["key_id": hex(keyIdBytes), "assertion": hex(assertion),
-                         "events": log.events.map { ["name": $0.name, "payload": hex($0.payload)] }]
+                guard caller != hostNetprobeCaller else { throw GuestAttestRefusal("caller is reserved for the host netprobe") }
+                reply = try await attest(caller, try guestHex(try field(m, "report_data")))
+            case "netprobe":
+                let probe: (report: Data, salt: Data)
+                do { probe = try await hostNetprobe() } catch { throw GuestAttestRefusal("\(error)") }
+                reply = try await attest(hostNetprobeCaller, Data(SHA256.hash(data: probe.report)) + Data(count: 32))
+                reply["report"] = String(decoding: probe.report, as: UTF8.self)
+                reply["salt"] = hex(probe.salt)
             default: throw GuestAttestRefusal("unknown op")
             }
         } catch let r as GuestAttestRefusal {

@@ -9,13 +9,15 @@ P-256 key kept only in the agent's memory, adds its public key as the secret-key
 With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
 takes the run's worker grant if the app offers one (the app logs its digest as the
 worker-grant event), sends the supervisor's system events and the seal, writes
-<dir>/sealed and then serves /v1/Attest. With a grant, from the app or from
+<dir>/sealed and then serves /v1/Attest and /v1/HostNetprobe (the app measures the Mac's network and
+attests the report under a caller no service can have). With a grant, from the app or from
 --grant (a file of the same {"grant", "root_key"} shape, for tests off the Mac),
 it serves /v1/GetKey. /v1/Info and /v1/Version
 always. Each service gets <dir>/<service>.sock, which lowering binds to that
 service's /var/run/dstack.sock; the socket that accepted a call is its caller tag.
 """
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -88,9 +90,16 @@ def methods(ctl, hello, grant, secret=None):
         reply = ctl.call({"op": "attest", "caller": caller.hex(), "report_data": rd.hex()})
         return {"attestation": guest_attest.attestation(hello, caller, rd, reply).hex()}
 
+    def netprobe(_, __):
+        reply = ctl.call({"op": "netprobe"})
+        rd = hashlib.sha256(reply["report"].encode()).digest() + bytes(32)
+        return {"report": reply["report"], "salt": reply["salt"],
+                "attestation": guest_attest.attestation(hello, guest_attest.HOST_NETPROBE_CALLER, rd, reply).hex()}
+
     m = {"Info": info, "Version": lambda _, __: {"version": "dsmack-dstack-shim/1", "rev": ""}}
     if ctl:
         m["Attest"] = attest
+        m["HostNetprobe"] = netprobe
     if secret is not None:
         import secret_box
         m["GetSecret"] = lambda r, _: {"secret": secret_box.open_secret(

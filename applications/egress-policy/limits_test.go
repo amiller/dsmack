@@ -60,7 +60,6 @@ func TestWebSocketMetersBudgetWithConcurrentRequests(t *testing.T) {
 	p.Rules[0].UploadBytes = 64 << 10
 	p.Rules[0].DownloadBytes = 64 << 10
 	p.Rules[0].Requests = 1000
-	p.Rules[0].Burst = 50
 	g, _ := withFixture(t, p, "allowed.test", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/ws" {
 			io.WriteString(w, strings.Repeat("y", 900))

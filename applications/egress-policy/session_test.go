@@ -22,7 +22,7 @@ func sessionPolicy() Policy {
 	rule := func(name string) Rule {
 		return Rule{Name: name, Port: 443, Methods: []string{"GET", "POST"}, PathPrefixes: []string{"/"}, Query: true,
 			Cookies: true, ClientHeaders: []string{"user-agent", "Origin"}, Account: acct(),
-			MaxRequestBytes: 4096, MaxResponseBytes: 4096, UploadBytes: 1 << 20, DownloadBytes: 1 << 20, Requests: 100, RequestsPerMinute: 60000}
+			MaxRequestBytes: 4096, MaxResponseBytes: 4096, UploadBytes: 1 << 20, DownloadBytes: 1 << 20, Requests: 100, RequestsPerMinute: unpaced}
 	}
 	return Policy{Rules: []Rule{rule("shop.test"), rule("*.shop.test")}}
 }

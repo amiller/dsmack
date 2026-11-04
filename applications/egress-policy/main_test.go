@@ -51,6 +51,7 @@ func fixture(t *testing.T, name string, h http.Handler) (*httptest.Server, *x509
 	roots.AddCert(parsed)
 	s := httptest.NewUnstartedServer(h)
 	s.Config.ErrorLog = log.New(io.Discard, "", 0)
+	s.EnableHTTP2 = true
 	s.TLS = &tls.Config{Certificates: []tls.Certificate{{Certificate: [][]byte{der}, PrivateKey: key}}}
 	s.StartTLS()
 	t.Cleanup(s.Close)
@@ -111,8 +112,8 @@ func TestHostControlledRoutingCannotReplaceTLSIdentity(t *testing.T) {
 				g.client.TLSClientConfig.RootCAs = x509.NewCertPool()
 			}
 			r := call(g, "GET", "/", "allowed.test", "", nil)
-			if r.Code != 502 || hits.Load() != 0 {
-				t.Fatalf("status=%d hits=%d", r.Code, hits.Load())
+			if r.Code != 502 || hits.Load() != 0 || !strings.Contains(r.Body.String(), "upstream_tls_or_io: ") || !strings.Contains(r.Body.String(), "x509") {
+				t.Fatalf("status=%d hits=%d body=%q", r.Code, hits.Load(), r.Body.String())
 			}
 		})
 	}
@@ -206,7 +207,7 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
-				if _, _, ok := g.reserve(0, 100, false); ok {
+				if _, refused, _ := g.reserve(0, 100, hit{}); refused == "" {
 					accepted.Add(1)
 				}
 			}()
@@ -220,9 +221,9 @@ func TestByteBudgetsIncludeHeadersAndRejectOversizeResponses(t *testing.T) {
 		p := policy()
 		p.Rules[0].RequestsPerMinute = 1
 		g := newGateway(p, log.New(io.Discard, "", 0))
-		_, _, first := g.reserve(0, 1, false)
-		_, _, second := g.reserve(0, 1, false)
-		if !first || second {
+		_, first, _ := g.reserve(0, 1, hit{})
+		_, second, _ := g.reserve(0, 1, hit{})
+		if first != "" || second == "" {
 			t.Fatal("initial burst is one request")
 		}
 	})

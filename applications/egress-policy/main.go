@@ -809,7 +809,9 @@ func main() {
 	}
 	g := newGateway(p, log.New(os.Stdout, "", 0))
 	g.timeout = *timeout
-	g.client.ResponseHeaderTimeout = *timeout
+	// Connect and handshake get the whole upstream timeout: a 5 s connect cap failed requests whose SYN was retransmitted.
+	g.client.DialContext = (&net.Dialer{Timeout: *timeout}).DialContext
+	g.client.TLSHandshakeTimeout, g.client.ResponseHeaderTimeout = *timeout, *timeout
 	if *upstreamProxy != "" {
 		proxy, parseErr := url.Parse(*upstreamProxy)
 		if parseErr != nil || proxy.Scheme != "http" || net.ParseIP(proxy.Hostname()) == nil || proxy.Port() == "" || proxy.User != nil || proxy.Path != "" || proxy.RawQuery != "" || proxy.Fragment != "" {

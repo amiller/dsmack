@@ -25,8 +25,12 @@ import (
 	"time"
 )
 
+// unpaced refills many requests per nanosecond, so tests that are not about
+// rate never depend on how fast the machine completes a request.
+const unpaced = 1 << 40
+
 func policy() Policy {
-	return Policy{Rules: []Rule{{Name: "allowed.test", Port: 443, Methods: []string{"GET", "POST"}, Paths: []string{"/", "/redirect"}, MaxRequestBytes: 512, MaxResponseBytes: 1024, UploadBytes: 2048, DownloadBytes: 4096, Requests: 4, RequestsPerMinute: 60000}}}
+	return Policy{Rules: []Rule{{Name: "allowed.test", Port: 443, Methods: []string{"GET", "POST"}, Paths: []string{"/", "/redirect"}, MaxRequestBytes: 512, MaxResponseBytes: 1024, UploadBytes: 2048, DownloadBytes: 4096, Requests: 4, RequestsPerMinute: unpaced}}}
 }
 func fixture(t *testing.T, name string, h http.Handler) (*httptest.Server, *x509.CertPool) {
 	t.Helper()

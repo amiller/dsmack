@@ -87,3 +87,10 @@ finally:
     net.terminate()
     net.wait()
     (t/'helper-stopped.json').write_text(json.dumps({'pid':net.pid,'returncode':net.returncode}))
+res, console = t/'out/backend-run-result-v3.json', t/'out/console-v3.log'
+if not res.exists():
+    sys.exit('runner wrote no run result; stderr: ' + (t/'stderr.txt').read_text()[-2000:])
+code, log = json.loads(res.read_bytes())['lifecycle']['vmm_code'], console.read_bytes()
+if code != 0 or b'DSMACK_SUPERVISOR_DONE runner_failures=0' not in log:
+    sys.exit('run failed: vmm_code=%s; ' % code + ' | '.join(l.decode() for l in log.splitlines()
+             if l.startswith((b'DSMACK_RUNNER_EXIT', b'DSMACK_SUPERVISOR_DONE'))))

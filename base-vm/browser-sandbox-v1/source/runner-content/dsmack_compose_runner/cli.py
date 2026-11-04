@@ -12,7 +12,8 @@ Exact commands (also exercised by the regression tests):
       --daemon-endpoint unix://...   (REQUIRED; the only endpoint source)
 
 Every failure exits nonzero with `runner-error <code>` on stderr and NO
-fabricated receipt. Successful runs print the receipt summary as JSON.
+fabricated receipt. A run prints the receipt summary as JSON and exits 0 only
+when the workload status is "completed" (1 for "failed" or "cancelled").
 """
 
 from __future__ import annotations
@@ -111,7 +112,7 @@ def _cmd_run(args) -> int:
         boot_observations_path=args.boot_observations,
     )
     print(json.dumps({"status": summary["status"], "exit_code": summary["exit_code"], "receipt_written": bool(args.receipt_out)}, indent=1))
-    return 0
+    return 0 if summary["status"] == "completed" else 1
 
 
 def build_parser() -> argparse.ArgumentParser:

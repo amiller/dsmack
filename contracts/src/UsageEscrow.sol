@@ -4,11 +4,9 @@ pragma solidity ^0.8.21;
 interface IERC20 {
     function transferFrom(address, address, uint256) external returns (bool);
     function transfer(address, uint256) external returns (bool);
-    function balanceOf(address) external view returns (uint256);
 }
 
 interface IERC3009 {
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
     function authorizationState(address, bytes32) external view returns (bool);
     function transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external;
@@ -20,13 +18,11 @@ contract UsageEscrow {
     uint64 public constant ESCAPE_DELAY = 14 days;
     bytes32 public constant CLAIM_TYPEHASH = keccak256("Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed,uint64 period)");
     bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap)");
-    bytes32 public constant TRANSFER_TYPEHASH = keccak256("TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     IERC20 public immutable token;
     address public immutable owner;
     address public brokerSigner;
-    uint256 public liability;
     struct Node { address operator; uint8 unit; bytes32 composeHash; bytes32 imageHash; }
     struct Claim { address operator; bytes32 termsHash; uint256 cumulativeOwed; uint64 period; }
     struct Terms { address operator; uint256 cap; }
@@ -38,7 +34,6 @@ contract UsageEscrow {
     mapping(address => mapping(bytes32 => Terms)) public terms;
     mapping(address => mapping(bytes32 => uint256)) public claimed;
     mapping(address => mapping(bytes32 => uint64)) public claimPeriod;
-    mapping(address => mapping(bytes32 => bool)) public authorizationCredited;
     event Deposited(address indexed user, uint256 amount);
     event TermsAccepted(address indexed user, bytes32 indexed termsHash, address indexed operator, uint256 cap);
     event Claimed(address indexed user, address indexed operator, bytes32 indexed termsHash, uint256 cumulativeOwed, uint64 period);
@@ -56,7 +51,9 @@ contract UsageEscrow {
         brokerSigner = broker;
         emit BrokerRotated(address(0), broker);
     }
-    /// @notice Replace the claim signer. Claims signed by the previous signer stop verifying.
+    /// @notice Replace the claim signer, immediately. Signed but unsubmitted claims stop verifying (the broker can re-sign
+    /// its accruals). The owner, like the signer, can pay out at most each buyer's accepted caps, and only to the operator
+    /// each accepted terms hash names.
     function rotateBroker(address broker) external {
         require(msg.sender == owner && brokerSigner != address(0) && broker != address(0) && broker != brokerSigner, "broker rotation");
         emit BrokerRotated(brokerSigner, broker);
@@ -82,28 +79,17 @@ contract UsageEscrow {
     function _credit(address user, uint256 amount) private {
         require(user != address(0) && amount > 0 && exitRequestedAt[user] == 0, "amount or exiting");
         deposits[user] += amount;
-        liability += amount;
         emit Deposited(user, amount);
     }
-    /// @notice x402 top-up: an EIP-3009 TransferWithAuthorization to this contract credits `from` once per nonce.
-    /// If someone already executed the authorization on the token, the signature is checked here and the escrow must
-    /// still hold every credited balance. A cancelled authorization also reads as used; the solvency check refuses it
-    /// unless stray tokens sit in the contract.
+    /// @notice x402 top-up: executes the payer's EIP-3009 TransferWithAuthorization to this contract and credits `from`.
+    /// An authorization someone else already executed (or cancelled) is refused: its tokens, if any, are not credited.
     function depositWithAuthorization(address from, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, bytes calldata signature) external {
-        require(!authorizationCredited[from][nonce], "authorization credited");
-        authorizationCredited[from][nonce] = true;
-        _credit(from, value);
         IERC3009 t = IERC3009(address(token));
+        require(!t.authorizationState(from, nonce), "authorization used");
+        _credit(from, value);
         (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        if (t.authorizationState(from, nonce)) {
-            bytes32 digest = keccak256(abi.encodePacked("\x19\x01", t.DOMAIN_SEPARATOR(),
-                keccak256(abi.encode(TRANSFER_TYPEHASH, from, address(this), value, validAfter, validBefore, nonce))));
-            require(_recover(digest, v, r, s) == from, "authorization signature");
-        } else {
-            t.transferWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
-        }
-        require(token.balanceOf(address(this)) >= liability, "escrow underfunded");
+        t.transferWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
     }
 
     function claimDomain(address user) public view returns (bytes32) {
@@ -130,12 +116,13 @@ contract UsageEscrow {
     }
 
     function claim(address user, Claim calldata c, bytes calldata signature) external {
-        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        require(_recover(claimDigest(user, c), v, r, s) == brokerSigner, "broker signature");
+        // Terms are checked before the signature so anyone can show an over-cap claim reverting "terms cap".
         Terms memory t = terms[user][c.termsHash];
         require(t.operator != address(0), "terms not accepted");
         require(c.operator == t.operator, "terms operator");
         require(c.cumulativeOwed <= t.cap, "terms cap");
+        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
+        require(_recover(claimDigest(user, c), v, r, s) == brokerSigner, "broker signature");
         require(c.period <= block.timestamp / 1 weeks && c.period >= claimPeriod[user][c.termsHash], "claim period");
         uint64 exit = exitRequestedAt[user];
         require(exit == 0 || block.timestamp < uint256(exit) + ESCAPE_DELAY, "account exited");
@@ -146,7 +133,6 @@ contract UsageEscrow {
         claimed[user][c.termsHash] = c.cumulativeOwed;
         claimPeriod[user][c.termsHash] = c.period;
         paid[user] += amount;
-        liability -= amount;
         require(token.transfer(c.operator, amount), "token transfer");
         emit Claimed(user, c.operator, c.termsHash, c.cumulativeOwed, c.period);
     }
@@ -162,7 +148,6 @@ contract UsageEscrow {
         uint256 amount = balance(msg.sender);
         require(amount > 0, "empty balance");
         withdrawn[msg.sender] += amount;
-        liability -= amount;
         require(token.transfer(msg.sender, amount), "token transfer");
         emit Withdrawn(msg.sender, amount);
     }

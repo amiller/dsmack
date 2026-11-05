@@ -97,6 +97,7 @@ contract UsageEscrowTest is Test {
         UsageEscrow.Claim memory c = claimOf(5e6 + 1);
         bytes memory sig = claimSig(user, c);
         vm.expectRevert("terms cap"); rail.claim(user, c, sig);
+        vm.expectRevert("terms cap"); rail.claim(user, c, new bytes(65));
         c.cumulativeOwed = 5e6; rail.claim(user, c, claimSig(user, c));
     }
     function testWrongOperatorReverts() public {
@@ -152,33 +153,37 @@ contract UsageEscrowTest is Test {
         bytes32 nonce = keccak256("n1"); bytes memory sig = authorization(2e6, nonce);
         rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
         assertEq(rail.balance(payer), 2e6); assertEq(usdc.balanceOf(address(rail)), 112e6);
-        vm.expectRevert("authorization credited");
+        vm.expectRevert("authorization used");
         rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
     }
-    function testDepositWithAuthorizationSurvivesFrontRun() public {
+    function testFrontRunAuthorizationIsRefusedNotCredited() public {
         address payer = vm.addr(payerKey); usdc.mint(payer, 2e6);
         bytes32 nonce = keccak256("n2"); bytes memory sig = authorization(2e6, nonce);
         frontRun(payer, nonce);
-        vm.expectRevert("authorization signature");
-        rail.depositWithAuthorization(payer, 3e6, 0, deadline, nonce, sig);
+        vm.expectRevert("authorization used");
         rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
-        assertEq(rail.balance(payer), 2e6);
-        vm.expectRevert("authorization credited");
-        rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
+        assertEq(rail.balance(payer), 0);
     }
     function frontRun(address payer, bytes32 nonce) internal {
         (uint8 v, bytes32 r, bytes32 s) = authorizationParts(2e6, nonce);
         vm.prank(address(0x99));
         usdc.transferWithAuthorization(payer, address(rail), 2e6, 0, deadline, nonce, v, r, s);
     }
-    function testCancelledAuthorizationCannotDrawThePot() public {
+    function testCancelledAuthorizationRefused() public {
         address payer = vm.addr(payerKey); usdc.mint(payer, 2e6);
         bytes32 nonce = keccak256("n3"); bytes memory sig = authorization(2e6, nonce);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(payerKey, keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(),
             keccak256(abi.encode(usdc.CANCEL_TYPEHASH(), payer, nonce)))));
         usdc.cancelAuthorization(payer, nonce, v, r, s);
-        vm.expectRevert("escrow underfunded");
+        vm.expectRevert("authorization used");
         rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
+    }
+    function testWrongAuthorizationSignatureReverts() public {
+        address payer = vm.addr(payerKey); usdc.mint(payer, 3e6);
+        bytes32 nonce = keccak256("n4"); bytes memory sig = authorization(2e6, nonce);
+        vm.expectRevert("invalid signature");
+        rail.depositWithAuthorization(payer, 3e6, 0, deadline, nonce, sig);
+        assertEq(rail.balance(payer), 0);
     }
     function testRotateBrokerRefusesOldSigner() public {
         UsageEscrow.Claim memory c = claimOf(1e6);
@@ -200,7 +205,7 @@ contract UsageEscrowTest is Test {
         vm.warp(block.timestamp + rail.ESCAPE_DELAY());
         vm.prank(user); rail.withdraw();
         assertEq(usdc.balanceOf(user), 8e6); assertEq(rail.balance(user), 0);
-        assertEq(rail.liability(), 100e6); assertEq(usdc.balanceOf(address(rail)), 100e6);
+        assertEq(usdc.balanceOf(address(rail)), 100e6);
         c.cumulativeOwed = 3e6;
         bytes memory sig = claimSig(user, c);
         vm.expectRevert("account exited"); rail.claim(user, c, sig);

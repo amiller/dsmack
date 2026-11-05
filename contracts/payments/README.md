@@ -6,8 +6,18 @@ claims. A claim names a terms hash the user accepted (`acceptTerms`, or
 operator and stay within its cap. Each user's deposits cap its payouts; the
 EIP-712 domain salt isolates users. Deposits come from the user (`deposit`), a
 sponsor (`depositFor`), or an EIP-3009 authorization such as an x402 payment
-(`depositWithAuthorization`). The owner can replace the claim signer with
-`rotateBroker`. Users can close their account and withdraw after a 14 day claim
+(`depositWithAuthorization`). `depositWithAuthorization` must be the call that
+executes the authorization: if anyone else (a standard x402 facilitator, a
+front-runner) executes it on the token first, the call reverts
+`authorization used` and those tokens sit in the escrow uncredited.
+
+The owner can replace the claim signer at once with `rotateBroker`. That gives
+the owner the signer's power: per buyer, payouts up to the sum of the caps the
+buyer accepted, each paid only to the operator its terms hash names. Rotation
+invalidates signed claims not yet submitted; the broker's accruals remain and
+can be re-signed by the new key. Claims are all-or-nothing against the buyer's
+remaining deposit, so a buyer should accept caps no larger than what they
+deposit. Users can close their account and withdraw after a 14 day claim
 window without any further broker signature. Node measurements and operator
 addresses are immutable; posted prices live in broker configuration.
 

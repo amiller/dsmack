@@ -37,6 +37,9 @@ test("lease statements accrue once under accepted terms, within the cap, and sig
  await assert.rejects(p.leaseStatement({statement:statement("l2","3000001")},{}),/terms cap/);
  assert.deepEqual(await p.leaseStatement({statement:statement("l2","3000000")},{}),{operator,owed:"5000000"});
  await assert.rejects(p.leaseStatement({statement:statement("l3","1",{operator:user})},{}),/terms not accepted/);
+ onChain={operator:"0x"+"00".repeat(20),cap:0n};
+ await assert.rejects(p.leaseStatement({statement:statement("l3","1",{operator:"0x"+"00".repeat(20)})},{}),/terms not accepted/);
+ onChain={operator,cap:5000000n};
  await assert.rejects(p.leaseStatement({statement:statement("l3","1",{escrow:user})},{}),/statement escrow/);
  await assert.rejects(p.leaseStatement({statement:{...statement("l3","1"),terms_hash:undefined}},{}),/terms_hash/);
  const signed=await p.termsClaim(user,terms);

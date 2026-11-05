@@ -192,7 +192,8 @@ export class Payments {
     const s = await this.chain.snapshot();
     const digest = await this.verifyLease(st, attestation, brokerCfg, s);
     const terms = await s.call("terms", [st.buyer_wallet, st.terms_hash]);
-    require(terms.operator.toLowerCase() === st.operator.toLowerCase(), "terms not accepted for this operator");
+    require(BigInt(terms.cap) > 0n && BigInt(st.operator) !== 0n && terms.operator.toLowerCase() === st.operator.toLowerCase(),
+      "terms not accepted for this operator");
     const wallet = st.buyer_wallet.toLowerCase();
     return this.serial(async () => {
       const seen = this.state.leaseStatements?.[st.lease_id];

@@ -81,7 +81,7 @@ signed `/inference/credit` request:
 
 ```sh
 deno run -A applications/payments/submit.mjs CONFIG WALLET_KEY deposit 1000000 --send
-curl "$BROKER/payments/claim?user=$USER_ADDRESS&operator=$OPERATOR" -o claim.json
+curl "$BROKER/payments/claim?user=$USER_ADDRESS&terms=$TERMS_HASH" -o claim.json
 deno run -A applications/payments/submit.mjs CONFIG OPERATOR_KEY claim claim.json --send
 deno run -A applications/payments/submit.mjs CONFIG WALLET_KEY request-exit --send
 # After 14 days:

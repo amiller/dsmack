@@ -51,9 +51,9 @@ Rules for logged-in sessions can add:
 - `client_headers`: header names forwarded verbatim from the client, for example
   `["User-Agent", "Origin", "Referer"]`. A client `User-Agent` replaces `dsmack-egress/1`; without one the
   default stays. A name may not also be in `headers`. Headers the gateway controls are refused at load:
-  hop-by-hop and framing headers, `Host`, `Cookie`, `Accept-Encoding`, the forwarded set (`Accept`,
+  hop-by-hop and framing headers, `Host`, `Cookie`, the forwarded set (`Accept`,
   `Content-Type`, the credential and Anthropic headers), `Forwarded`, `Via`, `X-Real-Ip`, `Proxy-*`,
-  `X-Forwarded-*` and `Sec-WebSocket-*`.
+  `X-Forwarded-*` and `Sec-WebSocket-*`. Listing `Accept-Encoding` lets the client ask for a compressed body.
 - `http2: true`: offers HTTP/2 to the origin by ALPN. WebSocket upgrades still use HTTP/1.1. The client
   side of the gateway stays HTTP/1.1, since only a local client talks to it.
 - `account`: counters and caps that the gateway enforces.
@@ -105,6 +105,7 @@ and refuses other names over UDP and TCP without forwarding them.
 Budgets span connections for one gateway lifetime. Upload accounting includes
 method, path, hostname, forwarded headers and body. Download accounting includes
 upstream headers and body. Requests and upload bytes are charged before dialing;
-unused reserved response bytes are returned. Redirects go back to the client for
+unused reserved response bytes are returned. The body is never decompressed: it goes back as the origin
+encoded it, with its `Content-Encoding`, and the byte caps and hashes count the encoded bytes. Redirects go back to the client for
 a fresh policy check. Decision logs contain rule index, allow/deny, fixed reason
 and byte counts; the guest seals them into the user's result channel.

@@ -404,7 +404,7 @@ func headerBytes(h http.Header) int64 {
 var forwarded = []string{"Accept", "Content-Type", "Authorization", "X-Api-Key", "Anthropic-Version", "Anthropic-Beta"}
 var credentials = []string{"Authorization", "X-Api-Key"}
 var settable = []string{"User-Agent", "Accept", "Accept-Language"}
-var controlled = []string{"Host", "Connection", "Keep-Alive", "Upgrade", "Te", "Trailer", "Transfer-Encoding", "Content-Length", "Cookie", "Accept-Encoding", "Forwarded", "Via", "X-Real-Ip"}
+var controlled = []string{"Host", "Connection", "Keep-Alive", "Upgrade", "Te", "Trailer", "Transfer-Encoding", "Content-Length", "Cookie", "Forwarded", "Via", "X-Real-Ip"}
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i := -1
@@ -561,8 +561,9 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	g.refundDownload(i, reservedDown, down)
-	// Redirects are returned, never followed. Strip control and network hints.
-	returned := []string{"Content-Type", "Location", "Retry-After"}
+	// Redirects are returned, never followed. Strip control and network hints. The body is returned as the origin
+	// encoded it (the transport never decompresses), so its Content-Encoding goes back with it.
+	returned := []string{"Content-Type", "Content-Encoding", "Location", "Retry-After"}
 	if rule.Cookies {
 		returned = append(returned, "Set-Cookie")
 	}

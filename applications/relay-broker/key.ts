@@ -3,13 +3,19 @@ import { signingKey } from "./grants.mjs";
 
 // The webhost honours the requested GetKey path whichever project's socket asks,
 // so the path must name this deployment's project (config signerProject).
+// The webhost keys GetKey by the project that owns the socket, not by the requested path. In the shared
+// Deno runtime every project's socket dir is visible, so the socket must be this project's own.
+export const projectSocket = (project: string) => {
+  if (!project) throw new Error("config signerProject is required");
+  return `/run/broker/${project}/dstack.sock`;
+};
 export const keyPath = (project: string, name: string) => {
   if (!/^[a-z0-9-]+$/.test(project ?? "")) throw new Error("config signerProject is required");
   return "/tee-daemon/projects/" + project + "/" + name;
 };
 
 export async function getSigningKey(
-  socket = "/run/broker/relay-broker/dstack.sock",
+  socket: string,
   project: string,
   paid = false,
 ) {
@@ -39,7 +45,7 @@ export async function getSigningKey(
 // A distinct project-scoped key decrypts provider env; signing identities retain
 // their existing derivation names and paths across this addition.
 export async function getProviderEnvKey(
-  socket = "/run/broker/relay-broker/dstack.sock",
+  socket: string,
   project: string,
 ) {
   using client = Deno.createHttpClient({

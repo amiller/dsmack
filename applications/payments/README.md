@@ -34,15 +34,27 @@ signed receipt in its session ledger; the guest exports the originals in
 `agent-receipts`. NodeBinding and paid Grant signatures use the existing
 `DsmackUsageEscrow/2` admission domain.
 
-The broker aggregates funded debits per user/operator/week. Get a completed week's
-cumulative authorization with `GET /payments/claim?user=0xUSER&operator=0xOPERATOR`
-(optionally `&period=WEEK`, where week is Unix seconds divided by 604800).
-It signs `Claim(address operator,uint256 cumulativeOwed,uint64 period)` using
+The broker accrues Layover lease statements per user and terms hash.
+`POST /payments/lease-statement {statement, attestation}` takes a statement the
+guest attested (`sha256(canonical(statement))` as the first half of
+`report_data`) from a build listed in broker config `leaseWorkloads`
+(`manifest_sha256`, `os_image_hash`, `cdhash`, `service`). The statement must
+carry `kind: "layover-lease-statement/2"`, `lease_id`, `buyer_wallet`,
+`operator`, `terms_hash`, `owed` (token base units, decimal string),
+`chain_id: 84532` and `escrow`. The broker refuses terms the buyer has not
+accepted on chain for that operator, totals over the cap, and a second
+statement for the same `lease_id`. `GET /payments/claim?user=0xUSER&terms=0xTERMS`
+returns the cumulative authorization. It signs
+`Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed,uint64 period)`
+with `period` the current week (Unix seconds / 604800), using
 `{name:"DsmackPrepaid",version:"1",chainId:84532,verifyingContract:escrow,
-salt:USER_ADDRESS_LEFT_PADDED_TO_BYTES32}`. Cumulative amounts are in USDC base
-units; sub-unit dust carries forward. Submit each user's authorization once a
-week. The contract pays only the increment, directly to the operator, and caps
-all operators combined at that user's remaining deposits.
+salt:USER_ADDRESS_LEFT_PADDED_TO_BYTES32}`. The contract pays only the
+increment, directly to the accepted operator, and caps it at the terms' cap and
+the user's remaining deposits.
+
+Inference and agent-session debits still accrue per user/operator/week
+(`operatorAccruals`), but they have no terms hash, so the broker cannot sign
+claims for them against this escrow until those rails adopt terms.
 
 `requestExit()` permanently closes a user's account to new spending. Existing
 stays stop at their next receipt checkpoint. Operators have 14 days to submit

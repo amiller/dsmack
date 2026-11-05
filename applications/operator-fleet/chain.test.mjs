@@ -7,7 +7,7 @@ test("cumulative claims become incremental USDC payouts per user and a failed re
  const address="0x"+"11".repeat(20),user="0x"+"22".repeat(20),other="0x"+"33".repeat(20);
  const e=new Earnings({rpc:"http://127.0.0.1:1",chainId:84532,escrow:address,deploymentBlock:0});
  e.provider.destroy();e.checked=true;
- const log=(who,total,index)=>({...abi.encodeEventLog(abi.getEvent("Claimed"),[who,address,total,30]),
+ const log=(who,total,index)=>({...abi.encodeEventLog(abi.getEvent("Claimed"),[who,address,"0x"+"ab".repeat(32),total,30]),
   blockNumber:index,transactionHash:"0x"+String(index).repeat(64)});
  let fail=true;
  e.provider={getLogs:async()=>[log(user,1000,1),log(user,2000,2),log(other,500,3)],

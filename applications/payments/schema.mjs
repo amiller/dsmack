@@ -55,8 +55,14 @@ export const domain = (escrow) => ({
 });
 export const Claim = [
   { name: "operator", type: "address" },
+  { name: "termsHash", type: "bytes32" },
   { name: "cumulativeOwed", type: "uint256" },
   { name: "period", type: "uint64" },
+];
+export const AcceptTerms = [
+  { name: "termsHash", type: "bytes32" },
+  { name: "operator", type: "address" },
+  { name: "cap", type: "uint256" },
 ];
 export const claimDomain = (escrow, user, chainId = CHAIN) => ({
   name: "DsmackPrepaid", version: "1", chainId, verifyingContract: getAddress(escrow),
@@ -68,6 +74,7 @@ export const abi = new Interface([
   "function brokerSigner() view returns (address)",
   "function token() view returns (address)",
   "function registerBroker(address)",
+  "function rotateBroker(address)",
   "function registerNode(bytes32,address,uint8,bytes32,bytes32)",
   "function getNode(bytes32) view returns (tuple(address operator,uint8 unit,bytes32 composeHash,bytes32 imageHash))",
   "function deposits(address) view returns (uint256)",
@@ -76,12 +83,19 @@ export const abi = new Interface([
   "function balance(address) view returns (uint256)",
   "function exitRequestedAt(address) view returns (uint64)",
   "function deposit(uint256)",
+  "function depositFor(address,uint256)",
+  "function depositWithAuthorization(address,uint256,uint256,uint256,bytes32,bytes)",
+  "function acceptTerms(bytes32,address,uint256)",
+  "function acceptTermsFor(address,bytes32,address,uint256,bytes)",
+  "function terms(address,bytes32) view returns (address operator,uint256 cap)",
   "function requestExit()",
   "function withdraw()",
-  "function claim(address,tuple(address operator,uint256 cumulativeOwed,uint64 period),bytes)",
-  "function claimed(address,address) view returns (uint256)",
+  "function claim(address,tuple(address operator,bytes32 termsHash,uint256 cumulativeOwed,uint64 period),bytes)",
+  "function claimed(address,bytes32) view returns (uint256)",
   "event Deposited(address indexed user,uint256 amount)",
-  "event Claimed(address indexed user,address indexed operator,uint256 cumulativeOwed,uint64 period)",
+  "event Claimed(address indexed user,address indexed operator,bytes32 indexed termsHash,uint256 cumulativeOwed,uint64 period)",
+  "event TermsAccepted(address indexed user,bytes32 indexed termsHash,address indexed operator,uint256 cap)",
+  "event BrokerRotated(address indexed previous,address indexed broker)",
 ]);
 const coder = AbiCoder.defaultAbiCoder();
 export const runNode = (enrollmentKeyId, runNonce) =>

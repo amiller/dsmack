@@ -354,8 +354,9 @@ async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined
         response = Response.json(await p.list(b.live()));
       } else if (req.method === "GET" && path === "/payments/claim") {
         const query = new URL(req.url).searchParams;
-        response = Response.json(await p.weeklyClaim(query.get("user"), query.get("operator"),
-          query.has("period") ? Number(query.get("period")) : undefined));
+        response = Response.json(await p.termsClaim(query.get("user"), query.get("terms")));
+      } else if (req.method === "POST" && path === "/payments/lease-statement") {
+        response = Response.json(await p.leaseStatement(await body(req), b.cfg));
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/key") {
       response = Response.json({

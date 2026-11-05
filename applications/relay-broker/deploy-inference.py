@@ -49,8 +49,13 @@ def envelope(value):
 
 
 def project_for(target):
-    # The Layover broker is its own project, so the webhost derives it its own payments key.
     return "relay-broker-layover" if target == "layover" else project_name("relay-broker", target)
+
+
+def signer_project(target):
+    # key.ts derives every GetKey path from this name. Production and staging keep the
+    # original relay-broker keys; the Layover broker gets its own.
+    return "relay-broker-layover" if target == "layover" else "relay-broker"
 
 
 def write_json(path, value):
@@ -69,6 +74,9 @@ def prepare(args):
         if config.get("inference"):
             config["inference"]["origins"] = [args.staging_origin]
     public_config(config)
+    if "signerProject" in config:
+        raise ValueError("signerProject is set by the deploy target, not the configuration")
+    config["signerProject"] = signer_project(args.target)
     if args.target == "layover":
         if not config.get("payments") or not config.get("leaseWorkloads") or config.get("inference") or config.get("workloads"):
             raise ValueError("layover configuration needs payments and leaseWorkloads, and no inference or node workloads")

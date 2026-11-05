@@ -1,10 +1,16 @@
 import { Wallet } from "../payments/schema.mjs";
 import { signingKey } from "./grants.mjs";
 
-// Shared webhost handlers use the project-scoped broker socket. The proxy
-// constructs the GetKey path from this project's identity and the safe name.
+// The webhost honours the requested GetKey path whichever project's socket asks,
+// so the path must name this deployment's project (config signerProject).
+export const keyPath = (project: string, name: string) => {
+  if (!/^[a-z0-9-]+$/.test(project ?? "")) throw new Error("config signerProject is required");
+  return "/tee-daemon/projects/" + project + "/" + name;
+};
+
 export async function getSigningKey(
   socket = "/run/broker/relay-broker/dstack.sock",
+  project: string,
   paid = false,
 ) {
   using client = Deno.createHttpClient({
@@ -18,7 +24,7 @@ export async function getSigningKey(
     body: JSON.stringify({
       name,
       algorithm: paid ? "secp256k1" : "ed25519",
-      path: "/tee-daemon/projects/relay-broker/" + name,
+      path: keyPath(project, name),
       purpose: paid ? "dsmack-payments-grants/1" : "dsmack-egress-grants/1",
     }),
     signal: AbortSignal.timeout(30000),
@@ -34,6 +40,7 @@ export async function getSigningKey(
 // their existing derivation names and paths across this addition.
 export async function getProviderEnvKey(
   socket = "/run/broker/relay-broker/dstack.sock",
+  project: string,
 ) {
   using client = Deno.createHttpClient({
     proxy: { transport: "unix", path: socket },
@@ -45,7 +52,7 @@ export async function getProviderEnvKey(
     body: JSON.stringify({
       name: "inference-env-v1",
       algorithm: "secp256k1",
-      path: "/tee-daemon/projects/relay-broker/inference-env-v1",
+      path: keyPath(project, "inference-env-v1"),
       purpose: "dsmack-near-env/1",
     }),
     signal: AbortSignal.timeout(30000),

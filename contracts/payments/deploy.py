@@ -82,8 +82,8 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_res
 
 
 def main():
-    if len(sys.argv) != 3:
-        raise ValueError("usage: deploy.py RAW_OWNER_KEY_FILE PAYMENTS_DIR")
+    if len(sys.argv) != 4:
+        raise ValueError("usage: deploy.py RAW_OWNER_KEY_FILE PAYMENTS_DIR TOKEN_ADDRESS")
     account = load_owner(sys.argv[1])
     print(f"Owner address verified: {account.address}", flush=True)
     payments = Path(sys.argv[2]).resolve()
@@ -95,13 +95,17 @@ def main():
     # No auto retry/resume after any partially submitted deployment.
     if any((output / f"{label}-transaction.json").exists() for label in ("deploy", "funding")):
         raise RuntimeError("existing submitted transaction record; inspect receipts before any new deployment")
-    usdc = os.environ.get("PAYMENTS_USDC", "")
+    usdc = sys.argv[3]
     if not re.fullmatch(r"0x[0-9a-fA-F]{40}", usdc) or int(usdc, 16) == 0:
-        raise ValueError("PAYMENTS_USDC must name the Base Sepolia USDC token")
+        raise ValueError("TOKEN_ADDRESS must be a nonzero address")
     quorum = Quorum(tuple(os.environ.get("PAYMENTS_RPC_URLS", "").split(","))) if os.environ.get("PAYMENTS_RPC_URLS") else Quorum()
     header = quorum.finalized()
     if int(quorum.at("eth_getBalance",[account.address],header),16)<20_000_000_000_000_000:
         raise RuntimeError("funding wallet has not reached 0.02 ETH")
+    # The escrow counts 6-decimal base units and x402 top-ups call EIP-3009 authorizationState.
+    if int(quorum.at("eth_call", [{"to": usdc, "data": "0x313ce567"}], header), 16) != 6:
+        raise RuntimeError("token does not report 6 decimals")
+    quorum.at("eth_call", [{"to": usdc, "data": "0xe94a0102" + "00" * 64}], header)
     persist(output / "deployment-preflight.json", {"chainId": CHAIN_ID, "finalized": header,
                                                   "fundingWallet": funding})
     subprocess.run(["forge", "build", "--root", str(CONTRACTS), "--skip", "test", "--offline"], check=True)
@@ -131,7 +135,7 @@ def main():
                 "fundingWallet": funding})
     persist(output / "deployed.json", json.loads((output / "deployment.json").read_text()))
     print(f"Contract: {address}\nFunding wallet / owner: {funding}", flush=True)
-    print(f"Next: bash {CONTRACTS / 'payments/verify.sh'} {address}")
+    print(f"Next: bash {CONTRACTS / 'payments/verify.sh'} {address} {usdc}")
 
 
 if __name__ == "__main__":

@@ -29,7 +29,7 @@ class PaymentsScriptsTest(unittest.TestCase):
             key = Path(scratch) / "dummy.key"
             key.write_text("0x" + "01" * 32)
             with patch.object(deploy, "Quorum") as rpc, patch.object(deploy.subprocess, "run") as build:
-                with patch.object(deploy.sys, "argv", ["deploy.py", str(key), scratch]):
+                with patch.object(deploy.sys, "argv", ["deploy.py", str(key), scratch, "0x" + "36" * 20]):
                     with self.assertRaisesRegex(ValueError, "does not derive"):
                         deploy.main()
                 rpc.assert_not_called()

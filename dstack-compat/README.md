@@ -24,7 +24,7 @@ key that exists only in the app. The app hands the grant to the shim over
 
 In the guest the supervisor starts the shim on the `dsmack-ctl` virtio console
 port before any workload exists. The shim takes the grant if the app offers one,
-then sends the app the system events and a seal; after the seal the app answers only `/v1/Attest`. The app asserts with App
+then sends the app the system events and a seal; after the seal the app answers only `/v1/Attest` and `/v1/HostNetprobe`. The app asserts with App
 Attest over 255 bytes of client data: `"dsmack.appattest.guest-attest/1" ||
 os_image_hash || manifest_sha256 || run || event_head || caller || report_data`,
 where `run` is the sha256 of the run's launch-assertion client data, `event_head`
@@ -33,6 +33,15 @@ service name. `Attest` returns a dstack `VersionedAttestation` with
 `platform.kind = "apple-app-attest"` and `stack.kind = "dsmack"`. On chain,
 `AppleAttest.verify(context, proof)` takes `context = sha256(clientData)`
 unchanged.
+
+`/v1/HostNetprobe` has the app measure the Mac's own network, which the guest
+cannot see (`runner-vm/app-src/Sources/mar/HostNetprobeIO.swift`): hops toward
+1.1.1.1 and toward the address three echo services report, NAT-PMP and UPnP,
+then a `behind_cgnat` verdict. It returns `{report, salt, attestation}`. The
+report holds address classes, hop kinds and RTTs, and `sha256(salt || ipv4)` in
+place of the public address. The attestation is a guest Attest with
+`caller = sha256("dsmack.host-netprobe/1")`, which the app refuses on
+`/v1/Attest`, and `report_data = sha256(report) || 0^32`.
 
 - `dsmack_dstack.py` KDF, claim, grant statement, chain verification. Stdlib only
   (keccak, secp256k1 and ed25519 in Python), so the guest image needs no packages.

@@ -56,7 +56,7 @@ func TestCookiesAndClientHeaders(t *testing.T) {
 		t.Errorf("rule without cookies: status %d upstream %v response %v", r.Code, got, r.Header())
 	}
 
-	for _, h := range []string{"Cookie", "host", "Authorization", "X-Api-Key", "Content-Type", "Accept-Encoding", "X-Forwarded-For", "Proxy-Authorization", "Sec-WebSocket-Key", "Transfer-Encoding", "Bad Header", ""} {
+	for _, h := range []string{"Cookie", "host", "Authorization", "X-Api-Key", "Content-Type", "X-Forwarded-For", "Proxy-Authorization", "Sec-WebSocket-Key", "Transfer-Encoding", "Bad Header", ""} {
 		p := sessionPolicy()
 		p.Rules[0].ClientHeaders = []string{h}
 		if _, err := loadPolicy(mustJSON(t, p)); err == nil {
@@ -67,6 +67,31 @@ func TestCookiesAndClientHeaders(t *testing.T) {
 	p.Rules[0].Headers = map[string]string{"User-Agent": "fixed"}
 	if _, err := loadPolicy(mustJSON(t, p)); err == nil {
 		t.Error("accepted User-Agent as both fixed and client header")
+	}
+}
+
+// The body comes back byte for byte with the origin's Content-Encoding, also when the origin encodes without being asked;
+// the client's Accept-Encoding reaches the origin only when the rule lists it.
+func TestContentEncoding(t *testing.T) {
+	var got http.Header
+	handler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Clone()
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Write([]byte("\x1f\x8bnot really gzip"))
+	})
+	p := sessionPolicy()
+	for _, listed := range []bool{false, true} {
+		if listed {
+			for i := range p.Rules {
+				p.Rules[i].ClientHeaders = append(p.Rules[i].ClientHeaders, "Accept-Encoding")
+			}
+		}
+		g, _ := withFixture(t, p, "shop.test", handler)
+		r := call(g, "GET", "/", "shop.test", "", http.Header{"Accept-Encoding": {"gzip, br"}})
+		want := map[bool]string{false: "", true: "gzip, br"}[listed]
+		if r.Code != 200 || got.Get("Accept-Encoding") != want || r.Header().Get("Content-Encoding") != "gzip" || r.Body.String() != "\x1f\x8bnot really gzip" {
+			t.Errorf("listed %v: %d upstream %v response %v %q", listed, r.Code, got, r.Header(), r.Body.String())
+		}
 	}
 }
 

@@ -112,18 +112,19 @@ class SourceGateTests(unittest.TestCase):
                 paths.append(path)
                 if path == '/_api/projects':
                     self.assertIn(b'"name": "relay-broker-staging"', kwargs['body'])
-                    return dict(runtime='deno', isolation='shared', mode='dev')
+                    return dict(runtime='deno', isolation='container', mode='dev')
                 if path.endswith('/promote'):
                     return dict(mode='attested')
                 return {}
             # Staging may deploy a preparation from an earlier commit.
             with patch.object(broker, 'source_ref', return_value='another-commit'), \
                  patch.object(broker, 'token', return_value='fixture-only'), \
-                 patch.object(broker, 'client', return_value=api), patch.object(broker, 'wait_for_idle') as guard:
+                 patch.object(broker, 'client', return_value=api), patch.object(broker, 'drain') as guard:
+                (root/'operator').write_text('operator-fixture')
                 broker.deploy(SimpleNamespace(target='staging', prepared=root/'prepared', evidence=root/'evidence',
-                                              apply=True, url='local-fixture', wait_idle_minutes=1))
+                                              apply=True, url='local-fixture', operator_token=root/'operator'))
             self.assertEqual(paths, ['/_api/projects', '/_api/projects/relay-broker-staging/promote', '/relay-broker-staging/key'])
-            guard.assert_called_once_with('local-fixture', 1)
+            guard.assert_called_once_with('local-fixture', 'relay-broker-staging', 'operator-fixture')
 
     def test_production_safe_block_tag_only_on_base_sepolia(self):
         broker=load('broker_deploy_safe', ROOT/'applications/relay-broker/deploy-inference.py')
@@ -179,21 +180,22 @@ class SourceGateTests(unittest.TestCase):
                 def open(self, request, timeout):
                     calls.append(request.full_url)
                     if request.full_url.endswith('/_api/substrate'):
-                        return io.BytesIO(b'{"isolation_modes":["shared"]}')
+                        return io.BytesIO(b'{"isolation_modes":["shared","container"]}')
                     if request.full_url.endswith('/_api/projects'):
-                        return io.BytesIO(b'{"runtime":"deno","isolation":"shared","mode":"attested"}')
+                        assert b'"isolation": "container"' in request.data
+                        assert b'"DSTACK_SOCKET": "/run/broker/dstack.sock"' in request.data
+                        return io.BytesIO(b'{"runtime":"deno","isolation":"container","mode":"attested"}')
                     return io.BytesIO(html)
             with patch('sys.argv', ['deploy.py', '--target', 'staging', '--staging-origin', WEBHOST,
                                     '--skip-registry-publication', '--dist', str(dist), '--page-env', str(page_env),
                                     '--operator-token-sha256', 'a'*64, '--evidence', str(root/'evidence')]), \
                  patch.object(page, 'source_ref', return_value='test-commit'), patch.object(page, 'token', return_value='fixture-only'), \
-                 patch.object(page, 'build_opener', return_value=Opener()), patch.object(page, 'wait_for_idle') as guard, \
+                 patch.object(page, 'build_opener', return_value=Opener()), \
                  patch.object(page.subprocess, 'check_output', return_value=b'export default {};') as output, \
                  patch.object(page.subprocess, 'run') as run:
                 page.main()
             run.assert_not_called()
             self.assertTrue(all(command.args[0][0]=='deno' for command in output.call_args_list))
-            guard.assert_called_once_with(WEBHOST, 10)
             result=json.loads((root/'evidence/result.json').read_text())
             self.assertIsNone(result['registry'])
             self.assertEqual(result['url'], WEBHOST+'/private-agent-staging/')
@@ -221,9 +223,9 @@ class SourceGateTests(unittest.TestCase):
             class Opener:
                 def open(self, request, timeout):
                     if request.full_url.endswith('/_api/substrate'):
-                        return io.BytesIO(b'{"isolation_modes":["shared"]}')
+                        return io.BytesIO(b'{"isolation_modes":["shared","container"]}')
                     if request.full_url.endswith('/_api/projects'):
-                        return io.BytesIO(b'{"runtime":"deno","isolation":"shared","mode":"attested"}')
+                        return io.BytesIO(b'{"runtime":"deno","isolation":"container","mode":"attested"}')
                     return io.BytesIO(b'page')
             def read_registry(command, *, text, env):
                 self.assertEqual(command[:2], ['cast', 'call'])
@@ -237,7 +239,7 @@ class SourceGateTests(unittest.TestCase):
                  patch.dict(page.os.environ, {**wallet_options, 'RPC_ENV_MARKER':'retained'}), \
                  patch.object(page, 'source_ref', return_value='test-commit'), patch.object(page, 'token', return_value='fixture-only'), \
                  patch.object(page, 'check_bundle', return_value=own), patch.object(page, 'package', return_value=b'archive'), \
-                 patch.object(page, 'build_opener', return_value=Opener()), patch.object(page, 'wait_for_idle'), \
+                 patch.object(page, 'build_opener', return_value=Opener()), \
                  patch.object(page.subprocess, 'check_output', side_effect=read_registry) as reads, \
                  patch.object(page.subprocess, 'run') as send:
                 page.main()

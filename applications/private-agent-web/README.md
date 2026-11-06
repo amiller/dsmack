@@ -190,9 +190,8 @@ known OS. Verification uses NEAR's public PCCS/NRAS proxies, NVIDIA's JWKS
 endpoint and `rekor.sigstore.dev`. Raw NEAR reports travel through
 the broker; its verification summary is not an input to the browser's decision.
 
-Deployment waits up to ten minutes for `/relay-broker/network` busy slots and
-`/relay-broker/inference/status` in-flight model streams to reach zero.
-`--wait-idle-minutes N` changes the wait; a timeout stops before upload.
+The page runs in its own container (`isolation: container`). A page deploy
+restarts only that container, never the relay broker, so it does not wait for stays to end.
 
 Deploy the built page using its existing private environment JSON and operator-token SHA256:
 

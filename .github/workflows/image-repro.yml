@@ -3,6 +3,7 @@ on:
   pull_request:
     paths: &paths
       - base-vm/browser-sandbox-v1/**
+      - compose-contract/dsmack_compose_contract/**
       - dstack-compat/agent.py
       - dstack-compat/guest_attest.py
       - dstack-compat/dsmack_dstack.py
@@ -55,12 +56,19 @@ jobs:
           cp inputs/templates/disk-templates.json templates/
           for t in scratch result; do gunzip -c inputs/templates/$t-template.ext4.gz > templates/$t-template.ext4; done
       - run: docker build --no-cache -t dsmack-builder base-vm/browser-sandbox-v1/builder
-      - name: Derive and check
+      - name: Derive
         shell: bash
         run: |
           python3 base-vm/browser-sandbox-v1/derive.py --builder dsmack-builder \
             --base-bundle inputs/b44 --templates templates --kernel-source inputs/linux-6.18.40.tar.xz --out derive | tee derive.json
           sha256sum derive/build/legs/diagnostic/files/*
+      - name: Check rootfs bytes against the repo
+        run: |
+          docker run --rm --network none -v "$PWD/derive:/d" dsmack-builder unsquashfs -no-progress -d /d/rootfs \
+            /d/build/legs/diagnostic/files/rootfs.squashfs.verity usr/local etc/docker usr/bin/dsmack-supervisor
+          python3 base-vm/browser-sandbox-v1/check_rootfs.py derive/rootfs
+      - name: Check image digest
+        run: |
           got=$(jq -r .image_sha256 derive.json)
           want=$(cat base-vm/browser-sandbox-v1/image.sha256)
           echo "image_sha256 $got expected $want"

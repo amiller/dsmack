@@ -43,13 +43,13 @@ MAC_RUN = r'''set -euo pipefail
 D=$HOME/$1; T=$D/t/$2; S=$D/source
 # A launch consumes the attempt: refuse before it when the two 4 GiB scratch copies cannot fit or another VM runs.
 [ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 10485760 ] || { echo 'the Mac needs 10 GiB free' >&2; exit 3; }
-! pgrep -f 'dsmack-runner hvf' >/dev/null || { echo 'another VM is running on the Mac' >&2; exit 3; }; W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
+! pgrep -f 'dsmack-runner hvf' >/dev/null || { echo 'another VM is running on the Mac' >&2; exit 3; }; W=$S/applications/pilot-client/workload
 cd "$T"; mkdir -m700 private tmp; mkdir -m700 -p $D/r
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
 C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
 python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
-  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --contract-lib $S/compose-contract --transport-module $S/tools/base-vm/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp
 python3 -I - "$T" <<'PY'
 import hashlib,json,os,sys
@@ -71,7 +71,7 @@ $C --execute --plan $PLAN > execute.json
 
 # v0.2.0-canary.1: the operator host holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
 # base/ (the same files as the operator's V02 dir base/: Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
-# source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source) and enrollment/ (the runner
+# source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source, compose-contract, tools/base-vm) and enrollment/ (the runner
 # key's attestation.cbor, clientData.bin, keyId.txt).
 V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
@@ -82,13 +82,13 @@ MAC_RUN_V02 = r'''set -euo pipefail
 D=$HOME/$1; T=$D/t/$2; S=$D/source
 [ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 12582912 ] || { echo 'the Mac needs 12 GiB free' >&2; exit 3; }
 ! pgrep -f MacOS/dsmack-runner >/dev/null || { echo 'another runner VM is running on the Mac' >&2; exit 3; }
-W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
+W=$S/applications/pilot-client/workload
 cd "$T"; mkdir -m700 private tmp
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
 C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
 python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
-  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --contract-lib $S/compose-contract --transport-module $S/tools/base-vm/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp > stage.json
 python3 -I - "$D" "$T" <<'PY'
 import hashlib,json,secrets,subprocess,sys,time

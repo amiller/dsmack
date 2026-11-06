@@ -1,8 +1,7 @@
 """Portable, offline, digest-preserving OCI publisher (measured guest image).
 
-PROBLEM (NATIVE-NETWORK-INTEGRATION.json): on the native Mini there is no host
-Docker and no public registry, and the old Zed ``10.0.2.2:5005`` host-loopback
-registry is not reachable.  ``docker load`` + retag is NOT sufficient: a loaded
+PROBLEM: the guest has no host Docker and no public registry.
+``docker load`` + retag is NOT sufficient: a loaded
 image gets a local ID but NO RepoDigest, so the runner's real pull-by-digest /
 RepoDigest verification cannot be satisfied.
 

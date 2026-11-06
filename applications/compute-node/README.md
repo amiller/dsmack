@@ -49,13 +49,8 @@ From the repository root:
 docker build -f applications/compute-node/Dockerfile -t compute-node .
 ```
 
-Update an installed base with the measured agent runtime profile:
-
-```sh
-python3 base-vm/browser-sandbox-v1/update-runtime.py --base BASE --out BASE_UPDATE
-```
-
-Use `BASE_UPDATE/build/legs/diagnostic/files` as the new base. Export the tool
+Derive the base with `base-vm/browser-sandbox-v1/derive.py` (see its README) and use
+its `build/legs/diagnostic/files` as `BASE`. Export the tool
 image as a gzip OCI layout and pack it with a starter compose manifest:
 
 ```sh

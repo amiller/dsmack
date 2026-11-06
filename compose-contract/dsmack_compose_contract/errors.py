@@ -53,7 +53,7 @@ class LoweringError(ContractError):
     """Deterministic lowering to Docker Compose cannot proceed (fail closed).
 
     Raised for a missing explicit daemon endpoint or run id, an unavailable
-    requested runtime (e.g. runsc absent -- never a silent fallback), or a
+    requested runtime (never a silent fallback), or a
     required credential broker that is not available.
     """
 

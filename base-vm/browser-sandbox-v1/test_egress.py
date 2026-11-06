@@ -7,7 +7,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-sys.path.insert(0, str(Path(__file__).parent / "source/runner-content/lib"))
+sys.path.insert(0, str(Path(__file__).parents[2] / "compose-contract"))
 from dsmack_compose_contract.egress import apply
 from dsmack_compose_contract.errors import MultiError
 from dsmack_compose_contract.lowering import lower, render_egress_rules

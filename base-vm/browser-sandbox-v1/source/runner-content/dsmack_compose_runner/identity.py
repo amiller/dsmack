@@ -4,7 +4,7 @@ Nothing here trusts names: every identity is resolved against the live
 daemon or real bytes and compared to the measured manifest pins.
   - image pins (repo@sha256:<child>) must exist in the daemon with the pin
     in RepoDigests and Architecture/Os equal to image_platform;
-  - the requested registered runtime must exist live (runsc absent =>
+  - the requested registered runtime must exist live (absent =>
     reject, never fallback), its closure component bytes must hash to the
     pin, and its live version must equal runner.runtime_version;
   - the harness path must resolve inside the image rootfs through
@@ -82,16 +82,8 @@ def ensure_image(control, image_ref: str, platform: dict) -> dict:
 
 
 # S07: per-runtime REGISTRATION ARGUMENT POLICY. The daemon registration (and
-# the manifest closure pin) must carry exactly the policy-required arguments:
-# a runsc registered without an explicit platform/network selection -- or with
-# a different one -- is NOT the reviewed runtime policy, even if the binary
-# bytes match. runsc must run systrap + netstack; runsc-hostnet is a DISTINCT
-# policy (systrap + host networking) and never satisfies a runsc request.
-RUNTIME_ARG_POLICY = {
-    "runc": (),
-    "runsc": ("--platform=systrap", "--network=sandbox"),
-    "runsc-hostnet": ("--platform=systrap", "--network=host"),
-}
+# the manifest closure pin) must carry exactly the policy-required arguments.
+RUNTIME_ARG_POLICY = {"runc": ()}
 
 
 def _resolve_registered_path(control, reg_path: str) -> str:
@@ -116,13 +108,13 @@ def verify_runtime_closure(control, manifest, runtime_available: tuple | None = 
     """D10 duties the runner performs against the LIVE host daemon.
 
     - the requested registered runtime must be registered with the daemon
-      (docker info Runtimes); runsc/runsc-hostnet requested on a host
-      without them FAILS CLOSED (no fallback, ever);
+      (docker info Runtimes); a runtime the host lacks FAILS CLOSED
+      (no fallback, ever);
     - S07: the daemon's ACTUAL registration is verified, not merely the
       runtime NAME: the registered executable path must resolve, its BYTES
       must hash to the closure pin, and the registered runtimeArgs must
       equal the closure registration_args AND the per-runtime argument
-      policy (systrap + explicit netstack/host for runsc classes). When the
+      policy. When the
       daemon does not expose the registration detail, this FAILS CLOSED
       (runtime-registration-unverifiable) instead of asserting
       registration_verified on name presence alone;
@@ -163,7 +155,7 @@ def verify_runtime_closure(control, manifest, runtime_available: tuple | None = 
 
     closure = runner.get("runtime_closure") or {}
     components = closure.get("components") if isinstance(closure, dict) else None
-    expected_name = "runc" if runtime_name == "runc" else "runsc"
+    expected_name = runtime_name
     component = None
     for entry in components or []:
         if isinstance(entry, dict) and entry.get("name") == expected_name:
@@ -179,8 +171,7 @@ def verify_runtime_closure(control, manifest, runtime_available: tuple | None = 
     if not isinstance(path, str) or not path.startswith("/") or not HEX64.match(pinned_sha or ""):
         raise RunnerError("runtime-closure-pin-invalid", "the runtime_closure component pin is malformed")
     # S07: the closure registration_args must equal the per-runtime POLICY
-    # table (not themselves): runc registers bare; runsc classes register an
-    # explicit systrap platform and an explicit netstack/host network choice.
+    # table (not themselves): runc registers bare.
     policy_args = RUNTIME_ARG_POLICY.get(runtime_name)
     if policy_args is None:
         raise RunnerError("runtime-closure-args-invalid", "no registration-argument policy exists for this runtime")

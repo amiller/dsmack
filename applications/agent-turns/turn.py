@@ -13,7 +13,7 @@ import sys
 import time
 
 ROOT = Path(__file__).resolve().parents[2]
-sys.path[:0] = [str(ROOT), str(ROOT/'base-vm/browser-sandbox-v1/source/runner-content/lib'), str(ROOT/'dstack-compat'),
+sys.path[:0] = [str(ROOT), str(ROOT/'compose-contract'), str(ROOT/'dstack-compat'),
                 str(Path(__file__).resolve().parent)]
 from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_commitment
 import find

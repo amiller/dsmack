@@ -60,7 +60,7 @@ class ValueFreeArguments(argparse.ArgumentParser):
 
 def main():
  ap=ValueFreeArguments(description=__doc__)
- for n in ('preparation','expected-manifest-sha256','expected-projection-sha256','guest-source','transport-module','private-parent','out-name'):ap.add_argument('--'+n,required=True)
+ for n in ('preparation','expected-manifest-sha256','expected-projection-sha256','contract-lib','transport-module','private-parent','out-name'):ap.add_argument('--'+n,required=True)
  ap.add_argument('--transport-backend',choices=('linux-memfd-v1','darwin-owned-tempfile-v1'),default='linux-memfd-v1');ap.add_argument('--portable-module');ap.add_argument('--temporary-parent')
  a=ap.parse_args();parent=Path(a.private_parent);need(parent.is_absolute(),'absolute private parent');private_parent(parent)
  need(a.out_name and len(a.out_name)<=80 and all(c in 'abcdefghijklmnopqrstuvwxyz0123456789-'for c in a.out_name),'private namespace name')
@@ -69,7 +69,7 @@ def main():
  m=json.loads(manifest,object_pairs_hook=unique);e=json.loads(projection,object_pairs_hook=unique)
  need(m['credentials']==credential_contract()and e['manifest_sha256']==sha(manifest),'selected credential contract')
  need(set(e)=={'runtime_input_version','manifest_sha256','files','commitments'},'public projection must exclude private values')
- sys.path.insert(0,str(Path(a.guest_source)/'runner-content/lib'))
+ sys.path.insert(0,a.contract_lib)
  from dsmack_compose_contract.runtime_inputs import validate_runtime_inputs_bytes,compute_commitment
  from dsmack_compose_contract.manifest import validate_manifest_bytes
  validate_manifest_bytes(manifest);selector=m['name'];need(compute_commitment(e,m)==e['commitments']['inputs_sha256'],'selected public commitment')

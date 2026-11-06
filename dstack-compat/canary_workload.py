@@ -69,7 +69,7 @@ def main(repo, files, starter, out):
 def pack(repo, files, starter, out, name, mb, build_disk=None):
     """Validate manifest bytes mb and pack them with the image and the starter's OCI layout into out/workload.img."""
     sys.path[:0] = [str(repo / "applications/pilot-client/workload"),
-                    str(repo / "base-vm/browser-sandbox-v1/source/runner-content/lib")]
+                    str(repo / "compose-contract")]
     from transport_loader import load
     from dsmack_compose_contract.manifest import validate_manifest_bytes
     validate_manifest_bytes(mb)
@@ -87,7 +87,7 @@ def pack(repo, files, starter, out, name, mb, build_disk=None):
     (tree / "WORKLOAD").write_text(name + "\n")
     shutil.copytree(starter / "oci-layout", tree / "oci-layout")
     if build_disk is None:
-        t = load(repo / "base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py")
+        t = load(repo / "tools/base-vm/launch_vm_dstack_arm64.py")
         t.start_overall_deadline(300)
         t.build_workload_disk(None, str(tree), str(out / "workload.img"), 1 << 30)
     else:

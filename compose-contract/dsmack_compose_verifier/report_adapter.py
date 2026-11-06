@@ -80,8 +80,8 @@ from .attestation import (
     report_body,
     validate_verifier_report,
 )
-from .canonical import canonical_bytes, load_json_bytes, sha256_obj
-from .manifest import HEX64_RE
+from dsmack_compose_contract.canonical import canonical_bytes, load_json_bytes, sha256_obj
+from dsmack_compose_contract.manifest import HEX64_RE
 
 VERIFIER_REQUEST_VERSION = 2
 

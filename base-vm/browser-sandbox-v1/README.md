@@ -3,8 +3,8 @@
 Source for the `browser-sandbox-v1` guest image the signed Mac runner boots. It
 is a small dstack-derived Debian ARM64 system with Docker, the compose runner
 (`source/runner-content/dsmack_compose_runner`), guest input/output transport
-(`source/runner-content/dsmack_guest_io`), the shared compose contract library
-(`source/runner-content/lib/dsmack_compose_contract`) and a closed browser
+(`source/runner-content/dsmack_guest_io`), the guest half of the compose contract
+library (`compose-contract/dsmack_compose_contract` at the repo root) and a closed browser
 sandbox preset (`security.py` plus the Playwright seccomp policy
 `browser-sandbox-v1.json`). Board checks, judges and settlement run in
 application containers and external verifiers, not in the guest.
@@ -16,8 +16,8 @@ with the preset's capabilities, resource limits and seccomp policy. Public file 
 private disk.
 
 The host verifier (`applications/pilot-client/verifier-browser`) and the bounty
-applications import the contract library from this directory, so guest and
-verifier validate manifests and receipts with the same code.
+applications import the same contract library from `compose-contract/`, so guest
+and verifier validate manifests and receipts with the same code.
 Networked workloads declare `network.egress`, a measured list of IP/CIDR,
 protocol (`tcp` or `udp`) and destination port tuples, for example:
 
@@ -29,15 +29,16 @@ The supervisor applies nftables to guest output and container forwarding before
 starting brokers or compose. Missing or empty `egress` denies external traffic;
 loopback and replies to inbound connections remain available. DNS requires an
 explicit resolver IP and port entry, which permits queries for any name.
-`source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
+`tools/base-vm/launch_vm_dstack_arm64.py` (repo root) supplies the workload-disk packer used
 by `applications/pilot-client/workload/transport_loader.py`.
 
 ## Derive the image
 
 `derive.py` takes a base bundle (`Image`, `config-6.18.40-dstack`,
 `rootfs.squashfs.verity`) the Linux 6.18.40 source tarball and the 4GiB scratch / 256MiB result disk templates.
-In an offline builder container it unpacks the base rootfs, overlays the runner
-files listed in `derive-in-container.sh`, and assembles a new verity image with
+In an offline builder container it unpacks the base rootfs, replaces
+`/usr/local/lib/dsmack`, `/usr/local/bin/dsmack-*`, `/usr/bin/dsmack-supervisor`
+and `/etc/docker/daemon.json` with the committed files of `git archive HEAD` (`install-guest.sh`), and assembles a new verity image with
 `source/build/assemble_leg.sh`. It needs an x86-64 Docker host and about 2GB of
 disk, plus the kernel build tree. It rebuilds Linux 6.18.40 with dm-crypt and XTS enabled.
 
@@ -62,6 +63,8 @@ It prints the artifact directory and the image digest (`digest.txt`, the
 SHA-256 of `sha256sum.txt`), which must equal `image.sha256`. The `image-repro` workflow runs this derivation on
 GitHub Actions and fails on any other digest; a change that alters the image
 updates `image.sha256` in the same PR.
+`check_rootfs.py ROOTFS` fails unless every installed dsmack file is byte-equal
+to a repo file and no `SHA256SUMS` remains; `image-repro` runs it on the derived rootfs.
 
 ```sh
 python3 -m pytest base-vm/browser-sandbox-v1

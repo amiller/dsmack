@@ -1,7 +1,7 @@
 """CLI for the dsmack app-compose contract validators (v4, contract4).
 
 Usage:
-  PYTHONPATH=lib python3 -m dsmack_compose_contract <command> [args]
+  PYTHONPATH=compose-contract python3 -m dsmack_compose_verifier <command> [args]
 
 Commands:
   validate-manifest FILE                 validate a workload manifest; prints
@@ -47,12 +47,12 @@ import argparse
 import json
 import sys
 
-from .canonical import exact_and_canonical_sha256
-from .errors import ContractError
-from .lowering import lower, render_compose_file
-from .manifest import validate_manifest_bytes
-from .receipt import validate_receipt_bytes
-from .runtime_inputs import MAX_ENVELOPE_BYTES, redact, validate_runtime_inputs_bytes
+from dsmack_compose_contract.canonical import exact_and_canonical_sha256
+from dsmack_compose_contract.errors import ContractError
+from dsmack_compose_contract.lowering import lower, render_compose_file
+from dsmack_compose_contract.manifest import validate_manifest_bytes
+from dsmack_compose_contract.receipt import validate_receipt_bytes
+from dsmack_compose_contract.runtime_inputs import MAX_ENVELOPE_BYTES, redact, validate_runtime_inputs_bytes
 
 #: CLI read bound (D05): raw reads never exceed the parse bound before the
 #: parser can reject oversize documents.
@@ -86,7 +86,7 @@ def _run(args):
         return _emit({"ok": True, "kind": "runtime-inputs", **summary})
 
     if args.command == "validate-receipt":
-        from .receipt import verify_receipt_index_membership
+        from dsmack_compose_contract.receipt import verify_receipt_index_membership
 
         manifest_raw = _read(args.manifest)
         receipt_raw = _read(args.file)
@@ -101,7 +101,7 @@ def _run(args):
             blobs = {}
             for path in args.index:
                 blob = _read(path)
-                from .canonical import sha256_hex
+                from dsmack_compose_contract.canonical import sha256_hex
 
                 blobs["sha256:%s" % sha256_hex(blob)] = blob
             index_membership = verify_receipt_index_membership(manifest_raw, receipt, blobs)
@@ -195,7 +195,7 @@ def _run(args):
 
 
 def _parsed(raw_bytes, what):
-    from .canonical import load_json_bytes
+    from dsmack_compose_contract.canonical import load_json_bytes
 
     return load_json_bytes(raw_bytes, what, max_bytes=MAX_ENVELOPE_BYTES)
 

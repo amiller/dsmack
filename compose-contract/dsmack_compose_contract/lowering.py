@@ -35,7 +35,7 @@ Frozen rules unchanged from v3: explicit daemon endpoint (the ONLY
 selection mechanism), allowlist-only control environment with isolated
 per-run dirs, long-syntax volumes with create_host_path:false,
 long-syntax loopback ports, network_mode none only for network 'none',
-hostnet NEVER Docker host networking, fixed nonroot user, array-only
+fixed nonroot user, array-only
 argv, '$'-free generated configuration (caller values escaped '$$').
 """
 
@@ -510,10 +510,6 @@ def _lower_network(manifest):
     ports = manifest["network"]["listen_ports"]
     if mode == "none":
         return "none", []
-    # nat AND hostnet: compose-managed default bridge topology (C04: hostnet
-    # is a gVisor runtime policy, never Docker host networking).
-    if mode == "hostnet":
-        return None, []
     return None, [
         {"host_ip": "127.0.0.1", "protocol": "tcp", "published": p, "target": p} for p in ports
     ]
@@ -524,8 +520,8 @@ def _compose_argv(manifest, project_name, completion_service):
 
     stdin mode pipe (single-service only, validated upstream) uses
     `compose run -i -T`; every other manifest starts ALL services DETACHED
-    (`compose up --detach --quiet-pull`). The runsc-qualification first-exit
-    race is closed structurally: nothing aborts on a producer's exit. The
+    (`compose up --detach --quiet-pull`). The first-exit race is closed
+    structurally: nothing aborts on a producer's exit. The
     runner then follows the frozen lifecycle in `lifecycle` -- wait for the
     DESIGNATED completion service only, stop remaining writers, inspect every
     service BEFORE removal, collect stable outputs, then down. The run's exit

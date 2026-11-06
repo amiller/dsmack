@@ -8,7 +8,7 @@ walk that never follows symlinks and runs after EVERY outcome.
 
 Cap honesty: as root the workspace is mounted as a size-capped tmpfs
 (growth past the cap is ENOSPC to the workload, the contract's hard-cap
-shape); unprivileged (this lane's Zed account) the cap is enforced by a
+shape); unprivileged the cap is enforced by a
 0.5 s poll that cancels the run with reason `limit-workspace` -- a
 monitor, not a mount-quota ENOSPC boundary. The difference is recorded in
 every run summary and must be disclosed wherever evidence is presented.

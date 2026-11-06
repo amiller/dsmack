@@ -26,7 +26,7 @@ TURNS = Path(__file__).resolve().parent
 ROOT = TURNS.parents[1]
 GUEST = ROOT/'base-vm/browser-sandbox-v1/source'
 PILOT = ROOT/'applications/pilot-client'
-sys.path[:0] = [str(GUEST/'runner-content/lib'), str(PILOT/'workload')]
+sys.path[:0] = [str(ROOT/'compose-contract'), str(PILOT/'workload')]
 from dsmack_compose_contract.manifest import validate_manifest_bytes
 from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_commitment
 
@@ -236,7 +236,7 @@ def release(args):
 def public_disk(out, manifest_raw, projection, context, oci, base):
     """The measured workload disk: manifest, base bundle, commitment declaration, closure context and image."""
     from transport_loader import execute, load, raw
-    transport = load(GUEST/'smoke/launch_vm_dstack_arm64.py')
+    transport = load(ROOT/'tools/base-vm/launch_vm_dstack_arm64.py')
     package = sys.modules['dsmack_guest_io']
     for name in ('closure', 'oci_publish'):
         path = GUEST/'runner-content/dsmack_guest_io'/(name + '.py')

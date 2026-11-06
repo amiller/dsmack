@@ -1,0 +1,5 @@
+#!/usr/bin/python3
+import sys
+sys.path.insert(0, "/usr/local/lib/dsmack/guest-io")
+from dsmack_guest_io.cli import main
+sys.exit(main())

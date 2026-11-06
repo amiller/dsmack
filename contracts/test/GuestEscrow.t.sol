@@ -78,15 +78,15 @@ contract GuestEscrowTest is GuestEscrowBase {
         if (err.length > 0) vm.expectRevert(err);
         esc.registerGuestKey(vm.addr(key), op, a, events(), p);
     }
-    function sig(uint256 key, address op, uint256 owed, uint64 period) internal view returns (bytes memory) {
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, esc.claimDigest(buyer, op, termsHash, owed, period));
+    function sig(uint256 key, address op, uint256 owed) internal view returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, esc.claimDigest(buyer, op, termsHash, owed));
         return abi.encodePacked(r, s, v);
     }
     function claim(uint256 key, uint256 owed) internal { claim(key, owed, ""); }
     function claim(uint256 key, uint256 owed, bytes memory err) internal {
-        bytes memory g = sig(key, operator, owed, 30);
+        bytes memory g = sig(key, operator, owed);
         if (err.length > 0) vm.expectRevert(err);
-        esc.claim(buyer, termsHash, owed, 30, g);
+        esc.claim(buyer, termsHash, owed, g);
     }
 
     function testConstructorRequiresVerifierBoundToEscrow() public {
@@ -166,30 +166,204 @@ contract GuestEscrowTest is GuestEscrowBase {
     }
     function testUnacceptedTermsAndDepositLimit() public {
         register(guestKey, operator);
-        bytes memory g = sig(guestKey, operator, 1e6, 30);
+        bytes memory g = sig(guestKey, operator, 1e6);
         vm.expectRevert("terms not accepted");
-        esc.claim(other, termsHash, 1e6, 30, g);
+        esc.claim(other, termsHash, 1e6, g);
         vm.prank(other); esc.acceptTerms(termsHash, operator, 10e6);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(guestKey, esc.claimDigest(other, operator, termsHash, 1e6, 30));
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(guestKey, esc.claimDigest(other, operator, termsHash, 1e6));
         vm.expectRevert("deposit exceeded");
-        esc.claim(other, termsHash, 1e6, 30, abi.encodePacked(r, s, v));
+        esc.claim(other, termsHash, 1e6, abi.encodePacked(r, s, v));
     }
     function testSignatureBoundToBuyer() public {
         register(guestKey, operator);
         vm.prank(other); esc.acceptTerms(termsHash, operator, 10e6);
         // buyer's claim signature, replayed for another account, recovers to a different (unregistered) key.
-        bytes memory g = sig(guestKey, operator, 1e6, 30);
+        bytes memory g = sig(guestKey, operator, 1e6);
         vm.expectRevert("guest key not registered");
-        esc.claim(other, termsHash, 1e6, 30, g);
+        esc.claim(other, termsHash, 1e6, g);
     }
-    function testExitWindowStopsClaims() public {
+    function none() internal pure returns (bytes32[] memory a) {}
+    function one(bytes32 h) internal pure returns (bytes32[] memory a) { a = new bytes32[](1); a[0] = h; }
+    function sign(uint256 key, bytes32 d) internal pure returns (bytes memory) {
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(key, d);
+        return abi.encodePacked(r, s, v);
+    }
+    function testWithdrawDownToExposure() public {
+        assertEq(esc.exposure(buyer), 10e6);
+        assertEq(esc.withdrawable(buyer), 40e6);
+        vm.startPrank(buyer);
+        vm.expectRevert("above withdrawable");
+        esc.withdraw(40e6 + 1, none());
+        esc.withdraw(40e6, none());
+        vm.stopPrank();
+        assertEq(token.balanceOf(buyer), 90e6);
+        assertEq(esc.balance(buyer), 10e6);
+    }
+    function testWithdrawRacingClaimNeverStrandsClaim() public {
         register(guestKey, operator);
-        vm.prank(buyer); esc.requestExit();
-        claim(guestKey, 1e6);
-        vm.warp(block.timestamp + 14 days);
-        claim(guestKey, 2e6, "account exited");
-        vm.prank(buyer); esc.withdraw();
-        assertEq(token.balanceOf(buyer), 99e6);
+        vm.prank(buyer); esc.withdraw(40e6, none());
+        claim(guestKey, 10e6);
+        assertEq(token.balanceOf(operator), 10e6);
+        assertEq(esc.exposure(buyer), 0);
+        assertEq(esc.balance(buyer), 0);
+        // Claim first, then withdraw: the other order.
+        vm.startPrank(buyer);
+        vm.expectRevert("above withdrawable");
+        esc.withdraw(1, none());
+    }
+    function testClaimReducesExposureOnly() public {
+        register(guestKey, operator);
+        claim(guestKey, 4e6);
+        assertEq(esc.exposure(buyer), 6e6);
+        assertEq(esc.withdrawable(buyer), 40e6);
+    }
+    function testCloseThenClaimInsideGrace() public {
+        register(guestKey, operator);
+        vm.prank(buyer); esc.closeTerms(termsHash);
+        vm.prank(buyer); esc.acceptTerms(keccak256("t2"), operator, 5e6);
+        // Closed terms still count: only the open remainder beyond exposure is free.
+        vm.startPrank(buyer);
+        vm.expectRevert("above withdrawable");
+        esc.withdraw(36e6, none());
+        esc.withdraw(35e6, none());
+        vm.stopPrank();
+        vm.warp(block.timestamp + 1 days - 1);
+        claim(guestKey, 10e6);
+        assertEq(token.balanceOf(operator), 10e6);
+    }
+    function testCloseThenClaimAfterGraceRefused() public {
+        register(guestKey, operator);
+        claim(guestKey, 3e6);
+        vm.prank(buyer); esc.closeTerms(termsHash);
+        vm.warp(block.timestamp + 1 days);
+        claim(guestKey, 4e6, "terms closed");
+        vm.startPrank(buyer);
+        vm.expectRevert("above withdrawable");
+        esc.withdraw(47e6, none());
+        esc.withdraw(47e6, one(termsHash));
+        vm.stopPrank();
+        assertEq(esc.exposure(buyer), 0);
+        assertEq(esc.balance(buyer), 0);
+    }
+    function testReleaseOnlyAfterGraceAndOnce() public {
+        vm.startPrank(buyer);
+        vm.expectRevert("not expired");
+        esc.withdraw(1, one(termsHash));
+        esc.closeTerms(termsHash);
+        vm.expectRevert("terms not open");
+        esc.closeTerms(termsHash);
+        vm.expectRevert("not expired");
+        esc.withdraw(1, one(termsHash));
+        vm.warp(block.timestamp + 1 days);
+        esc.withdraw(1, one(termsHash));
+        vm.expectRevert("not expired");
+        esc.withdraw(1, one(termsHash));
+        vm.stopPrank();
+        assertEq(esc.exposure(buyer), 0);
+    }
+    function testCannotReleaseOpenOrOthersTerms() public {
+        vm.warp(block.timestamp + 365 days);
+        vm.prank(buyer);
+        vm.expectRevert("not expired");
+        esc.withdraw(1, one(termsHash));
+        vm.prank(other);
+        vm.expectRevert("not expired");
+        esc.withdraw(1, one(termsHash));
+    }
+    function testCapEqualToDepositLocksEverything() public {
+        vm.startPrank(buyer);
+        esc.acceptTerms(keccak256("full"), operator, 40e6);
+        assertEq(esc.exposure(buyer), 50e6);
+        assertEq(esc.withdrawable(buyer), 0);
+        vm.expectRevert("above withdrawable");
+        esc.withdraw(1, none());
+        vm.stopPrank();
+        register(guestKey, operator);
+        bytes memory g = sign(guestKey, esc.claimDigest(buyer, operator, keccak256("full"), 40e6));
+        esc.claim(buyer, keccak256("full"), 40e6, g);
+        assertEq(token.balanceOf(operator), 40e6);
+        assertEq(esc.balance(buyer), 10e6);
+        assertEq(esc.exposure(buyer), 10e6);
+    }
+    function testCapAboveDepositPayoutBoundedByDeposit() public {
+        register(guestKey, operator);
+        vm.startPrank(buyer);
+        esc.acceptTerms(keccak256("big"), operator, 500e6);
+        vm.stopPrank();
+        assertEq(esc.withdrawable(buyer), 0);
+        bytes memory g = sign(guestKey, esc.claimDigest(buyer, operator, keccak256("big"), 51e6));
+        vm.expectRevert("deposit exceeded");
+        esc.claim(buyer, keccak256("big"), 51e6, g);
+        g = sign(guestKey, esc.claimDigest(buyer, operator, keccak256("big"), 50e6));
+        esc.claim(buyer, keccak256("big"), 50e6, g);
+        assertEq(esc.balance(buyer), 0);
+    }
+    function testCloseTermsForRelayedAndReplayed() public {
+        uint256 bk = 0xB0B;
+        address b = vm.addr(bk);
+        token.transfer(b, 5e6);
+        vm.startPrank(b); token.approve(address(esc), 5e6); esc.deposit(5e6); esc.acceptTerms(termsHash, operator, 3e6); vm.stopPrank();
+        bytes memory sg = sign(bk, esc.closeDigest(b, termsHash));
+        vm.expectRevert("close signature");
+        esc.closeTermsFor(other, termsHash, sg);
+        esc.closeTermsFor(b, termsHash, sg);
+        (,, uint64 closedAt,) = esc.terms(b, termsHash);
+        assertEq(closedAt, block.timestamp);
+        vm.expectRevert("terms not open");
+        esc.closeTermsFor(b, termsHash, sg);
+        vm.expectRevert("close signature");
+        esc.closeTermsFor(b, keccak256("other"), sg);
+    }
+    function testWithdrawForRelayedToSignedRecipient() public {
+        uint256 bk = 0xB0B;
+        address b = vm.addr(bk);
+        token.transfer(b, 5e6);
+        vm.startPrank(b); token.approve(address(esc), 5e6); esc.deposit(5e6); vm.stopPrank();
+        bytes memory sg = sign(bk, esc.withdrawDigest(b, other, 2e6, 0));
+        // Relayer cannot redirect or inflate.
+        vm.expectRevert("withdraw signature");
+        esc.withdrawFor(b, address(this), 2e6, sg, none());
+        vm.expectRevert("withdraw signature");
+        esc.withdrawFor(b, other, 3e6, sg, none());
+        esc.withdrawFor(b, other, 2e6, sg, none());
+        assertEq(token.balanceOf(other), 2e6);
+        assertEq(esc.withdrawNonce(b), 1);
+        // Replay of the same signature, now stale.
+        vm.expectRevert("withdraw signature");
+        esc.withdrawFor(b, other, 2e6, sg, none());
+        // Signature from a different key cannot withdraw for b.
+        bytes memory bad = sign(0xBAD, esc.withdrawDigest(b, other, 1e6, 1));
+        vm.expectRevert("withdraw signature");
+        esc.withdrawFor(b, other, 1e6, bad, none());
+        // A signature for b's domain does not work for another user.
+        bytes memory sg2 = sign(bk, esc.withdrawDigest(b, other, 1e6, 1));
+        vm.expectRevert("withdraw signature");
+        esc.withdrawFor(buyer, other, 1e6, sg2, none());
+    }
+    function testWithdrawForZeroRecipientRefused() public {
+        uint256 bk = 0xB0B;
+        address b = vm.addr(bk);
+        token.transfer(b, 5e6);
+        vm.startPrank(b); token.approve(address(esc), 5e6); esc.deposit(5e6); vm.stopPrank();
+        bytes memory sg = sign(bk, esc.withdrawDigest(b, address(0), 1e6, 0));
+        vm.expectRevert("above withdrawable");
+        esc.withdrawFor(b, address(0), 1e6, sg, none());
+    }
+    function testDepositAfterWithdrawAllowed() public {
+        vm.startPrank(buyer);
+        esc.withdraw(40e6, none());
+        token.approve(address(esc), 1e6); esc.deposit(1e6);
+        vm.stopPrank();
+        assertEq(esc.balance(buyer), 11e6);
+    }
+    function testTwoKeysShareExposure() public {
+        register(guestKey, operator);
+        register(guestKey2, operator);
+        claim(guestKey, 6e6);
+        bytes memory g = sign(guestKey2, esc.claimDigest(buyer, operator, termsHash, 4e6));
+        esc.claim(buyer, termsHash, 4e6, g);
+        assertEq(esc.exposure(buyer), 0);
+        assertEq(esc.withdrawable(buyer), 40e6);
     }
     function testDepositWithAuthorization() public {
         uint256 payerKey = 0xA11CE;

@@ -4,6 +4,7 @@ import { Wallet } from "npm:ethers@6.17.0";
 import { Payments } from "./payments.mjs";
 import { Inference, creditGrantPrefix } from "./inference.mjs";
 import { AgentSessions } from "./agent.mjs";
+import { Broker } from "./broker.mjs";
 import { canonical, signingKey } from "./grants.mjs";
 const hex = (v) => [...new Uint8Array(v)].map(v => v.toString(16).padStart(2,"0")).join("");
 const peer = "12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x";
@@ -16,7 +17,7 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
  const payments=new Payments({cfg:{},key:{},quorum:{},state:{},save:async()=>{},now:()=>now});
  const inference=new Inference({payments,cfg:{model:"fixture/model",starterCreditNanoUsd:starter},provider:{apiKey:"fixture"},now:()=>now});
  const node={kind:"compute",relay_peer:peer,receipt_key,admit_until:now+lifetime};
- const broker={payments,inference,key,cfg:{},live:()=>[node],registered:()=>true,now:()=>now};
+ const broker={payments,inference,key,cfg:{},live:()=>[node],gone:()=>false,now:()=>now};
  let fleetSlots;
  const readFleet=async()=>[{publisher:"mac-one",online:true,received_at:now,updated_at:now,
   slots:fleetSlots??broker.live().map((n,slot_id)=>({slot_id,state:"ready",relay_peer:n.relay_peer}))}];
@@ -310,12 +311,31 @@ test("a started stay whose guest stops registering closes at its last receipt an
  const f=await fixture(),session=await f.open();
  await f.sessions.receipt(await f.receipt(session.sessionId,5));
  f.advance(200);
- f.broker.registered=()=>false;
+ f.broker.gone=()=>true;
  const status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.active,false);assert.equal(status.closedReason,"guest-unreachable");assert.equal(status.usageUnresolved,false);
  assert.equal(status.credit.reservedNanoUsd,"0");assert.equal(status.credit.spentNanoUsd,"50000");
  await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,9,true)),e=>e.code==="GUEST_USAGE");
  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"50000");
- f.broker.registered=()=>true;
+ f.broker.gone=()=>false;
  assert.notEqual((await f.open()).sessionId,session.sessionId);
+});
+
+test("a broker restart or a blip shorter than grant_seconds keeps a started stay; only longer silence closes it",async()=>{
+ const f=await fixture(),session=await f.open();
+ await f.sessions.receipt(await f.receipt(session.sessionId,5));
+ const status=async()=>f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
+ let restarted=new Broker({cfg:{},now:f.broker.now});
+ f.broker.gone=p=>restarted.gone(p);
+ assert.equal((await status()).active,true,"fresh process, guest not yet re-registered");
+ f.advance(250);
+ assert.equal((await status()).active,true,"silent 250 s after restart");
+ restarted.seen.set(f.node.relay_peer,f.broker.now());
+ f.advance(250);
+ await f.sessions.receipt(await f.receipt(session.sessionId,6));
+ assert.equal((await status()).active,true,"silent 250 s after its last registration");
+ f.advance(51);
+ const closed=await status();
+ assert.equal(closed.active,false);assert.equal(closed.closedReason,"guest-unreachable");
+ assert.equal(closed.credit.spentNanoUsd,"60000");
 });

@@ -59,7 +59,6 @@ export class SavedWorkspace {
     this.head = newestWorkspace(this.head, head);
     await this.floorStore(this.floorKey, this.head);
     await this.persist(this.head);
-    this.changed({ state: "saved", head: this.head });
   }
   async download(head) {
     checkWorkspaceHead(head, this.workspaceId);
@@ -100,6 +99,7 @@ export class SavedWorkspace {
     require(version === head.version && previous === head.hash, "Saved workspace history does not reach its head.");
     this.downloaded = { head, bytes: await this.download(head) };
     await this.accept(head);
+    this.changed({ state: "saved", head: this.head });
     return head;
   }
   async control(client, operation, fields = {}) {
@@ -131,27 +131,33 @@ export class SavedWorkspace {
   save(client, lease) { return this.serial(async () => {
     require(this.bound, "Open a workspace before saving.");
     this.changed({ state: "saving", head: this.head });
-    const candidate = await this.control(client, "seal");
-    checkWorkspaceHead(candidate, this.workspaceId);
-    require(same(candidate, this.head) || (candidate.version === (this.head?.version ?? 0) + 1 && candidate.previousHash === (this.head?.hash ?? GENESIS)),
-      "Guest sealed a conflicting workspace version.");
-    const begun = await this.request("begin", { version: candidate.version, previousHash: candidate.previousHash,
-      hash: candidate.hash, size: candidate.size, ...(lease.placement?.publisher ? { mac: lease.placement.publisher } : {}) });
-    let committed = begun.committed ? begun.head : null;
-    if (!committed) {
-      for (let offset = begun.offset; offset < candidate.size;) {
-        const part = await this.control(client, "read", { offset, length: CHUNK });
-        const count = decode(part.data).length;
-        require(part.offset === offset && count > 0 && count <= CHUNK && offset + count <= candidate.size, "Invalid guest snapshot chunk.");
-        const uploaded = await this.request("chunk", { uploadId: begun.uploadId, offset, data: part.data });
-        require(uploaded.offset === offset + count, "Workspace upload offset mismatch.");
-        offset = uploaded.offset;
+    try {
+      const candidate = await this.control(client, "seal");
+      checkWorkspaceHead(candidate, this.workspaceId);
+      require(same(candidate, this.head) || (candidate.version === (this.head?.version ?? 0) + 1 && candidate.previousHash === (this.head?.hash ?? GENESIS)),
+        "Guest sealed a conflicting workspace version.");
+      const begun = await this.request("begin", { version: candidate.version, previousHash: candidate.previousHash,
+        hash: candidate.hash, size: candidate.size, ...(lease.placement?.publisher ? { mac: lease.placement.publisher } : {}) });
+      let committed = begun.committed ? begun.head : null;
+      if (!committed) {
+        for (let offset = begun.offset; offset < candidate.size;) {
+          const part = await this.control(client, "read", { offset, length: CHUNK });
+          const count = decode(part.data).length;
+          require(part.offset === offset && count > 0 && count <= CHUNK && offset + count <= candidate.size, "Invalid guest snapshot chunk.");
+          const uploaded = await this.request("chunk", { uploadId: begun.uploadId, offset, data: part.data });
+          require(uploaded.offset === offset + count, "Workspace upload offset mismatch.");
+          offset = uploaded.offset;
+        }
+        committed = (await this.request("commit", { uploadId: begun.uploadId })).head;
       }
-      committed = (await this.request("commit", { uploadId: begun.uploadId })).head;
+      require(same(committed, candidate), "Stored workspace differs from the guest's seal.");
+      await this.accept(committed);
+      await this.control(client, "commit", { head: committed });
+      this.changed({ state: "saved", head: this.head });
+      return committed;
+    } catch (error) {
+      this.changed({ state: "save-error", head: this.head, error: error.message });
+      throw error;
     }
-    require(same(committed, candidate), "Stored workspace differs from the guest's seal.");
-    await this.accept(committed);
-    await this.control(client, "commit", { head: committed });
-    return committed;
   }); }
 }

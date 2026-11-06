@@ -33,3 +33,11 @@ export async function emailRecoveryNonce(publicKey,userId,ts) {
   for(const byte of hash){value=(value<<8)|byte;bits+=8;while(bits>=5){result+=alphabet[(value>>>(bits-5))&31];bits-=5;}}
   return result.slice(0,26);
 }
+
+export const recoveryControlId = dk => digest('dsmack.email-recovery/control/1|'+dk);
+export const recoveryControlMessage = (action,{controlId,id,ts}) => bytes(['dsmack.email-recovery/control/1',action,controlId,id||'',ts]);
+export const recoveryControlKey = dk => crypto.subtle.importKey('raw',unb64(dk),{name:'HMAC',hash:'SHA-256'},false,['sign','verify']);
+export async function recoveryControl(dk,action,id,ts=Date.now()) {
+  const body={controlId:await recoveryControlId(dk),id,ts};
+  return {...body,auth:b64(await crypto.subtle.sign('HMAC',await recoveryControlKey(dk),recoveryControlMessage(action,body)))};
+}

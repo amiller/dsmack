@@ -522,6 +522,8 @@ func main() {
 	answer := flag.String("answer-ip", "", "private gateway IPv4 address")
 	fixedHost := flag.String("websocket-host", "", "fixed TLS hostname for loopback-only WebSocket clients")
 	upstreamProxy := flag.String("upstream-proxy", "", "explicit HTTP CONNECT proxy with an IP address")
+	monitorHash := flag.String("monitor-hash", "", "registered measured monitor policy hash")
+	monitorDescription := flag.String("monitor-policy", "", "exact registered monitor policy text")
 	timeout := flag.Duration("upstream-timeout", 15*time.Second, "upstream request timeout, at most 180s")
 	flag.Parse()
 	if *timeout <= 0 || *timeout > 180*time.Second {
@@ -555,6 +557,33 @@ func main() {
 		}
 	}
 	var handler http.Handler = g
+	if *monitorHash != "" || *monitorDescription != "" {
+		listenHost, _, listenErr := net.SplitHostPort(*listen)
+		if listenErr != nil || !net.ParseIP(listenHost).IsLoopback() {
+			log.Fatal("monitor requires loopback listener")
+		}
+		name, err := registeredMonitor(*monitorHash, *monitorDescription)
+		if err != nil {
+			log.Fatal(err)
+		}
+		var model classifier
+		if name == "baseline-pg2" {
+			worker, err := startPromptGuard()
+			if err != nil {
+				log.Fatal("monitor startup failed")
+			}
+			defer worker.close()
+			model = worker
+		}
+		check := monitorHandler(model)
+		handler = http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/_dsmack/monitor" && r.Host == *listen {
+				check(w, r)
+				return
+			}
+			g.ServeHTTP(w, r)
+		})
+	}
 	if *fixedHost != "" {
 		listenHost, _, listenErr := net.SplitHostPort(*listen)
 		if !validName(*fixedHost) || g.index(*fixedHost) < 0 || listenErr != nil || !net.ParseIP(listenHost).IsLoopback() {
@@ -570,6 +599,9 @@ func main() {
 		})
 	}
 	server := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 3 * time.Second, ReadTimeout: 10 * time.Second, WriteTimeout: *timeout + 5*time.Second, MaxHeaderBytes: 16384, ErrorLog: log.New(io.Discard, "", 0)}
+	if *monitorHash != "" {
+		server.WriteTimeout = 130 * time.Second
+	}
 	fmt.Fprintln(os.Stderr, "egress gateway ready")
 	if err = server.ListenAndServe(); err != nil {
 		log.Fatal("HTTP server stopped")

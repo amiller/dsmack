@@ -1,4 +1,5 @@
 import { verifyMessage } from "../payments/schema.mjs";
+import { accrue } from "./payments.mjs";
 import { canonical } from "./grants.mjs";
 
 export class InferenceError extends Error {
@@ -34,6 +35,7 @@ export class Inference {
       payments,
       cfg: {
         starterCreditNanoUsd: "250000000",
+        dailyStarterBudgetNanoUsd: "5000000000",
         maxNanoUsdPerToken: "1500",
         maxOutputTokens: 512,
         ...cfg,
@@ -45,6 +47,7 @@ export class Inference {
       payments && typeof cfg?.model === "string" && cfg.model.length > 0 &&
         uint(this.cfg.starterCreditNanoUsd) &&
         BigInt(this.cfg.starterCreditNanoUsd) > 0n &&
+        uint(this.cfg.dailyStarterBudgetNanoUsd) &&
         uint(this.cfg.maxNanoUsdPerToken) &&
         BigInt(this.cfg.maxNanoUsdPerToken) > 0n &&
         Number.isSafeInteger(this.cfg.maxOutputTokens) &&
@@ -53,6 +56,7 @@ export class Inference {
       "model and integer inference limits are required",
     );
     this.sessions = new Map();
+    this.preparations = new Map();
     this.activeRequests = new Set();
   }
   configured() {
@@ -183,8 +187,12 @@ export class Inference {
       "wallet signature does not verify",
       403,
     );
+    const repeatable = ["prepare", "chat"].includes(action);
+    const requestHash = repeatable ? hex(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(canonical(unsigned))))) : undefined;
+    await this.payments.syncBalance?.(wallet);
     await this.payments.serial(async () => {
       const state = this.payments.state;
+      const next = { ...state };
       let a = state.inferenceCredit?.[wallet];
       if (!a) {
         check(
@@ -193,6 +201,18 @@ export class Inference {
           "claim starter credit with this wallet first",
           402,
         );
+        const utcDay = new Date(this.now() * 1000).toISOString().slice(0, 10);
+        const granted = state.inferenceStarterGrants?.utcDay === utcDay
+          ? BigInt(state.inferenceStarterGrants.grantedNanoUsd)
+          : 0n;
+        const total = granted + BigInt(this.cfg.starterCreditNanoUsd);
+        check(
+          total <= BigInt(this.cfg.dailyStarterBudgetNanoUsd),
+          "STARTER_BUDGET_EXHAUSTED",
+          "free credit for today is used up; try again after 00:00 UTC",
+          402,
+        );
+        next.inferenceStarterGrants = { utcDay, grantedNanoUsd: String(total) };
         a = {
           grantedNanoUsd: String(this.cfg.starterCreditNanoUsd),
           spentNanoUsd: "0",
@@ -201,20 +221,25 @@ export class Inference {
           nonces: {},
         };
       }
+      check(!a.exitRequestedAt || ["credit", "usage", "agent-status", "agent-end"].includes(action),
+        "ACCOUNT_EXITING", "prepaid account is closing", 403);
       check(
-        !Object.hasOwn(a.nonces, r.nonce),
-        "REQUEST_REPLAY",
-        "wallet request nonce already used",
+        !Object.hasOwn(a.nonces, r.nonce) ||
+          (repeatable && a.nonces[r.nonce].requestHash === requestHash),
+        action === "usage" ? "REQUEST_ALREADY_SENT" : "REQUEST_REPLAY",
+        action === "usage"
+          ? "This usage check was already sent. Retry to check current credit with a new signed request."
+          : "wallet request nonce already used",
         409,
       );
       const nonces = Object.fromEntries(
-        Object.entries(a.nonces).filter(([, at]) => at >= this.now() - 240),
+        Object.entries(a.nonces).filter(([, at]) => (at.issuedAt ?? at) >= this.now() - 240),
       );
       await this.save({
-        ...state,
+        ...next,
         inferenceCredit: {
           ...state.inferenceCredit,
-          [wallet]: { ...a, nonces: { ...nonces, [r.nonce]: r.issuedAt } },
+          [wallet]: { ...a, nonces: { ...nonces, [r.nonce]: repeatable ? { issuedAt: r.issuedAt, requestHash } : r.issuedAt } },
         },
       });
     });
@@ -281,6 +306,17 @@ export class Inference {
   }
   async prepare(r) {
     const wallet = await this.authorized(r, "prepare");
+    for (const [key, entry] of this.preparations) {
+      if (entry.expiresAt < this.now()) this.preparations.delete(key);
+    }
+    const key = wallet + ":" + r.nonce;
+    if (!this.preparations.has(key)) this.preparations.set(key, {
+      expiresAt: r.issuedAt + 240,
+      result: this.prepareSession(r, wallet),
+    });
+    return await this.preparations.get(key).result;
+  }
+  async prepareSession(r, wallet) {
     this.configured();
     check(
       /^[0-9a-f]{64}$/.test(r.attestationNonce),
@@ -398,8 +434,11 @@ export class Inference {
   async chat(r) {
     const wallet = await this.authorized(r, "chat");
     this.configured();
-    let session, localId;
+    let session, localId, duplicate;
     await this.payments.serial(async () => {
+      duplicate = Object.values(this.payments.state.inferenceRequests ?? {})
+        .find(request => request.wallet === wallet && request.requestNonce === r.nonce);
+      if (duplicate) return;
       const a = this.account(wallet);
       check(
         !a.pending,
@@ -437,6 +476,7 @@ export class Inference {
           [localId]: {
             wallet,
             sessionId: r.sessionId,
+            requestNonce: r.nonce,
             status: "sent",
             ...(session.artifactId !== undefined ? { artifactId: session.artifactId } : {}),
             reservedNanoUsd: String(reserve),
@@ -450,12 +490,20 @@ export class Inference {
       session.consumed = true;
       this.sessions.delete(r.sessionId);
     });
+    if (duplicate) return Response.json({
+      code: "REQUEST_ALREADY_DISPATCHED",
+      status: "already-dispatched",
+      sessionId: duplicate.sessionId,
+      inferenceId: duplicate.inferenceId,
+      message: "This request was already dispatched. Reconcile provider usage before sending again.",
+    }, { status: 202 });
     this.activeRequests.add(localId);
     let response;
     try {
       response = await this.provider.chatEncrypted({
         key: this.provider.apiKey,
         model: this.cfg.model,
+        nonce: r.nonce,
         body: r.body,
         headers: r.headers,
         attestation: session.attestation,
@@ -499,13 +547,15 @@ export class Inference {
       session.attestation.transport?.close?.();
       throw error;
     }
-    const inference = this, decoder = new TextDecoder();
-    let disconnected = false, upstreamDone = false;
+    const inference = this, decoder = new TextDecoder(), providerReader = response.body.getReader();
+    let disconnected = false, upstreamDone = false, providerCancelled = Promise.resolve();
     const stream = new ReadableStream({
       async start(controller) {
         let buffer = "", tokens = null, done = false, failure = false;
         try {
-          for await (const chunk of response.body) {
+          for (;;) {
+            const { value: chunk, done: sourceDone } = await providerReader.read();
+            if (sourceDone) break;
             buffer = (buffer + decoder.decode(chunk, { stream: true })).replace(
               /\r\n/g,
               "\n",
@@ -546,9 +596,11 @@ export class Inference {
             "encrypted provider stream ended before completion",
             502,
           );
-        } catch {
+        } catch (error) {
           failure = true;
+          if (!disconnected) providerCancelled = providerReader.cancel(error);
         } finally {
+          try { await providerCancelled; } catch { failure = true; }
           session.attestation.transport?.close?.();
           inference.sessions.delete(r.sessionId);
           try {
@@ -573,6 +625,7 @@ export class Inference {
             failure = true;
           }
           upstreamDone = true;
+          providerReader.releaseLock();
           if (disconnected) inference.activeRequests.delete(localId);
           if (!disconnected) {
             if (failure) {
@@ -587,12 +640,16 @@ export class Inference {
           }
         }
       },
-      cancel() {
+      async cancel(reason) {
         disconnected = true;
+        if (!upstreamDone) {
+          providerCancelled = providerReader.cancel(reason);
+          await providerCancelled;
+        }
       },
     });
     // Keep queued ciphertext counted until the HTTP consumer reaches EOF.
-    // A disconnected browser still leaves its provider drain counted above.
+    // Cancellation stays counted until the provider reader has stopped above.
     const reader = stream.getReader();
     let consumerCancelled = false;
     const tracked = new ReadableStream({
@@ -674,12 +731,15 @@ export class Inference {
         "wallet request ledger changed",
         502,
       );
+      const allocation = accrue(state, wallet, this.payments.cfg?.inferenceOperator, cost, this.now());
       await this.save({
         ...state,
+        ...(allocation.operatorAccruals ? { operatorAccruals: allocation.operatorAccruals } : {}),
         inferenceCredit: {
           ...state.inferenceCredit,
           [wallet]: {
             ...account,
+            ...(allocation.prepaidSpentNanoUsd ? { prepaidSpentNanoUsd: allocation.prepaidSpentNanoUsd } : {}),
             pending: null,
             lastModelCharge: { sessionId: current.sessionId, inferenceId: current.inferenceId, costNanoUsd: String(cost) },
             ...(current.artifactId !== undefined ? { artifactBudgets: { ...account.artifactBudgets,

@@ -7,9 +7,9 @@ import { canonical, grantBytes, signingKey, signGrant } from "./grants.mjs";
 import { withEnrollment } from "./attestation.mjs";
 import { unhex } from "../../dstack-compat/secret-release/policy.mjs";
 
-// Recorded public proof from the grant-aware relay; no private keys or guest secrets.
-const f = JSON.parse(readFileSync(new URL("fixtures/relay.json", import.meta.url)));
-const r = f.registration;
+// Synthetic signatures over recorded guest fields; historical Apple signatures are checked separately.
+const f = JSON.parse(readFileSync(new URL("fixtures/bind.json", import.meta.url)));
+const r = f.relay;
 const cfg = { workloads: [{ ...r, service: "peer" }] };
 const NOW = 1793120000;
 const baseChain = () => ({ category: async () => 3, rpIdHash: async () => unhex(f.rp_id_hash),
@@ -47,7 +47,7 @@ test("GetKey seed survives reload and grants verify with independent Node Ed2551
   assert(!verify(null, grantBytes({ ...unsigned, bytes: unsigned.bytes + 1 }), pub, Buffer.from(sig, "hex")));
 });
 
-test("unregistered peers cannot get grants; the real signed relay proof admits them", async () => {
+test("unregistered peers cannot get grants; a signed bind/1 relay proof admits them", async () => {
   const b = broker();
   await assert.rejects(b.grant(signed(request)), /not live/);
   const registered = await b.register(r);
@@ -58,16 +58,22 @@ test("unregistered peers cannot get grants; the real signed relay proof admits t
   assert.equal(grant.expires_at, registered.expires_at);
 });
 
+test("a renewed registration keeps the last refused relay hop", async () => {
+  const b = broker();
+  (await b.register(r)).unreachable = { at: NOW, error: "RESOURCE_LIMIT_EXCEEDED" };
+  assert.deepEqual((await b.register(r)).unreachable, { at: NOW, error: "RESOURCE_LIMIT_EXCEEDED" });
+});
+
 test("a proof for another PeerId cannot enter discovery", async () => {
   const b = broker();
   const other = "12D3KooWPdcePFHp8pmoxdwpNC2ADNivvsCFYH8KPSfqutt7GWzA";
-  await assert.rejects(b.register({ ...r, relay_peer: other, relay_maddr: r.relay_maddr.replace(r.relay_peer, other) }), /PeerId binding/);
+  await assert.rejects(b.register({ ...r, relay_peer: other, relay_maddr: r.relay_maddr.replace(r.relay_peer, other) }), /PeerId\/seal\/receipt\/challenge binding/);
   assert.equal(b.live().length, 0);
 });
 
 test("a substituted or missing receipt key cannot enter discovery", async () => {
   const b = broker();
-  await assert.rejects(b.register({ ...r, receipt_key: "42".repeat(32) }), /receipt key binding/);
+  await assert.rejects(b.register({ ...r, receipt_key: "42".repeat(32) }), /PeerId\/seal\/receipt\/challenge binding/);
   await assert.rejects(b.register({ ...r, receipt_key: undefined }), /receipt key must/);
   assert.equal(b.live().length, 0);
 });
@@ -161,19 +167,19 @@ test("signed nonce stays spent after quota window rollover and restart", async (
   await restarted.grant(signed(request));
 });
 
-test("real compute assertion binds node identity, bundle key and receipt key", async () => {
-  const compute=JSON.parse(readFileSync(new URL("fixtures/compute.json",import.meta.url)));
+test("signed compute assertion binds node identity, bundle key and receipt key", async () => {
+  const compute=f.compute;
   const b=broker({cfg:{workloads:[{...compute,service:"node"}]}});
   const registered=await b.register(compute);
   assert.equal(registered.kind,"compute");assert.equal(registered.secret_key,compute.secret_key);
-  await assert.rejects(b.register({...compute,secret_key:"42".repeat(64)}),/compute key binding/);
-  await assert.rejects(b.register({...compute,receipt_key:"42".repeat(32)}),/compute key binding/);
+  await assert.rejects(b.register({...compute,secret_key:"42".repeat(64)}),/PeerId\/seal\/receipt\/challenge binding/);
+  await assert.rejects(b.register({...compute,receipt_key:"42".repeat(32)}),/PeerId\/seal\/receipt\/challenge binding/);
   const g=await b.grant(signed({...request,relay_peer:compute.relay_peer,unit:"seconds",amount:30}));
   assert.equal(g.seconds,30);
 });
 
 test("draining compute nodes renew but are excluded from new job routing", async () => {
-  const c = JSON.parse(readFileSync(new URL("fixtures/compute.json", import.meta.url)));
+  const c = f.compute;
   let now = NOW;
   const b = broker({cfg:{workloads:[{...c,service:"node"}]},now:()=>now});
   await b.register({...c,admit_until:NOW+1});
@@ -186,7 +192,7 @@ test("draining compute nodes renew but are excluded from new job routing", async
 });
 
 test('operator-pinned compute nodes keep renewal while draining without accepting new jobs',async()=>{
- const c=JSON.parse(readFileSync(new URL('fixtures/compute.json',import.meta.url)));
+ const c=f.compute;
  let now=NOW;const b=broker({cfg:{sandboxDiagnosticWorkloads:[{...c,service:'node'}]},now:()=>now});
  await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,1);
  now+=2;await b.register({...c,admit_until:NOW+1});assert.equal(b.live().length,0);assert.equal(b.relays.size,1);
@@ -204,7 +210,7 @@ test("public WSS circuit locators retain the attested destination binding", asyn
 
 
 test("compute routing leases cover 90-second renewals and expire at 120 while ordinary relays expire at 60",async()=>{
- const compute=JSON.parse(readFileSync(new URL("fixtures/compute.json",import.meta.url)));
+ const compute=f.compute;
  let now=NOW;
  const b=broker({cfg:{workloads:[{...r,service:"peer"},{...compute,service:"node"}]},now:()=>now});
  const diagnostic=broker({cfg:{sandboxDiagnosticWorkloads:[{...compute,service:"node"}]},now:()=>now});

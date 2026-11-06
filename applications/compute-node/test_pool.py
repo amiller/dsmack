@@ -20,6 +20,11 @@ class PoolTests(unittest.TestCase):
             host = {'mem_bytes': 64 << 30, 'cores': 14}
             path.write_text(json.dumps(config))
             self.assertEqual(pool.operator_config(path, host), config)
+            self.assertEqual(pool.operator_config(path, host, 1)['max_guests'], 1)
+            self.assertEqual(pool.operator_config(path, host, 8)['max_guests'], 4)
+            self.assertEqual(json.loads(path.read_bytes()), config)
+            with self.assertRaisesRegex(ValueError, 'positive integer'):
+                pool.operator_config(path, host, 0)
             config['max_guests'] = 20
             path.write_text(json.dumps(config))
             with self.assertRaisesRegex(ValueError, '81920 MiB.*physical 65536 MiB.*reserve 16384 MiB.*49152 MiB available.*20.*14 cores.*4.*10 available'):
@@ -76,6 +81,22 @@ class PoolTests(unittest.TestCase):
         self.assertFalse(pool.should_replace([old, new], 570, 450))
         self.assertTrue(pool.should_replace([new], 900, 450))
 
+    def test_registered_replacement_takes_the_slot_unless_predecessor_holds_a_stay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            instance.payments = {'node': '0xclass'}; instance.config = {}; instance.hardware = {}
+            now = pool.time.monotonic()
+            old = {'slot_id': 0, 'started': now - 1900, 'started_at': 1, 'admit_seconds': 3120, 'path': root,
+                   'node': {'relay_peer': 'old', 'telemetry': {'busy': False}}}
+            new = dict(old, started=now - 60, started_at=2, node=None)
+            instance.active = [old, new]
+            states = lambda: [s['state'] for s in instance.snapshot()['slots']]
+            self.assertEqual(states(), ['ready', 'launching'])
+            new['node'] = {'relay_peer': 'new', 'telemetry': {'busy': False}}
+            self.assertEqual(states(), ['draining', 'ready'])
+            old['node']['telemetry']['busy'] = True
+            self.assertEqual(states(), ['busy', 'ready'])
+
     def test_only_new_verified_matching_registration_is_ready(self):
         base = {'kind': 'compute', 'relay_peer': 'old', 'manifest_sha256': 'compose', 'os_image_hash': 'image',
                 'attestation': {'status': 'verified'}}
@@ -96,6 +117,37 @@ class PoolTests(unittest.TestCase):
             result = pool.preflight(Path('/state'), [{'path': Path('/owned')}])
             self.assertEqual(result['owned_runner_sessions'], ['/owned/session.json'])
 
+    def test_shared_boot_lock_serializes_registration_across_pool_processes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            first, second=self.instance(root), self.instance(root)
+            first.args.pool_root=second.args.pool_root=root
+            try:
+                first.tick()
+                second.tick()
+                first.launch.assert_called_once()
+                second.launch.assert_not_called()
+                first.boot_lock.close(); first.boot_lock=None
+                second.tick()
+                second.launch.assert_called_once()
+            finally:
+                for instance in (first,second):
+                    if instance.boot_lock:instance.boot_lock.close()
+
+    def test_coexisting_pool_allows_guest_sessions_of_rotated_generations_beneath_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = root/'pool-2/guests-1/run-1/session.json'
+            session.parent.mkdir(parents=True)
+            session.touch()
+            process = SimpleNamespace(returncode=0, stdout='1 dsmack-runner\n')
+            with patch.object(pool.shutil, 'disk_usage', return_value=SimpleNamespace(free=20<<30)), \
+                    patch.object(pool.subprocess, 'run', return_value=process), \
+                    patch.object(pool.subprocess, 'check_output', return_value=f'runner hvf-v3 {session}'):
+                pool.preflight(root, [], coexist_pools=[root])
+                with self.assertRaises(pool.MacOccupied):
+                    pool.preflight(root, [], coexist_pools=[root/'other'])
+
     def test_host_exit_without_guest_closure_is_not_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root/'out').mkdir(); console = root/'out/console-v3.log'
@@ -109,7 +161,8 @@ class PoolTests(unittest.TestCase):
     def instance(self, root):
         instance = object.__new__(pool.Pool)
         instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
-                                        debugfs=Path('/debugfs'))
+                                        debugfs=Path('/debugfs'), pool_root=None)
+        instance.boot_lock = None
         instance.active = []; instance.stopping = False; instance.failure = None
         instance.errors_file = root/'operator-errors.json'
         instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'stopped': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
@@ -165,6 +218,60 @@ class PoolTests(unittest.TestCase):
             self.assertIn('refused-3', instance.slots[0]['last_error']['body'])
             self.assertEqual(instance.launch.call_count, 2)
             self.assertEqual(instance.event.call_args.kwargs['last_error'], failure)
+
+    def test_rpc_refusals_back_off_without_consuming_guest_strikes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            failure = {'stage': 'broker_registration', 'status': 403,
+                       'body': 'refused: RPC quorum disagreement/unavailable: eth_call', 'error': 'HTTP 403'}
+            for attempt, delay in enumerate([60, 120, 240, 480, 900, 900, 900]):
+                node = self.failed_node(root/str(attempt)); instance.active = [node]
+                with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'guest_closed', return_value=True), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
+                self.assertEqual(instance.slots[0]['broker_backoff'], delay)
+                self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+                self.assertFalse(instance.slots[0]['stopped'])
+            instance.launch.assert_not_called()
+            with patch.object(pool.time, 'monotonic', return_value=instance.slots[0]['retry_at']+1):
+                instance.tick()
+            instance.launch.assert_called_once()
+
+    def test_broker_outage_cannot_hide_a_missing_guest_result_closure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            failure = {'stage': 'broker_registration', 'error': 'stale/future finalized head'}
+            for number in range(3):
+                instance.active = [self.failed_node(root/str(number))]
+                with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'guest_closed', return_value=False), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
+            self.assertTrue(instance.slots[0]['stopped'])
+
+    def test_unreachable_broker_delays_boot_and_does_not_consume_a_strike(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp)); instance.launch.side_effect = pool.BrokerUnavailable
+            instance.last_broker_error = {'stage': 'broker_readiness', 'error': 'connection refused'}
+            instance.tick(); instance.tick()
+            instance.launch.assert_called_once()
+            self.assertEqual(instance.slots[0]['broker_backoff'], 60)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+
+    def test_broker_challenge_transport_error_retries_without_a_guest_strike(self):
+        for message in ['Get "https://broker.example/payments/challenge": dial tcp: connection refused',
+                        'payment challenge: HTTP 503']:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); instance = self.instance(root)
+                instance.active = [self.failed_node(root/'failed')]
+                error = pool.error_details(message, 'guest_stderr')
+                with patch.object(pool, 'guest_result', return_value={'error': error}), \
+                        patch.object(pool, 'guest_closed', return_value=True), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
+                self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+                self.assertEqual(instance.slots[0]['broker_backoff'], 60)
 
     def test_readiness_does_not_erase_failed_guest_history(self):
         with tempfile.TemporaryDirectory() as tmp:

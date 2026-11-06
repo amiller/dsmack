@@ -20,24 +20,6 @@ async function socketPost(path,method,body) {
     return JSON.parse(content);
   } finally{connection.close();}
 }
-async function smtp(env,{to,code}) {
-  if(!env.SMTP_HOST)throw Error('SMTP delivery is not configured');
-  const port=Number(env.SMTP_PORT||465);
-  const connection=env.SMTP_TLS==='false'?await Deno.connect({hostname:env.SMTP_HOST,port}):await Deno.connectTls({hostname:env.SMTP_HOST,port});
-  let buffer='';
-  async function response(expected) {
-    while(true){const pos=buffer.indexOf('\r\n');if(pos>=0){const line=buffer.slice(0,pos);buffer=buffer.slice(pos+2);if(/^\d{3} /.test(line)){if(!expected.includes(Number(line.slice(0,3))))throw Error('SMTP delivery failed');return;}}else{const bytes=new Uint8Array(4096),n=await connection.read(bytes);if(n===null)throw Error('SMTP connection closed');buffer+=dec.decode(bytes.subarray(0,n));}}
-  }
-  async function command(text,expected){const wire=enc.encode(text+'\r\n');for(let off=0;off<wire.length;)off+=await connection.write(wire.subarray(off));await response(expected);}
-  try {
-    await response([220]);await command('EHLO private-agent.dstack.soc1024.com',[250]);
-    if(env.SMTP_USER){if(env.SMTP_TLS==='false')throw Error('SMTP credentials require TLS');await command('AUTH PLAIN '+btoa('\0'+env.SMTP_USER+'\0'+env.SMTP_PASSWORD),[235]);}
-    const from=env.SMTP_FROM;if(!from||/[\r\n<>]/.test(from))throw Error('SMTP sender is not configured');
-    await command('MAIL FROM:<'+from+'>',[250]);await command('RCPT TO:<'+to+'>',[250,251]);await command('DATA',[354]);
-    await command(`From: ${from}\r\nTo: ${to}\r\nSubject: Your private agent recovery code\r\nContent-Type: text/plain; charset=utf-8\r\n\r\nYour code is ${code}. It expires in ten minutes.\r\n.`,[250]);
-    await command('QUIT',[221]);
-  }finally{connection.close();}
-}
 export async function emailGate(req,ctx) {
   if(!ctx?.dataDir)return new Response(JSON.stringify({error:'Email recovery storage is unavailable'}),{status:503,headers:{'content-type':'application/json'}});
   if(!gates.has(ctx.dataDir))gates.set(ctx.dataDir,(async()=>{
@@ -45,7 +27,6 @@ export async function emailGate(req,ctx) {
     return new EmailGate({
       load:async()=>{try{return JSON.parse(await Deno.readTextFile(file));}catch(e){if(e instanceof Deno.errors.NotFound)return null;throw e;}},
       save:async(state)=>{await Deno.mkdir(ctx.dataDir,{recursive:true});await Deno.writeTextFile(file+'.tmp',JSON.stringify(state),{mode:0o600});await Deno.rename(file+'.tmp',file);},
-      sendEmail:(message)=>smtp(ctx.env,message),
       quote:async(reportData)=>{
         const result=await socketPost('/run/broker/private-agent/dstack.sock','GetQuote',{report_data:Array.from(reportData,b=>b.toString(16).padStart(2,'0')).join('')});
         const quote=result.quote.replace(/^0x/,'');
@@ -56,4 +37,4 @@ export async function emailGate(req,ctx) {
   })());
   return (await gates.get(ctx.dataDir)).handle(req);
 }
-export {smtp,socketPost};
+export {socketPost};

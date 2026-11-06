@@ -1,29 +1,36 @@
-import { abi, CHAIN, keccak256, require, RPCS } from "./schema.mjs";
+import { abi, CHAIN, keccak256, require } from "./schema.mjs";
 
-// Every state read uses the same EIP-1898 block hash, with an honest 2/3 majority.
+// Every state read uses the same EIP-1898 block hash and a strict majority of
+// the configured hosts, even when some hosts are unavailable.
 export class Quorum {
   constructor(
     {
-      rpcs = RPCS,
+      rpcs,
       escrow,
       codeHash,
       now = () => Math.floor(Date.now() / 1000),
       fetcher = fetch,
       rpcIpv4 = false,
       rpcProxy,
+      blockTag = "finalized",
     },
   ) {
     require(
-      rpcs.length === 3 &&
-        new Set(rpcs.map((u) => new URL(u).hostname)).size === 3,
-      "three independent RPC hosts required",
+      Array.isArray(rpcs) && rpcs.length >= 3 &&
+        new Set(rpcs.map((u) => new URL(u).hostname)).size === rpcs.length,
+      "at least three independent RPC hosts required",
     );
     require(
       /^0x[0-9a-fA-F]{40}$/.test(escrow) &&
         /^0x[0-9a-fA-F]{64}$/.test(codeHash),
       "escrow and deployed code hash pins required",
     );
-    Object.assign(this, { rpcs, escrow, codeHash, now, fetcher });
+    // "safe" (about 2 minutes behind on Base Sepolia, versus about 18 for
+    // "finalized") is for testnet only; deploy-inference.py refuses it for
+    // production on a mainnet chain.
+    require(["finalized", "safe"].includes(blockTag), "blockTag must be finalized or safe");
+    Object.assign(this, { rpcs, escrow, codeHash, now, fetcher, blockTag });
+    this.threshold = Math.floor(rpcs.length / 2) + 1;
     this.client = rpcProxy
       ? Deno.createHttpClient({ proxy: { url: rpcProxy } })
       : rpcIpv4
@@ -64,7 +71,7 @@ export class Quorum {
               group = groups.get(key) ?? { value, n: 0 };
             group.n++;
             groups.set(key, group);
-            if (group.n >= 2) {
+            if (group.n >= this.threshold) {
               done = true;
               controller.abort();
               resolve(group.value);
@@ -94,20 +101,19 @@ export class Quorum {
         Number(BigInt(await this.rpc(u, "eth_chainId", []))) === CHAIN,
         "Base Sepolia only",
       );
-      const h = await this.rpc(u, "eth_getBlockByNumber", ["finalized", false]);
+      const h = await this.rpc(u, "eth_getBlockByNumber", [this.blockTag, false]);
       require(h?.hash, "missing finalized head");
       return { url: u, head: h };
     }));
     const good = heads.filter((r) => r.status === "fulfilled").map((r) =>
       r.value
     );
-    require(good.length >= 2, "Base Sepolia finalized RPC quorum unavailable");
-    // Choose the highest height finalized by at least two providers. A lagging
-    // third endpoint must not roll payment visibility back to an older balance.
+    require(good.length >= this.threshold, "Base Sepolia finalized RPC quorum unavailable");
+    // Choose the highest height finalized by a majority of configured hosts.
     const heights = good.map((g) => BigInt(g.head.number)).sort((a, b) =>
       a > b ? -1 : a < b ? 1 : 0
     );
-    const height = heights[1];
+    const height = heights[this.threshold - 1];
     const headUrls = good.filter((g) => BigInt(g.head.number) >= height).map(
       (g) => g.url,
     );
@@ -143,52 +149,7 @@ export class Quorum {
       },
     };
   }
-  async purchase(s, id, txHash) {
-    require(
-      /^[1-9][0-9]*$/.test(id) && /^0x[0-9a-fA-F]{64}$/.test(txHash),
-      "purchase ID and transaction required",
-    );
-    const tx = await s.read("eth_getTransactionReceipt", [txHash]);
-    require(
-      tx && tx.status === "0x1" &&
-        BigInt(tx.blockNumber) <= BigInt(s.block.number),
-      "purchase not finalized",
-    );
-    const block = await s.read("eth_getBlockByNumber", [tx.blockNumber, false]);
-    require(block.hash === tx.blockHash, "purchase block is not canonical");
-    const event = tx.logs.filter((l) =>
-      l.address.toLowerCase() === this.escrow.toLowerCase()
-    ).map((l) => {
-      try {
-        return abi.parseLog(l);
-      } catch {
-        return null;
-      }
-    }).find((e) =>
-      e?.name === "Purchase" && e.args.purchaseId.toString() === id
-    );
-    require(event, "confirmed Purchase event required");
-    const p = await s.call("getPurchase", [id]);
-    for (
-      const field of [
-        "node",
-        "payer",
-        "buyerKey",
-        "unit",
-        "amount",
-        "price",
-        "expires",
-      ]
-    ) {
-      require(
-        String(p[field]).toLowerCase() ===
-          String(event.args[field]).toLowerCase(),
-        "Purchase event/state mismatch: " + field,
-      );
-    }
-    require(!p.closed, "purchase closed");
-    return p;
-  }
+
 }
 
 // Providers add transport-specific metadata (for example L1 fee extensions).

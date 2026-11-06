@@ -28,12 +28,22 @@ its `base_vm.os_image_hash`. For off-chain enrollment, `enroll.py ENROLLMENT
 CDHASH` verifies the Apple chain and emits a public enrollment entry for the
 config's `enrollments` array.
 
-Keep the existing `payments` block to serve the current escrow. Add the
-`inference` block from `config.inference.example.json`, including approved NEAR
-gateway/model compose hashes and allowed browser origins. Amounts are integer
+Configure the prepaid USDC `payments` block as in `../payments/README.md`. Add the
+`inference` block from `config.inference.example.json`, including allowed
+browser origins. NEAR gateway and model evidence must satisfy `near-policy.mjs`,
+which mirrors 13rac1/teep's nearcloud policy (commit in `TEEP_COMMIT`):
+MRCONFIGID binds `app_compose`, each digest-pinned image is an approved
+repository with a Rekor entry from its expected Fulcio identity or key (SET and
+inclusion proof verified), and MRSEAM/MRTD/RTMR1/RTMR2 match known values.
+Values teep lacks are marked `LOCAL`. Amounts are integer
 nano-USD: 1,000,000,000 equals $1.00. The browser receives starter credit and
 requests an attested model session before encrypting its messages. A dispatch
 reserves its maximum cost; billing evidence reconciles that reservation.
+
+The example's `inference.dailyStarterBudgetNanoUsd` defaults to $5 of starter
+grants per UTC day; a new wallet gets the full $0.25 only if it fits the remaining
+budget. The counter persists with the credit ledger. `agent.maxActiveSessionsPerWallet`
+defaults to one held guest; a refused claim names the existing session.
 
 For the free Mac pool, configure `sandboxDiagnosticWorkloads` with its approved
 compute tuples. `sandbox_backhaul_peers` identifies Mac peers permitted to open
@@ -78,16 +88,69 @@ envelope when updating an existing deployment.
 Prepare and apply a source update:
 
 ```sh
-python3 applications/relay-broker/deploy-inference.py prepare \
+python3 applications/relay-broker/deploy-inference.py prepare --target production \
   --config /absolute/path/broker-config.json \
   --operator-token-sha256 "$EXISTING_OPERATOR_TOKEN_SHA256" \
   --encrypted-env /absolute/path/near-encrypted-env.json \
   --out /absolute/path/prepared-upload
 
-python3 applications/relay-broker/deploy-inference.py deploy \
+python3 applications/relay-broker/deploy-inference.py deploy --target production \
   --prepared /absolute/path/prepared-upload \
   --url https://pod.dstack.soc1024.com \
   --evidence /absolute/path/deployment-evidence --apply
+```
+
+To create staging, use `--target staging` on both commands, a separate preparation
+and evidence directory, and the staging broker config and encrypted provider
+environment. The upload creates `relay-broker-staging`; its API is
+`https://pod.dstack.soc1024.com/relay-broker-staging`. Preparation sets the allowed
+browser origins to `https://private-agent-staging.dstack.soc1024.com`. Configure
+staging payment, provider and storage resources in the input config. Production
+preparation and deployment require clean source contained in locally recorded
+main; deployment also requires the prepared ref to equal HEAD. Neither command
+fetches refs. Staging accepts a preparation from any commit.
+
+For a staging page served at the webhost's project path, prepare with
+`--staging-origin https://pod.dstack.soc1024.com` so browser requests from
+`https://pod.dstack.soc1024.com/private-agent-staging/` use that allowed origin.
+
+Bootstrap a new staging project without a provider envelope first, on the
+coordinator's deployment machine:
+
+```sh
+python3 applications/relay-broker/deploy-inference.py prepare --target staging \
+  --config "$STAGING_BROKER_CONFIG" --operator-token-sha256 "$OPERATOR_HASH" \
+  --out "$STAGING_BOOTSTRAP"
+python3 applications/relay-broker/deploy-inference.py deploy --target staging \
+  --prepared "$STAGING_BOOTSTRAP" --evidence "$STAGING_BOOTSTRAP_EVIDENCE" --apply
+curl --fail --silent --show-error \
+  https://pod.dstack.soc1024.com/relay-broker-staging/key
+curl --fail --silent --show-error \
+  https://pod.dstack.soc1024.com/relay-broker-staging/payments/key
+curl --fail --silent --show-error \
+  https://pod.dstack.soc1024.com/relay-broker-staging/inference/environment-key \
+  --output "$STAGING_ENVIRONMENT_KEY"
+deno run --allow-read --allow-write \
+  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
+  applications/relay-broker/encrypt-provider-env.mjs \
+  "$STAGING_ENVIRONMENT_KEY" "$STAGING_PAYMENT_SIGNER" \
+  "$PROVIDER_KEY_PATH" "$STAGING_ENCRYPTED_ENV"
+python3 applications/relay-broker/deploy-inference.py prepare --target staging \
+  --config "$STAGING_BROKER_CONFIG" --operator-token-sha256 "$OPERATOR_HASH" \
+  --encrypted-env "$STAGING_ENCRYPTED_ENV" --out "$STAGING_PREPARED"
+python3 applications/relay-broker/deploy-inference.py deploy --target staging \
+  --prepared "$STAGING_PREPARED" --evidence "$STAGING_EVIDENCE" --apply
+```
+
+Use the new broker's public keys in the staging page config; set
+`STAGING_PAYMENT_SIGNER` to that staged payment identity. Preparation and evidence
+paths name fresh directories. Build the page with the commands in its README,
+then create its project:
+
+```sh
+python3 applications/private-agent-web/deploy.py --target staging \
+  --config "$STAGING_PAGE_CONFIG" --smtp-env "$STAGING_SMTP_ENV" \
+  --operator-token-sha256 "$OPERATOR_HASH" --evidence "$STAGING_PAGE_EVIDENCE"
 ```
 
 Preparation bundles the npm dependencies with Deno. Apply uses the configured
@@ -95,7 +158,7 @@ webhost admin credential, updates only `relay-broker`, and promotes shared Deno.
 Deployment waits up to ten minutes for `/network` busy slots and
 `/inference/status` `inFlightStreams` to reach zero before the upload/promotion transaction.
 Set `--wait-idle-minutes N` to change the wait. Disconnected browser requests
-count until their provider streams have drained; queued ciphertext stays counted
+count until upstream cancellation finishes; queued ciphertext stays counted
 until the HTTP consumer reaches EOF. Interrupted requests with a
 known NEAR billing ID settle once against that exact provider cost record;
 missing token totals remain explicitly unreported.
@@ -107,13 +170,13 @@ The deployment manifest contains the operator hash and ciphertext envelope.
 - `GET /key`, `/payments/key`: signing public keys.
 - `GET /relays`, `/nodes`: live attested registrations; `POST` renews them.
 - `POST /grant`: signed Ed25519 request for byte/time credit.
-- `/payments/challenge`, `/classes`, `/nodes`, `/confirm`, `/grant`, `/receipts`:
-  payment admission and signed usage receipts under `/payments`.
+- `/payments/challenge`, `/classes`, `/nodes`, `/claim`:
+  payment admission, posted S1 prices and weekly cumulative USDC claims.
 - `GET /inference/quote`, `/status`, `/environment-key`: public configuration.
 - `POST /inference/credit`, `/prepare`, `/chat`, `/usage`: EIP-191 wallet requests
   to claim credit, attest the model, dispatch ciphertext and reconcile costs.
 - `POST /agent/open`, `/status`, `/end`: wallet-signed guest sessions;
-  `POST /agent/receipt` accepts guest-signed usage.
+  `POST /agent/receipt` accepts v5 EIP-712 usage signed by the attested secp256k1 key.
 - `GET /sandbox/nodes/PEER/attestation?challenge=HEX`: fresh node evidence.
 - `/sandbox/p2p/*`: bounded HTTPS backhaul to the native libp2p transport.
 - `GET/POST /tunnels`: discover and publish expiring browser tunnel hints.
@@ -146,7 +209,7 @@ Links, revocations and heartbeat records persist atomically in `fleet.json`.
 The CLI is documented under [Add a Mac](../mac-ownership/README.md#add-a-mac).
 
 
-See [the compute protocol](../compute-node/PROTOCOL.md) for admission and wire
+See [the compute protocol](../../docs/protocol.md) for admission and wire
 formats. `verify-grant.py` independently verifies an HTTP grant with Python
 `cryptography`.
 

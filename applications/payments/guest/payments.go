@@ -3,7 +3,6 @@ package payments
 
 import (
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -45,7 +44,7 @@ func join(parts ...[]byte) []byte {
 	return out
 }
 
-const ReceiptType = "Receipt(uint256 purchaseId,uint64 sequence,uint128 used,uint64 endedAt,bool finalReceipt)"
+const ReceiptType = "Receipt(uint256 purchaseId,uint64 sequence,uint8 unit,uint128 used,uint64 endedAt,bool finalReceipt)"
 const GrantType = "Grant(uint256 purchaseId,bytes32 node,bytes32 runId,bytes32 buyerKey,uint8 unit,uint128 amount,uint64 issuedAt,uint64 serviceUntil,bytes32 destinationPolicyHash)"
 
 func Domain(escrow string) ([]byte, error) {
@@ -98,11 +97,12 @@ type Config struct {
 }
 type Registration struct {
 	Config
-	RunExpires    int64  `json:"runExpires"`
-	RunID         string `json:"runId"`
-	RunNonce      string `json:"runNonce"`
-	ReceiptSigner string `json:"receiptSigner"`
-	Challenge     string `json:"challenge"`
+	RunExpires       int64  `json:"runExpires"`
+	RunID            string `json:"runId"`
+	RunNonce         string `json:"runNonce"`
+	ReceiptSigner    string `json:"receiptSigner"`
+	ReceiptPublicKey string `json:"receiptPublicKey"`
+	Challenge        string `json:"challenge"`
 }
 type Meter struct {
 	Registration
@@ -135,37 +135,10 @@ func New(cfg Config) (*Meter, error) {
 		return nil, e
 	}
 	kid, _ := raw(cfg.EnrollmentKeyID, 32)
-	return &Meter{Registration: Registration{Config: cfg, RunExpires: time.Now().Unix() + cfg.RunSeconds, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
+	return &Meter{Registration: Registration{Config: cfg, RunExpires: time.Now().Unix() + cfg.RunSeconds, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey()), ReceiptPublicKey: hexed(key.PubKey().SerializeCompressed())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
 }
-func (m *Meter) Binding(peer, compose, image string) ([]byte, error) {
-	escrow, _ := raw(m.Escrow, 20)
-	node, _ := raw(m.Node, 32)
-	run, _ := raw(m.RunID, 32)
-	operator, _ := raw(m.Operator, 20)
-	signer, _ := raw(m.ReceiptSigner, 20)
-	build, _ := raw(m.BuildID, 32)
-	c, e := raw(compose, 32)
-	if e != nil {
-		return nil, e
-	}
-	i, e := raw(image, 32)
-	if e != nil {
-		return nil, e
-	}
-	p := sha256.Sum256([]byte(peer))
-	return hash(join(hash([]byte("DsmackPaymentsNodeV2")), uintWord(84532), padded(escrow), node, run, padded(operator), padded(signer), p[:], c, i, build, uintWord(m.RunExpires))), nil
-}
-func (m *Meter) Report(peer, compose, image string, legacy []byte, challenge string) ([]byte, error) {
-	b, e := m.Binding(peer, compose, image)
-	if e != nil {
-		return nil, e
-	}
-	c, e := raw(challenge, 32)
-	if e != nil {
-		return nil, e
-	}
-	h := sha256.Sum256(join(legacy, c))
-	return join(b, h[:]), nil
+func (m *Meter) ReceiptPublicKey() []byte {
+	return m.key.PubKey().SerializeCompressed()
 }
 
 type Grant struct {
@@ -256,6 +229,7 @@ func (m *Meter) Verify(rawGrant []byte, client string, unit uint8, now int64) (G
 }
 
 type Receipt struct {
+	Unit         uint8  `json:"unit"`
 	PurchaseID   string `json:"purchaseId"`
 	Sequence     int64  `json:"sequence"`
 	Used         string `json:"used"`
@@ -272,7 +246,13 @@ func (r Receipt) Digest(escrow string) ([]byte, error) {
 	if r.FinalReceipt {
 		f = 1
 	}
-	return typed(escrow, join(hash([]byte(ReceiptType)), word(r.PurchaseID), uintWord(r.Sequence), word(r.Used), uintWord(r.EndedAt), uintWord(f)))
+	a, err := raw(escrow, 20)
+	if err != nil {
+		return nil, err
+	}
+	domain := hash(join(hash([]byte("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract)")), hash([]byte("dsmack.receipt")), hash([]byte("5")), uintWord(84532), padded(a)))
+	body := hash(join(hash([]byte(ReceiptType)), word(r.PurchaseID), uintWord(r.Sequence), uintWord(int64(r.Unit)), word(r.Used), uintWord(r.EndedAt), uintWord(f)))
+	return hash(join([]byte{0x19, 0x01}, domain, body)), nil
 }
 func (m *Meter) Receipt(g Grant, used int64, final bool) (SignedReceipt, error) {
 	m.mu.Lock()
@@ -282,7 +262,7 @@ func (m *Meter) Receipt(g Grant, used int64, final bool) (SignedReceipt, error) 
 		return SignedReceipt{}, fmt.Errorf("receipt closed or over budget")
 	}
 	m.sequences[g.PurchaseID]++
-	r := Receipt{g.PurchaseID, m.sequences[g.PurchaseID], strconv.FormatInt(used, 10), min(time.Now().Unix(), g.ServiceUntil), final}
+	r := Receipt{g.Unit, g.PurchaseID, m.sequences[g.PurchaseID], strconv.FormatInt(used, 10), min(time.Now().Unix(), g.ServiceUntil), final}
 	d, e := r.Digest(m.Escrow)
 	if e != nil {
 		return SignedReceipt{}, e
@@ -308,6 +288,22 @@ func (m *Meter) VerifyStop(signature string, expires int64) error {
 	signer, e := recover(d, signature)
 	if e != nil || !strings.EqualFold(signer, m.Operator) {
 		return fmt.Errorf("operator stop signature")
+	}
+	return nil
+}
+
+// VerifyReceipt checks the v5 wire signature against an attested receipt address.
+func VerifyReceipt(escrow string, envelope SignedReceipt, signer string) error {
+	d, err := envelope.Receipt.Digest(escrow)
+	if err != nil {
+		return err
+	}
+	got, err := recover(d, envelope.Signature)
+	if err != nil {
+		return err
+	}
+	if !strings.EqualFold(got, signer) {
+		return fmt.Errorf("receipt signer")
 	}
 	return nil
 }

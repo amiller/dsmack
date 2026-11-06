@@ -7,9 +7,11 @@ verify the app behind a signed message.
 
 [Website](https://amiller.github.io/dsmack/) ·
 [Architecture](docs/architecture.md) ·
+[Protocol](docs/protocol.md) ·
 [Run a task](docs/running.md) ·
 [Claim a bounty](docs/participate.md) ·
-[App Attest verifiers](app-attest/README.md)
+[App Attest verifiers](app-attest/README.md) ·
+[Development](docs/development.md)
 
 <p align="center">
   <a href="https://amiller.github.io/dsmack/bounties.html"><img src="docs/images/bounty-flow-transparent.webp" width="680" alt="A requester funds a smart contract; a Mac mini submits a result and execution evidence; the worker claims the reward."></a>
@@ -22,6 +24,10 @@ verify the app behind a signed message.
   exchanging requests or secrets.
 - **Development bounties:** verify a contributor's execution evidence and test
   results before authorizing payment from a smart contract.
+- **Private agent:** a browser coding agent whose tools run in an attested Linux
+  guest on a Mac, with model calls encrypted from the browser to a NEAR TEE
+  model. Live on Base Sepolia testnet at
+  [pod.dstack.soc1024.com/private-agent](https://pod.dstack.soc1024.com/private-agent/).
 
 The repository includes verifiers written in Solidity, a zero-knowledge proof
 implementation, and DsmackRunner—a signed macOS app that runs workloads inside a

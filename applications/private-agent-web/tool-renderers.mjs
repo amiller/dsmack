@@ -26,12 +26,16 @@ registerToolRenderer("bash", {
 // message component; the transcript remains owned by the Agent.
 export function renderToolProgress(chat, agent, event) {
   if (!event.type.startsWith("tool_execution_")) return;
+  chat.requestUpdate();
   const container = chat.querySelector("streaming-message-container");
+  if (event.type === "tool_execution_end") {
+    container?.setMessage(null, true);
+    return;
+  }
   const assistant = agent.state.messages.findLast(message => message.role === "assistant" &&
     message.content.some(part => part.type === "toolCall" && part.id === event.toolCallId));
   if (!container || !assistant) return;
-  const result = event.type === "tool_execution_update" ? event.partialResult :
-    event.type === "tool_execution_end" ? event.result : undefined;
+  const result = event.type === "tool_execution_update" ? event.partialResult : undefined;
   container.toolResultsById = new Map(result ? [[event.toolCallId, { ...result, isError: !!event.isError, isPartial: event.type === "tool_execution_update" }]] : []);
   container.isStreaming = true;
   container.setMessage({ ...assistant, content: assistant.content.filter(part => part.type === "toolCall" && part.id === event.toolCallId) }, true);

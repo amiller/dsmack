@@ -6,6 +6,9 @@ from urllib.parse import urlsplit
 from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 from pool import preflight,MacOccupied,hardware,operator_config,measured_size
+from pool_restart import Generations, release_config
+from pool_handoff import LegacyHandoff
+from heartbeat import Publisher
 
 ROOT=Path(__file__).resolve().parents[2]
 
@@ -147,31 +150,43 @@ def main():
     p=argparse.ArgumentParser(description=__doc__)
     for name in ('runner','workload','state','relay','relay-key','cloudflared','publisher-key'):
         p.add_argument('--'+name,type=Path,required=True)
+    p.add_argument('--adopt-launcher', type=int, help='one-time transfer of a legacy launcher and its live guests')
+    p.add_argument('--restart-config', type=Path, help='replacement JSON read on SIGHUP')
+    p.add_argument('--restart-timeout', type=float, default=300)
     p.add_argument('--pool-version',required=True,help='source commit used by this staged pool')
     p.add_argument('--operator',type=Path,default=Path.home()/'.dsmack/operator.json')
+    p.add_argument('--max-slots',type=int,help='cap the operator guest slots for this pool')
+    p.add_argument('--coexist-pool',type=Path,action='append',default=[],help='allow guests owned by launcher state anywhere beneath this directory')
+    p.add_argument('--relay-port',type=int,default=4019)
     p.add_argument('--broker',required=True);p.add_argument('--index',required=True)
-    p.add_argument('--publication-rpc',default='https://base-sepolia-rpc.publicnode.com')
+    p.add_argument('--publication-rpc',action='append',help='ordered publication RPC; repeat for several providers')
     p.add_argument('--ipfs-bin',type=Path);p.add_argument('--ipfs-car',type=Path);p.add_argument('--ipfs-state',type=Path)
     p.add_argument('--registry',required=True);p.add_argument('--publisher-address',required=True)
     a=p.parse_args()
     if any((a.ipfs_bin,a.ipfs_car,a.ipfs_state)) and not all((a.ipfs_bin,a.ipfs_car,a.ipfs_state)):p.error('IPFS needs --ipfs-bin, --ipfs-car and --ipfs-state')
-    config=operator_config(a.operator,hardware())
+    config=operator_config(a.operator,hardware(),a.max_slots)
+    if not 1 <= a.relay_port <= 65535:p.error('--relay-port must be 1..65535')
     manifest=json.loads((a.workload/'compose-manifest.json').read_bytes())
     measured_size(manifest,config)
-    a.state.mkdir(parents=True,mode=0o700)
+    a.state=a.state.resolve()
+    if not a.adopt_launcher:a.state.mkdir(parents=True,mode=0o700)
     node=json.loads(manifest['docker_compose_file'])['services']['node']
+    proxy_port=urlsplit(node['environment']['HTTPS_PROXY']).port
     expected_peer=node['command'][1].rsplit('/',1)[1]
-    seconds=int(node['command'][2]);admit=int(node['environment']['ADMIT_SECONDS'])
-    while True:
-        try:preflight(a.state,[]);break
+    initial=release_config(a.runner,a.workload,a.operator,a.pool_version,expected_peer)
+    for path in (a.relay,a.relay_key,a.cloudflared,a.publisher_key):
+        if not path.is_file():raise FileNotFoundError(path)
+    while not a.adopt_launcher:
+        try:preflight(a.state,[],coexist_pools=a.coexist_pool);break
         except MacOccupied:print('waiting for the active Mac lane',flush=True);time.sleep(10)
-    stopping=False;children=[];transports=[];logs=[];pool=None;published=False;failure=None;published_entries=[]
+    stopping=False;reload_requested=False;children=[];transports=[];logs=[];pools=None;handoff=None;published=False;published_entries=[]
     def stop(*_):
         nonlocal stopping
         stopping=True
-        if pool and pool.poll() is None:
-            try:pool.send_signal(signal.SIGTERM)
-            except ProcessLookupError:pass
+    def reload(*_):
+        nonlocal reload_requested
+        reload_requested=True
+    signal.signal(signal.SIGHUP,reload)
     signal.signal(signal.SIGTERM,stop);signal.signal(signal.SIGINT,stop)
     def start(command,name,transport=True):
         log=(a.state/name).open('w');logs.append(log)
@@ -223,39 +238,64 @@ def main():
         return out
     def run_publication(out,chain):
         cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',out/'entries.json','--evidence',out]
-        if chain:cmd+=['--rpc',a.publication_rpc]
+        if chain:
+            for url in a.publication_rpc or ['https://base-sepolia-rpc.publicnode.com', 'https://base-sepolia.gateway.tenderly.co', 'https://sepolia.base.org']:
+                cmd+=['--rpc',url]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     def publish(entries,chain):
         if chain:publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
         else:run_publication(prepare(entries),False)
     try:
-        if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
-        broker_peer=discover_transport(a.broker,lambda:stopping)
-        start([a.relay,a.relay_key,a.broker.rstrip('/')+'/sandbox/p2p',broker_peer],'relay.log')
-        relay=ready(a.state/'relay.log',r'relay_peer=(12D3KooW\S+)',30)
-        if relay!=expected_peer:raise ValueError('relay key does not match the measured compose')
-        start([a.cloudflared,'tunnel','--no-autoupdate','--url','http://127.0.0.1:4019'],'tunnel.log')
-        host=ready(a.state/'tunnel.log',r'https://([a-z0-9-]+\.trycloudflare\.com)',90)
-        ready(a.state/'tunnel.log',r'(Registered tunnel connection)',90)
-        tunnel_address=public_ready(host)
-        broker_host=urlsplit(a.broker).hostname;broker_address=resolve(broker_host)
-        start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port','18484','--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','3600','--resolve',host+'='+tunnel_address,'--resolve',broker_host+'='+broker_address],'proxy.log')
-        hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3600)
-        (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
-        published=True;republish(publish,hint,False);last_http=time.monotonic()
-        last_chain_attempt=0;published_entries=[]
-        if stopping:return
-        pool=start([sys.executable,ROOT/'applications/compute-node/pool.py','--runner',a.runner,'--workload',a.workload,'--state',a.state/'guests','--repo',ROOT,'--broker',a.broker,'--seconds',str(seconds),'--drain-seconds',str(seconds-admit),'--replace-after',str(seconds//2+30),'--readiness-timeout','90','--operator',a.operator,'--publisher-key',a.publisher_key,'--publisher-address',a.publisher_address,'--pool-version',a.pool_version],'pool.log',transport=False)
-        draining=False
-        while pool.poll() is None:
-            for proc in children:
-                if proc is not pool and proc.poll() is not None:
-                    stopping=True;failure='relay/tunnel/proxy exited; inspect logs'
-            if stopping and not draining:
-                pool.send_signal(signal.SIGTERM);draining=True;print('draining warm guests',flush=True)
+        if a.adopt_launcher:
+            handoff=LegacyHandoff(a.adopt_launcher,a.state)
+            transports.extend(handoff.transports)
+            children.extend(handoff.transports)
+            hint=json.loads((a.state/'locator.json').read_bytes())
+            if hint['relayPeer']!=expected_peer:raise ValueError('legacy relay differs from measured compose')
+            published=True;last_http=0;last_chain_attempt=0;published_entries=[]
+        else:
+            if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
+            broker_peer=discover_transport(a.broker,lambda:stopping)
+            relay_command=[a.relay]
+            if a.relay_port!=4019:relay_command+=['-port',str(a.relay_port)]
+            start(relay_command+[a.relay_key,a.broker.rstrip('/')+'/sandbox/p2p',broker_peer],'relay.log')
+            relay=ready(a.state/'relay.log',r'relay_peer=(12D3KooW\S+)',30)
+            if relay!=expected_peer:raise ValueError('relay key does not match the measured compose')
+            start([a.cloudflared,'tunnel','--no-autoupdate','--url',f'http://127.0.0.1:{a.relay_port}'],'tunnel.log')
+            host=ready(a.state/'tunnel.log',r'https://([a-z0-9-]+\.trycloudflare\.com)',90)
+            ready(a.state/'tunnel.log',r'(Registered tunnel connection)',90)
+            tunnel_address=public_ready(host)
+            broker_host=urlsplit(a.broker).hostname;broker_address=resolve(broker_host)
+            start([sys.executable,ROOT/'applications/compute-node/connect-proxy.py','--listen','127.0.0.1','--port',str(proxy_port),'--allow-host',host,'--allow-host',urlsplit(a.broker).hostname,'--connection-seconds','3600','--resolve',host+'='+tunnel_address,'--resolve',broker_host+'='+broker_address],'proxy.log')
+            hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3600)
+            (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
+            published=True;republish(publish,hint,False);last_http=time.monotonic()
+            last_chain_attempt=0;published_entries=[]
+            if stopping:return
+        publisher=Publisher(a.publisher_key,a.publisher_address,a.broker,a.pool_version,a.operator)
+        pools=Generations(a.state,a.broker,publisher,start,expected_peer,a.restart_timeout,a.max_slots,a.coexist_pool)
+        pools.current=pools.launch(initial,a.state/'guests' if handoff else None)
+        if handoff:
+            deadline=time.monotonic()+30
+            while not (pools.current['state']/'adopted.json').exists():
+                if pools.current['process'].poll() is not None or time.monotonic()>=deadline:
+                    raise RuntimeError('legacy transfer failed; inspect new pool log')
+                time.sleep(.1)
+            handoff.commit()
+        (a.state/'launcher.pid').write_text(str(os.getpid()))
+        while not stopping:
+            for proc in transports:
+                if proc.poll() is not None:
+                    raise RuntimeError('relay/tunnel/proxy exited; inspect logs')
+            if reload_requested:
+                reload_requested=False
+                try:
+                    if not a.restart_config:raise ValueError('--restart-config is required for SIGHUP')
+                    pools.restart(a.restart_config)
+                except (OSError,ValueError,KeyError,TypeError) as error:
+                    print(json.dumps(dict(event='restart_rejected',error=str(error))),flush=True)
+            snapshot=pools.tick() or {}
             now=time.monotonic()
-            snapshot_path=a.state/'guests/directory.json'
-            snapshot=json.loads(snapshot_path.read_text()) if snapshot_path.exists() else {}
             entries=guest_entries(snapshot,hint)
             if (entries!=published_entries or pending_path.exists()) and now-last_chain_attempt>=60:
                 last_chain_attempt=now
@@ -264,22 +304,28 @@ def main():
                 hint['expiresAt']=int(time.time())+3600
                 republish(publish,hint,False);last_http=time.monotonic()
             time.sleep(2)
-        if pool.returncode:raise RuntimeError('warm pool failed; inspect pool.log')
-        if failure:raise RuntimeError(failure)
     finally:
-        if pool and pool.poll() is None:
-            pool.send_signal(signal.SIGTERM)
-            try:pool.wait(timeout=4300)
-            except subprocess.TimeoutExpired:raise RuntimeError('warm guests still active; owned transport retained')
-        try:
-            if published:
-                publish_directory(publish,[],published_entries,pending_path.exists())
-                publish([],False)
-        finally:
-            groups=stop_transports(transports)
+        if a.adopt_launcher and (handoff is None or not handoff.committed):
+            # A failed adoption must leave the old controller and transports live.
+            if pools:pools.stop()
+            if handoff:handoff.resume()
             for log in logs:log.close()
-            (a.state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),
-                ownedChildrenStopped=all(c.poll() is not None for c in children),
-                ownedTransportGroupsStopped=groups,pids=[c.pid for c in children])))
+        else:
+            finish(pools, published, published_entries, pending_path, publish, transports, logs, children, a.state)
+
+def finish(pools, published, published_entries, pending_path, publish, transports, logs, children, state):
+    if pools:
+        try:pools.stop()
+        except subprocess.TimeoutExpired:raise RuntimeError('warm guests still active; owned transport retained')
+    try:
+        if published:
+            publish_directory(publish,[],published_entries,pending_path.exists())
+            publish([],False)
+    finally:
+        groups=stop_transports(transports)
+        for log in logs:log.close()
+        (state/'stopped.json').write_text(json.dumps(dict(stoppedAt=int(time.time()),
+            ownedChildrenStopped=all(c.poll() is not None for c in children),
+            ownedTransportGroupsStopped=groups,pids=[c.pid for c in children])))
 
 if __name__=='__main__':main()

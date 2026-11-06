@@ -9,7 +9,7 @@ export const defaultAgentEnvironment = {
 };
 const stripTag = (text = "") => text.replace(/^<[^>]+>\n/, "").replace(/\n<\/[^>]+>$/, "");
 const untrusted = (value) => String(value || "No repository attached.").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
-export function buildAgentPrompt({ runtime, environment = defaultAgentEnvironment, attestation, repository }) {
+export function buildAgentPrompt({ config, pageUrl, runtime, environment = defaultAgentEnvironment, attestation, repository }) {
   const selectedTools = piToolCatalog.map((tool) => tool.name);
   const contributions = catalog.contributions;
   const base = {
@@ -34,7 +34,7 @@ export function buildAgentPrompt({ runtime, environment = defaultAgentEnvironmen
   return buildSystemPrompt({ ...base, customPrompt: preamble, sections: {
     tools: stripTag(standard.tools), rules: stripTag(standard.rules),
     environment: `OS: ${environment.os}\nUser: ${environment.user}\nWorkspace: ${environment.workspace || "/workspace"}\nPersistence: ${environment.persistence}\nMaximum command timeout: ${environment.commandTimeoutSeconds} seconds\nModel-facing output cap: ${environment.outputCapBytes} bytes or 2000 lines, using pi truncation. Raw command output cap: ${environment.rawOutputCapBytes || 1048576} bytes; exceeding it stops the command.`,
-    network_configuration: `${environment.network || "The guest uses a measured egress firewall and an allowlisted CONNECT proxy."}\nActual allowed hosts: ${(environment.allowlist || []).join(", ") || "A guest has not been claimed; no network access has been verified yet."}\nWhen a host is blocked, report the command's actual refusal and explain that the host is outside the guest allowlist. Do not claim network access succeeded.`,
+    network_configuration: `${environment.network || "The guest uses a measured egress firewall and an allowlisted CONNECT proxy."}\nActual allowed hosts: ${(environment.allowlist || []).join(", ") || "A guest has not been claimed; no network access has been verified yet."}\nPublic reads with bash (curl uses HTTPS_PROXY):\n- curl ${config.broker}/network — live Dsmack capacity: Macs online, total slots, ready/busy slots and regions.\n- curl ${new URL("./config.json", pageUrl).href} — this page's public configuration: broker, RPC and tunnel discovery URLs, chain contracts and attestation settings.\nWhen a host is blocked, report the command's actual refusal and explain that the host is outside the guest allowlist. Do not claim network access succeeded.`,
     attestation: typeof attestation === "string" ? attestation : JSON.stringify(attestation || { state: "A guest is claimed and its attestation verified before the first tool call." }),
     untrusted_repository: untrusted(repository),
   } });

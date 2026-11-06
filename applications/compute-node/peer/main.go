@@ -7,7 +7,6 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -235,11 +234,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if err := post(guestClient(), "http://localhost/v1/Info", map[string]any{}, &info); err != nil {
 		return err
 	}
-	rd := append([]byte("dsmack-compute-node/1"), []byte(h.ID())...)
-	rd = append(rd, public(secret)...)
-	rd = append(rd, receipt...)
-	hash := sha256.Sum256(rd)
-	att, e := attest(append(hash[:], make([]byte, 32)...))
+	att, e := attest(p2p.ReportData(h.ID(), public(secret), receipt, nil))
 	if e != nil {
 		return e
 	}
@@ -263,7 +258,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if remaining <= 480*time.Second {
 		return fmt.Errorf("insufficient measured guest lifetime")
 	}
-	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
 	if paid != nil && paid.RunExpires > n.until.Unix() {
 		paid.RunExpires = n.until.Unix()
 	}
@@ -365,11 +360,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		if err := os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644); err != nil {
 			return err
 		}
-		legacy := append(hash[:], make([]byte, 32)...)
-		baseRegistration := map[string]any{}
-		for k, v := range registration {
-			baseRegistration[k] = v
-		}
 		h.SetStreamHandler("/dsmack/payments-attest/1", func(s network.Stream) {
 			defer s.Close()
 			s.SetDeadline(time.Now().Add(20 * time.Second))
@@ -379,7 +369,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			if readFrame(s, 4096, &request) != nil {
 				return
 			}
-			rd, err := paidReport(paid, baseRegistration, legacy, request.Challenge)
+			rd, err := paidReport(paid, h.ID(), public(secret), receipt, request.Challenge)
 			if err != nil {
 				return
 			}
@@ -414,7 +404,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			if err = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&challenge); err != nil {
 				return err
 			}
-			rd, err := paidReport(paid, baseRegistration, legacy, challenge.Challenge)
+			rd, err := paidReport(paid, h.ID(), public(secret), receipt, challenge.Challenge)
 			if err != nil {
 				return err
 			}

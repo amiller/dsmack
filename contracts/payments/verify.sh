@@ -6,7 +6,7 @@ contracts=$(cd "$(dirname "$0")/.." && pwd)
 export ETHERSCAN_API_KEY
 ETHERSCAN_API_KEY=$(cat "$HOME/.config/basescan/api-key")
 owner=0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b
-args=$(cast abi-encode 'constructor(address)' "$owner")
+args=$(cast abi-encode 'constructor(address,address)' "${PAYMENTS_USDC:?Set PAYMENTS_USDC}" "$owner")
 exec forge verify-contract --root "$contracts" --chain 84532 --watch \
   --verifier-url 'https://api.etherscan.io/v2/api?chainid=84532' \
   --constructor-args "$args" "$1" src/UsageEscrow.sol:UsageEscrow

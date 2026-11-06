@@ -13,7 +13,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
+func TestBuyerAndReceiptInteroperability(t *testing.T) {
 	coordinator, _ := secp.GeneratePrivateKey()
 	buyer, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	id, _ := peer.IDFromPrivateKey(buyer)
@@ -61,8 +61,7 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 		t.Fatal("duplicate finalization")
 	}
 	if out := os.Getenv("PAYMENTS_EVIDENCE"); out != "" {
-		binding, _ := m.Binding(id.String(), hexed(make([]byte, 32)), hexed(make([]byte, 32)))
-		evidence := map[string]any{"escrow": m.Escrow, "registration": m.Registration, "peer": id.String(), "grant": env, "receipt": last, "receiptDigest": hexed(digest), "binding": hexed(binding)}
+		evidence := map[string]any{"escrow": m.Escrow, "registration": m.Registration, "peer": id.String(), "grant": env, "receipt": last, "receiptDigest": hexed(digest)}
 		b, _ := json.Marshal(evidence)
 		if e = os.WriteFile(filepath.Join(out, "guest-interop.json"), b, 0600); e != nil {
 			t.Fatal(e)

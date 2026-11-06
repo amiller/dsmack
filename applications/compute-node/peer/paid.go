@@ -3,10 +3,13 @@ package main
 import (
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 
 	payments "dsmack-payments"
+	"dsmack-peer/p2p"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
 func paidMeter() *payments.Meter {
@@ -21,11 +24,13 @@ func paidMeter() *payments.Meter {
 	return m
 }
 
-func paidReport(m *payments.Meter, registration map[string]any, legacy []byte, challenge string) ([]byte, error) {
-	if _, e := hex.DecodeString(challenge); e != nil {
-		return nil, e
+func paidReport(m *payments.Meter, id peer.ID, seal, receipt []byte, challenge string) ([]byte, error) {
+	c, e := hex.DecodeString(challenge)
+	if e != nil || len(c) != 32 {
+		return nil, fmt.Errorf("payment challenge must be 32 bytes")
 	}
-	return m.Report(registration["relay_peer"].(string), registration["manifest_sha256"].(string), registration["os_image_hash"].(string), legacy, challenge)
+	keys := append(append([]byte{}, receipt...), m.ReceiptPublicKey()...)
+	return p2p.ReportData(id, seal, keys, c), nil
 }
 
 // Let the peer receive the acknowledgement before closing the libp2p host.

@@ -14,7 +14,7 @@ export async function artifactTestServer({ mainHtml = "", mainScript = "", mainR
   await promisify(execFile)("openssl", ["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "1", "-subj", "/CN=artifacts.private-agent.dstack.soc1024.com", "-keyout", key, "-out", cert]);
   const server = https.createServer({ key: await readFile(key), cert: await readFile(cert) }, async (req, res) => {
     if (mainRoot && req.headers.host === "private-agent.dstack.soc1024.com") {
-      const path = new URL(req.url, "https://test.invalid").pathname.replace(/^\/a\/?/, "") || "index.html";
+      const path = new URL(req.url, "https://test.invalid").pathname.replace(/^\/a(?:\/|$)/, "") || "index.html";
       try { res.setHeader("content-type", {js:"text/javascript",css:"text/css",html:"text/html",json:"application/json"}[path.split('.').at(-1)] || "application/octet-stream");res.end(await readFile(join(mainRoot,path))); }
       catch { res.statusCode=404;res.end("Not found"); }return;
     }

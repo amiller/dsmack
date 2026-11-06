@@ -102,7 +102,7 @@ negotiation are excluded. Exhaustion closes every stream using that grant and
 refuses reuse; expiry sets deadlines on both stream and uplink.
 
 `/dsmack/attest/1` returns JSON `{attestation:<hex>,receipt_key:<hex>}`. Its
-`report_data` is `sha256("dsmack-libp2p-peer/1" || PeerId bytes) || receipt_key`.
+`report_data` uses [dsmack.bind/1](../../docs/protocol.md#one-report_data-binding) with the PeerId multihash, an empty seal key, the Ed25519 receipt key and a zero epoch challenge.
 The first half preserves the existing PeerId binding; the second half contains
 the 32-byte Ed25519 public key. The broker key is the final measured `serve`
 command argument. `verify.py --broker-key` requires both bindings.

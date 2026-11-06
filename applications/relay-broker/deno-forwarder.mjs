@@ -244,12 +244,12 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
             (event.detail?.protocols?.includes(protocol) || event.detail?.stream?.protocol === protocol) ? "application" : undefined;
         record(event.type, stage);
       };
-      let stream;
+      let connection, stream;
       let phase = "node_unreachable";
       try {
         record("forward:start");
-        stream = await node.dialProtocol(multiaddr(payload.target), protocol,
-          { signal, runOnLimitedConnection: true, onProgress: dialProgress });
+        connection = await node.dial(multiaddr(payload.target), { signal, onProgress: dialProgress });
+        stream = await connection.newStream(protocol, { signal, runOnLimitedConnection: true });
         record("application:ready", "application");
         // Agent turns may be quiet for longer than libp2p's default 120 seconds.
         stream.inactivityTimeout = 30000;
@@ -268,7 +268,11 @@ export async function createDenoForwarder({ privateKey, signingKey, logger, back
         record("forward:failed");
         throw new ForwardError(phase, cause, progress);
       }
-      finally { scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete")); }
+      finally {
+        scope.clear(); if (stream && stream.status !== "closed" && stream.status !== "aborted") stream.abort(new Error("forward complete"));
+        // An idle circuit counts against the Mac relay's per-peer cap until the guest exits, so drop it.
+        if (connection && !connection.streams.some(s => s.status === "open")) connection.abort(new Error("forward complete"));
+      }
     },
   };
 }

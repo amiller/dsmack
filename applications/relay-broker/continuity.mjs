@@ -1,5 +1,6 @@
-import { Contract, FetchRequest, JsonRpcProvider, keccak256, verifyMessage } from "../payments/schema.mjs";
+import { Contract, keccak256, verifyMessage } from "../payments/schema.mjs";
 import { canonical } from "./grants.mjs";
+import { syncRpcProvider } from "./continuity-rpc.mjs";
 import { hex } from "../../dstack-compat/secret-release/policy.mjs";
 
 export const headAbi = ["function heads(address) view returns(uint256 counter,bytes32 digest)", "function commit(address,uint256,bytes32)"];
@@ -45,8 +46,7 @@ export class Continuity {
     Object.assign(this, { cfg, key, anchorKey, state, save, put, get, now });
     this.pending = Promise.resolve(); this.nonces = new Map();
     if (!chain && cfg.anchor) {
-      const request = new FetchRequest(cfg.rpc); request.timeout = 10000;
-      this.provider = new JsonRpcProvider(request, 84532, {staticNetwork:true,cacheTimeout:-1});
+      this.provider = syncRpcProvider(cfg.rpc);
       this.chain = new Contract(cfg.anchor, headAbi, anchorKey.connect(this.provider));
     } else this.chain = chain;
     this.receipt = receipt ?? (hash => anchorReceipt(this.provider, hash));

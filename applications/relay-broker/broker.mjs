@@ -59,6 +59,8 @@ export class Broker {
         out.admit_until = r.admit_until;
       }
     }
+    const unreachable = this.relays.get(r.relay_peer)?.unreachable;
+    if (unreachable) out.unreachable = unreachable;
     this.relays.set(r.relay_peer, out);
     return out;
   }
@@ -71,7 +73,7 @@ export class Broker {
   }
 
   async issue(r) {
-    require(!this.payments, "paid broker requires /payments/grant", 402);
+    require(!this.payments, "prepaid compute requires /agent/open", 402);
     const now = this.now();
     const fields = await verifyRequest(r, peerBytes);
     const { unit, amount } = fields;

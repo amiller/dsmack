@@ -11,11 +11,12 @@ import sys
 from urllib.parse import urlsplit
 
 NAME = 'compute-node-v1'
+MONITORS = json.loads((Path(__file__).resolve().parents[1] / 'egress-policy/monitor/registry.json').read_text())
 
 def canonical(v):
     return json.dumps(v, sort_keys=True, separators=(',', ':'), ensure_ascii=False).encode()
 
-def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy, payments=None, admit_seconds=None, *, tunnel_index=None, guest=None):
+def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy, payments=None, admit_seconds=None, *, tunnel_index=None, guest=None, monitor='none'):
     parts = relay.strip('/').split('/')
     if not (len(parts) == 7 and parts[:6] == ['ip4','127.0.0.1','tcp','18082','ws','p2p'] and parts[6]):
         raise ValueError('Mac loopback WebSocket relay required')
@@ -24,10 +25,16 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
             or index.scheme != 'https' or index.hostname != url.hostname or index.port not in (None,443)
             or index.username or index.password or not index.path.startswith('/') or index.query or index.fragment):
         raise ValueError('Mac mode requires a same-host HTTPS broker and tunnel index')
-    if proxy != 'http://192.168.127.254:18484':
+    proxy_url = urlsplit(proxy)
+    if (proxy_url.scheme != 'http' or proxy_url.hostname != '192.168.127.254'
+            or not proxy_url.port or proxy_url.username or proxy_url.password
+            or proxy_url.path or proxy_url.query or proxy_url.fragment):
         raise ValueError('Mac mode requires the host-loopback CONNECT proxy')
     environment = {'HTTPS_PROXY':proxy,'BROKER_GATEWAY':'http://127.0.0.1:18080','TUNNEL_INDEX':tunnel_index}
-    egress = [{'destination': str(ipaddress.ip_network('192.168.127.254')), 'protocol':'tcp', 'port':18484}]
+    description = canonical(MONITORS[monitor]).decode()
+    environment.update(DSMACK_MONITOR_POLICY=description,
+                       DSMACK_MONITOR_HASH=hashlib.sha256(description.encode()).hexdigest())
+    egress = [{'destination': str(ipaddress.ip_network('192.168.127.254')), 'protocol':'tcp', 'port':proxy_url.port}]
     guest = guest or {'mem_mib': 4096, 'vcpus': 1}
     if any(type(guest.get(k)) is not int or guest[k] < 1 for k in ('mem_mib', 'vcpus')):
         raise ValueError('guest mem_mib and vcpus must be positive integers')
@@ -72,10 +79,11 @@ if __name__ == '__main__':
     seconds = int(sys.argv[13])
     payments = None if sys.argv[14] == '-' else json.loads(Path(sys.argv[14]).read_bytes())
     tunnel_index = sys.argv[15]
-    guest = json.loads(Path(sys.argv[16]).read_bytes())['guest'] if len(sys.argv)>16 else None
+    operator = json.loads(Path(sys.argv[16]).read_bytes()) if len(sys.argv)>16 else {}
+    guest = operator.get('guest')
     sys.path.insert(0,str(repo/'dstack-compat'))
     import canary_workload
     output=Path(out);output.mkdir()
-    raw=manifest(starter,digest,Path(binary),relay,broker,key,cdhash,seconds,proxy,payments,tunnel_index=tunnel_index,guest=guest)
+    raw=manifest(starter,digest,Path(binary),relay,broker,key,cdhash,seconds,proxy,payments,tunnel_index=tunnel_index,guest=guest,monitor=operator.get('monitor','none'))
     (output/'compose-manifest.json').write_bytes(raw)
     canary_workload.pack(repo,base,oci,output/'disk',NAME,raw)

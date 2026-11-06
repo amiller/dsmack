@@ -12,6 +12,8 @@ The official TypeScript MCP SDK uses its current split packages
 `@modelcontextprotocol/server` and `@modelcontextprotocol/client` **2.4.0**,
 which implement MCP **2026-07-28**.
 
+See the [layered protocol](../../docs/protocol.md) for binding and wire contracts.
+
 ## Transport and workspace
 
 `/dsmack/agent-mcp/1.0.0` authenticates the existing broker-signed admission
@@ -99,7 +101,7 @@ restart; `--operator PATH` selects another configuration.
 Pack the matching guest size by supplying the operator file as the final
 argument to `workload.py`. The compose manifest and launch
 image's `resource_profiles` bind the memory and vCPU count. Each size uses its
-own escrow node class, compose measurement and price; register the packed class
+own escrow node class and compose measurement; register the packed class
 with `applications/payments/register-class.mjs` before starting the pool.
 
 Each configured slot rotates independently: a replacement starts after 450
@@ -128,16 +130,116 @@ VENV/bin/python applications/compute-node/mac-pool.py \
   --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
   --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
   --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
-  --pool-version SOURCE_COMMIT \
+  --pool-version SOURCE_COMMIT --restart-config SHORT_FRESH_STATE/restart.json \
   --broker https://pod.dstack.soc1024.com/relay-broker \
   --index https://pod.dstack.soc1024.com/private-agent/tunnels
 ```
+
+For a second pool, use its own state, operator file, relay and publisher keys,
+`--max-slots 1 --relay-port 4020 --coexist-pool OTHER_STATE`. The slot cap
+also applies after SIGHUP. Pack its workload with a distinct host proxy port
+(e.g. `http://192.168.127.254:18485`); the launcher reads that measured port.
+The relay binary accepts `-port PORT`. Each slot can overlap two generations.
 
 Stop with `kill -TERM LAUNCHER_PID`. It drains owned guests, preserves logs,
 assertions, original result disks and signed receipts, retires temporary disks,
 clears its discovery hints, and stops its relay, tunnel and helper. Each
 `run-*/evidence/` directory retains the guest evidence and reclaimed-space record.
-No launchd or systemd service is installed.
+Broker chain/RPC refusals and unreachable brokers retry after 60 seconds,
+doubling to 15 minutes without a retry limit. Guest attestation and result
+closure failures still stop a slot after three consecutive failures.
+Repeat `--publication-rpc HTTPS_URL` to specify ordered publication providers.
+Each failed provider is logged; an ambiguous submission retries the same signed
+transaction and checks its receipt before completing.
+
+To supervise a pool with launchd, put its complete command argv in a Mac-local
+JSON file, using absolute executable paths and omitting `--state`. Each launch
+gets a fresh state directory under the service root. Write a definition, install
+it, or uninstall it with:
+
+```sh
+python3 applications/compute-node/pool-service.py write \
+  --label org.dsmack.pool.staging --root /absolute/staging/service \
+  --command /absolute/staging/pool-command.json
+python3 applications/compute-node/pool-service.py install \
+  --label org.dsmack.pool.staging --root /absolute/staging/service \
+  --command /absolute/staging/pool-command.json
+python3 applications/compute-node/pool-service.py uninstall \
+  --label org.dsmack.pool.staging --root /absolute/staging/service \
+  --command /absolute/staging/pool-command.json
+```
+
+The agent restarts an exited launcher after launchd's 60-second throttle. Logs
+are in the service root. Uninstall allows the launcher to drain its owned guests.
+
+Restart the pool with `SIGHUP` to the launcher. It validates the replacement's
+files, measured base and template hashes and expected workload/compose hashes,
+then starts a new pool behind the existing relay and proxy. One boot lock
+serializes guest identity assignment across generations. A single combined fleet
+heartbeat and discovery directory retain the old guests throughout overlap.
+After a new ready guest has a live verified broker registration and the combined
+heartbeat appears in `/network`, the launcher sends TERM to the old pool. That
+pool stops rotating and retains its guests through their measured admission and
+`--drain-seconds` windows. A rejected config, failed boot or readiness timeout
+keeps the serving pool rotating; the timeout drains only the candidate.
+
+Use absolute paths in `restart.json`. Generate it from a completed, immutable
+staged release (the hashes are launch expectations, checked before starting):
+
+```sh
+VENV/bin/python - "$NEW_RUNNER" "$NEW_WORKLOAD" "$OPERATOR" "$SOURCE_COMMIT" <<'PY' > "$STATE/restart.json.tmp"
+import hashlib, json, sys
+from pathlib import Path
+runner, workload, operator, version = sys.argv[1:]
+def sha(path):
+    digest = hashlib.sha256()
+    with path.open('rb') as stream:
+        for block in iter(lambda: stream.read(1 << 20), b''):
+            digest.update(block)
+    return digest.hexdigest()
+w = Path(workload)
+print(json.dumps(dict(runner=runner, workload=workload, operator=operator,
+    pool_version=version, workload_sha256=sha(w/'workload.img'),
+    manifest_sha256=sha(w/'compose-manifest.json'))))
+PY
+mv "$STATE/restart.json.tmp" "$STATE/restart.json"
+kill -HUP "$(cat "$STATE/launcher.pid")"
+```
+
+The replacement must use the existing relay peer, broker and tunnel index;
+changes to those shared transports require a separate transport deployment.
+`--restart-timeout SECONDS` changes the default 300-second readiness budget.
+Only one replacement/drain runs at a time.
+
+For the first upgrade from the legacy launcher, run the new `mac-pool.py` command
+above with the **existing** runner, workload, state and transport arguments,
+adding `--adopt-launcher "$OLD_LAUNCHER_PID"`. Run it in a new background process
+and write stdout to `"$STATE/launcher-mbb.log"`. The handoff freezes the two old
+controllers, validates the active guest drivers from their existing launch and
+attestation records, and transfers those drivers and transport groups to the new
+controller. It kills only the frozen controllers after the new pool acknowledges
+ownership. If any old guest is still booting, the command refuses and resumes the
+old controllers; retry after that guest attests. After the new launcher writes
+`launcher.pid`, create `restart.json` and send HUP as above. No guest, native
+runner, relay or workload rebuild is needed for this Python-only upgrade.
+
+With shell variables set to the existing installation, the first handoff command
+is (run from the updated checkout):
+
+```sh
+nohup "$PYTHON" applications/compute-node/mac-pool.py \
+  --runner "$RUNNER" --workload "$WORKLOAD" --state "$STATE" \
+  --operator "$OPERATOR" --relay "$RELAY" --relay-key "$RELAY_KEY" \
+  --cloudflared "$CLOUDFLARED" --publisher-key "$PUBLISHER_KEY" \
+  --publisher-address "$PUBLISHER_ADDRESS" --registry "$REGISTRY" \
+  --broker "$BROKER" --index "$INDEX" --pool-version "$(git rev-parse HEAD)" \
+  --adopt-launcher "$OLD_LAUNCHER_PID" --restart-config "$STATE/restart.json" \
+  > "$STATE/launcher-mbb.log" 2>&1 &
+```
+
+Include the existing `--ipfs-bin`, `--ipfs-car`, `--ipfs-state` and
+`--publication-rpc` options when present on the legacy command. Use a new stdout
+log as above; existing transport logs remain open through the handoff.
 
 ### Encrypted workspace store
 

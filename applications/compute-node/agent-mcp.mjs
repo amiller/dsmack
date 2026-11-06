@@ -11,6 +11,7 @@ import { Value } from "typebox/value";
 import { createBashTool, createReadTool, createWriteTool, createEditTool, toolCatalog, piVersion } from "./pi-tools.mjs";
 
 import { WorkspaceSnapshots } from "./workspace.mjs";
+import { MonitorSession, failedMonitorResult } from "./monitor-client.mjs";
 
 export const COMMAND_TIMEOUT_SECONDS = 120;
 export const OUTPUT_CAP_BYTES = 50 * 1024;
@@ -108,10 +109,15 @@ export function createAgentServer(root, options = {}) {
   const tools = createWorkspaceTools(root, options);
   const server = new Server({ name: "Dsmack attested Pi tools", version: piVersion }, { capabilities: { tools: {}, resources: {} }, supportedProtocolVersions: ["2026-07-28"] });
   const snapshots = options.snapshots ?? new WorkspaceSnapshots(root);
+  const monitor = options.monitor ?? new MonitorSession();
   const serial = (fn) => snapshots.serial(fn);
   server.setRequestHandler("tools/list", async () => ({ tools: toolCatalog().map(({ label, ...tool }) => ({ ...tool, title: label })) }));
   server.setRequestHandler("tools/call", (request, ctx) => serial(async () => {
     const { name, arguments: args = {}, _meta } = request.params;
+    if (name === "dsmack_monitor") {
+      await monitor.preflight(args.prompt);
+      return { content: [{ type: "text", text: "Pre-flight checked" }] };
+    }
     if (name === "dsmack_workspace") {
       const result = await snapshots.call(args);
       const acknowledgement = args.operation === "read" ? { offset: result.offset, eof: result.eof } : result;
@@ -120,6 +126,8 @@ export function createAgentServer(root, options = {}) {
     const tool = tools.find((entry) => entry.name === name);
     if (!tool) throw new Error("Unknown tool");
     if (!Value.Check(tool.parameters, args)) throw new Error("Arguments do not match pi tool schema");
+    const denied = await monitor.tool(name, args, _meta?.["dsmack/monitorResponse"]);
+    if (denied) return failedMonitorResult(denied);
     const deadline = AbortSignal.timeout(COMMAND_TIMEOUT_SECONDS * 1000);
     const signal = AbortSignal.any([ctx.mcpReq.signal, deadline]);
     let progress = 0, notifications = Promise.resolve();
@@ -168,10 +176,11 @@ export async function listen({ root = "/workspace", socket = process.env.AGENT_M
   let ready;
   const initialized = new Promise((done) => { ready = done; });
   const snapshots = new WorkspaceSnapshots(root);
+  const monitor = new MonitorSession();
   const listener = createServer((stream) => {
     stream.pause();
     initialized.then(() => {
-      serveStdio(() => createAgentServer(root, { snapshots }), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
+      serveStdio(() => createAgentServer(root, { snapshots, monitor }), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
       stream.resume();
     });
   });

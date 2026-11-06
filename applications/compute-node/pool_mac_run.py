@@ -5,6 +5,7 @@ python3 pool_mac_run.py <runner dir> <run dir> <seconds> <profile>
 
 The runner dir holds DsmackRunner.app, base/ (the image files) and enrollment/keyId.txt; the run dir
 holds workload.img and compose-manifest.json and receives out/, stdout.txt, stderr.txt and gvproxy.log.
+The runner runtime/ holds base/{scratch,result}-template.ext4 and helper/gvproxy-darwin.
 """
 import hashlib
 import json
@@ -15,7 +16,7 @@ import time
 from pathlib import Path
 
 d, t = Path(sys.argv[1]), Path(sys.argv[2])
-b, rt = d/'base', Path.home()/'.ap/runtime'
+b, rt = d/'base', d/'runtime'
 seconds = int(sys.argv[3])
 profile = sys.argv[4]
 compose = json.loads((t/'compose-manifest.json').read_bytes())

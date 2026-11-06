@@ -3,10 +3,12 @@
 // request bytes. Keep plaintext prompt fields inside this broker and the model.
 import {
   createPinnedTlsFetch,
+  createTdxQuoteVerifier,
   prepareE2eeChatRequest,
   verifyGatewayAttestation,
   verifyModelAttestation,
 } from "npm:@nearai/inference-sdk@0.2.0/node";
+import { nearVerifiers } from "./near-policy.mjs";
 
 const need = (ok) => {
   if (!ok) throw new Error("NEAR attestation rejected");
@@ -29,14 +31,6 @@ function normalized(raw) {
     ...(raw.report_data ? { reportedQuoteData: raw.report_data } : {}),
   };
 }
-function deploymentPolicy(allowed) {
-  return (deployment) => {
-    need(
-      Array.isArray(allowed) && allowed.length > 0 &&
-        allowed.includes(deployment.runtimeMeasurements.composeHash),
-    );
-  };
-}
 const summary = (v) => ({
   signingAddress: v.signer.signingAddress,
   tcbStatus: v.tcbStatus,
@@ -50,8 +44,9 @@ const summary = (v) => ({
 });
 
 export async function verifyNearAttestation(
-  { report, nonce, model, baseUrl, policy },
+  { report, nonce, model, baseUrl },
 ) {
+  const tdxQuote = createTdxQuoteVerifier();
   need(/^[0-9a-f]{64}$/.test(nonce) && new URL(baseUrl).protocol === "https:");
   const rawGateway = report.gateway_attestation;
   need(rawGateway && /^[0-9a-f]{64}$/.test(rawGateway.tls_cert_fingerprint));
@@ -65,7 +60,7 @@ export async function verifyNearAttestation(
     attestation: gatewayAttestation,
     clientBinding: { nonce, spkiFingerprint: rawGateway.tls_cert_fingerprint },
     policy: { acceptedTcbStatuses: ["UpToDate"] },
-    verifiers: { deployment: deploymentPolicy(policy?.gatewayComposeHashes) },
+    verifiers: nearVerifiers("gateway", rawGateway.intel_quote, tdxQuote),
   });
   need(gateway.tlsBinding.kind === "attested");
   const pinnedFetch = createPinnedTlsFetch(gateway.tlsBinding.spkiFingerprint);
@@ -101,7 +96,7 @@ export async function verifyNearAttestation(
         attestation,
         clientBinding: { nonce },
         policy: { acceptedTcbStatuses: ["UpToDate"], gpuEvidence: "required" },
-        verifiers: { deployment: deploymentPolicy(policy?.modelComposeHashes) },
+        verifiers: nearVerifiers("model", raw.intel_quote, tdxQuote),
       });
     }),
   );

@@ -74,8 +74,8 @@ class BrokerPromotionTest(unittest.TestCase):
                 info = tarfile.TarInfo('applications/relay-broker/config.json')
                 info.size = len(body)
                 archive.addfile(info, io.BytesIO(body))
-            with patch.object(module, 'token', return_value='test-only'), patch.object(module, 'client', return_value=api), patch.object(module, 'wait_for_idle', side_effect=activity) as guard:
-                module.deploy(SimpleNamespace(prepared=root, evidence=root/'evidence', apply=True, url='unused', wait_idle_minutes=1))
+            with patch.object(module, 'source_ref', return_value='test-ref'), patch.object(module, 'token', return_value='test-only'), patch.object(module, 'client', return_value=api), patch.object(module, 'wait_for_idle', side_effect=activity) as guard:
+                module.deploy(SimpleNamespace(target='production', prepared=root, evidence=root/'evidence', apply=True, url='unused', wait_idle_minutes=1))
             guard.assert_called_once()
             self.assertTrue(promoted)
 

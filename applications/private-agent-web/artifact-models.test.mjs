@@ -13,10 +13,16 @@ const app = new URL('./', import.meta.url).pathname;
 await mkdir(app+'local-data', {recursive:true});
 const temporary = await mkdtemp(app+'local-data/artifact-model-tests-');
 after(() => rm(temporary, {recursive:true,force:true}));
-await build({ stdin:{ contents:`export {ArtifactModels} from './artifact-models.mjs';export {brokerStream} from './inference.mjs';`,resolveDir:app },
+await build({ stdin:{ contents:`export {ArtifactModels} from './artifact-models.mjs';export {brokerStream,modelTranscript} from './inference.mjs';`,resolveDir:app },
+  // Billing/encryption tests isolate attestation; evidence.test.mjs and the
+  // browser suite verify real CPU/GPU evidence before transport dispatch.
+  plugins:[{name:'billing-attestation',setup(build){
+    build.onResolve({filter:/^\.\/evidence\.mjs$/},()=>({path:'evidence',namespace:'billing-test'}));
+    build.onLoad({filter:/.*/,namespace:'billing-test'},()=>({contents:'export const PRIVACY="fixture"; export async function checkEvidence(e){return e;}'}));
+  }}],
   outfile:temporary+'/client.mjs',bundle:true,platform:'node',format:'esm',packages:'external',
   alias:{'@sandbox':resolve(app,'../compute-node/browser/sandbox.mjs'),'npm:ethers@6.17.0':'ethers'} });
-const { ArtifactModels, brokerStream } = await import(pathToFileURL(temporary+'/client.mjs'));
+const { ArtifactModels, brokerStream, modelTranscript } = await import(pathToFileURL(temporary+'/client.mjs'));
 globalThis.window = { location:{origin:'https://viewer.invalid'} };
 const model = 'fixture/attested-artifact', scope = JSON.stringify(['conversation','example.html']);
 const canonical = body => JSON.stringify(Object.fromEntries(Object.keys(body).sort().map(k=>[k,body[k]])));
@@ -159,6 +165,40 @@ test('main-chat and artifact inference share one wallet lock through usage recon
   assert.equal(f.calls.length,2);assert.equal(chat.stopReason,'stop');
 });
 
+test('cancel finishes the reply before pending billing while the wallet lock holds the next dispatch', {timeout:5000}, async()=>{
+  const f=await fixture(),abort=new AbortController();
+  let releaseUsage,usageStarted,savedBilling;
+  const settlement=new Promise(resolve=>releaseUsage=resolve),started=new Promise(resolve=>usageStarted=resolve);
+  const api=async(path,body,options)=>{
+    const response=await f.api(path,body,options);
+    if(path!=='/inference/chat'||f.calls.length!==1)return response;
+    const partial=(await response.text()).split('\n\n')[0]+'\n\n';
+    return new Response(new ReadableStream({start(controller){
+      controller.enqueue(new TextEncoder().encode(partial));
+      options.signal.addEventListener('abort',()=>controller.error(new DOMException('Request aborted','AbortError')),{once:true});
+    }}),{headers:{'content-type':'text/event-stream'}});
+  };
+  const run=brokerStream({...f.options,api,startedAt:Date.now(),error:()=>{},
+    usage:async()=>{usageStarted();await settlement;return f.usage();},
+    billingUpdated:async answer=>{savedBilling=structuredClone(answer.billing);}});
+  const first=run({id:model},{messages:[{role:'user',content:'first'}]},{signal:abort.signal});
+  for await(const event of first)if(event.type==='text_delta')break;
+  abort.abort();
+  const cancelled=await first.result();
+  assert.equal(cancelled.stopReason,'aborted');assert.equal(cancelled.billing.settled,false);
+  assert(BigInt(cancelled.billing.reservedNanoUsd)>0n);
+  await started;
+  const second=run({id:model},{messages:[{role:'user',content:'second'}]});
+  await new Promise(setImmediate);
+  assert.equal(f.calls.length,1,'next request cannot dispatch against the unresolved reservation');
+  releaseUsage();
+  const reply=await second.result();
+  assert.equal(reply.stopReason,'stop');assert.equal(f.calls.length,2);
+  assert.equal(savedBilling.sessionId,cancelled.billing.sessionId);
+  assert.equal(savedBilling.settled,true);assert.equal(savedBilling.costNanoUsd,'300000');
+  assert.equal(reply.billing.costNanoUsd,'300000');
+});
+
 test('a failed durable reservation prevents provider dispatch',async()=>{
   const f=await fixture({failSaveAt:3});await f.models.grant(scope,'20000000');
   await assert.rejects(f.models.complete(scope,{messages:[{role:'user',content:'hello'}]}),/disk save failed/);
@@ -169,7 +209,7 @@ test('transport abort after dispatch settles the persisted artifact cost',async(
   const f=await fixture();await f.models.grant(scope,'20000000');
   const api=async(...args)=>{const result=await f.api(...args);if(args[0]==='/inference/chat')throw new DOMException('transport aborted','AbortError');return result;};
   const interrupted=new ArtifactModels({...f.options,api});
-  await assert.rejects(interrupted.complete(scope,{messages:[{role:'user',content:'hello'}]}),/Cannot reach the broker/);
+  await assert.rejects(interrupted.complete(scope,{messages:[{role:'user',content:'hello'}]}),/browser lost its connection/);
   const b=(await f.makeState().read(scope)).budget;
   assert.equal(b.spentNanoUsd,'300000');assert.equal(b.reservedNanoUsd,'0');assert(!b.pending);
 });
@@ -202,4 +242,18 @@ test('another device settlement refreshes budget without attributing its cost or
   assert.equal(result.text,'Isolated answer');assert.equal(result.usage.costNanoUsd,null);
   assert.equal(result.usage.cost.total,null);assert.equal(result.usage.costUnknown,true);
   assert.equal(result.usage.totalTokens,12);assert.equal((await f.state.read(scope)).budget.spentNanoUsd,'300000');
+});
+
+test('a stream lost during a tool call sends its failed result to the next model turn', async () => {
+  const { failOrphanedTools } = await import('./reply-recovery.mjs');
+  const messages = [{ role: 'user', content: 'Inspect the code' },
+    { role: 'assistant', stopReason: 'error', content: [
+      { type: 'text', text: 'Unfinished answer' },
+      { type: 'toolCall', id: 'lost-call', name: 'bash', arguments: { command: 'pwd' } }] }];
+  failOrphanedTools(messages, 'Guest disconnected. Execution was not retried.');
+  const transcript = modelTranscript({ messages }).messages;
+  assert.equal(transcript[1].content, null);
+  assert.equal(transcript[1].tool_calls[0].id, 'lost-call');
+  assert.equal(transcript[2].tool_call_id, 'lost-call');
+  assert.match(transcript[2].content, /Guest disconnected/);
 });

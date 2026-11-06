@@ -109,6 +109,7 @@ func TestWorkspaceUploadFailureRetainsOnlyCiphertextBeforeRetirement(t *testing.
 func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 	signingPub, signingKey, _ := ed25519.GenerateKey(rand.Reader)
 	receiptPub, receiptKey, _ := ed25519.GenerateKey(rand.Reader)
+	meter := testReceiptMeter(t)
 	secret, _ := ecdh.P256().GenerateKey(rand.Reader)
 	key := fmt.Sprintf("%064x", 19)
 	directory := t.TempDir()
@@ -198,15 +199,18 @@ func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 		}
 		var body map[string]any
 		json.Unmarshal(raw, &body)
-		sig, _ := hex.DecodeString(body["sig"].(string))
+		sigText, _ := body["sig"].(string)
+		sig, _ := hex.DecodeString(sigText)
 		delete(body, "sig")
-		if !ed25519.Verify(receiptPub, canon(body), sig) {
+		if r.URL.Path == "/agent/receipt" {
+			body = checkAgentReceipt(t, body, meter)
+		} else if !ed25519.Verify(receiptPub, canon(body), sig) {
 			t.Error("unsigned workspace/receipt request")
 		}
 		mu.Lock()
 		defer mu.Unlock()
 		if r.URL.Path == "/agent/receipt" {
-			if body["final"] == true {
+			if body["finalReceipt"] == true {
 				if !committed && !unavailable {
 					t.Error("final receipt before durable workspace commit")
 				}
@@ -274,7 +278,7 @@ func testWorkspaceShutdown(t *testing.T, unavailable bool) {
 		t.Fatal(err)
 	}
 	defer client.Close()
-	n := &engine{secret: secret, broker: signingPub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(directory, "last-result")}
+	n := &engine{paid: meter, secret: secret, broker: signingPub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(directory, "last-result")}
 	retired := make(chan struct{}, 1)
 	server.SetStreamHandler(agentProtocol, func(s network.Stream) {
 		n.handleMCPIdle(s, broker.URL, broker.Client(), func() {
@@ -411,7 +415,8 @@ func TestWorkspaceRealMCPBindsAndAutosavesAfterBrowserDisconnect(t *testing.T) {
 	}
 	secret, _ := ecdh.P256().GenerateKey(rand.Reader)
 	_, signer, _ := ed25519.GenerateKey(rand.Reader)
-	n := &engine{secret: secret, signer: signer, node: "actual-sdk-guest", until: time.Now().Add(30 * time.Second), resultPath: filepath.Join(root, "artifacts", "last-result")}
+	meter := testReceiptMeter(t)
+	n := &engine{paid: meter, secret: secret, signer: signer, node: "actual-sdk-guest", until: time.Now().Add(30 * time.Second), resultPath: filepath.Join(root, "artifacts", "last-result")}
 	browser, err := openWorkspaceMCP(socket, time.Now().Add(20*time.Second))
 	if err != nil {
 		t.Fatal("actual SDK discovery", err)
@@ -458,7 +463,8 @@ func TestWorkspaceRealMCPBindsAndAutosavesAfterBrowserDisconnect(t *testing.T) {
 		defer uploadMu.Unlock()
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		sig, _ := hex.DecodeString(body["sig"].(string))
+		sigText, _ := body["sig"].(string)
+		sig, _ := hex.DecodeString(sigText)
 		delete(body, "sig")
 		if !ed25519.Verify(signer.Public().(ed25519.PublicKey), canon(body), sig) {
 			t.Error("workspace upload signature")

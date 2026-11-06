@@ -6,4 +6,5 @@ const dependencies = resolve(process.env.WEB_NODE_MODULES || resolve(app, "../pr
 const { build } = await import(pathToFileURL(resolve(dependencies, "esbuild/lib/main.js")));
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({ absWorkingDir: app, entryPoints: ["app.mjs"], bundle: true, format: "esm", platform: "browser", target: "es2022", minify: true, outdir: "dist", nodePaths: [dependencies], alias: { "npm:ethers@6.17.0": resolve(dependencies, "ethers/lib.esm/index.js") } });
-for (const name of ["index.html", "style.css", "config.json"]) await copyFile(resolve(app, name), resolve(app, "dist", name));
+for (const name of ["index.html", "style.css"]) await copyFile(resolve(app, name), resolve(app, "dist", name));
+await copyFile(resolve(process.env.FLEET_CONFIG || resolve(app, "config.json")), resolve(app, "dist/config.json"));

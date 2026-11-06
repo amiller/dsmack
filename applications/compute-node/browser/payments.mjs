@@ -1,8 +1,7 @@
 import {
   AbiCoder,
   keccak256,
-  sha256,
-  toUtf8Bytes,
+  computeAddress,
 } from "./vendor/ethers-6.17.0.mjs";
 export function paymentRunId(enrollmentKeyId, runNonce) {
   return keccak256(
@@ -12,34 +11,11 @@ export function paymentRunId(enrollmentKeyId, runNonce) {
     ]),
   );
 }
-export function paymentBinding(p, peer, compose, image) {
-  return keccak256(
-    AbiCoder.defaultAbiCoder().encode([
-      "bytes32",
-      "uint256",
-      "address",
-      "bytes32",
-      "bytes32",
-      "address",
-      "address",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "bytes32",
-      "uint64",
-    ], [
-      keccak256(toUtf8Bytes("DsmackPaymentsNodeV2")),
-      84532,
-      p.escrow,
-      p.node,
-      p.runId,
-      p.operator,
-      p.receiptSigner,
-      sha256(toUtf8Bytes(peer)),
-      "0x" + compose,
-      "0x" + image,
-      p.buildId,
-      p.runExpires,
-    ]),
-  );
+// Bind the full receipt public key, then check the advertised Ethereum address.
+export function paidReceiptKey(p) {
+  if (typeof p.receiptPublicKey !== "string" || !/^0x0[23][0-9a-f]{64}$/.test(p.receiptPublicKey) ||
+      computeAddress(p.receiptPublicKey).toLowerCase() !== p.receiptSigner?.toLowerCase()) {
+    throw Error("paid receipt public key/signer");
+  }
+  return Uint8Array.from(p.receiptPublicKey.slice(2).match(/../g), x => parseInt(x, 16));
 }

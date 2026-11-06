@@ -126,6 +126,11 @@ func (g *nodeGateways) start(name, listen string, policy map[string]any, hostnam
 		return err
 	}
 	args := []string{"-policy", file, "-http", listen, "-dns", "", "-upstream-proxy", os.Getenv("HTTPS_PROXY")}
+	startupTimeout := 5 * time.Second
+	if name == "broker" && os.Getenv("DSMACK_MONITOR_HASH") != "" {
+		args = append(args, "-monitor-hash", os.Getenv("DSMACK_MONITOR_HASH"), "-monitor-policy", os.Getenv("DSMACK_MONITOR_POLICY"))
+		startupTimeout = 130 * time.Second
+	}
 	if hostname != "" {
 		args = append(args, "-websocket-host", hostname)
 	}
@@ -163,7 +168,7 @@ func (g *nodeGateways) start(name, listen string, policy map[string]any, hostnam
 		}
 	case <-child.done:
 		return fmt.Errorf("%s gateway startup exit: %v", name, child.err)
-	case <-time.After(5 * time.Second):
+	case <-time.After(startupTimeout):
 		return fmt.Errorf("%s gateway startup timeout", name)
 	}
 	deadline := time.Now().Add(3 * time.Second)
@@ -185,7 +190,7 @@ func (g *nodeGateways) start(name, listen string, policy map[string]any, hostnam
 
 func brokerGatewayPolicy(broker, index *url.URL) map[string]any {
 	base := strings.TrimRight(broker.Path, "/")
-	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/payments/receipts", base + "/agent/receipt", base + "/workspaces/begin", base + "/workspaces/chunk", base + "/workspaces/commit"}
+	paths := []string{index.Path, base + "/nodes", base + "/payments/challenge", base + "/agent/receipt", base + "/workspaces/begin", base + "/workspaces/chunk", base + "/workspaces/commit"}
 	return map[string]any{"rules": []any{map[string]any{
 		"name": broker.Hostname(), "port": 443, "methods": []string{"GET", "POST"}, "paths": paths,
 		"max_request_bytes": 1 << 20, "max_response_bytes": 1 << 20,
@@ -236,7 +241,10 @@ func selectTunnel(raw []byte, expected peer.ID, now int64) (string, error) {
 }
 
 func startNodeGateways(relay, brokerURL, indexURL string) (_ *nodeGateways, publicRelay string, err error) {
-	if os.Getenv("BROKER_GATEWAY") != "http://127.0.0.1:18080" || os.Getenv("HTTPS_PROXY") != "http://192.168.127.254:18484" {
+	proxy, proxyErr := url.Parse(os.Getenv("HTTPS_PROXY"))
+	if proxyErr != nil || proxy.Scheme != "http" || proxy.Hostname() != "192.168.127.254" || proxy.Port() == "" ||
+		proxy.User != nil || proxy.Path != "" || proxy.RawQuery != "" || proxy.ForceQuery || proxy.Fragment != "" ||
+		os.Getenv("BROKER_GATEWAY") != "http://127.0.0.1:18080" {
 		return nil, "", fmt.Errorf("Mac gateway endpoints differ from measured configuration")
 	}
 	info, err := peer.AddrInfoFromString(relay)

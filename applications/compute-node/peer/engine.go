@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"crypto/ecdh"
 	"crypto/ed25519"
+	payments "dsmack-payments"
 	"encoding/binary"
 	"encoding/hex"
 	"encoding/json"
@@ -51,8 +52,9 @@ func validID(s string) bool {
 }
 
 type admission struct {
-	JobID string         `json:"job_id"`
-	Grant map[string]any `json:"grant"`
+	JobID  string         `json:"job_id"`
+	Resume bool           `json:"resume,omitempty"`
+	Grant  map[string]any `json:"grant"`
 }
 
 type terms struct {
@@ -89,6 +91,7 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 }
 
 type engine struct {
+	paid           *payments.Meter
 	secret         *ecdh.PrivateKey
 	signer         ed25519.PrivateKey
 	broker         ed25519.PublicKey
@@ -99,6 +102,7 @@ type engine struct {
 	mu             sync.Mutex
 	seen           map[string]bool
 	busy           bool
+	agent          *agentStay
 	jobsServed     int
 	lastError      string
 	closedReason   string

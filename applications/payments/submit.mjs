@@ -5,8 +5,9 @@ import {
   FetchRequest,
   json,
   JsonRpcProvider,
-  nodeBindingSigner,
-  receiptSigner,
+  Claim,
+  claimDomain,
+  verifyTypedData,
   require,
   Wallet,
 } from "./schema.mjs";
@@ -77,69 +78,27 @@ export async function sender(cfg, keyPath, funding = true) {
   }
   return { provider, wallet, contract: new Contract(cfg.escrow, abi, wallet) };
 }
-export async function settle(cfg, contract, envelopes) {
-  const seen = new Set();
-  for (const e of envelopes) {
-    require(
-      nodeBindingSigner(cfg.escrow, e.nodeBinding).toLowerCase() ===
-        cfg.grantSigner.toLowerCase(),
-      "broker binding signer",
-    );
-    require(
-      receiptSigner(cfg.escrow, e).toLowerCase() ===
-        e.nodeBinding.binding.receiptSigner.toLowerCase(),
-      "guest receipt key",
-    );
-    require(
-      !seen.has(e.receipt.purchaseId),
-      "one cumulative receipt per purchase per batch",
-    );
-    seen.add(e.receipt.purchaseId);
-  }
-  require(
-    envelopes.every((e) =>
-      json(e.nodeBinding) === json(envelopes[0].nodeBinding)
-    ),
-    "settlement batch must share one run binding",
-  );
-  const tx = await contract.settle(
-    envelopes.map((e) => e.receipt),
-    envelopes.map((e) => e.signature),
-    envelopes[0].nodeBinding.binding,
-    envelopes[0].nodeBinding.signature,
-  );
-  const receipt = await tx.wait();
-  require(receipt.status === 1, "settlement reverted");
-  return receipt.hash;
-}
 if (import.meta.main) {
-  const [config, keyPath, command, ...args] = Deno.args;
-  const send = args.pop(), file = args[0];
-  require(
-    send === "--send",
-    "usage: submit.mjs CONFIG FUNDING_KEY settle RECEIPTS_JSON --send | refund PURCHASE_ID --send | withdraw PAYEE_KEY --send",
-  );
+  const [config, keyPath, command, value, flag] = Deno.args;
+  require(flag === "--send" || value === "--send",
+    "usage: submit.mjs CONFIG WALLET_KEY deposit USDC_BASE_UNITS --send | claim CLAIM_JSON --send | request-exit --send | withdraw --send");
   const cfg = JSON.parse(await Deno.readTextFile(config));
   const { Quorum } = await import("./quorum.mjs");
   await new Quorum(cfg).snapshot();
-  const { contract } = await sender(cfg, keyPath, command !== "withdraw");
-  if (command === "settle") {
-    console.log(
-      json({
-        settlement: await settle(
-          cfg,
-          contract,
-          JSON.parse(await Deno.readTextFile(file)),
-        ),
-      }),
-    );
-  } else if (command === "refund") {
-    console.log(
-      json({ refund: (await (await contract.refund(file)).wait()).hash }),
-    );
-  } else if (command === "withdraw") {
-    console.log(
-      json({ withdrawal: (await (await contract.withdraw()).wait()).hash }),
-    );
-  } else throw new Error("unknown settlement command");
+  const { contract, wallet } = await sender(cfg, keyPath, false);
+  let tx;
+  if (command === "deposit") {
+    require(/^[1-9][0-9]*$/.test(value), "positive USDC base units required");
+    const token = new Contract(await contract.token(), ["function approve(address,uint256) returns(bool)"], wallet);
+    await (await token.approve(cfg.escrow, value)).wait();
+    tx = await contract.deposit(value);
+  } else if (command === "claim") {
+    const envelope = JSON.parse(await Deno.readTextFile(value));
+    require(verifyTypedData(claimDomain(cfg.escrow, envelope.user), { Claim }, envelope.claim, envelope.signature)
+      .toLowerCase() === cfg.grantSigner.toLowerCase(), "broker claim signature");
+    tx = await contract.claim(envelope.user, envelope.claim, envelope.signature);
+  } else if (command === "request-exit") tx = await contract.requestExit();
+  else if (command === "withdraw") tx = await contract.withdraw();
+  else throw new Error("unknown prepaid command");
+  console.log(json({ command, transaction: (await tx.wait()).hash }));
 }

@@ -2,14 +2,16 @@ package main
 
 import (
 	"bufio"
-	"crypto/ed25519"
-	"encoding/hex"
+	"bytes"
+	payments "dsmack-payments"
 	"encoding/json"
 	"fmt"
+	"math/big"
 	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -19,6 +21,23 @@ import (
 
 const agentProtocol = "/dsmack/agent-mcp/1.0.0"
 const agentIdle = 5 * time.Minute
+
+// The grant owns a stay; network streams are replaceable attachments to it.
+type agentStay struct {
+	meter     *agentMeter
+	workspace *workspaceSession
+	mu        sync.Mutex
+	grant     []byte
+	peer      string
+	attached  bool
+	closed    bool
+	current   *agentAttachment
+	serve     func(network.Stream, bool) bool
+}
+type agentAttachment struct {
+	stop func()
+	done chan struct{}
+}
 
 // Authentication reuses the existing broker grant/admission handshake. Once the
 // ready frame is sent, the stream is exclusively MCP stdio-framed JSON-RPC.
@@ -44,7 +63,27 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		return
 	}
 	n.mu.Lock()
-	if n.busy || n.seen[a.JobID] || (!n.admissionUntil.IsZero() && !time.Now().Before(n.admissionUntil)) {
+	if a.Resume {
+		stay := n.agent
+		n.mu.Unlock()
+		if stay == nil {
+			refuse("resume")
+			return
+		}
+		stay.mu.Lock()
+		valid := !stay.closed && !stay.attached && bytes.Equal(stay.grant, canon(a.Grant)) && stay.peer == s.Conn().RemotePeer().String() && time.Now().Before(n.until) && (n.admissionUntil.IsZero() || time.Now().Before(n.admissionUntil))
+		if valid {
+			stay.attached = true
+		}
+		stay.mu.Unlock()
+		if !valid {
+			refuse("resume")
+			return
+		}
+		stay.serve(s, true)
+		return
+	}
+	if n.agent != nil || n.busy || n.seen[a.JobID] || (!n.admissionUntil.IsZero() && !time.Now().Before(n.admissionUntil)) {
 		n.mu.Unlock()
 		refuse("busy")
 		return
@@ -77,16 +116,15 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		if final {
 			finalized = true
 		}
-		body := map[string]any{"sessionId": t.id, "node_peer": n.node, "guestSeconds": used(), "final": final}
-		if final {
-			n.mu.Lock()
-			reason := n.closedReason
-			n.mu.Unlock()
-			if reason != "" {
-				body["closedReason"] = reason
-			}
+		if n.paid == nil {
+			return true, fmt.Errorf("attested secp256k1 receipt meter required")
 		}
-		body["sig"] = hex.EncodeToString(ed25519.Sign(n.signer, canon(body)))
+		purchase, _ := new(big.Int).SetString(t.id, 16)
+		body, err := n.paid.Receipt(payments.Grant{PurchaseID: purchase.String(), Unit: 1,
+			Amount: strconv.FormatInt(t.seconds, 10), ServiceUntil: t.expires}, used(), final)
+		if err != nil {
+			return true, err
+		}
 		// Retain the signed original before submitting, including when the broker
 		// is unavailable during shutdown. It can be replayed idempotently.
 		resultPath := n.resultPath
@@ -110,7 +148,6 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			Reason              string `json:"reason"`
 			ActiveBudgetSeconds *int64 `json:"activeBudgetSeconds"`
 		}
-		var err error
 		attempts := 1
 		if final {
 			attempts = 3
@@ -156,12 +193,6 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	if socket == "" {
 		socket = "/run/dsmack/agent-mcp.sock"
 	}
-	conn, err := net.DialTimeout("unix", socket, 5*time.Second)
-	if err != nil {
-		refuse("tool_server_unavailable", err.Error())
-		return
-	}
-	defer conn.Close()
 	workspace := &workspaceSession{}
 	// Save while the grant is still non-final; retirement and its final signed
 	// receipt happen only after this deferred ciphertext transfer finishes.
@@ -180,29 +211,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		n.recordError("workspace autosave failed: " + err.Error())
 		fmt.Fprintln(os.Stderr, "workspace autosave failed:", err)
 	}()
-	var outputMu sync.Mutex
-	send := func(line []byte) error {
-		outputMu.Lock()
-		defer outputMu.Unlock()
-		_, err := s.Write(append(append([]byte(nil), line...), '\n'))
-		return err
-	}
-	if writeFrame(s, map[string]string{"status": "ready"}) != nil {
-		return
-	}
-	s.SetDeadline(start.Add(time.Duration(left) * time.Second))
-	var inputMu sync.Mutex
-	writeInput := func(line []byte) error {
-		inputMu.Lock()
-		defer inputMu.Unlock()
-		_, err := conn.Write(append(append([]byte(nil), line...), '\n'))
-		return err
-	}
-	cancelActive := func() {
-		for _, id := range meter.freeze(time.Now()) {
-			writeInput(canon(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": id, "reason": "guest stay ended"}}))
-		}
-	}
+	stay := &agentStay{meter: meter, workspace: workspace, grant: canon(a.Grant), peer: s.Conn().RemotePeer().String(), attached: true}
 	done := make(chan struct{})
 	leaseEnded := make(chan struct{})
 	defer close(done)
@@ -214,9 +223,16 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 				n.closedReason = reason
 			}
 			n.mu.Unlock()
-			cancelActive()
-			s.SetDeadline(time.Now())
-			conn.Close()
+			stay.mu.Lock()
+			stay.closed = true
+			current := stay.current
+			stay.mu.Unlock()
+			if current != nil {
+				current.stop()
+				<-current.done
+			} else {
+				meter.freeze(time.Now())
+			}
 			close(leaseEnded)
 		})
 	}
@@ -264,75 +280,149 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			}
 		}
 	}()
-	// Only tools/call activity extends the lease. Resource/status polling cannot
-	// hold an idle guest forever. All MCP bytes stay inside the attested peer.
-	incomingDone := make(chan struct{})
-	go func() {
-		defer close(incomingDone)
-		scanner := bufio.NewScanner(s)
-		scanner.Buffer(make([]byte, 64<<10), 4<<20)
-		for scanner.Scan() {
-			line := scanner.Bytes()
-			var message struct {
-				ID     json.RawMessage `json:"id"`
-				Method string          `json:"method"`
-				Params struct {
-					Name string `json:"name"`
-				} `json:"params"`
+	// Each attachment gets its own Unix MCP session, without rebinding or
+	// restoring the singleton workspace. A lost request is cancelled, never replayed.
+	stay.serve = func(stream network.Stream, resumed bool) bool {
+		attachment := &agentAttachment{done: make(chan struct{})}
+		defer func() {
+			stay.mu.Lock()
+			if stay.current == attachment {
+				stay.current = nil
 			}
-			if json.Unmarshal(line, &message) != nil {
-				n.recordError("agent MCP invalid JSON")
-				break
-			}
-			normal := message.Method == "tools/call" && message.Params.Name != workspaceTool
-			if normal {
-				if err := meter.begin(message.ID, time.Now(), n.admissionUntil); err != nil {
-					send(canon(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32000, "message": err.Error()}}))
-					continue
+			stay.attached = false
+			stay.mu.Unlock()
+			close(attachment.done)
+		}()
+		conn, err := net.DialTimeout("unix", socket, 5*time.Second)
+		if err != nil {
+			writeFrame(stream, map[string]string{"status": "refused", "error": "tool_server_unavailable"})
+			return false
+		}
+		defer conn.Close()
+		var inputMu, outputMu sync.Mutex
+		writeInput := func(line []byte) error {
+			conn.SetWriteDeadline(time.Now().Add(5 * time.Second))
+			_, err := conn.Write(append(append([]byte(nil), line...), '\n'))
+			return err
+		}
+		var stopOnce sync.Once
+		attachment.stop = func() {
+			stopOnce.Do(func() {
+				inputMu.Lock()
+				for _, id := range meter.freeze(time.Now()) {
+					writeInput(canon(map[string]any{"jsonrpc": "2.0", "method": "notifications/cancelled", "params": map[string]any{"requestId": id, "reason": "guest attachment ended"}}))
 				}
-			}
-			forwarded, err := workspace.request(n, t.id, line)
-			if err != nil {
-				if normal {
-					meter.finish(message.ID, time.Now())
+				conn.Close()
+				stream.SetDeadline(time.Now())
+				stream.Reset()
+				inputMu.Unlock()
+			})
+		}
+		stay.mu.Lock()
+		if stay.closed {
+			stay.mu.Unlock()
+			return false
+		}
+		stay.current = attachment
+		stay.mu.Unlock()
+		defer attachment.stop()
+		ready := map[string]any{"status": "ready"}
+		if resumed {
+			ready["resumed"] = true
+		}
+		if writeFrame(stream, ready) != nil {
+			return false
+		}
+		stream.SetDeadline(start.Add(time.Duration(left) * time.Second))
+		send := func(line []byte) error {
+			outputMu.Lock()
+			defer outputMu.Unlock()
+			_, err := stream.Write(append(append([]byte(nil), line...), '\n'))
+			return err
+		}
+		incomingDone := make(chan struct{})
+		go func() {
+			defer close(incomingDone)
+			scanner := bufio.NewScanner(stream)
+			scanner.Buffer(make([]byte, 64<<10), 4<<20)
+			for scanner.Scan() {
+				line := scanner.Bytes()
+				var message struct {
+					ID     json.RawMessage `json:"id"`
+					Method string          `json:"method"`
+					Params struct {
+						Name string `json:"name"`
+					} `json:"params"`
 				}
-				var request struct {
-					ID json.RawMessage `json:"id"`
-				}
-				json.Unmarshal(line, &request)
-				if send(canon(map[string]any{"jsonrpc": "2.0", "id": request.ID, "error": map[string]any{"code": -32602, "message": err.Error()}})) != nil {
+				if json.Unmarshal(line, &message) != nil {
+					n.recordError("agent MCP invalid JSON")
 					break
 				}
-				continue
+				inputMu.Lock()
+				stay.mu.Lock()
+				closed := stay.closed
+				stay.mu.Unlock()
+				if closed {
+					inputMu.Unlock()
+					break
+				}
+				normal := message.Method == "tools/call" && message.Params.Name != workspaceTool
+				if normal {
+					if err := meter.begin(message.ID, time.Now(), n.admissionUntil); err != nil {
+						inputMu.Unlock()
+						if send(canon(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32000, "message": err.Error()}})) != nil {
+							break
+						}
+						continue
+					}
+				}
+				forwarded, err := workspace.request(n, t.id, line)
+				if err != nil {
+					if normal {
+						meter.finish(message.ID, time.Now())
+					}
+					inputMu.Unlock()
+					if send(canon(map[string]any{"jsonrpc": "2.0", "id": message.ID, "error": map[string]any{"code": -32602, "message": err.Error()}})) != nil {
+						break
+					}
+					continue
+				}
+				err = writeInput(forwarded)
+				inputMu.Unlock()
+				if err != nil {
+					break
+				}
 			}
-			if err := writeInput(forwarded); err != nil {
+			attachment.stop()
+		}()
+		responses := bufio.NewScanner(conn)
+		responses.Buffer(make([]byte, 64<<10), 8<<20)
+		for responses.Scan() {
+			line := responses.Bytes()
+			var response struct {
+				ID     json.RawMessage `json:"id"`
+				Result json.RawMessage `json:"result"`
+				Error  json.RawMessage `json:"error"`
+			}
+			if json.Unmarshal(line, &response) == nil && (len(response.Result) > 0 || len(response.Error) > 0) {
+				meter.finish(response.ID, time.Now())
+			}
+			workspace.observe(line)
+			if send(line) != nil {
 				break
 			}
 		}
-		cancelActive()
-		conn.Close()
-	}()
-	responses := bufio.NewScanner(conn)
-	responses.Buffer(make([]byte, 64<<10), 8<<20)
-	for responses.Scan() {
-		line := responses.Bytes()
-		var response struct {
-			ID     json.RawMessage `json:"id"`
-			Result json.RawMessage `json:"result"`
-			Error  json.RawMessage `json:"error"`
-		}
-		if json.Unmarshal(line, &response) == nil && (len(response.Result) > 0 || len(response.Error) > 0) {
-			meter.finish(response.ID, time.Now())
-		}
-		workspace.observe(line)
-		if send(line) != nil {
-			break
-		}
+		attachment.stop()
+		<-incomingDone
+		return true
 	}
-	conn.Close()
-	s.SetDeadline(time.Now())
-	<-incomingDone
-	// A dropped browser stream retains the workspace until idle or owner end.
-	// Cancelled tools stop the active meter immediately; this wait is unbilled.
+	n.mu.Lock()
+	n.agent = stay
+	n.mu.Unlock()
+	if !stay.serve(s, false) {
+		shutdown("owner")
+	}
+	// A detached stay retains its meter, workspace and signed grant until its
+	// ordinary idle, drain, credit or owner deadline, independently of reattachment.
 	<-leaseEnded
 }

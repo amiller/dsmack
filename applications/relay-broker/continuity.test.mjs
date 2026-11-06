@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FetchRequest, JsonRpcProvider, Wallet } from "../payments/schema.mjs";
+import { Contract, FetchRequest, JsonRpcProvider, Wallet, keccak256 } from "../payments/schema.mjs";
 import { canonical, signingKey } from "./grants.mjs";
-import { Continuity, cidFor, decode, headDigest, anchorReceipt } from "./continuity.mjs";
+import { Continuity, cidFor, decode, headDigest, anchorReceipt, headAbi } from "./continuity.mjs";
+import { syncRpcProvider } from "./continuity-rpc.mjs";
 const encode = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 async function fixture() {
   const wallet=Wallet.createRandom(), stranger=Wallet.createRandom(),key=await signingKey("11".repeat(32));
@@ -70,4 +71,33 @@ test("anchor receipt polling awaits rate-limit recovery without block subscripti
  await assert.rejects(anchorReceipt({send:async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});}},hash,{attempts:2,sleep:async()=>{}}),error=>error.status===503&&error.message.includes("25/second request limit reached"));
  const f=await fixture();f.chain.heads=async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});};
  await assert.rejects(f.broker.call("head",await f.request("head")),error=>error.status===503&&error.message.includes("25/second request limit reached"));
+});
+
+
+test("sync RPC throttling retries the same head read and signed transaction without bypassing errors",async()=>{
+ const wallet=Wallet.createRandom(),raw=await wallet.signTransaction({chainId:84532,type:2,nonce:0,maxPriorityFeePerGas:1,maxFeePerGas:2,gasLimit:21000,to:wallet.address,value:0});
+ const methods=[],broadcasts=[],attempts=new Map(),delays=[];
+ const server=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},async request=>{
+  const payload=await request.json();const values=Array.isArray(payload)?payload:[payload];
+  const replies=values.map(r=>{
+   methods.push(r.method);const attempt=(attempts.get(r.method)||0)+1;attempts.set(r.method,attempt);
+   if(r.method==="eth_sendRawTransaction")broadcasts.push(r.params[0]);
+   if(r.method==="eth_getBalance")return {jsonrpc:"2.0",id:r.id,error:{code:-32000,message:"execution reverted"}};
+   if(attempt===1)return {jsonrpc:"2.0",id:r.id,error:{code:-32007,message:"25/second request limit reached"}};
+   const result=r.method==="eth_call"?"0x"+"0".repeat(128):keccak256(raw);
+   return {jsonrpc:"2.0",id:r.id,result};
+  });
+  return Response.json(Array.isArray(payload)?replies:replies[0]);
+ });
+ const provider=syncRpcProvider("http://127.0.0.1:"+server.addr.port,{sleep:async ms=>delays.push(ms)});
+ try {
+  const chain=new Contract("0x"+"33".repeat(20),headAbi,provider);
+  assert.equal((await chain.heads(wallet.address)).counter,0n);
+  assert.equal(await provider.send("eth_sendRawTransaction",[raw]),keccak256(raw));
+  assert.deepEqual(broadcasts,[raw,raw],"A rate limit must retry the identical signed bytes, not sign another transaction");
+  assert.deepEqual(delays,[1000,1000]);
+  await assert.rejects(provider.send("eth_getBalance",[wallet.address,"latest"]));
+  assert.equal(attempts.get("eth_getBalance"),1,"Contract/verification errors are not quota retries");
+  assert.equal(attempts.get("eth_call"),2);
+ } finally {provider.destroy();await server.shutdown();}
 });

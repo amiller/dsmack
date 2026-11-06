@@ -1,6 +1,6 @@
 import {verify,Quote,utils,oids} from '@phala/dcap-qvl';
 import {createGateAuthorization,unauthorizedGate} from './gate-authorization.mjs';
-import {bytes,random,ephemeral,seal,open,quoteBinding,emailRecoveryLabel,emailRecoveryNonce} from './email-gate-crypto.mjs';
+import {bytes,random,ephemeral,seal,open,quoteBinding,emailRecoveryLabel,emailRecoveryNonce,recoveryControl} from './email-gate-crypto.mjs';
 const hex=(value)=>Array.from(new Uint8Array(value),b=>b.toString(16).padStart(2,'0')).join('');
 const unhex=(value)=>{if(!/^(?:[0-9a-f]{2})*$/i.test(value))throw Error('Invalid attestation hex');return Uint8Array.from(value.match(/../g)||[],x=>parseInt(x,16));};
 const cat=(...parts)=>new Uint8Array(parts.flatMap(p=>Array.from(p)));
@@ -122,18 +122,16 @@ export function createEmailGate({base='',policy}) {
       const result=await api('/continuity/email/dkim',{
         purpose:context.purpose,email:context.email,userId:context.userId,ts:context.ts,
         publicKey:context.publicKey,nonce:context.nonce,headers,sealed});
-      return context.purpose==='enroll'?result:await open(context.privateKey,context.gatePublicKey,result.sealed,label+'|recover|'+context.nonce);
+      return result;
     },
-    async request(email,purpose='recover') {
-      await this.verify();
-      const pair=await ephemeral();
-      return {...await api('/continuity/email/request',{email,purpose,publicKey:pair.publicKey}),...pair,purpose,gatePublicKey:verified.publicKey};
+    async release(context) {
+      const gate=await this.verify();
+      const result=await api('/continuity/email/release',{id:context.id});
+      if(result.pending)return result;
+      const label=emailRecoveryLabel(context.email,context.userId);
+      return open(context.privateKey,gate.publicKey,result.sealed,label+'|recover|'+context.nonce);
     },
-    async confirm(context,code,bundle) {
-      require(context?.gatePublicKey,'Verify the email gate before requesting a code');
-      const sealed=context.purpose==='enroll'?await seal(context.privateKey,context.gatePublicKey,bundle,'dsmack-email-enroll/1|'+context.id):undefined;
-      const result=await api('/continuity/email/confirm',{id:context.id,code,sealed});
-      return context.purpose==='enroll'?result:await open(context.privateKey,context.gatePublicKey,result.sealed,'dsmack-email-recover/1|'+context.id);
-    },
+    async status(dk) { return api('/continuity/email/status',await recoveryControl(dk,'status')); },
+    async cancel(dk,id) { return api('/continuity/email/cancel',await recoveryControl(dk,'cancel',id)); },
   };
 }

@@ -1,3 +1,4 @@
+import { nonceRef, requestLog } from "./request-log.mjs";
 import { verifyNearAttestation } from "./near-attestation.mjs";
 
 export class NearError extends Error {
@@ -28,7 +29,6 @@ export class NearProvider {
       apiKey,
       fetcher = fetch,
       verifyAttestation = verifyNearAttestation,
-      attestationPolicy,
       baseUrl = "https://cloud-api.near.ai",
     } = {},
   ) {
@@ -36,7 +36,6 @@ export class NearProvider {
       apiKey,
       fetcher,
       verifyAttestation,
-      attestationPolicy,
       baseUrl: baseUrl.replace(/\/$/, ""),
     });
   }
@@ -137,7 +136,6 @@ export class NearProvider {
         nonce,
         model,
         baseUrl: this.baseUrl,
-        policy: this.attestationPolicy,
         fetcher: this.fetcher,
       });
       need(
@@ -150,7 +148,7 @@ export class NearProvider {
       throw new NearError("ATTESTATION_INVALID", 502);
     }
   }
-  async chatEncrypted({ key, model, body, headers, attestation, signal }) {
+  async chatEncrypted({ key, model, body, headers, attestation, signal, nonce }) {
     need(
       attestation?.transport?.fetchEncrypted &&
         attestation.evidence?.model === model &&
@@ -158,7 +156,15 @@ export class NearProvider {
         attestation.evidence.expires_at > Date.now() / 1000,
       "ATTESTATION_INVALID",
     );
-    let response;
+    const payload = JSON.stringify(body), started = performance.now();
+    const requestBytes = new TextEncoder().encode(payload).byteLength;
+    let response, responseBytes = 0, logged = false;
+    const complete = code => {
+      if (logged) return;
+      logged = true;
+      requestLog("near_chat", { ref: nonceRef(nonce), code, status: response?.status ?? null,
+        started, requestBytes, responseBytes });
+    };
     try {
       response = await attestation.transport.fetchEncrypted(
         this.baseUrl + "/v1/chat/completions",
@@ -171,14 +177,16 @@ export class NearProvider {
             "content-type": "application/json",
             "accept-encoding": "identity",
           },
-          body: JSON.stringify(body),
+          body: payload,
         },
       );
     } catch {
+      complete("ATTESTATION_INVALID");
       throw new NearError("ATTESTATION_INVALID");
     }
     if (!response.ok) {
-      await response.body?.cancel();
+      try { responseBytes = (await response.arrayBuffer()).byteLength; }
+      finally { complete(response.status === 429 ? "PROVIDER_RATE_LIMIT" : "PROVIDER_UNAVAILABLE"); }
       throw new NearError(
         response.status === 429
           ? "PROVIDER_RATE_LIMIT"
@@ -186,7 +194,27 @@ export class NearProvider {
         response.status === 429 ? 429 : 502,
       );
     }
-    need(response.headers.get("content-type")?.startsWith("text/event-stream"));
-    return response;
+    if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) {
+      try { await response.body?.cancel(); }
+      finally { complete("USAGE_MISMATCH"); }
+      throw new NearError("USAGE_MISMATCH");
+    }
+    const reader = response.body.getReader();
+    let cancelled = false;
+    return new Response(new ReadableStream({
+      async pull(controller) {
+        try {
+          const { value, done } = await reader.read();
+          if (cancelled) return;
+          if (done) { complete("OK"); reader.releaseLock(); controller.close(); }
+          else { responseBytes += value.byteLength; controller.enqueue(value); }
+        } catch (error) { if (!cancelled) { complete("PROVIDER_UNAVAILABLE"); reader.releaseLock(); controller.error(error); } }
+      },
+      async cancel(reason) {
+        cancelled = true;
+        try { await reader.cancel(reason); }
+        finally { complete("REQUEST_CANCELLED"); reader.releaseLock(); }
+      },
+    }), { status: response.status, statusText: response.statusText, headers: response.headers });
   }
 }

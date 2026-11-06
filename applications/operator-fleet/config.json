@@ -1,14 +1,13 @@
 {
   "chainId": 84532,
-  "escrow": "0x927202770c0e2bc30B2aee82Ef58229AD89e72F2",
-  "codeHash": "0x033e38f688e77afb49c338d120049a782a0acbca9f26e961395b8907036cf3c0",
-  "deploymentBlock": 51436111,
+  "escrow": "0x835A61a88Cc8D750b5a971219aa8f9813B2067e6",
+  "codeHash": "0x21f9283b593a3519b50b7fd970d8d1f9c8bf6ff13035ba69a72d866afcf21aec",
+  "deploymentBlock": 53564638,
   "broker": "https://pod.dstack.soc1024.com/relay-broker",
   "rpc": "https://base-sepolia-rpc.publicnode.com",
   "classesByPublisher": {
     "0xa43f9f32411358c1319cb36027650a206644c131": [
-      "0x13e199198dc292c9e82e31597225755287833cf6a5b78506ce429d8bc4e8d34d",
-      "0xbe885f5e92711be153e63cfa978aa9693b9caf8434b463b5f27496ef8b2342bb"
+      "0x5defcf4e0132043f182a97c887da5e025b0c99193f65b9a01d5201f3ad3258a3"
     ]
   }
 }

@@ -7,7 +7,7 @@ The guest has no inbound path, so it dials out to a circuit relay v2 and is reac
 | Piece | Where | What it does |
 |---|---|---|
 | `dsmack-peer relay` | container on the operator host | circuit relay v2 with no data or duration limits; logs each reservation |
-| `dsmack-peer serve` | the guest's one compose service | fresh Ed25519 identity, reserves a relay slot, calls `/v1/Attest` with `report_data = sha256("dsmack-libp2p-peer/1" ‖ PeerId bytes)` padded to 64 bytes, serves the attestation on `/dsmack/attest/1` and echoes on `/dsmack/echo/1` |
+| `dsmack-peer serve` | the guest's one compose service | fresh Ed25519 identity, reserves a relay slot, calls `/v1/Attest` with the [dsmack.bind/1](../../docs/protocol.md#one-report_data-binding) report (empty seal and receipt keys, zero epoch challenge), serves the attestation on `/dsmack/attest/1` and echoes on `/dsmack/echo/1` |
 | `dsmack-peer dial` + `verify.py` | the remote peer | fetches `/dsmack/attest/1`, runs `verify.py` with the PeerId the connection authenticated, opens the echo stream only if it exits 0 |
 
 `verify.py` checks the runner key's enrollment under the CDHash policy, the assertion over the

@@ -51,8 +51,6 @@ const tx = await contract.registerNode(
   measured.node,
   operator,
   1,
-  10000000000n,
-  30,
   composeHash,
   "0x" + imageHash.replace(/^0x/, ""),
 );

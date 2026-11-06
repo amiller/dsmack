@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { Interface, keccak256, Wallet } from "npm:ethers@6.17.0";
-import { discoverChainNodes, signedTunnelNodes } from "./chain-directory.mjs";
+import { discoverChainNodes, signedTunnelNodes, chainDirectoryCache } from "./chain-directory.mjs";
 
 const publisher = Wallet.createRandom(), now = 1793390000;
 const peer = "12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x";
@@ -9,7 +9,7 @@ const entry = { url: "wss://test-guest.trycloudflare.com/", relayPeer: peer, gue
 const index = new Interface(["function owner() view returns (address)", "function entries() view returns (string)"]);
 const escrow = new Interface([
   "function brokerSigner() view returns (address)",
-  "function getNode(bytes32) view returns (tuple(address operator,uint8 unit,uint128 floorPrice,uint128 target,uint128 price,uint128 booked,uint64 epoch,bytes32 composeHash,bytes32 imageHash))",
+  "function getNode(bytes32) view returns (tuple(address operator,uint8 unit,bytes32 composeHash,bytes32 imageHash))",
 ]);
 const canonical = value => JSON.stringify(value, (_, v) => v && typeof v === "object" && !Array.isArray(v)
   ? Object.fromEntries(Object.entries(v).sort(([a], [b]) => a.localeCompare(b))) : v);
@@ -18,21 +18,22 @@ async function envelope(entries = [entry], expiresAt = now + 600) {
   const unsigned = { entries, expiresAt, publisher: publisher.address.toLowerCase() };
   return { ...unsigned, signature: await publisher.signMessage("dsmack-tunnels/1\n" + canonical(unsigned)) };
 }
-async function fixture({ disagree, composeHash = word(3) } = {}) {
+async function fixture({ disagree, unavailable, composeHash = word(3) } = {}) {
   const publication = await envelope(), calls = [];
   const config = {
     chainId: 84532, escrow: "0x" + "11".repeat(20), codeHash: keccak256("0x6000"), grantSigner: publisher.address,
-    chainDirectory: { registry: "0x" + "22".repeat(20), publisher: publisher.address, rpcs: ["https://one.example", "https://two.example"] },
+    chainDirectory: { registry: "0x" + "22".repeat(20), publisher: publisher.address, rpcs: ["https://one.example", "https://two.example", "https://three.example"] },
   };
   const registration = { manifest_sha256: word(3).slice(2), os_image_hash: word(4).slice(2), payments: {
     escrow: config.escrow, node: word(1), operator: publisher.address, grantSigner: config.grantSigner,
   } };
   const fetcher = async (url, options) => {
     const { method, params } = JSON.parse(options.body); calls.push({ url, method, params });
+    if (url.includes(unavailable)) throw Error("provider offline");
     let result;
     if (method === "eth_chainId") result = "0x14a34";
     if (method === "eth_blockNumber") result = url.includes("one") ? "0x64" : "0x65";
-    if (method === "eth_getBlockByNumber") result = { number: params[0], hash: disagree === "block" && url.includes("two") ? word(8) : word(9) };
+    if (method === "eth_getBlockByNumber") result = { number: params[0], hash: disagree === "block" ? word(config.chainDirectory.rpcs.indexOf(url) + 7) : word(9) };
     if (method === "eth_getCode") result = "0x6000";
     if (method === "eth_call") {
       const abi = params[0].to === config.escrow ? escrow : index;
@@ -40,8 +41,8 @@ async function fixture({ disagree, composeHash = word(3) } = {}) {
       if (call.name === "owner") result = abi.encodeFunctionResult("owner", [publisher.address]);
       if (call.name === "entries") result = abi.encodeFunctionResult("entries", [JSON.stringify(publication)]);
       if (call.name === "brokerSigner") result = abi.encodeFunctionResult("brokerSigner", [publisher.address]);
-      if (call.name === "getNode") result = abi.encodeFunctionResult("getNode", [[publisher.address, 1, 1, 30, 1, 0, 1, composeHash, word(4)]]);
-      if (disagree === call.name && url.includes("two")) result += "00";
+      if (call.name === "getNode") result = abi.encodeFunctionResult("getNode", [[publisher.address, 1, composeHash, word(4)]]);
+      if (disagree === call.name) result += "00".repeat(config.chainDirectory.rpcs.indexOf(url));
     }
     return new Response(JSON.stringify({ jsonrpc: "2.0", id: 1, result }));
   };
@@ -55,7 +56,7 @@ test("chain discovery cross-checks a common block and verifies the registered gu
   assert.deepEqual(directory.nodes[0].tunnels, [entry]);
   assert.equal((await directory.verifyRegistration(f.registration)).node, word(1));
   const fixedReads = f.calls.filter(call => ["eth_call", "eth_getCode"].includes(call.method));
-  assert.ok(fixedReads.length > 0 && fixedReads.every(call => call.params[1] === "0x64"));
+  assert.ok(fixedReads.length > 0 && fixedReads.every(call => call.params[1].blockHash === word(9) && call.params[1].requireCanonical === true));
   for (const call of fixedReads) assert.ok(fixedReads.some(other => other.url !== call.url && other.method === call.method && JSON.stringify(other.params) === JSON.stringify(call.params)));
 });
 
@@ -71,11 +72,79 @@ test("unsigned, altered and expired tunnel publications cannot supply guest peer
 test("provider disagreement stops chain discovery", async () => {
   for (const disagree of ["block", "entries"]) {
     const f = await fixture({ disagree });
-    await assert.rejects(discoverChainNodes({ ...f, now }), /two RPC providers disagree/);
+    await assert.rejects(discoverChainNodes({ ...f, now }), /no two RPC providers agree|RPC providers disagree/);
   }
+});
+
+test("a failed provider cannot prevent the other two from discovering signed guests", async () => {
+  for (const unavailable of ["one", "two", "three"]) {
+    const f = await fixture({ unavailable });
+    assert.equal((await discoverChainNodes({ ...f, now })).nodes[0].relay_peer, peer);
+  }
+});
+
+test("a stalled third provider does not delay matching head, block or state reads", async () => {
+  const f = await fixture(), base = f.fetcher;
+  f.fetcher = (url, options) => url.includes("three")
+    ? new Promise((_, reject) => options.signal.addEventListener("abort", () => reject(Error("aborted")), { once: true }))
+    : base(url, options);
+  const controller = new AbortController();
+  try {
+    const directory = await discoverChainNodes({ ...f, now, signal: controller.signal });
+    assert.equal(directory.nodes.length, 1);
+  } finally { controller.abort(); }
 });
 
 test("a valid direct attestation cannot replace the registered compose measurements", async () => {
   const f = await fixture({ composeHash: word(5) }), directory = await discoverChainNodes({ ...f, now });
   await assert.rejects(directory.verifyRegistration(f.registration), /differs from its registered UsageEscrow class/);
+});
+
+
+test("chain RPC reads recover once from a phone network failure", async () => {
+  const f = await fixture(), base = f.fetcher, seen = new Set();
+  f.fetcher = (url, options) => {
+    const key = url + options.body;
+    if (!seen.has(key)) { seen.add(key); throw new TypeError("Failed to fetch"); }
+    return base(url, options);
+  };
+  const directory = await discoverChainNodes({ ...f, now });
+  assert.equal(directory.nodes[0].relay_peer, peer);
+  assert.equal(directory.expiresAt, now + 600);
+});
+
+test("a verified directory is reused until expiry or a failed guest connection invalidates it", async () => {
+  let time = now, reads = 0;
+  const cache = chainDirectoryCache({ now: () => time, lookup: async () => ({ expiresAt: time + 600, read: ++reads }) });
+  const first = await cache.read();
+  assert.equal(await cache.read(), first);
+  time += 599;
+  assert.equal(await cache.read(), first);
+  time++;
+  assert.equal((await cache.read()).read, 2);
+  cache.invalidate();
+  assert.equal((await cache.read()).read, 3);
+});
+
+test("an expired publication waits briefly only for a live publisher and preserves the final error", async () => {
+  const expired = Object.assign(Error("signed publication expired"), { code: "PUBLICATION_EXPIRED" });
+  let reads = 0, sleeps = [];
+  const options = { publisherOnline: async () => true, sleep: async ms => sleeps.push(ms),
+    lookup: async () => { if (++reads < 3) throw expired; return { expiresAt: now + 600 }; } };
+  assert.equal((await chainDirectoryCache(options).read()).expiresAt, now + 600);
+  assert.equal(reads, 3); assert.deepEqual(sleeps, [2000, 2000]);
+  reads = 0; sleeps = [];
+  await assert.rejects(chainDirectoryCache({ ...options, publisherOnline: async () => false }).read(), error => error === expired);
+  assert.equal(reads, 1); assert.deepEqual(sleeps, []);
+  reads = 0;
+  await assert.rejects(chainDirectoryCache({ ...options, lookup: async () => { reads++; throw expired; } }).read(), error => error === expired);
+  assert.equal(reads, 4); assert.deepEqual(sleeps, [2000, 2000, 2000]);
+});
+
+test("invalid publication signatures fail without waiting for a publisher", async () => {
+  let checks = 0;
+  const cache = chainDirectoryCache({ lookup: async () => signedTunnelNodes({ ...await envelope(), signature: 'bad' }, publisher.address, now),
+    publisherOnline: async () => { checks++; return true; } });
+  await assert.rejects(cache.read(), /signature is invalid/);
+  assert.equal(checks, 0);
 });

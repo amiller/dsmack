@@ -25,7 +25,7 @@ contract GuestEscrowFindingsTest is GuestEscrowBase {
     /// escrow, the nonce is spent, depositWithAuthorization then reverts, and nothing credits or returns the tokens.
     function testFrontRunAuthorizationDoesNotStrandTokens() public {
         bytes32 nonce = keccak256("x402");
-        (uint8 v, bytes32 r, bytes32 s) = authorization(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), 10e6, nonce);
+        (uint8 v, bytes32 r, bytes32 s) = authorization(token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), 10e6, nonce);
         vm.prank(address(0xBAD));
         (bool frontRun,) = address(token).call(abi.encodeCall(token.transferWithAuthorization,
             (payer, address(esc), 10e6, 0, block.timestamp + 1 hours, nonce, v, r, s)));

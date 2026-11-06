@@ -248,16 +248,16 @@ A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]
 
 Deployed from `0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b`, which owns all three and the `CDRegistry`
 `0x14b569c5D81d42621c5C0d4d62185239C86D8d20` (current build admits the Mini runner CDHash `0x0c3d…969f`).
-All three are source-verified on Basescan. The verifier and escrow were built from the standard JSON
+LayoverCredit is unchanged. The escrow is the redesign from commit `4071be1` (no exit delay, no claim `period`, `closeTerms` with a 1-day `CLAIM_GRACE`, `withdraw` down to exposure). The earlier verifier/escrow pairs `0x3647…8323`/`0x78e0…Af6C` (first redesign), `0x4509…6298`/`0x97F7…d52e` are abandoned; nothing was enrolled or approved on them. Basescan source verification of the new pair: see the PR. The earlier pair was built from the standard JSON
 input `forge verify-contract --show-standard-json-input` prints for each (de-duplicated: forge lists
-`AppleEndorsements.sol` twice), compiled with solc 0.8.21; a first pair (`0x4509…6298`, `0x97F7…d52e`)
+`AppleEndorsements.sol` twice), compiled with solc 0.8.21; that first pair
 deployed from forge's test-run artifacts did not reproduce from a clean input and is abandoned.
 
 | Contract | Address | Tx | Gas |
 |---|---|---|---:|
 | LayoverCredit (LAYC, 1,000,000 genesis to the owner) | `0x9e851Bf5E3b613aaA09853A07D1132F49c90b515` | `0x5a077ac90db03fd07c093b2f16eeb23697ec9e9a6db7ee7995898c2aea29f433` | 997,974 |
-| AppleAttestRegistryV1 (registry = GuestEscrow) | `0x3647C6938080498328b98eA483e813c411508323` | `0x2006cdc1d7fa77bdb77d4df14877bac20fc9c9306cadb91dabba1fc0cdb88d24` | 4,429,427 |
-| GuestEscrow (token = LayoverCredit) | `0x78e00808F36A4bBaFD1d8F5cFD0b5f10dC21Af6C` | `0x7d4422bcad82c3b6380a176a7f021068f69444e2643c6f0401c880ac427ebae8` | 1,986,806 |
+| AppleAttestRegistryV1 (registry = GuestEscrow) | `0xA609124be069225ee2af58741bc109F4bffAB6C3` | `0xe5be8d55d4c727afa65841cddb346dfdd75e763234b0f68f91f741fee963634d` | 4,397,394 |
+| GuestEscrow (token = LayoverCredit) | `0xdf9bb576E30Ec71E200643AB6FC835Eee12C95EA` | `0x210eb3b138b179674661c0c40a9298330799d15eda3af8191a62935e1b5b7dc7` | 2,227,656 |
 
 Verifier policy as `0xdd86…0A53`: endorsements `0xb326…dd81`, aaguid `appattest`, category 3, ios false.
 No workload is approved yet and no Mac is enrolled in the verifier. To admit a guest build and a Mac:

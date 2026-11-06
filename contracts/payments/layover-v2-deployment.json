@@ -23,18 +23,36 @@
     },
     "why": "verifier bytecode came from a forge test compilation unit and does not reproduce from a clean standard-json input; abandoned, never configured"
   },
+  "abandoned_first_redesign_pair": {
+    "AppleAttestRegistryV1": {
+      "address": "0x3647C6938080498328b98eA483e813c411508323",
+      "tx": "0x2006cdc1d7fa77bdb77d4df14877bac20fc9c9306cadb91dabba1fc0cdb88d24",
+      "gasUsed": 4429427,
+      "block": 55019855,
+      "nonce": 88
+    },
+    "GuestEscrow": {
+      "address": "0x78e00808F36A4bBaFD1d8F5cFD0b5f10dC21Af6C",
+      "tx": "0x7d4422bcad82c3b6380a176a7f021068f69444e2643c6f0401c880ac427ebae8",
+      "gasUsed": 1986806,
+      "block": 55019868,
+      "nonce": 89
+    },
+    "why": "superseded by the no-exit-delay redesign (4071be1); nothing enrolled or approved there"
+  },
   "AppleAttestRegistryV1": {
-    "address": "0x3647C6938080498328b98eA483e813c411508323",
-    "tx": "0x2006cdc1d7fa77bdb77d4df14877bac20fc9c9306cadb91dabba1fc0cdb88d24",
-    "gasUsed": 4429427,
-    "block": 55019855,
-    "nonce": 88
+    "address": "0xA609124be069225ee2af58741bc109F4bffAB6C3",
+    "tx": "0xe5be8d55d4c727afa65841cddb346dfdd75e763234b0f68f91f741fee963634d",
+    "gasUsed": 4397394,
+    "block": 55065902,
+    "nonce": 90
   },
   "GuestEscrow": {
-    "address": "0x78e00808F36A4bBaFD1d8F5cFD0b5f10dC21Af6C",
-    "tx": "0x7d4422bcad82c3b6380a176a7f021068f69444e2643c6f0401c880ac427ebae8",
-    "gasUsed": 1986806,
-    "block": 55019868,
-    "nonce": 89
+    "address": "0xdf9bb576E30Ec71E200643AB6FC835Eee12C95EA",
+    "tx": "0x210eb3b138b179674661c0c40a9298330799d15eda3af8191a62935e1b5b7dc7",
+    "gasUsed": 2227656,
+    "block": 55065933,
+    "nonce": 91,
+    "commit": "4071be1"
   }
 }

@@ -264,7 +264,7 @@ func TestAgentCreditDeadlineCancelsActiveTool(t *testing.T) {
 func testReceiptMeter(t *testing.T) *payments.Meter {
 	t.Helper()
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, err := payments.New(payments.Config{Node: zero, Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x3000000000000000000000000000000000000003", EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 3600})
+	m, err := payments.New(payments.Config{Node: zero, Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x3000000000000000000000000000000000000003", BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 3600}, make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
 	}

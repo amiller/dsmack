@@ -141,7 +141,16 @@ async function assertion(proof, policy, enrollment, minCounter = 0) {
   );
   return { ...a, counter };
 }
-// policy.manifest is the exact approved manifest bytes, selected independently of discovery.
+// On-chain mode: the key is the one the attestation names, read from AppleAttestRegistry, which admitted it only with
+// an Apple-rooted attestation of an approved CDRegistry build. No per-device enrollment is pinned.
+async function chainEnrollment(proof, chain) {
+  const kid = (await decodeAttestation(unhex(proof))).key_id,
+    key = await chain.key(kid);
+  require(key.enrolled, "node key " + hex(kid) + " is not enrolled on chain");
+  return { kid, point: cat(Uint8Array.of(4), key.x, key.y), expires: key.expires * 1000 };
+}
+// policy.manifest is the exact approved manifest bytes, selected independently of discovery. A paid node also needs
+// policy.operatorsOf(kid): the operators whose MacLinks name the attesting key (owners.mjs brokerOwners).
 export async function verifyNode(registration, policy) {
   require(
     policy.manifest instanceof Uint8Array &&
@@ -220,12 +229,18 @@ export async function verifyNode(registration, policy) {
       "CDRegistry address",
     );
   }
-  const enrollment = await verifyEnrollment(policy.enrollment, policy.cdhash);
   const enrollmentMode = policy.enrollmentMode ?? "on-chain";
   require(
     ["on-chain", "apple-root"].includes(enrollmentMode),
     "enrollment mode",
   );
+  const enrollment = enrollmentMode === "apple-root"
+    ? await verifyEnrollment(policy.enrollment, policy.cdhash)
+    : await chainEnrollment(
+      registration.proof ?? registration.attestation,
+      policy.chain ??
+        rpcChain(policy.rpc, policy.attest ?? ATTEST, policy.canary ?? CANARY),
+    );
   if (enrollmentMode === "apple-root") {
     const base = policy.chain ??
       rpcChain(policy.rpc, policy.attest ?? ATTEST, policy.canary ?? CANARY);
@@ -256,11 +271,15 @@ export async function verifyNode(registration, policy) {
         /^[0-9a-f]{64}$/.test(p.challenge),
       "fresh node challenge",
     );
+    // The manifest names no Mac key: the run binds to the attesting key, which must be linked to the payee.
+    const kid = "0x" + hex(enrollment.kid);
     require(
-      p.enrollmentKeyId.toLowerCase() === "0x" + hex(enrollment.kid) &&
-        p.runId.toLowerCase() ===
-          paymentRunId(p.enrollmentKeyId, p.runNonce).toLowerCase(),
-      "payment run/key",
+      p.runId.toLowerCase() === paymentRunId(kid, p.runNonce).toLowerCase(),
+      "payment run is not bound to the attesting key",
+    );
+    require(
+      (await policy.operatorsOf(kid)).includes(p.operator.toLowerCase()),
+      "node key " + kid + " has no MacLink to payment operator " + p.operator,
     );
     require(
       p.grantSigner.toLowerCase() === policy.grantSigner?.toLowerCase(),

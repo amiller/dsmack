@@ -24,7 +24,7 @@ await (await usdc.connect(user).approve(await rail.getAddress(),1000000)).wait()
 await (await rail.connect(user).deposit(1000000)).wait();
 let now=Number((await provider.getBlock("latest")).timestamp);
 const payments=new Payments({cfg:{escrow:await rail.getAddress(),inferenceOperator:operatorAddress},key:brokerKey,
- now:()=>now,save:async()=>{},quorum:{snapshot:async()=>({call:async(name,args)=>await rail[name](...args)})}});
+ now:()=>now,save:async()=>{},chain:{snapshot:async()=>({call:async(name,args)=>await rail[name](...args)})}});
 const inference=new Inference({payments,cfg:{model:"fixture"},now:()=>now,
  provider:{apiKey:"local",costs:async()=>({requests:[{requestId:"inference-local",costNanoUsd:"100000"}]})}});
 const signed=async(action,extra={})=>{

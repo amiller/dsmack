@@ -31,6 +31,8 @@ import { loadProvider, saveProvider, directModel, modelBadge, modelPrivacy, prov
 import { brokerStream } from "./inference.mjs";
 import { referenceError, replyFailure, retryCandidate, meteredReply, settleInterruptedReply, failOrphanedTools } from "./reply-recovery.mjs";
 import * as sandbox from "@sandbox";
+import { heliosChain } from "../compute-node/browser/helios-chain.mjs";
+import { brokerOwners } from "../compute-node/browser/owners.mjs";
 import approvedSandboxPolicy from "./sandbox-policy.json";
 import { monitorLabel } from "../egress-policy/monitor/registry.mjs";
 import { GuestSession } from "./agent-tools.mjs";
@@ -973,20 +975,27 @@ async function initChat() {
   });
 }
 
+// On-chain mode (the default) pins code only: the guest's App Attest key is read from AppleAttestRegistry through
+// layover-chain (Helios) and must have a MacLink to the payee, so a Mac's key rotation needs no new policy.
 function loadPolicy(raw) {
+  const onChain = (raw?.enrollmentMode ?? "on-chain") === "on-chain";
   require(
-    raw && typeof raw.manifest === "string" && raw.enrollment,
-    "Sandbox policy needs exact manifest and Apple enrollment bytes.",
+    raw && typeof raw.manifest === "string" && (onChain || raw.enrollment),
+    "Sandbox policy needs exact manifest bytes, and Apple enrollment bytes in apple-root mode.",
   );
   const p = {
     ...raw,
     manifest: sandbox.unhex(raw.manifest),
-    enrollment: {
+    operatorsOf: brokerOwners(cfg.broker + "/fleet/ownership", cfg.escrow),
+  };
+  if (onChain) p.chain = heliosChain(raw);
+  else {
+    p.enrollment = {
       attestation: sandbox.unhex(raw.enrollment.attestation),
       keyId: raw.enrollment.keyId,
       clientData: sandbox.unhex(raw.enrollment.clientData),
-    },
-  };
+    };
+  }
   require(
     p.brokerKey === cfg.brokerKey &&
       p.grantSigner?.toLowerCase() === cfg.grantSigner.toLowerCase(),

@@ -1,9 +1,20 @@
 ---
-status: accepted
+status: superseded for the relay-broker (2026-11-07)
 date: 2026-11-03
 ---
 
 # Base Sepolia reads use ordered RPC failover
+
+> **Superseded for the relay-broker (dsmack#101).** The broker's chain reads, meaning guest admission (App Attest keys,
+> CDRegistry, canary, code pins, UsageEscrow class and broker signer), `/payments/classes` and deposit credit
+> (`syncBalance`), now go through layover-chain (`chainRead`, https://pod.dstack.soc1024.com/layover-chain). That
+> service answers only what its Helios OP-stack light client verified. `payments/helios-reader.mjs` pins every read
+> to one verified block hash at least 30 blocks behind the verified head. It refuses a reply that is not marked
+> `helios-opstack`, that is pinned to another block, that ignored the requested depth, or that comes from a head older
+> than 120 s. The broker no longer uses a public RPC for any of these reads. Helios still gives no finalized head, so
+> deposits are read 30 blocks (about 6 s) behind the unsafe head, and an L2 reorg deeper than that is not covered.
+> Tools that submit transactions (`register-class.mjs`, `submit.mjs`) and the continuity anchor still use the reader
+> below.
 
 Public RPC rate limits and differing finalized heights were refusing Mac
 registrations even when one provider was healthy.

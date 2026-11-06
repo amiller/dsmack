@@ -29,7 +29,7 @@ function fixture({ state, cfg = {} } = {}) {
     cfg: {},
     key: {},
     state,
-    quorum: {},
+    chain: {},
     now: () => now,
     save: async (next) => {
       saved = structuredClone(next);
@@ -188,7 +188,7 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
       cfg: {},
       key: {},
       state: f.saved(),
-      quorum: {},
+      chain: {},
       save: async () => {},
     }),
     cfg: { model: MODEL },
@@ -379,7 +379,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
       cfg: {},
       key: {},
       state: saved,
-      quorum: {},
+      chain: {},
       save: async () => {},
     });
   const restarted = new Inference({
@@ -669,7 +669,7 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   const state = structuredClone(f.saved());
   const [id, request] = Object.entries(state.inferenceRequests)[0];
   state.inferenceRequests[id] = { ...request, status: "streaming", usedTokens: null, streamCompleted: false };
-  const payments = new Payments({ cfg: {}, key: {}, state, quorum: {}, save: async () => {} });
+  const payments = new Payments({ cfg: {}, key: {}, state, chain: {}, save: async () => {} });
   const restarted = new Inference({ payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
   await restarted.recover();
   assert.equal(restarted.status().inFlightStreams, 0);
@@ -770,7 +770,7 @@ test("the 278-byte usage check reports already sent after duplicate delivery or 
   assert.match(duplicate.message, /usage check was already sent.*new signed request/);
   assert.equal(first.spentNanoUsd, "300");
   assert.equal(first.usedTokens, "8");
-  const restarted = new Inference({ payments: new Payments({ cfg: {}, key: {}, state: f.saved(), quorum: {}, save: async () => {} }),
+  const restarted = new Inference({ payments: new Payments({ cfg: {}, key: {}, state: f.saved(), chain: {}, save: async () => {} }),
     cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
   await assert.rejects(restarted.usage(request), code("REQUEST_ALREADY_SENT"));
   assert.deepEqual(await restarted.usage(await f.signed("usage")), first);

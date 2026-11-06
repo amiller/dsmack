@@ -45,6 +45,8 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(node['environment']['ADMIT_SECONDS'], '3120')
         self.assertEqual(json.loads(node['environment']['PAYMENTS_CONFIG'])['runSeconds'], 3600)
         self.assertEqual(measured['limits']['timeout_s'], 3600)
+        with self.assertRaisesRegex(ValueError, 'must not name an App Attest key'):
+            self.generate(seconds=3600, tunnel_index=INDEX, payments={**payments, 'enrollmentKeyId': '0x' + '00' * 32})
         with self.assertRaisesRegex(ValueError, '1..3600'):
             self.generate(seconds=3601, tunnel_index=INDEX)
 

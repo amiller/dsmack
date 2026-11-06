@@ -40,11 +40,11 @@ packing. Register with the existing contract:
 
 ```sh
 deno run -A applications/payments/register-class.mjs PAYMENTS_CONFIG FUNDING_KEY \
-  OUT/compose-manifest.json BROKER_URL PUBLISHER_ADDRESS
+  OUT/compose-manifest.json
 ```
 
 Set the page's `sandbox-policy.json` `manifest` to the exact new manifest's hex
-bytes, retaining its enrollment/build pins. Add the class to the page/broker
+bytes, retaining its build pins. Add the class to the page/broker
 class configuration, then rebuild the page with `npm ci && npm run build`.
 Install the packed guest workload on the Mac pool and rotate guests. The signed
 Mac runner, relay broker and contracts need no code changes or redeploys.

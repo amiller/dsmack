@@ -6,9 +6,9 @@ import {
   require,
   runNode,
 } from "../payments/schema.mjs";
-import { ChainReader } from "../payments/chain-reader.mjs";
 import { admissionChain } from "../payments/admission.mjs";
-import { verifyRelay, withEnrollment } from "./attestation.mjs";
+import { verifyRelay } from "./attestation.mjs";
+import { operatorsOf, ownershipDomain } from "./ownership.mjs";
 import { hex } from "../../dstack-compat/secret-release/policy.mjs";
 
 export class Payments {
@@ -19,7 +19,8 @@ export class Payments {
       state = { grants: {}, receipts: {} },
       save,
       now = () => Math.floor(Date.now() / 1000),
-      quorum = undefined,
+      chain,
+      ownership,
     },
   ) {
     this.cfg = cfg;
@@ -27,7 +28,9 @@ export class Payments {
     this.state = state;
     this.save = save;
     this.now = now;
-    this.chain = quorum ?? new ChainReader(cfg);
+    // Every chain read (guest admission, classes, deposit credit) is Helios-verified: a HeliosReader in production.
+    this.chain = chain;
+    this.ownership = ownership;
     this.pending = Promise.resolve();
     this.challenges = new Map();
   }
@@ -52,10 +55,7 @@ export class Payments {
     const checked = await verifyRelay(
       r,
       cfg,
-      withEnrollment(
-        await admissionChain(s, { ...cfg, ...this.cfg }),
-        cfg.enrollments,
-      ),
+      await admissionChain(s, { ...cfg, ...this.cfg }),
       this.now(),
     );
     const p = r.payments;
@@ -72,10 +72,10 @@ export class Payments {
       (this.challenges.get(p.challenge) ?? 0) > this.now(),
       "fresh broker admission challenge required",
     );
+    // The class pins code, not a Mac key: the run binds to the App Attest key that signed this attestation.
     require(
-      p.enrollmentKeyId.toLowerCase() === "0x" + checked.key_id &&
-        runNode(p.enrollmentKeyId, p.runNonce) === p.runId,
-      "payment node/enrollment/run binding",
+      runNode("0x" + checked.key_id, p.runNonce) === p.runId,
+      "payment run is not bound to the attesting key",
     );
     // buildId is compared with CDRegistry at the same finalized block by verifyRelay.
     require(
@@ -87,6 +87,14 @@ export class Payments {
       n.operator.toLowerCase() === p.operator.toLowerCase() &&
         Number(n.unit) === (r.kind === "compute" ? 1 : 0),
       "class operator/unit mismatch",
+    );
+    require(
+      operatorsOf(
+        await this.ownership(),
+        ownershipDomain(this.cfg.escrow),
+        "0x" + checked.key_id,
+      ).includes(n.operator.toLowerCase()),
+      "attested key " + checked.key_id + " has no MacLink to the class operator",
     );
     require(
       n.composeHash === "0x" + r.manifest_sha256 &&

@@ -35,7 +35,7 @@ func TestPaidBindingIncludesBothReceiptKeysAndFreshChallenge(t *testing.T) {
 	receipt, _ := hex.DecodeString(f.Compute.Receipt)
 	const zero32 = "0x0000000000000000000000000000000000000000000000000000000000000000"
 	const addr = "0x1000000000000000000000000000000000000001"
-	m, err := payments.New(payments.Config{Node: zero32, Escrow: addr, Operator: addr, GrantSigner: addr, EnrollmentKeyID: zero32, BuildID: zero32, DestinationPolicyHash: zero32, RunSeconds: 600})
+	m, err := payments.New(payments.Config{Node: zero32, Escrow: addr, Operator: addr, GrantSigner: addr, BuildID: zero32, DestinationPolicyHash: zero32, RunSeconds: 600}, make([]byte, 32))
 	if err != nil {
 		t.Fatal(err)
 	}

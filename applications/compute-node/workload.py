@@ -64,6 +64,10 @@ def manifest(starter, digest, binary, relay, broker, key, cdhash, seconds, proxy
     service['environment']['ADMIT_SECONDS'] = str(admit_seconds)
     artifacts = ['registration', 'last-result', 'egress', 'agent-receipts', 'egress-checks', 'gateway-log']
     if payments is not None:
+        # The guest binds its run to the App Attest key that signs its attestation; a key here would tie the
+        # manifest and its UsageEscrow class to one device key, so a rotation would need a repack.
+        if 'enrollmentKeyId' in payments:
+            raise ValueError('PAYMENTS_CONFIG must not name an App Attest key (enrollmentKeyId)')
         service['environment']['PAYMENTS_CONFIG'] = canonical(payments).decode()
         artifacts.append('payment-receipts')
     m.update(name=NAME, allowed_files=[],

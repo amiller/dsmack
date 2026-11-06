@@ -131,7 +131,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return err
 		}
 	}
-	paid := paidMeter()
+	paidCfg := paidConfig()
 	operatorStop := make(chan struct{})
 	var stopOnce sync.Once
 	key, e := hex.DecodeString(brokerHex)
@@ -235,6 +235,10 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return err
 	}
 	att, e := attest(p2p.ReportData(h.ID(), public(secret), receipt, nil))
+	if e != nil {
+		return e
+	}
+	paid, e := paidMeter(paidCfg, att)
 	if e != nil {
 		return e
 	}

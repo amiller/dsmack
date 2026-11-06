@@ -18,7 +18,7 @@ func TestBuyerAndReceiptInteroperability(t *testing.T) {
 	buyer, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	id, _ := peer.IDFromPrivateKey(buyer)
 	pub, _ := buyer.GetPublic().Raw()
-	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 3600})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 3600}, make([]byte, 32))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -72,7 +72,7 @@ func TestBuyerAndReceiptInteroperability(t *testing.T) {
 func TestOnlyOperatorCanStopAdmittedRun(t *testing.T) {
 	operator, _ := secp.GeneratePrivateKey()
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660}, make([]byte, 32))
 	if e != nil {
 		t.Fatal(e)
 	}

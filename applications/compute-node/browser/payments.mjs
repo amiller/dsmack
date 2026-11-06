@@ -3,10 +3,10 @@ import {
   keccak256,
   computeAddress,
 } from "./vendor/ethers-6.17.0.mjs";
-export function paymentRunId(enrollmentKeyId, runNonce) {
+export function paymentRunId(kid, runNonce) {
   return keccak256(
     AbiCoder.defaultAbiCoder().encode(["bytes32", "bytes32"], [
-      enrollmentKeyId,
+      kid,
       runNonce,
     ]),
   );

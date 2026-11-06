@@ -62,10 +62,14 @@ reimbursement wallet. The ledger is persisted in `payments-ESCROW_ADDRESS.json`.
 
 Build the Linux compute peer and OCI workload using the
 [compute node instructions](../compute-node/README.md#build). Pack `PAYMENTS_CONFIG`
-with the new escrow, broker signer, linked operator, node, enrollment/build IDs,
-policy hash and run lifetime. Register each packed class using
-`register-class.mjs CONFIG FUNDING_KEY MANIFEST BROKER PUBLISHER` before offering
-its new guest image. The macOS native runner uses the existing binding protocol.
+with the new escrow, broker signer, operator, node, build ID, policy hash and run
+lifetime. It names no App Attest key: the guest binds its run to the key that
+signs its attestation (`runId = keccak(kid, runNonce)`), and the broker admits
+the run only if that key is enrolled on AppleAttestRegistry and has a MacLink to
+the class operator. A key rotation is a new `enroll` plus a new MacLink under the
+same class. Register each packed class using
+`register-class.mjs CONFIG FUNDING_KEY MANIFEST` before offering its new guest
+image. The macOS native runner uses the existing binding protocol.
 
 Top up a user's wallet (amount in six-decimal USDC base units), then refresh its
 signed `/inference/credit` request:

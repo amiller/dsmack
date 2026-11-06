@@ -8,7 +8,7 @@ test("finalized lifetime deposits credit once across concurrent refresh and rest
  const wallet=Wallet.createRandom().address.toLowerCase();
  let deposited=1000000n,exit=0n,saved;
  const options={cfg:{escrow},key:Wallet.createRandom(),save:async s=>{saved=structuredClone(s)},
-  quorum:{snapshot:async()=>({call:async name=>name==="deposits"?deposited:exit})}};
+  chain:{snapshot:async()=>({call:async name=>name==="deposits"?deposited:exit})}};
  let p=new Payments(options);
  await Promise.all([p.syncBalance(wallet),p.syncBalance(wallet)]);
  assert.equal(p.state.inferenceCredit[wallet].grantedNanoUsd,"1000000000");
@@ -26,7 +26,7 @@ test("weekly cumulative claims isolate user/operator funds, retain rounding dust
  const user=Wallet.createRandom().address.toLowerCase(),other=Wallet.createRandom().address.toLowerCase();
  const operator=Wallet.createRandom().address.toLowerCase(),second=Wallet.createRandom().address.toLowerCase();
  let now=30*604800;
- const p=new Payments({cfg:{escrow},key:Wallet.createRandom(),quorum:{},save:async()=>{},now:()=>now,
+ const p=new Payments({cfg:{escrow},key:Wallet.createRandom(),chain:{},save:async()=>{},now:()=>now,
   state:{inferenceCredit:{[user]:{depositedNanoUsd:"5000"},[other]:{depositedNanoUsd:"0"}}}});
  const debit=(wallet,payee,charge)=>{
   const allocation=accrue(p.state,wallet,payee,BigInt(charge),now);

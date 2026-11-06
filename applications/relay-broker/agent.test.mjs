@@ -14,7 +14,7 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
  const key=await signingKey("12".repeat(32));
  const receiptKey=Wallet.createRandom();
  const escrow="0x1000000000000000000000000000000000000001";
- const payments=new Payments({cfg:{escrow},key:Wallet.createRandom(),quorum:{snapshot:async()=>({call:async()=>0n})},state:{},save:async()=>{},now:()=>now});
+ const payments=new Payments({cfg:{escrow},key:Wallet.createRandom(),chain:{snapshot:async()=>({call:async()=>0n})},state:{},save:async()=>{},now:()=>now});
  const inference=new Inference({payments,cfg:{model:"fixture/model",starterCreditNanoUsd:starter,...inferenceCfg},provider:{apiKey:"fixture"},now:()=>now});
  const node={kind:"compute",relay_peer:peer,admit_until:now+lifetime,
   payments:{receiptSigner:receiptKey.address,operator:other.address},
@@ -153,7 +153,7 @@ test("HTTP broker enforces daily starter credit and wallet slots across ledger r
   assert.equal((await credit(f.other)).body.grantedNanoUsd,"250000000");
   const first=await open(f.wallet,f.node,"first");assert.equal(first.status,200);
   const persisted=JSON.parse(await Deno.readTextFile(path));
-  const payments=new Payments({cfg:{},key:{},quorum:{},state:persisted,save:f.payments.save,now:f.broker.now});
+  const payments=new Payments({cfg:{},key:{},chain:{},state:persisted,save:f.payments.save,now:f.broker.now});
   f.broker.payments=payments;
   f.broker.inference=new Inference({payments,cfg:f.inference.cfg,provider:{apiKey:"fixture"},now:f.broker.now});
   const exhausted=await credit(Wallet.createRandom());

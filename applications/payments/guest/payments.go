@@ -90,7 +90,6 @@ type Config struct {
 	Escrow                string `json:"escrow"`
 	Operator              string `json:"operator"`
 	GrantSigner           string `json:"grantSigner"`
-	EnrollmentKeyID       string `json:"enrollmentKeyId"`
 	BuildID               string `json:"buildId"`
 	DestinationPolicyHash string `json:"destinationPolicyHash"`
 	RunSeconds            int64  `json:"runSeconds"`
@@ -112,13 +111,18 @@ type Meter struct {
 	closed    map[string]bool
 }
 
-func New(cfg Config) (*Meter, error) {
+// New binds a run to kid, the App Attest key that signs this guest's attestations (AttestedKeyID), not to a key named
+// in the measured manifest: a key rotation keeps the manifest and its UsageEscrow class.
+func New(cfg Config, kid []byte) (*Meter, error) {
+	if len(kid) != 32 {
+		return nil, fmt.Errorf("App Attest key id must be 32 bytes")
+	}
 	for _, v := range []string{cfg.Escrow, cfg.Operator, cfg.GrantSigner} {
 		if _, e := raw(v, 20); e != nil {
 			return nil, e
 		}
 	}
-	for _, v := range []string{cfg.Node, cfg.EnrollmentKeyID, cfg.BuildID, cfg.DestinationPolicyHash} {
+	for _, v := range []string{cfg.Node, cfg.BuildID, cfg.DestinationPolicyHash} {
 		if _, e := raw(v, 32); e != nil {
 			return nil, e
 		}
@@ -134,7 +138,6 @@ func New(cfg Config) (*Meter, error) {
 	if _, e = rand.Read(nonce); e != nil {
 		return nil, e
 	}
-	kid, _ := raw(cfg.EnrollmentKeyID, 32)
 	return &Meter{Registration: Registration{Config: cfg, RunExpires: time.Now().Unix() + cfg.RunSeconds, RunID: hexed(hash(join(kid, nonce))), RunNonce: hexed(nonce), ReceiptSigner: address(key.PubKey()), ReceiptPublicKey: hexed(key.PubKey().SerializeCompressed())}, key: key, sequences: map[string]int64{}, closed: map[string]bool{}}, nil
 }
 func (m *Meter) ReceiptPublicKey() []byte {

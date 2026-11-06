@@ -38,7 +38,7 @@ by `applications/pilot-client/workload/transport_loader.py`.
 `rootfs.squashfs.verity`) the Linux 6.18.40 source tarball and the 4GiB scratch / 256MiB result disk templates.
 In an offline builder container it unpacks the base rootfs, replaces
 `/usr/local/lib/dsmack`, `/usr/local/bin/dsmack-*`, `/usr/bin/dsmack-supervisor`
-and `/etc/docker/daemon.json` with repo files (`install-guest.sh`), and assembles a new verity image with
+and `/etc/docker/daemon.json` with the committed files of `git archive HEAD` (`install-guest.sh`), and assembles a new verity image with
 `source/build/assemble_leg.sh`. It needs an x86-64 Docker host and about 2GB of
 disk, plus the kernel build tree. It rebuilds Linux 6.18.40 with dm-crypt and XTS enabled.
 

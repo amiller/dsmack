@@ -18,8 +18,8 @@ guest supervisor invokes for the generic I/O-continuity delta:
                            or cache id of any private byte is computed or
                            logged here.
   * ``oci_publish``      — a portable, offline, digest-preserving OCI publisher
-                           so the harness image can be served in-guest on the
-                           native Mini WITHOUT host Docker or a public upload,
+                           so the harness image can be served in-guest
+                           WITHOUT host Docker or a public upload,
                            while preserving real RepoDigest verification.
   * ``cli``              — the installed ``dsmack-guest-io`` entry point.
 

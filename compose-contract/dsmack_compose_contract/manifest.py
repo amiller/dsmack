@@ -78,18 +78,9 @@ SUPPORTED_ARCHITECTURES = ("amd64", "arm64")
 
 AUDIENCES = ("workload", "broker")
 
-#: Registered runtime names (astra C04). runsc-hostnet is a DISTINCT
-#: registered runtime whose network syscalls pass through the container
-#: network namespace while gVisor mediates everything else; it is NOT
-#: Docker network_mode host.
 RUNTIME_RUNC = "runc"
-RUNTIME_RUNSC = "runsc"
-RUNTIME_RUNSC_HOSTNET = "runsc-hostnet"
-REGISTERED_RUNTIMES = (RUNTIME_RUNC, RUNTIME_RUNSC, RUNTIME_RUNSC_HOSTNET)
-#: The runtime-closure component that must be pinned for each registered
-#: runtime (D10): runsc and runsc-hostnet are registrations of the SAME
-#: runsc executable/bundle.
-RUNTIME_COMPONENT = {RUNTIME_RUNC: "runc", RUNTIME_RUNSC: "runsc", RUNTIME_RUNSC_HOSTNET: "runsc"}
+REGISTERED_RUNTIMES = (RUNTIME_RUNC,)
+RUNTIME_COMPONENT = {RUNTIME_RUNC: "runc"}
 
 #: Bounded multi-service subset (D09).
 MAX_SERVICES = 4
@@ -661,7 +652,7 @@ def validate_manifest(manifest):
     required_envs = manifest["required_envs"]
     _validate_env_lists(allowed_envs, required_envs, manifest, compose_doc, errors)
     _validate_runtime_inputs_decl(manifest["runtime_inputs"], allowed_envs, required_envs, compose_doc, errors)
-    _validate_network(manifest["network"], manifest["runner"], errors)
+    _validate_network(manifest["network"], errors)
     _validate_outputs(manifest["outputs"], compose_doc, errors)
     _validate_credentials(manifest.get("credentials"), allowed_envs, manifest["allowed_files"], errors)
     _validate_limits(manifest.get("limits"), errors)
@@ -864,19 +855,15 @@ def _validate_runner(runner, errors):
         return
     _object_keys(
         runner,
-        {"kind", "container_runtime", "runtime_name", "runtime_version", "runsc", "compose_tool", "runtime_closure", "host_toolchain_policy"},
+        {"kind", "container_runtime", "runtime_name", "runtime_version", "compose_tool", "runtime_closure", "host_toolchain_policy"},
         "manifest.runner",
         errors,
     )
     if runner.get("kind") != "oci-compose":
         errors.append(ManifestError("manifest.runner.kind must be 'oci-compose' in v4"))
     runtime = runner.get("container_runtime")
-    if runtime not in ("runc", "runsc"):
-        errors.append(
-            ManifestError(
-                "manifest.runner.container_runtime must be 'runc' or 'runsc' (explicit; no silent fallback)"
-            )
-        )
+    if runtime != "runc":
+        errors.append(ManifestError("manifest.runner.container_runtime must be 'runc'"))
     # C04: the registered runtime name is explicit and consistent.
     runtime_name = runner.get("runtime_name")
     if runtime_name not in REGISTERED_RUNTIMES:
@@ -909,68 +896,6 @@ def _validate_runner(runner, errors):
         )
     if not (isinstance(tool.get("version"), str) and RELEASE_RE.match(tool["version"])):
         errors.append(ManifestError("manifest.runner.compose_tool.version must be a pinned release identity"))
-
-    runsc = runner.get("runsc")
-    if runtime == "runsc":
-        # Explicit gVisor policy is REQUIRED (fail closed): platform systrap is
-        # the supported in-VM platform; network netstack|host is explicit and
-        # binds the registered runtime name (C04).
-        if not _check_type(runsc, dict, "manifest.runner.runsc", errors):
-            return
-        _object_keys(runsc, {"platform", "network"}, "manifest.runner.runsc", errors)
-        if runsc.get("platform") != "systrap":
-            errors.append(
-                ManifestError("manifest.runner.runsc.platform must be 'systrap' (the supported in-VM platform)")
-            )
-        network = runsc.get("network")
-        if network not in ("netstack", "host"):
-            errors.append(
-                ManifestError(
-                    "manifest.runner.runsc.network must be 'netstack' or 'host' (host means gVisor "
-                    "network syscalls pass through the container netns -- a distinct registered "
-                    "runtime, NOT Docker host networking)"
-                )
-            )
-        if isinstance(runtime_name, str):
-            expected_name = RUNTIME_RUNSC_HOSTNET if network == "host" else RUNTIME_RUNSC
-            if runtime_name != expected_name:
-                # S06: value-free diagnostic -- an invalid runtime_name has
-                # already been rejected by the vocabulary check above and is
-                # never echoed here.
-                errors.append(
-                    ManifestError(
-                        "manifest.runner.runtime_name is inconsistent with runsc.network (the registered "
-                        "runtime name must be the one matching the declared network policy); the "
-                        "registered runtime name and the network policy must agree"
-                    )
-                )
-    else:
-        # S05: absence and explicit null are distinct at this optional-object
-        # boundary. The schema types runsc as an object when present, so a
-        # declared null is a schema-invalid shape and is rejected (it is never
-        # silently treated as "no gVisor policy").
-        if "runsc" in runner:
-            if runner["runsc"] is None:
-                errors.append(
-                    ManifestError(
-                        "manifest.runner.runsc must be an object when present (explicit null is "
-                        "rejected; schema parity)"
-                    )
-                )
-            else:
-                errors.append(
-                    ManifestError("manifest.runner.runsc is only valid when container_runtime is 'runsc'")
-                )
-        if runtime_name == RUNTIME_RUNC:
-            pass
-        elif isinstance(runtime_name, str):
-            # S06: value-free diagnostic (the rejected runtime_name is withheld).
-            errors.append(
-                ManifestError(
-                    "manifest.runner.runtime_name requires container_runtime 'runsc' (the registered "
-                    "runtime name must agree with the declared container runtime)"
-                )
-            )
 
     # D10: the immutable runtime closure. The registered runtime's
     # executable/bundle bytes and its EXACT registration (path + arguments)
@@ -1018,7 +943,7 @@ def _validate_runner(runner, errors):
             # E06: registration arguments are enforced against the declared
             # runtime/platform/network policy. A registration can otherwise
             # faithfully match its pins while contradicting the policy.
-            _validate_registration_args(name, args, runner, cpath, errors)
+            _validate_registration_args(name, args, cpath, errors)
     # D10: optional host toolchain policy (linux-test requested/admitted
     # comparison target). R06: one absent/empty policy across schemas and
     # validators -- a DECLARED policy must carry a non-empty bounded
@@ -1073,78 +998,15 @@ def _validate_runner(runner, errors):
         )
 
 
-#: E06: supported registration-argument vocabulary per closure component.
-#: runsc's docker registration carries exactly the platform + network flags;
-#: the runc component registers with no extra arguments. Anything else
-#: (unknown flags, duplicates, contradictions) is rejected.
-RUNSC_REGISTRATION_SUPPORTED = ("--platform=systrap", "--network=netstack", "--network=host")
-
-
-def _validate_registration_args(component_name, args, runner, cpath, errors):
-    """E06: enforce supported registration arguments against runtime policy."""
-    if component_name == RUNTIME_COMPONENT.get(RUNTIME_RUNC):
-        if args:
-            errors.append(
-                ManifestError(
-                    "%s: the runc component registers with NO extra arguments (an empty "
-                    "registration_args is required); unknown registration flags are rejected" % cpath
-                )
+def _validate_registration_args(component_name, args, cpath, errors):
+    """E06: the runc component registers with no extra arguments."""
+    if component_name == RUNTIME_COMPONENT[RUNTIME_RUNC] and args:
+        errors.append(
+            ManifestError(
+                "%s: the runc component registers with NO extra arguments (an empty "
+                "registration_args is required); unknown registration flags are rejected" % cpath
             )
-        return
-    if component_name == RUNTIME_COMPONENT.get(RUNTIME_RUNSC):
-        if len(args) != len(set(args)):
-            errors.append(ManifestError("%s.registration_args has duplicate flags" % cpath))
-            return
-        unknown = [a for a in args if a not in RUNSC_REGISTRATION_SUPPORTED]
-        if unknown:
-            errors.append(
-                ManifestError(
-                    "%s.registration_args contains %d unsupported flag(s) (flag text withheld); the "
-                    "supported runsc registration vocabulary is %s"
-                    % (cpath, len(unknown), list(RUNSC_REGISTRATION_SUPPORTED))
-                )
-            )
-            return
-        platforms = [a for a in args if a.startswith("--platform=")]
-        networks = [a for a in args if a.startswith("--network=")]
-        if len(platforms) != 1 or platforms != ["--platform=systrap"]:
-            errors.append(
-                ManifestError(
-                    "%s.registration_args must carry exactly '--platform=systrap' (the supported "
-                    "in-VM platform) exactly once" % cpath
-                )
-            )
-        if len(networks) != 1:
-            errors.append(
-                ManifestError(
-                    "%s.registration_args must carry exactly one of '--network=netstack' or "
-                    "'--network=host'" % cpath
-                )
-            )
-        elif isinstance(runner, dict):
-            runsc_network = runner.get("runsc", {}).get("network") if isinstance(runner.get("runsc"), dict) else None
-            runtime_name = runner.get("runtime_name")
-            # S06: runsc_network may itself be an already-rejected invalid
-            # value; the dependent diagnostics below are value-free.
-            valid_network = runsc_network in ("netstack", "host")
-            expected = "--network=%s" % runsc_network if valid_network else None
-            expected_name = RUNTIME_RUNSC_HOSTNET if runsc_network == "host" else RUNTIME_RUNSC
-            if expected is not None and networks != [expected]:
-                errors.append(
-                    ManifestError(
-                        "%s.registration_args network flag contradicts the declared runsc.network "
-                        "policy (the flag must be exactly %s)" % (cpath, expected)
-                    )
-                )
-            if expected is not None and runtime_name != expected_name:
-                # S06: value-free diagnostic (the rejected runtime_name is withheld).
-                errors.append(
-                    ManifestError(
-                        "%s.registration_args network flag does not agree with runtime_name "
-                        "(expected the registered runtime name %s matching the declared network "
-                        "policy)" % (cpath, expected_name)
-                    )
-                )
+        )
 
 
 def _validate_base_vm(vm, errors):
@@ -1674,13 +1536,13 @@ def _validate_runtime_inputs_decl(decl, allowed_envs, required_envs, compose_doc
                     )
 
 
-def _validate_network(network, runner, errors):
+def _validate_network(network, errors):
     if not _check_type(network, dict, "manifest.network", errors):
         return
     _object_keys(network, {"mode", "listen_ports", "egress"}, "manifest.network", errors)
     mode = network.get("mode")
-    if mode not in ("none", "nat", "hostnet"):
-        errors.append(ManifestError("manifest.network.mode must be 'none', 'nat' or 'hostnet'"))
+    if mode not in ("none", "nat"):
+        errors.append(ManifestError("manifest.network.mode must be 'none' or 'nat'"))
     egress = network.get("egress", [])
     if _check_type(egress, list, "manifest.network.egress", errors):
         if len(egress) > 256:
@@ -1703,31 +1565,6 @@ def _validate_network(network, runner, errors):
             port = entry.get("port")
             if not (_is_int(port) and 1 <= port <= 65535):
                 errors.append(ManifestError("manifest.network.egress[].port must be an integer in [1, 65535]"))
-    runtime = runner.get("container_runtime") if isinstance(runner, dict) else None
-    runtime_name = runner.get("runtime_name") if isinstance(runner, dict) else None
-    runsc_network = None
-    if isinstance(runner, dict) and isinstance(runner.get("runsc"), dict):
-        runsc_network = runner["runsc"].get("network")
-    if mode == "hostnet":
-        # hostnet is a DISTINCT network policy: the registered runsc-hostnet
-        # runtime (gVisor network syscalls reach the container netns). Docker
-        # topology stays compose-managed; this is never Docker host networking
-        # (astra C04).
-        if runtime != "runsc" or runsc_network != "host" or runtime_name != RUNTIME_RUNSC_HOSTNET:
-            errors.append(
-                ManifestError(
-                    "manifest.network.mode 'hostnet' requires runner.container_runtime 'runsc' with "
-                    "runner.runsc.network 'host' and runner.runtime_name 'runsc-hostnet' (it is not a "
-                    "general mode and never enables Docker host networking)"
-                )
-            )
-    elif runsc_network == "host" or runtime_name == RUNTIME_RUNSC_HOSTNET:
-        errors.append(
-            ManifestError(
-                "manifest.runner.runsc.network 'host' (runtime runsc-hostnet) requires "
-                "manifest.network.mode 'hostnet'"
-            )
-        )
     ports = network.get("listen_ports")
     if not _check_type(ports, list, "manifest.network.listen_ports", errors):
         return
@@ -1744,13 +1581,6 @@ def _validate_network(network, runner, errors):
         seen.add(port)
     if mode == "none" and ports:
         errors.append(ManifestError("manifest.network.mode 'none' forbids listen_ports"))
-    if mode == "hostnet" and ports:
-        errors.append(
-            ManifestError(
-                "manifest.network.mode 'hostnet' forbids listen_ports (the container's network syscalls "
-                "use the container netns with gVisor mediating; compose-managed publishing does not apply)"
-            )
-        )
 
 
 def _validate_outputs(outputs, compose_doc, errors):

@@ -57,7 +57,6 @@ exec 2>/run/dsmack-supervisor.stderr
 # death/cancellation anywhere after extraction is covered on every path.
 fail() {
   echo "DSMACK_SUPERVISOR_FAIL $1"
-  command -v stop_scratch_probe >/dev/null 2>&1 && stop_scratch_probe
   command -v stop_oci >/dev/null 2>&1 && stop_oci
   command -v stop_broker >/dev/null 2>&1 && stop_broker
   command -v cleanup_private >/dev/null 2>&1 && cleanup_private
@@ -130,25 +129,14 @@ echo "DSMACK_SUPERVISOR_EXPORT_OK $(grep vdd /proc/mounts)"
 echo "DSMACK_SUPERVISOR_KERNEL_FEATURES overlay=$(grep -w overlay /proc/filesystems | wc -l) ext4=$(grep -w ext4 /proc/filesystems | wc -l) squashfs=$(grep -w squashfs /proc/filesystems | wc -l) cgroup2=$(grep cgroup2 /proc/filesystems >/dev/null && echo yes)"
 ip link set lo up 2>/dev/null
 
-# R2 + PORTABLE NETWORKING (guest-io-integration): static network config for
-# the digest pulls. The values come from a MEASURED network-profile declaration
-# installed in the image (/usr/local/lib/dsmack/net/guest-network.env); its
-# values are exactly the VERIFIED upstream gvproxy v0.8.9 unconfigured NAT
-# profile (subnet 192.168.127.0/24, gateway + DNS 192.168.127.1), the
-# user-pinned transport for BOTH the Zed external-client path and the native
-# Mini path. The native backend owns the virtio-net device/transport
-# (native-v3-backend ABI); the Zed path attaches QEMU -netdev stream to the
-# gvproxy external-client socket. The inline defaults below are a fallback that
-# matches the installed profile byte-for-byte; the profile file, when present,
-# is sourced and wins. NO egress claim is made here -- this only configures the
-# interface the backend provides.
+# Static network config from the installed profile: gvproxy v0.8.9's unconfigured
+# NAT profile (subnet 192.168.127.0/24, gateway and DNS 192.168.127.1). It only
+# configures the interface the backend provides; egress is enforced later.
 # /etc is read-only, so resolv.conf is a file-over-file bind from /run.
 GUEST_NET_PROFILE=/usr/local/lib/dsmack/net/guest-network.env
-GUEST_IP_CIDR=192.168.127.2/24; GUEST_GW=192.168.127.1; GUEST_DNS=192.168.127.1; GUEST_IFACE=eth0
-if [ -f "$GUEST_NET_PROFILE" ]; then
-  . "$GUEST_NET_PROFILE"
-  echo "DSMACK_GUEST_NET_PROFILE $GUEST_NET_PROFILE iface=$GUEST_IFACE"
-fi
+[ -f "$GUEST_NET_PROFILE" ] || fail 9
+. "$GUEST_NET_PROFILE"
+echo "DSMACK_GUEST_NET_PROFILE $GUEST_NET_PROFILE iface=$GUEST_IFACE"
 if ip link show "$GUEST_IFACE" >/dev/null 2>&1; then
   # GIO09: do NOT suppress address/route failures with `|| true`. Attempt the
   # add, then VERIFY the resulting state (idempotent: a pre-assigned address or
@@ -169,7 +157,7 @@ else
   # No NIC present (e.g. the current native path). Fail closed: the runner's
   # digest pulls cannot succeed without a configured interface -- never a
   # silent "ran without network" success.
-  echo "DSMACK_GUEST_NET_FAIL_NO_IFACE interface $GUEST_IFACE absent (native NIC pending; see NATIVE-NETWORK-INTEGRATION)"
+  echo "DSMACK_GUEST_NET_FAIL_NO_IFACE interface $GUEST_IFACE absent"
   fail 9
 fi
 
@@ -323,28 +311,6 @@ fi
 # caller-provided helper from vdc is ever executed. The same measured code runs
 # on Linux and macOS (reconciled endpoint = 127.0.0.1:<port>, not 10.0.2.2:5005).
 GUESTIO=/usr/local/bin/dsmack-guest-io
-SCRATCH_PROBE_PID=""
-stop_scratch_probe() {
-  [ -n "$SCRATCH_PROBE_PID" ] || return 0
-  kill -TERM "$SCRATCH_PROBE_PID" 2>/dev/null
-  i=0
-  while kill -0 "$SCRATCH_PROBE_PID" 2>/dev/null; do
-    i=$((i+1)); [ $i -le 40 ] || { kill -KILL "$SCRATCH_PROBE_PID" 2>/dev/null; CLOSURE_FAILED=1; break; }
-    $B usleep 100000
-  done
-  wait "$SCRATCH_PROBE_PID"
-  SCRATCH_PROBE_EXIT=$?
-  SCRATCH_PROBE_PID=""
-  if python3 -c 'import json; d=json.load(open("/run/rootcontrol/scratch-probe.json")); assert d["schema"]=="dsmack.scratch-samples/1" and d["termination"]=="stopped" and d["device_bytes"]==1073741824 and d["samples"]>0'; then
-    diag /run/rootcontrol/scratch-probe.json
-    echo "DSMACK_SCRATCH_STATS_OK sampled-not-instantaneous"
-  else
-    echo "DSMACK_SCRATCH_STATS_UNAVAILABLE exit=$SCRATCH_PROBE_EXIT"
-    [ ! -f /run/rootcontrol/scratch-probe.err ] || diag /run/rootcontrol/scratch-probe.err
-  fi
-}
-python3 -m dsmack_guest_io.scratch_probe >/run/rootcontrol/scratch-probe.json 2>/run/rootcontrol/scratch-probe.err &
-SCRATCH_PROBE_PID=$!
 OCI_PID=""
 OCI_LAYOUT="$APP/oci-layout"
 stop_oci() {
@@ -391,8 +357,8 @@ if [ -f "$OCI_LAYOUT/index.json" ]; then
     python3 -m dsmack_guest_io.oci_identity "$ref" >/run/oci-runner-identity.json 2>/run/oci-runner-identity.err || { echo "DSMACK_OCI_RUNNER_IDENTITY_FAIL"; exit 24; }
     echo "DSMACK_OCI_RUNNER_IDENTITY_OK $ref"
   done || fail 24
-  # GIO09 (repair3): DO NOT stop the publisher here. The rendered product
-  # manifests resolve 127.0.0.1:5005/dsmack-claude-harness@<D> (the SAME
+  # GIO09 (repair3): DO NOT stop the publisher here. The rendered
+  # manifests resolve 127.0.0.1:5005/<name>@<D> (the SAME
   # repository the staged index annotation is normalized to, and the SAME the
   # pre-pull above fetched), and the guest daemon may pull BY DIGEST during the
   # runner's run phase. The loopback publisher MUST stay available until the
@@ -402,16 +368,8 @@ if [ -f "$OCI_LAYOUT/index.json" ]; then
   # pre-pulled AND the publisher is kept alive until the runner resolves.
   echo "DSMACK_OCI_PUBLISHER_KEPT_ALIVE pid=$OCI_PID through-runner-phase"
 else
-  # TRANSITIONAL fallback ONLY (honestly labeled): a plain docker-load path for
-  # images delivered as *.tar. This does NOT establish RepoDigest and is NOT the
-  # product delivery -- the real build ships the OCI layout above. Kept so the
-  # current Zed path still functions until the layout is produced.
-  echo "DSMACK_OCI_DELIVERY_ABSENT no $OCI_LAYOUT; using transitional docker-load (NO RepoDigest preserved)"
-  for img in /run/appcompose/images/*.tar; do
-    [ -e "$img" ] || continue
-    echo "DSMACK_DOCKER_LOAD_TRANSITIONAL $img"
-    docker load -i "$img" >/run/oci-load.out 2>&1 || fail 24
-  done
+  echo "DSMACK_OCI_DELIVERY_ABSENT no $OCI_LAYOUT"
+  fail 24
 fi
 
 # R3: RUNNER PHASE — the approved runner CLI over the delivered external
@@ -758,7 +716,6 @@ fi
 [ "$PRIVATE_CLEAN_FAILED" -eq 0 ] || runner_rc_total=1
 stop_oci
 stop_broker
-stop_scratch_probe
 docker ps -a 2>/dev/null | diag
 # GIO03: the daemon console may embed private rendered values -- it is NEVER
 # copied to the result disk vdd (the prior "$EXPORT/RESULT-dockerd.console"

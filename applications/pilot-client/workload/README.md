@@ -22,7 +22,7 @@ configuration. The builder's CLI and output JSON are unchanged.
 
 `export_subscription.py --source FILE` writes only the subscription credential
 fields to stdout. Pipe it directly into `python3 -I stage_private.py` with the
-selected preparation, guest source, transport module and private output directory.
+selected preparation, contract library (`compose-contract/`), transport module and private output directory.
 The importer validates the manifest and public projection before reading stdin,
 then builds the separate private-input disk for that manifest's workload name.
 Its stdout contains staging metadata rather than credential values.

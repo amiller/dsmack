@@ -3,8 +3,8 @@
 Source for the `browser-sandbox-v1` guest image the signed Mac runner boots. It
 is a small dstack-derived Debian ARM64 system with Docker, the compose runner
 (`source/runner-content/dsmack_compose_runner`), guest input/output transport
-(`source/runner-content/dsmack_guest_io`), the shared compose contract library
-(`source/runner-content/lib/dsmack_compose_contract`) and a closed browser
+(`source/runner-content/dsmack_guest_io`), the guest half of the compose contract
+library (`compose-contract/dsmack_compose_contract` at the repo root) and a closed browser
 sandbox preset (`security.py` plus the Playwright seccomp policy
 `browser-sandbox-v1.json`). Board checks, judges and settlement run in
 application containers and external verifiers, not in the guest.

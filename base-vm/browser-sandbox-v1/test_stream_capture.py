@@ -2,7 +2,7 @@
 import pathlib, sys, unittest
 from unittest.mock import Mock
 sys.path[:0] = [str(pathlib.Path(__file__).parent / "source/runner-content"),
-               str(pathlib.Path(__file__).parent / "source/runner-content/lib")]
+               str(pathlib.Path(__file__).parents[2] / "compose-contract")]
 from dsmack_compose_runner.lifecycle import _capture_streams
 
 class StreamCapture(unittest.TestCase):

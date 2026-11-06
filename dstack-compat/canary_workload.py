@@ -69,7 +69,7 @@ def main(repo, files, starter, out):
 def pack(repo, files, starter, out, name, mb, build_disk=None):
     """Validate manifest bytes mb and pack them with the image and the starter's OCI layout into out/workload.img."""
     sys.path[:0] = [str(repo / "applications/pilot-client/workload"),
-                    str(repo / "base-vm/browser-sandbox-v1/source/runner-content/lib")]
+                    str(repo / "compose-contract")]
     from transport_loader import load
     from dsmack_compose_contract.manifest import validate_manifest_bytes
     validate_manifest_bytes(mb)

@@ -1,6 +1,6 @@
 import hashlib, json, pathlib, sys, unittest
 
-sys.path[:0] = [str(pathlib.Path(__file__).parent / p) for p in ("source/runner-content", "source/runner-content/lib")]
+sys.path[:0] = [str(pathlib.Path(__file__).parent / p) for p in ("source/runner-content", "../../compose-contract")]
 from dsmack_compose_contract.errors import MultiError
 from dsmack_compose_contract.lowering import lower, render_compose_file
 from dsmack_compose_contract.manifest import validate_manifest_bytes

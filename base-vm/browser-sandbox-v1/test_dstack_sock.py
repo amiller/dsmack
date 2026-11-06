@@ -1,6 +1,6 @@
 import json,pathlib,sys
 here=pathlib.Path(__file__).parent
-sys.path.insert(0,str(here/'source/runner-content/lib'))
+sys.path.insert(0,str(here.parents[1]/'compose-contract'))
 from dsmack_compose_contract.manifest import validate_compose_document
 from dsmack_compose_contract.lowering import _service_mounts
 

@@ -49,7 +49,7 @@ P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(
 C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
 python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
-  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --contract-lib $S/compose-contract --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp
 python3 -I - "$T" <<'PY'
 import hashlib,json,os,sys
@@ -71,7 +71,7 @@ $C --execute --plan $PLAN > execute.json
 
 # v0.2.0-canary.1: the operator host holds the image and admits attempts; the Mac dir holds DsmackRunner.app (CDHash below),
 # base/ (the same files as the operator's V02 dir base/: Image, initramfs.cpio.gz, rootfs.squashfs.verity, metadata.json, sha256sum.txt),
-# source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source) and enrollment/ (the runner
+# source/ (applications/pilot-client/workload, base-vm/browser-sandbox-v1/source, compose-contract) and enrollment/ (the runner
 # key's attestation.cbor, clientData.bin, keyId.txt).
 V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
@@ -88,7 +88,7 @@ P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(
 C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
 python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
-  --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
+  --contract-lib $S/compose-contract --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp > stage.json
 python3 -I - "$D" "$T" <<'PY'
 import hashlib,json,secrets,subprocess,sys,time

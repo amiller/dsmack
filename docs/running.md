@@ -106,7 +106,7 @@ python3 -I -B "$CAPSULE/stage_private.py" \
   --preparation "$PUBLIC_PREPARATION" \
   --expected-manifest-sha256 "$MANIFEST_SHA256" \
   --expected-projection-sha256 "$PROJECTION_SHA256" \
-  --guest-source "$PINNED_GUEST_SOURCE" --transport-module "$PINNED_TRANSPORT" \
+  --contract-lib "$PINNED_CONTRACT_LIB" --transport-module "$PINNED_TRANSPORT" \
   --private-parent "$PRIVATE_PARENT" --out-name develop-private \
   --transport-backend darwin-owned-tempfile-v1 \
   --portable-module "$PINNED_PORTABLE_MODULE" --temporary-parent "$PROTECTED_TEMP_PARENT"

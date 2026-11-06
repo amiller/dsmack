@@ -83,6 +83,6 @@ evidence validity and task success separately.
 3. Guest [`supervisor`](../base-vm/browser-sandbox-v1/source/guest/supervisor-dstack-trixie.sh),
    [`compose runner`](../base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/runner.py),
    [`receipting`](../base-vm/browser-sandbox-v1/source/runner-content/dsmack_compose_runner/receipting.py)
-   and [`security contract`](../base-vm/browser-sandbox-v1/source/runner-content/lib/dsmack_compose_contract/security.py).
+   and [`security contract`](../compose-contract/dsmack_compose_contract/security.py).
 4. The [run-result verifier](../applications/pilot-client/verifier/README.md),
    which checks the retained evidence against an expected context.

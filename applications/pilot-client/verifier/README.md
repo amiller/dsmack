@@ -4,7 +4,7 @@
 the App Attest launch and result assertions, the guest receipt and statement,
 extracts the result disk in a Linux namespace sandbox and checks the retained
 outputs, then signs a report. It imports the compose contract library from
-`base-vm/browser-sandbox-v1/source/runner-content/lib` and the App Attest core
+`compose-contract/` (guest and verifier packages) and the App Attest core
 from `verifier/core.py`, so run it from a full checkout.
 
 `verify.py` is the launcher:

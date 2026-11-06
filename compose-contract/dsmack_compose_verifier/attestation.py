@@ -81,10 +81,10 @@ import base64
 import binascii
 
 from . import ed25519
-from .canonical import canonical_bytes, load_json_bytes, sha256_hex, sha256_obj
-from .errors import AttestationError, ReceiptError
-from .manifest import HEX64_RE
-from .receipt import ENVIRONMENT_MAC_ATTESTED, validate_receipt
+from dsmack_compose_contract.canonical import canonical_bytes, load_json_bytes, sha256_hex, sha256_obj
+from dsmack_compose_contract.errors import AttestationError, ReceiptError
+from dsmack_compose_contract.manifest import HEX64_RE
+from dsmack_compose_contract.receipt import ENVIRONMENT_MAC_ATTESTED, validate_receipt
 from .schema_check import SchemaViolation, validate as schema_validate
 
 ASSERTION_DOMAIN = "dsmack.appattest.assertion/4"

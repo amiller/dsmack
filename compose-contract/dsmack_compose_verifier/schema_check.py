@@ -24,7 +24,7 @@ v3 fixes (astra C07):
 import json
 import re
 
-from .errors import ContractError, SchemaViolation
+from dsmack_compose_contract.errors import ContractError, SchemaViolation
 
 
 def _type_ok(value, type_name):

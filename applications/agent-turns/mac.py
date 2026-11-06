@@ -26,7 +26,7 @@ TURNS = Path(__file__).resolve().parent
 ROOT = TURNS.parents[1]
 GUEST = ROOT/'base-vm/browser-sandbox-v1/source'
 PILOT = ROOT/'applications/pilot-client'
-sys.path[:0] = [str(GUEST/'runner-content/lib'), str(PILOT/'workload')]
+sys.path[:0] = [str(ROOT/'compose-contract'), str(PILOT/'workload')]
 from dsmack_compose_contract.manifest import validate_manifest_bytes
 from dsmack_compose_contract.runtime_inputs import TASK_COMMITMENT_ALG, compute_commitment
 

@@ -174,6 +174,26 @@ class PoolTests(unittest.TestCase):
         root.mkdir(exist_ok=True); (root/'evidence').mkdir(exist_ok=True)
         return {'slot_id': 0, 'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
 
+    def test_two_signing_failures_kill_the_key_rotate_once_and_stop_launches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            (root/'rotation.json').write_text(json.dumps({'state': str(root/'keys')}))
+            instance.keys = pool.KeyWatch(root/'rotation.json')
+            failure = {'stage': 'POST /v1/Attest', 'error': 'App Attest: Error Domain=com.apple.devicecheck.error Code=0 "(null)"'}
+            with patch.object(pool.KeyWatch, 'rotate', return_value=root/'rotation.log') as rotate, \
+                    patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                for number in range(3):
+                    instance.active = [dict(self.failed_node(root/str(number)), kid='0xdead')]
+                    instance.tick()
+            rotate.assert_called_once_with('0xdead')
+            instance.event.assert_any_call('key_dead', kid='0xdead', rotation_log=str(root/'rotation.log'))
+            instance.launch = Mock(side_effect=pool.KeyDead('0xdead'))
+            instance.slots[0]['retry_at'] = 0
+            instance.tick()
+            self.assertGreater(instance.slots[0]['retry_at'], pool.time.monotonic())
+            instance.event.assert_called_with('key_dead_no_launch', slot_id=0, kid='0xdead', retry_seconds=300)
+
     def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)

@@ -225,6 +225,7 @@ def main():
     p.add_argument('--adopt-launcher', type=int, help='one-time transfer of a legacy launcher and its live guests')
     p.add_argument('--restart-config', type=Path, help='replacement JSON read on SIGHUP')
     p.add_argument('--restart-timeout', type=float, default=300)
+    p.add_argument('--key-rotation', type=Path, help='key_rotation.py config passed to each guest generation')
     p.add_argument('--pool-version',required=True,help='source commit used by this staged pool')
     p.add_argument('--operator',type=Path,default=Path.home()/'.dsmack/operator.json')
     p.add_argument('--max-slots',type=int,help='cap the operator guest slots for this pool')
@@ -351,7 +352,7 @@ def main():
             last_chain_attempt=0;published_entries=[]
             if stopping:return
         publisher=Publisher(a.publisher_key,a.publisher_address,a.broker,a.pool_version,a.operator)
-        pools=Generations(a.state,a.broker,publisher,start,expected_peer,a.restart_timeout,a.max_slots,a.coexist_pool)
+        pools=Generations(a.state,a.broker,publisher,start,expected_peer,a.restart_timeout,a.max_slots,a.coexist_pool,a.key_rotation)
         pools.current=pools.launch(initial,a.state/'guests' if handoff else None)
         if handoff:
             deadline=time.monotonic()+30

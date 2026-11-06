@@ -61,13 +61,13 @@ def combine(generations):
 
 
 class Generations:
-    def __init__(self, root, broker, publisher, start, peer, timeout=300, max_slots=None, coexist_pools=()):
+    def __init__(self, root, broker, publisher, start, peer, timeout=300, max_slots=None, coexist_pools=(), key_rotation=None):
         self.root, self.broker, self.publisher = root, broker, publisher
         self.start, self.peer, self.timeout = start, peer, timeout
         self.pools = []
         self.current = self.candidate = None
         self.deadline = 0
-        self.max_slots, self.coexist_pools = max_slots, coexist_pools
+        self.max_slots, self.coexist_pools, self.key_rotation = max_slots, coexist_pools, key_rotation
 
     def launch(self, config, adopt_state=None):
         state = self.root/('guests-'+str(time.time_ns()))
@@ -83,6 +83,8 @@ class Generations:
             command += ['--max-slots', str(self.max_slots)]
         for root in self.coexist_pools:
             command += ['--coexist-pool', root]
+        if self.key_rotation:
+            command += ['--key-rotation', self.key_rotation]
         generation = dict(config=config, state=state, process=self.start(command, state.name+'.log', transport=False))
         self.pools.append(generation)
         return generation

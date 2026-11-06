@@ -1,4 +1,5 @@
 """A replacement cannot drain serving guests until the broker sees new capacity."""
+import base64
 import json
 from pathlib import Path
 from types import SimpleNamespace
@@ -30,10 +31,12 @@ class ConfigTests(unittest.TestCase):
             if not path.exists():
                 path.write_bytes(name.encode())
             base[field] = pool.sha(path)
-        for name in ('runtime/helper/gvproxy-darwin', 'enrollment/keyId.txt', 'DsmackRunner.app/Contents/MacOS/dsmack-runner'):
+        for name in ('runtime/helper/gvproxy-darwin', 'DsmackRunner.app/Contents/MacOS/dsmack-runner'):
             (runner/name).write_bytes(b'fixture')
+        (runner/'enrollment/keyId.txt').write_text(base64.b64encode(bytes(range(32))).decode())
         (workload/'workload.img').write_bytes(b'workload')
-        node = dict(command=['serve', '/p2p/relay', '3600'], environment=dict(ADMIT_SECONDS='3120'))
+        payments = json.dumps(dict(enrollmentKeyId='0x'+bytes(range(32)).hex()))
+        node = dict(command=['serve', '/p2p/relay', '3600'], environment=dict(ADMIT_SECONDS='3120', PAYMENTS_CONFIG=payments))
         (workload/'compose-manifest.json').write_text(json.dumps(dict(base_vm=base,
             docker_compose_file=json.dumps(dict(services=dict(node=node))))))
         operator = root/'operator.json'
@@ -63,6 +66,13 @@ class ConfigTests(unittest.TestCase):
             (runner/'base/Image').write_bytes(b'Image')
             (runner/'runtime/base/result-template.ext4').unlink()
             with self.assertRaises(FileNotFoundError):
+                pool_restart.replacement(path, 'relay')
+
+    def test_runner_key_must_match_the_key_the_manifest_pins(self):
+        with tempfile.TemporaryDirectory() as tmp, patch.object(pool_restart, 'hardware', return_value=dict(mem_bytes=64<<30, cores=14)):
+            runner, workload, path = self.release(Path(tmp))
+            (runner/'enrollment/keyId.txt').write_text(base64.b64encode(bytes(32)).decode())
+            with self.assertRaisesRegex(ValueError, 'pins enrollmentKeyId 0x0001.* holds 0x0000'):
                 pool_restart.replacement(path, 'relay')
 
     def test_new_generations_keep_the_slot_cap_and_coexisting_pool(self):

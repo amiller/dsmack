@@ -48,6 +48,16 @@ def envelope(value):
     return value
 
 
+TESTNETS, MAINNETS = {84532}, {1, 8453}
+
+
+def payments_chain():
+    found = re.search(r"^export const CHAIN = (\d+);$", (REPO / "applications/payments/schema.mjs").read_text(), re.M)
+    if not found:
+        raise ValueError("applications/payments/schema.mjs declares no CHAIN")
+    return int(found.group(1))
+
+
 def write_json(path, value):
     with path.open("x") as out:
         out.write(json.dumps(value, indent=2) + "\n")
@@ -66,9 +76,12 @@ def prepare(args):
     public_config(config)
     if not config.get("payments") or not config.get("inference"):
         raise ValueError("configuration needs payments and inference blocks")
-    # Staging reads Base Sepolia at "safe" so new registrations reach it in ~2 minutes, not ~18.
-    if args.target == "production" and config["payments"].get("blockTag", "finalized") != "finalized":
-        raise ValueError("production reads Base Sepolia at finalized only")
+    # "safe" makes new registrations visible in ~2 minutes, not ~18; production may use it only on testnet.
+    chain = payments_chain()
+    if chain not in TESTNETS | MAINNETS:
+        raise ValueError(f"unknown payments chain {chain}")
+    if args.target == "production" and config["payments"].get("blockTag", "finalized") != "finalized" and chain not in TESTNETS:
+        raise ValueError(f"production reads chain {chain} at finalized only")
     if args.target == "staging":
         config["payments"]["blockTag"] = "safe"
     if not re.fullmatch(r"[0-9a-f]{64}", args.operator_token_sha256):

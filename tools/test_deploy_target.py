@@ -125,6 +125,28 @@ class SourceGateTests(unittest.TestCase):
             self.assertEqual(paths, ['/_api/projects', '/_api/projects/relay-broker-staging/promote', '/relay-broker-staging/key'])
             guard.assert_called_once_with('local-fixture', 1)
 
+    def test_production_safe_block_tag_only_on_base_sepolia(self):
+        broker=load('broker_deploy_safe', ROOT/'applications/relay-broker/deploy-inference.py')
+        self.assertEqual(broker.payments_chain(), 84532)
+        def bundle(command, **kwargs):
+            Path(command[-1]).write_text('export default {};')
+        def prepare(root, chain):
+            config=root/'config.json'
+            config.write_text(json.dumps(dict(payments={'blockTag':'safe'}, inference={'origins':[]})))
+            with patch.object(broker, 'source_ref', return_value='c'), patch.object(broker.subprocess, 'run', side_effect=bundle), \
+                 patch.object(broker, 'payments_chain', return_value=chain):
+                broker.prepare(SimpleNamespace(target='production', config=config, operator_token_sha256='a'*64, encrypted_env=None,
+                                               out=root/'prepared', staging_origin='https://private-agent-staging.dstack.soc1024.com'))
+        with tempfile.TemporaryDirectory() as tmp:
+            prepare(Path(tmp), 84532)
+            with tarfile.open(Path(tmp)/'prepared/relay-broker.tgz') as package:
+                self.assertEqual(json.load(package.extractfile('applications/relay-broker/config.json'))['payments']['blockTag'], 'safe')
+        for chain, message in ((8453, 'finalized only'), (1, 'finalized only'), (31337, 'unknown payments chain')):
+            with tempfile.TemporaryDirectory() as tmp, self.assertRaisesRegex(ValueError, message):
+                prepare(Path(tmp), chain)
+        with patch.object(broker, 'REPO', Path('/nonexistent')), self.assertRaises(FileNotFoundError):
+            broker.payments_chain()
+
     def test_path_host_staging_routes_and_deploys_without_a_chain_transaction(self):
         page=load('page_deploy_path', ROOT/'applications/private-agent-web/deploy.py')
         bundle=load('page_bundle_path', ROOT/'applications/private-agent-web/bundle.py')

@@ -26,8 +26,8 @@ export class Quorum {
       "escrow and deployed code hash pins required",
     );
     // "safe" (about 2 minutes behind on Base Sepolia, versus about 18 for
-    // "finalized") is for testnet staging only; deploy-inference.py refuses it
-    // for production.
+    // "finalized") is for testnet only; deploy-inference.py refuses it for
+    // production on a mainnet chain.
     require(["finalized", "safe"].includes(blockTag), "blockTag must be finalized or safe");
     Object.assign(this, { rpcs, escrow, codeHash, now, fetcher, blockTag });
     this.threshold = Math.floor(rpcs.length / 2) + 1;

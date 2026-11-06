@@ -145,6 +145,8 @@ def main():
         "isolation": "container",
         # Path-routed on the shared ingress port; a container otherwise claims its own port (3000 is taken).
         "listen": {"port": 8080, "protocol": "http"},
+        # gVisor (the pod default) has --host-uds=none, so the dstack socket refuses connect (webhost #126).
+        "oci_runtime": "runc",
         "env": {**page_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256, "DSTACK_SOCKET":"/run/broker/dstack.sock"},
     }
     boundary = "private-agent-" + secrets.token_hex(16)

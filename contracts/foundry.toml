@@ -9,3 +9,8 @@ libs = ["../app-attest/contracts/lib"]
 fs_permissions = [{ access = "read", path = "./fixtures" }, { access = "read", path = "../app-attest/contracts/fixtures" }]
 remappings = ["forge-std/=../app-attest/contracts/lib/forge-std/src/", "attest/=../app-attest/contracts/src/", "attest-test/=../app-attest/contracts/test/"]
 allow_paths = ["../app-attest/contracts"]
+
+[invariant]
+runs = 256
+depth = 100
+fail_on_revert = false

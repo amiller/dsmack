@@ -1,0 +1,40 @@
+{
+  "LayoverCredit": {
+    "address": "0x9e851Bf5E3b613aaA09853A07D1132F49c90b515",
+    "tx": "0x5a077ac90db03fd07c093b2f16eeb23697ec9e9a6db7ee7995898c2aea29f433",
+    "gasUsed": 997974,
+    "block": 55018543,
+    "nonce": 85
+  },
+  "unverifiable_first_attempt": {
+    "AppleAttestRegistryV1": {
+      "address": "0x45096921e6c84921db00aA285F685436ad186298",
+      "tx": "0x2f387cbe25075d054cedc5cabca33e39a83879485823fca88e0dbbcb3cf5abc7",
+      "gasUsed": 4397394,
+      "block": 55018640,
+      "nonce": 86
+    },
+    "GuestEscrow": {
+      "address": "0x97F77F2496B0Baafdc14B357F59526efDe7bD52e",
+      "tx": "0xa866a49967e6f533a1185ad8f7c041d4a40a1a8829d1f1b9d826e2daddcac7e6",
+      "gasUsed": 1986794,
+      "block": 55018653,
+      "nonce": 87
+    },
+    "why": "verifier bytecode came from a forge test compilation unit and does not reproduce from a clean standard-json input; abandoned, never configured"
+  },
+  "AppleAttestRegistryV1": {
+    "address": "0x3647C6938080498328b98eA483e813c411508323",
+    "tx": "0x2006cdc1d7fa77bdb77d4df14877bac20fc9c9306cadb91dabba1fc0cdb88d24",
+    "gasUsed": 4429427,
+    "block": 55019855,
+    "nonce": 88
+  },
+  "GuestEscrow": {
+    "address": "0x78e00808F36A4bBaFD1d8F5cFD0b5f10dC21Af6C",
+    "tx": "0x7d4422bcad82c3b6380a176a7f021068f69444e2643c6f0401c880ac427ebae8",
+    "gasUsed": 1986806,
+    "block": 55019868,
+    "nonce": 89
+  }
+}

@@ -243,3 +243,27 @@ app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
 `contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
 A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]`.
 
+
+## Layover credit and guest-signed escrow, Base Sepolia, 2026-11-05
+
+Deployed from `0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b`, which owns all three and the `CDRegistry`
+`0x14b569c5D81d42621c5C0d4d62185239C86D8d20` (current build admits the Mini runner CDHash `0x0c3d…969f`).
+All three are source-verified on Basescan. The verifier and escrow were built from the standard JSON
+input `forge verify-contract --show-standard-json-input` prints for each (de-duplicated: forge lists
+`AppleEndorsements.sol` twice), compiled with solc 0.8.21; a first pair (`0x4509…6298`, `0x97F7…d52e`)
+deployed from forge's test-run artifacts did not reproduce from a clean input and is abandoned.
+
+| Contract | Address | Tx | Gas |
+|---|---|---|---:|
+| LayoverCredit (LAYC, 1,000,000 genesis to the owner) | `0x9e851Bf5E3b613aaA09853A07D1132F49c90b515` | `0x5a077ac90db03fd07c093b2f16eeb23697ec9e9a6db7ee7995898c2aea29f433` | 997,974 |
+| AppleAttestRegistryV1 (registry = GuestEscrow) | `0x3647C6938080498328b98eA483e813c411508323` | `0x2006cdc1d7fa77bdb77d4df14877bac20fc9c9306cadb91dabba1fc0cdb88d24` | 4,429,427 |
+| GuestEscrow (token = LayoverCredit) | `0x78e00808F36A4bBaFD1d8F5cFD0b5f10dC21Af6C` | `0x7d4422bcad82c3b6380a176a7f021068f69444e2643c6f0401c880ac427ebae8` | 1,986,806 |
+
+Verifier policy as `0xdd86…0A53`: endorsements `0xb326…dd81`, aaguid `appattest`, category 3, ios false.
+No workload is approved yet and no Mac is enrolled in the verifier. To admit a guest build and a Mac:
+
+```sh
+cast send $ESCROW 'setWorkload(bytes32,bytes32,bytes32,bool)' 0x$OS_IMAGE_HASH 0x$MANIFEST_SHA256 0x$(printf agent | sha256sum | cut -c1-64) true
+cast send $ATTEST 'enroll(bytes,bytes,bytes,bytes32)' $CERT $AUTH $CLIENT_DATA $INTERMEDIATE_ID   # within the 3-day leaf validity
+python3 contracts/guest_register.py $(jq -r .attestation guest-key) | jq -r .calldata | xargs cast send $ESCROW
+```

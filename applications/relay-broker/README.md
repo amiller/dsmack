@@ -170,8 +170,10 @@ webhost admin credential and updates only `relay-broker`, which runs in its own
 container (`isolation: container`), so deploys of other projects never restart it.
 Apply first drains the broker: `POST /drain` with the operator token
 (`--operator-token FILE`) stops offering new stays, running stays continue, and
-the upload waits for `/network` busy slots and `/inference/status`
-`inFlightStreams` to reach zero. The new process starts undrained. Disconnected browser requests
+the upload waits up to 65 minutes for `/network` busy slots and `/inference/status`
+`inFlightStreams` to reach zero. If the wait times out or the upload fails, it
+sends `DELETE /drain` so the broker offers stays again, and exits with the error.
+The new process starts undrained. Disconnected browser requests
 count until upstream cancellation finishes; queued ciphertext stays counted
 until the HTTP consumer reaches EOF. Interrupted requests with a
 known NEAR billing ID settle once against that exact provider cost record;

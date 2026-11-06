@@ -19,7 +19,7 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
 sys.path.insert(0, str(REPO / "tools"))
-from broker_drain import drain
+from broker_drain import drained
 from deploy_target import WEBHOST, STAGING_HOST, project_name, source_ref
 SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
@@ -199,9 +199,10 @@ def deploy(args):
             + json.dumps(manifest).encode()
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
-    drain(args.url, project_name_value, args.operator_token.read_text().strip())
-    project = api("/_api/projects", method="POST", body=body,
-                  kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
+    # Once the upload succeeds the old process is gone and the new one starts undrained.
+    with drained(args.url, project_name_value, args.operator_token.read_text().strip()):
+        project = api("/_api/projects", method="POST", body=body,
+                      kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
     if project.get("runtime") != "deno" or project.get("isolation") != "container":
         raise ValueError("deployed broker did not select container isolation")
     if project.get("mode") != "attested":

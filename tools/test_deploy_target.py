@@ -119,7 +119,7 @@ class SourceGateTests(unittest.TestCase):
             # Staging may deploy a preparation from an earlier commit.
             with patch.object(broker, 'source_ref', return_value='another-commit'), \
                  patch.object(broker, 'token', return_value='fixture-only'), \
-                 patch.object(broker, 'client', return_value=api), patch.object(broker, 'drain') as guard:
+                 patch.object(broker, 'client', return_value=api), patch.object(broker, 'drained') as guard:
                 (root/'operator').write_text('operator-fixture')
                 broker.deploy(SimpleNamespace(target='staging', prepared=root/'prepared', evidence=root/'evidence',
                                               apply=True, url='local-fixture', operator_token=root/'operator'))

@@ -72,6 +72,10 @@ class DstackAppCompose(unittest.TestCase):
                         workspace_host_dir="/w")
         rendered = json.loads(render_compose_file(manifest, lowered))
         self.assertEqual(rendered["services"]["worker"]["image"], "127.0.0.1:5005/acme/worker@sha256:" + H("2"))
+        from dsmack_compose_runner import runner
+        from dsmack_compose_runner.receipting import manifest_compose_services
+        self.assertEqual({s: runner.local_image_ref(pin) for s, pin in manifest_compose_services(manifest)},
+                         {s: v["image"] for s, v in rendered["services"].items()})
 
 
 class AgentSandboxProfile(unittest.TestCase):

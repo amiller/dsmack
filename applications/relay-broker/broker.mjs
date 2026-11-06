@@ -36,6 +36,12 @@ export class Broker {
     return [...this.relays.values()].filter((r) => !r.admit_until || r.admit_until > now);
   }
 
+  // A guest re-registers within compute_lease_seconds while it runs, including while it seals past admit_until.
+  registered(peer) {
+    this.live();
+    return this.relays.has(peer);
+  }
+
   async register(r) {
     const now = this.now();
     const telemetry = await nodeStatus(r, now);

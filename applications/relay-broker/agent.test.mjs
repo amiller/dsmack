@@ -16,7 +16,7 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
  const payments=new Payments({cfg:{},key:{},quorum:{},state:{},save:async()=>{},now:()=>now});
  const inference=new Inference({payments,cfg:{model:"fixture/model",starterCreditNanoUsd:starter},provider:{apiKey:"fixture"},now:()=>now});
  const node={kind:"compute",relay_peer:peer,receipt_key,admit_until:now+lifetime};
- const broker={payments,inference,key,cfg:{},live:()=>[node],now:()=>now};
+ const broker={payments,inference,key,cfg:{},live:()=>[node],registered:()=>true,now:()=>now};
  let fleetSlots;
  const readFleet=async()=>[{publisher:"mac-one",online:true,received_at:now,updated_at:now,
   slots:fleetSlots??broker.live().map((n,slot_id)=>({slot_id,state:"ready",relay_peer:n.relay_peer}))}];
@@ -304,4 +304,18 @@ test("a fresh browser cannot resume an expired conversation until its admitted g
   assert.equal(next.conversationId,"conversation");
   assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"60000");
  } finally {await Deno.remove(dir,{recursive:true});}
+});
+
+test("a started stay whose guest stops registering closes at its last receipt and frees the wallet",async()=>{
+ const f=await fixture(),session=await f.open();
+ await f.sessions.receipt(await f.receipt(session.sessionId,5));
+ f.advance(200);
+ f.broker.registered=()=>false;
+ const status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
+ assert.equal(status.active,false);assert.equal(status.closedReason,"guest-unreachable");assert.equal(status.usageUnresolved,false);
+ assert.equal(status.credit.reservedNanoUsd,"0");assert.equal(status.credit.spentNanoUsd,"50000");
+ await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,9,true)),e=>e.code==="GUEST_USAGE");
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"50000");
+ f.broker.registered=()=>true;
+ assert.notEqual((await f.open()).sessionId,session.sessionId);
 });

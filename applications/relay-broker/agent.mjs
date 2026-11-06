@@ -32,10 +32,15 @@ export class AgentSessions {
   }
   async releaseUnused() {
     const sessions = this.b.payments.state.agentSessions ?? {};
-    const unused = Object.entries(sessions).filter(([, s]) => !s.final && !s.receiptSeen && (s.setupUntil ?? s.grant.expires_at) <= this.b.now());
+    // A started stay whose guest stopped registering (host asleep or gone) is closed at its last signed receipt: the buyer
+    // keeps what was never served and the reservation is released. Seconds after that receipt are not paid.
+    const unused = Object.entries(sessions).filter(([, s]) => !s.final && (s.receiptSeen
+      ? !this.b.registered(s.node.relay_peer)
+      : (s.setupUntil ?? s.grant.expires_at) <= this.b.now()));
     if (!unused.length) return;
     const next = { ...sessions };
-    for (const [key, s] of unused) next[key] = { ...s, final: true, activeBudgetSeconds: s.guestSeconds, reservedNanoUsd: "0", closedReason: "unused-grant-expired" };
+    for (const [key, s] of unused) next[key] = { ...s, final: true, activeBudgetSeconds: s.guestSeconds, reservedNanoUsd: "0",
+      closedReason: s.receiptSeen ? "guest-unreachable" : "unused-grant-expired" };
     await this.save({ agentSessions: next });
   }
   view(s) {

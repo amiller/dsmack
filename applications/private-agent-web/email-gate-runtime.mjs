@@ -28,7 +28,7 @@ export async function emailGate(req,ctx) {
       load:async()=>{try{return JSON.parse(await Deno.readTextFile(file));}catch(e){if(e instanceof Deno.errors.NotFound)return null;throw e;}},
       save:async(state)=>{await Deno.mkdir(ctx.dataDir,{recursive:true});await Deno.writeTextFile(file+'.tmp',JSON.stringify(state),{mode:0o600});await Deno.rename(file+'.tmp',file);},
       quote:async(reportData)=>{
-        const result=await socketPost('/run/broker/private-agent/dstack.sock','GetQuote',{report_data:Array.from(reportData,b=>b.toString(16).padStart(2,'0')).join('')});
+        const result=await socketPost(ctx.env.DSTACK_SOCKET,'GetQuote',{report_data:Array.from(reportData,b=>b.toString(16).padStart(2,'0')).join('')});
         const quote=result.quote.replace(/^0x/,'');
         const quoteBytes=Uint8Array.from(quote.match(/../g),x=>parseInt(x,16));
         return {quote,eventLog:typeof result.event_log==='string'?JSON.parse(result.event_log):result.event_log,collateral:await getCollateral(PHALA_PCCS_URL,quoteBytes)};

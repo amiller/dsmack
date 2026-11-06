@@ -166,10 +166,14 @@ python3 applications/private-agent-web/deploy.py --target staging \
 ```
 
 Preparation bundles the npm dependencies with Deno. Apply uses the configured
-webhost admin credential, updates only `relay-broker`, and promotes shared Deno.
-Deployment waits up to ten minutes for `/network` busy slots and
-`/inference/status` `inFlightStreams` to reach zero before the upload/promotion transaction.
-Set `--wait-idle-minutes N` to change the wait. Disconnected browser requests
+webhost admin credential and updates only `relay-broker`, which runs in its own
+container (`isolation: container`), so deploys of other projects never restart it.
+Apply first drains the broker: `POST /drain` with the operator token
+(`--operator-token FILE`) stops offering new stays, running stays continue, and
+the upload waits up to 65 minutes for `/network` busy slots and `/inference/status`
+`inFlightStreams` to reach zero. If the wait times out or the upload fails, it
+sends `DELETE /drain` so the broker offers stays again, and exits with the error.
+The new process starts undrained. Disconnected browser requests
 count until upstream cancellation finishes; queued ciphertext stays counted
 until the HTTP consumer reaches EOF. Interrupted requests with a
 known NEAR billing ID settle once against that exact provider cost record;

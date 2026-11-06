@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Deploy the built private-agent page to dstack-webhost's shared Deno runtime."""
+"""Deploy the built private-agent page to its own dstack-webhost container."""
 import argparse
-import fcntl
 import io
 import json
 import os
@@ -20,7 +19,6 @@ APP = Path(__file__).resolve().parent
 PROJECT = "private-agent"
 sys.path.insert(0, str(APP))
 sys.path.insert(0, str(APP.parents[1] / "tools"))
-from deploy_idle import wait_for_idle
 from deploy_target import WEBHOST, STAGING_HOST, project_name, source_ref, staging_page_url
 from bundle import check as check_bundle
 
@@ -84,7 +82,6 @@ def main():
     parser.add_argument("--registry-account", help="Existing cast keystore account authorized as PageBundleRegistry publisher")
     parser.add_argument("--skip-registry-publication", action="store_true", help="Staging only: deploy without a configured bundle registry or on-chain publication")
     parser.add_argument("--staging-origin", choices=(STAGING_HOST, WEBHOST), default=STAGING_HOST)
-    parser.add_argument("--wait-idle-minutes", type=float, default=10)
     parser.add_argument("--config", type=Path, help="Public page config for this target, including broker signing identities")
     parser.add_argument("--dist", type=Path, default=APP / "dist")
     parser.add_argument("--evidence", type=Path, required=True)
@@ -136,8 +133,8 @@ def main():
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from None
 
     substrate = json.loads(api("/_api/substrate"))
-    if "shared" not in substrate["isolation_modes"]:
-        raise ValueError("Webhost does not support shared Deno")
+    if "container" not in substrate["isolation_modes"]:
+        raise ValueError("Webhost does not support container isolation")
     manifest = {
         "name": project_name_value,
         "source": "tarball://" + project_name_value,
@@ -145,8 +142,12 @@ def main():
         "runtime": "deno",
         "mode": "attested",
         "entry": "server.ts",
-        "isolation": "shared",
-        "env": {**page_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256},
+        "isolation": "container",
+        # Path-routed on the shared ingress port; a container otherwise claims its own port (3000 is taken).
+        "listen": {"port": 8080, "protocol": "http"},
+        # gVisor (the pod default) has --host-uds=none, so the dstack socket refuses connect (webhost #126).
+        "oci_runtime": "runc",
+        "env": {**page_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256, "DSTACK_SOCKET":"/run/broker/dstack.sock"},
     }
     boundary = "private-agent-" + secrets.token_hex(16)
     body = (
@@ -156,13 +157,11 @@ def main():
         + archive
         + f"\r\n--{boundary}--\r\n".encode()
     )
-    wait_for_idle(base, args.wait_idle_minutes)
     project = json.loads(api("/_api/projects", method="POST", body=body,
                              kind="multipart/form-data; boundary=" + boundary, auth=True))
-    if project["runtime"] != "deno" or project["isolation"] != "shared":
-        raise ValueError("Deployment did not select shared Deno")
+    if project["runtime"] != "deno" or project["isolation"] != "container":
+        raise ValueError("Deployment did not select container isolation")
     if project.get("mode") != "attested":
-        wait_for_idle(base, args.wait_idle_minutes)
         project = json.loads(api("/_api/projects/" + project_name_value + "/promote", method="POST", auth=True))
     if project.get("mode") != "attested":
         raise ValueError("Deployment did not enter attested mode")
@@ -196,12 +195,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # Shared Deno reloads affect both projects. Hold one upload/promote
-        # transaction at a time so another project cannot remove its key socket.
-        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a") as deployment_lock:
-            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
-            main()
+        main()
     except (OSError, ValueError, RuntimeError, URLError) as error:
         raise SystemExit(str(error)) from None

@@ -1,3 +1,4 @@
+import "./node-env.mjs";
 import { nonceRef, errorCode, requestLog } from "./request-log.mjs";
 import { ArtifactShares, artifactStoreRemote } from "./artifact-shares.mjs";
 import { Continuity } from "./continuity.mjs";
@@ -249,11 +250,24 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context, star
   return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
 }
 
+// Operator-only. POST stops offering new stays, DELETE resumes; a new process starts undrained.
+export async function drain(req: Request, b: Broker, operatorHash?: string) {
+  const auth = req.headers.get("authorization") ?? "";
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(auth.slice(7))));
+  if (!operatorHash || !auth.startsWith("Bearer ") || Array.from(digest, x => x.toString(16).padStart(2, "0")).join("") !== operatorHash) {
+    return Response.json({ error: { code: "OPERATOR_REQUIRED", message: "operator token required" } }, { status: 403 });
+  }
+  const draining = req.method === "POST";
+  (b as Broker & { draining?: boolean }).draining = draining;
+  return Response.json({ draining });
+}
+
 async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined, observation: { ref: string | null }) {
   const body = (request: Request, maximum = 150000) => readBody(request, maximum, observation);
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/drain" && (req.method==="POST" || req.method==="DELETE"))return await drain(req,b,ctx?.env.OPERATOR_TOKEN_SHA256);
   if(path==="/network" || path==="/network/history")return await (await networkMonitor(ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined)).response(req);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&

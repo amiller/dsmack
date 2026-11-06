@@ -423,3 +423,13 @@ test("a broker restart or a blip shorter than grant_seconds keeps a started stay
  const closed=await status();
  assert.equal(closed.active,false);assert.equal(closed.closedReason,"guest-unreachable");
 });
+
+test("a draining broker offers no new stays",async()=>{
+ const f=await fixture();
+ const node={...f.node,telemetry:{busy:false}};
+ f.broker.live=()=>[node];
+ assert.equal(f.sessions.available(node),true);
+ f.broker.draining=true;
+ assert.equal(f.sessions.available(node),false);
+ await assert.rejects(f.sessions.open(await f.signed("agent-open",{conversationId:"drained",client_peer:peer,node_peer:node.relay_peer})),e=>e.code==="GUEST_BUSY");
+});

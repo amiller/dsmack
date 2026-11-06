@@ -8,8 +8,7 @@ def command(base,templates,out,builder,kernel_source):
     return ['docker','run','--rm','--cpus','4','--memory','4g','--pids-limit','256','--network','none',
       '--mount',f'type=bind,src={out},dst=/w','--mount',f'type=bind,src={HERE}/source,dst=/w/source,readonly',
       '--mount',f'type=bind,src={HERE}/derive-in-container.sh,dst=/derive.sh,readonly',
-      '--mount',f'type=bind,src={HERE.parent.parent}/dstack-compat,dst=/w/dstack-compat,readonly',
-      '--mount',f'type=bind,src={HERE.parent.parent}/compose-contract/dsmack_compose_contract,dst=/w/dsmack_compose_contract,readonly',
+      '--mount',f'type=bind,src={HERE.parent.parent},dst=/repo,readonly',
       '--mount',f'type=bind,src={kernel_source},dst=/linux.tar.xz,readonly',
       '--mount',f'type=bind,src={base},dst=/prior-image,readonly','--mount',f'type=bind,src={templates},dst=/selected-templates,readonly',
       builder,'bash','/derive.sh']

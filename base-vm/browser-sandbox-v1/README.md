@@ -16,8 +16,8 @@ with the preset's capabilities, resource limits and seccomp policy. Public file 
 private disk.
 
 The host verifier (`applications/pilot-client/verifier-browser`) and the bounty
-applications import the contract library from this directory, so guest and
-verifier validate manifests and receipts with the same code.
+applications import the same contract library from `compose-contract/`, so guest
+and verifier validate manifests and receipts with the same code.
 Networked workloads declare `network.egress`, a measured list of IP/CIDR,
 protocol (`tcp` or `udp`) and destination port tuples, for example:
 
@@ -36,8 +36,9 @@ by `applications/pilot-client/workload/transport_loader.py`.
 
 `derive.py` takes a base bundle (`Image`, `config-6.18.40-dstack`,
 `rootfs.squashfs.verity`) the Linux 6.18.40 source tarball and the 4GiB scratch / 256MiB result disk templates.
-In an offline builder container it unpacks the base rootfs, overlays the runner
-files listed in `derive-in-container.sh`, and assembles a new verity image with
+In an offline builder container it unpacks the base rootfs, replaces
+`/usr/local/lib/dsmack`, `/usr/local/bin/dsmack-*`, `/usr/bin/dsmack-supervisor`
+and `/etc/docker/daemon.json` with repo files (`install-guest.sh`), and assembles a new verity image with
 `source/build/assemble_leg.sh`. It needs an x86-64 Docker host and about 2GB of
 disk, plus the kernel build tree. It rebuilds Linux 6.18.40 with dm-crypt and XTS enabled.
 
@@ -62,6 +63,8 @@ It prints the artifact directory and the image digest (`digest.txt`, the
 SHA-256 of `sha256sum.txt`), which must equal `image.sha256`. The `image-repro` workflow runs this derivation on
 GitHub Actions and fails on any other digest; a change that alters the image
 updates `image.sha256` in the same PR.
+`check_rootfs.py ROOTFS` fails unless every installed dsmack file is byte-equal
+to a repo file and no `SHA256SUMS` remains; `image-repro` runs it on the derived rootfs.
 
 ```sh
 python3 -m pytest base-vm/browser-sandbox-v1

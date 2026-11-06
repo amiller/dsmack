@@ -267,3 +267,14 @@ cast send $ESCROW 'setWorkload(bytes32,bytes32,bytes32,bool)' 0x$OS_IMAGE_HASH 0
 cast send $ATTEST 'enroll(bytes,bytes,bytes,bytes32)' $CERT $AUTH $CLIENT_DATA $INTERMEDIATE_ID   # within the 3-day leaf validity
 python3 contracts/guest_register.py $(jq -r .attestation guest-key) | jq -r .calldata | xargs cast send $ESCROW
 ```
+
+## Base mainnet (chain 8453), planned
+
+`script/MainnetLaunch.s.sol` deploys AppleEndorsements (and endorses the Apple intermediate), CDRegistry, the key-directory
+AppleAttestRegistryV1 bound to a Canary, LayoverCredit, GuestEscrow's own AppleAttestRegistryV1 and GuestEscrow, and a
+USDC UsageEscrow, from one deployer that keeps no role. Owners come from `BUILD_OWNER`, `ESCROW_OWNER`, `USAGE_OWNER` and
+`MINT_OWNER`; CDRegistry now takes its owner as a constructor argument so a Safe can hold it. Run with `--force` and
+`--gas-estimate-multiplier 105` (the default 130% puts `endorseIntermediate` over Base's 2^24 per-transaction cap).
+`script/mainnet-fork.sh` rehearses it on an anvil fork with the owner steps (`setBuild`, `registerBuild`, both enrolls of
+the Mini key from `fixtures/mainnet/`) and `script/MainnetSmoke.s.sol`. The runbook, gas and service changes are in
+souk-co/layover `notes/mainnet-launch.md`.

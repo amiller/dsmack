@@ -393,7 +393,7 @@ contract GuestEscrowRealAttestTest is GuestEscrowBase {
         bytes memory guid = vm.parseJsonBytes(fixture, ".aaguid");
         bytes16 aaguid = bytes16(guid);
         string memory b = vm.readFile("fixtures/cd-args-probe-macos.json");
-        CDRegistry cds = new CDRegistry();
+        CDRegistry cds = new CDRegistry(address(this));
         cds.setBuild(vm.parseJsonBytes(b, ".cd"), vm.parseJsonBytes(b, ".page0"), vm.parseJsonBytes(b, ".ent"));
         cds.registerBuild(vm.parseJsonBytes(b, ".cd"), vm.parseJsonBytes(b, ".page0"), vm.parseJsonBytes(b, ".ent"));
         AppleEndorsements e = new AppleEndorsements();

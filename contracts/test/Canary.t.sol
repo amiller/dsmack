@@ -157,7 +157,7 @@ contract CanaryTest is Test {
     /// A claim takes several transactions; the registry owner approving another build mid-claim
     /// must not void it. Real CDRegistry with the probe and Developer ID fixtures.
     function test_setBuildAfterArmDoesNotVoidPinnedEntry() public {
-        CDRegistry r = new CDRegistry();
+        CDRegistry r = new CDRegistry(address(this));
         (bytes memory cd, bytes memory page0, bytes memory ent) = build("fixtures/cd-args-probe-macos.json");
         r.setBuild(cd, page0, ent);
         bytes32 pinned = r.buildId();

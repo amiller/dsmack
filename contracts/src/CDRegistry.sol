@@ -31,7 +31,8 @@ contract CDRegistry {
         uint256 linkeditCmd;
         uint256 codeSigCmd;
     }
-    address public immutable owner = msg.sender;
+    address public immutable owner;
+    constructor(address owner_) { require(owner_ != address(0), "owner"); owner = owner_; }
     mapping(bytes32 => bool) public approved;
     bytes32 public buildId;
     mapping(bytes32 => bytes32) public rpOf;

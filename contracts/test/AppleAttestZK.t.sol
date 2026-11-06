@@ -85,7 +85,7 @@ contract AppleAttestZKTest is Test {
     function test_AllAdaptersShareOneEndorsement() public {
         AppleEndorsements e=adapter.endorsements();
         MacAppAttestV1 mac=new MacAppAttestV1(e,address(this),p.rpIdHash,p.cdhash,p.aaguid,3,false);
-        CDRegistry cds=new CDRegistry();string memory b=vm.readFile("fixtures/cd-args-probe-macos.json");
+        CDRegistry cds=new CDRegistry(address(this));string memory b=vm.readFile("fixtures/cd-args-probe-macos.json");
         bytes memory cd=vm.parseJsonBytes(b,".cd");bytes memory page=vm.parseJsonBytes(b,".page0");bytes memory ent=vm.parseJsonBytes(b,".ent");
         cds.setBuild(cd,page,ent);cds.registerBuild(cd,page,ent);
         AppleAttestRegistryV1 reg=new AppleAttestRegistryV1(e,address(this),cds,p.aaguid,3,false);

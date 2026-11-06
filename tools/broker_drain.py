@@ -17,9 +17,10 @@ def drained(base, project, operator_token, minutes=65, *, call=None, clock=time.
     body completes; a successful deploy replaces the process, which starts undrained."""
     call = call or (lambda *a: fetch(base, project, *a))
     auth = {'Authorization': 'Bearer ' + operator_token}
-    if call('/drain', 'POST', auth) != {'draining': True}:
-        raise RuntimeError("Broker did not confirm draining")
     try:
+        # Inside the try: a timed-out POST may still have drained the broker.
+        if call('/drain', 'POST', auth) != {'draining': True}:
+            raise RuntimeError("Broker did not confirm draining")
         # A stay lasts at most an hour; a Mac still reporting busy after that is stuck.
         deadline = clock() + minutes * 60
         while True:
@@ -36,7 +37,12 @@ def drained(base, project, operator_token, minutes=65, *, call=None, clock=time.
             sleep(5)
         yield
     except BaseException as error:
-        print(f"Drain: deploy failed ({type(error).__name__}); resuming new stays", flush=True)
-        if call('/drain', 'DELETE', auth) != {'draining': False}:
-            raise RuntimeError("Broker did not confirm resuming after a failed deploy") from error
+        print(f"Drain: deploy failed ({type(error).__name__}: {error}); resuming new stays", flush=True)
+        try:
+            resumed = call('/drain', 'DELETE', auth)
+        except Exception as undo:
+            raise RuntimeError(f"Deploy failed and DELETE /{project}/drain failed ({type(undo).__name__}); "
+                               "the broker may still refuse new stays") from error
+        if resumed != {'draining': False}:
+            raise RuntimeError(f"Deploy failed and the broker did not confirm resuming: {resumed}") from error
         raise

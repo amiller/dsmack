@@ -46,9 +46,30 @@ class DrainTest(unittest.TestCase):
         self.assertEqual(calls[-1][:2], ('/drain', 'DELETE'))
         self.assertGreaterEqual(at[0], 65 * 60)
 
+    def test_failed_resume_is_reported(self):
+        def call(path, method='GET', headers={}):
+            if method == 'DELETE':
+                raise OSError('broker gone')
+            return {'draining': True} if path == '/drain' else {'totals': {'busy_slots': 0}} if path == '/network' else {'inFlightStreams': 0}
+        with self.assertRaisesRegex(RuntimeError, 'may still refuse new stays'):
+            with drained('unused', 'relay-broker', 'x', call=call):
+                raise ValueError('upload rejected')
+
+    def test_drain_post_timeout_still_resumes(self):
+        calls = []
+        def call(path, method='GET', headers={}):
+            calls.append(method)
+            if method == 'POST':
+                raise TimeoutError()
+            return {'draining': False}
+        with self.assertRaises(TimeoutError):
+            with drained('unused', 'relay-broker', 'x', call=call):
+                self.fail('deploy must not run')
+        self.assertEqual(calls, ['POST', 'DELETE'])
+
     def test_unconfirmed_drain_stops_the_deploy(self):
         with self.assertRaisesRegex(RuntimeError, 'confirm draining'):
-            with drained('unused', 'relay-broker', 'x', call=lambda *a: {}):
+            with drained("unused", "relay-broker", "x", call=lambda *a: {} if a[1:2] != ("DELETE",) else {"draining": False}):
                 self.fail('deploy must not run')
 
     def test_missing_activity_is_not_idle(self):

@@ -67,7 +67,10 @@ def prepare(args):
     if not config.get("payments") or not config.get("inference"):
         raise ValueError("configuration needs payments and inference blocks")
     # Staging reads Base Sepolia at "safe" so new registrations reach it in ~2 minutes, not ~18.
-    config["payments"]["blockTag"] = "safe" if args.target == "staging" else "finalized"
+    if args.target == "production" and config["payments"].get("blockTag", "finalized") != "finalized":
+        raise ValueError("production reads Base Sepolia at finalized only")
+    if args.target == "staging":
+        config["payments"]["blockTag"] = "safe"
     if not re.fullmatch(r"[0-9a-f]{64}", args.operator_token_sha256):
         raise ValueError("operator token SHA256 must be 64 lowercase hex characters")
     manifest = {"name": project, "source": "tarball://" + project,

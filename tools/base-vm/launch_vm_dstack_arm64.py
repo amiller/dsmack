@@ -15,7 +15,8 @@ Guest-private cleanup, writer shutdown and process/FD quiescence remain required
 import tempfile
 import argparse, fcntl, hashlib, json, os, re, shutil, signal, stat, subprocess, sys, tarfile, time, threading
 
-LANE = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+LANE = os.path.join(REPO, 'base-vm', 'browser-sandbox-v1')
 BATCH = '/home/amiller/dsmack-sprints/attested-runner-20261019/joined-sprint/app-compose-20261020'
 QEMU_IMAGE = 'dsmack-arm64/qemu-aarch64:ubu22.04'          # arm64 lane's container (reused)
 BUILDER_IMAGE = 'dsmack-dstack-arm64/builder:trixie-20260721'
@@ -58,7 +59,7 @@ MAX_PRIVATE_BYTES = 64 * 1024 * 1024
 # validates the completed private transport with the ACTUAL measured guest
 # reader before it is written -- the host never packs a vde the guest would
 # refuse, and the limits are one source of truth, not two.
-_RUNNER_CONTENT = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'runner-content')
+_RUNNER_CONTENT = os.path.join(LANE, 'source', 'runner-content')
 if _RUNNER_CONTENT not in sys.path:
     sys.path.insert(0, _RUNNER_CONTENT)
 from dsmack_guest_io import private_transport as _pt  # noqa: E402
@@ -776,8 +777,7 @@ def admit(rt, stage_dir, pin, run_name):
     S04: the admission container is NAMED and tracked (cleanup removes it even
     if this client is killed) and its timeout is clipped to the remaining
     overall deadline."""
-    verifier_src = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                'tests', 'verify_manifest.py')
+    verifier_src = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'verify_manifest.py')
     vdir = os.path.join(rt, 'verifier')
     os.makedirs(vdir, mode=0o700, exist_ok=False)
     shutil.copy(verifier_src, os.path.join(vdir, 'verify_manifest.py'))

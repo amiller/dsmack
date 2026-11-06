@@ -29,7 +29,7 @@ The supervisor applies nftables to guest output and container forwarding before
 starting brokers or compose. Missing or empty `egress` denies external traffic;
 loopback and replies to inbound connections remain available. DNS requires an
 explicit resolver IP and port entry, which permits queries for any name.
-`source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
+`tools/base-vm/launch_vm_dstack_arm64.py` (repo root) supplies the workload-disk packer used
 by `applications/pilot-client/workload/transport_loader.py`.
 
 ## Derive the image

@@ -87,7 +87,7 @@ def pack(repo, files, starter, out, name, mb, build_disk=None):
     (tree / "WORKLOAD").write_text(name + "\n")
     shutil.copytree(starter / "oci-layout", tree / "oci-layout")
     if build_disk is None:
-        t = load(repo / "base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py")
+        t = load(repo / "tools/base-vm/launch_vm_dstack_arm64.py")
         t.start_overall_deadline(300)
         t.build_workload_disk(None, str(tree), str(out / "workload.img"), 1 << 30)
     else:

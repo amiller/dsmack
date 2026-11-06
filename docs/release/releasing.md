@@ -4,6 +4,10 @@ What a release is, and when to cut one, is in [versioning.md](../versioning.md).
 release `vX.Y.Z` ships the signed Mac app, the base images it admits, and the
 verifier that reads its evidence.
 
+## Next releases
+
+The next two releases are GitHub milestones with tentative dates, about two weeks apart. Issues go into one of them. The next release has a candidate branch, `release/vX.Y.Z`, cut from `main`; work meant for it merges there, and the branch merges to `main` and is tagged when it's ready. Each release adds an entry to [CHANGELOG.md](../../CHANGELOG.md).
+
 ## Maintainer
 
 1. Tag a reviewed commit `vX.Y.Z`. Never move a released tag or replace an asset.

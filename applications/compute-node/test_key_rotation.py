@@ -222,7 +222,7 @@ class RotationTests(unittest.TestCase):
         with contextlib.redirect_stdout(io.StringIO()):
             result = kr.check(self.config)
         self.assertEqual(result['kid'], DEAD_KID)
-        self.assertEqual(result['enroll_simulation_current_key'], 'reverted: already enrolled')
+        self.assertIn('already enrolled', result['enroll_simulation_current_key'])
         self.assertFalse((self.root/'state').exists())
         os.unlink(self.root/'lines/runner/enrollment')
         os.symlink(str(self.root/'runner/enrollment.old'), self.root/'lines/runner/enrollment')

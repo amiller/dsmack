@@ -205,16 +205,17 @@ def check(config, dead_kid=None, need_gas=True):
     state, link = broker_link(config, publisher, kid)
     if state['domain'] != auth['domain']:
         raise RuntimeError('authorization domain %s differs from the broker ownership domain %s' % (auth['domain'], state['domain']))
-    # Simulating enroll for the current enrollment checks the calldata and intermediate id against the chain.
+    # For an enrolled key, simulating its enroll checks the calldata and intermediate id against the chain. An
+    # unenrolled key's leaf may have expired, so it is not simulated; the new key is simulated before it is sent.
     chain_key, (_, data) = key(config, kid), enroll_call(runner/'enrollment', config)
-    try:
-        simulated = chain(config, '/call', to=config['registry'], data=data)['result']
-    except RuntimeError as error:
-        if not (chain_key['enrolled'] and 'already enrolled' in str(error)):
-            raise
-        simulated = 'reverted: already enrolled'
-    if not chain_key['enrolled'] and simulated != kid:
-        raise RuntimeError('enroll simulation for %s returned %s' % (kid, simulated))
+    simulated = 'not enrolled; not simulated'
+    if chain_key['enrolled']:
+        try:
+            simulated = chain(config, '/call', to=config['registry'], data=data)['result']
+        except RuntimeError as error:
+            simulated = str(error)
+        if 'already enrolled' not in simulated:
+            raise RuntimeError('enroll simulation for enrolled %s did not revert with already enrolled: %s' % (kid, simulated))
     keys = Path(config['state'])/'keys.json'
     gas = Account.from_key(Path(config['gas_key']).read_text().strip())
     price = int(rpc(config, 'eth_gasPrice'), 16) * 2

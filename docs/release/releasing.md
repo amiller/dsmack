@@ -4,14 +4,9 @@ What a release is, and when to cut one, is in [versioning.md](../versioning.md).
 release `vX.Y.Z` ships the signed Mac app, the base images it admits, and the
 verifier that reads its evidence.
 
-## Cadence
+## Next releases
 
-A release is cut every other Tuesday. The next one always exists as a GitHub milestone with a due date, so there is one place to propose what goes in it. If nothing in the milestone is ready, the date moves two weeks and the milestone says why. A release with nothing in it is skipped, not cut empty.
-
-- **Input.** Open an issue and ask for it to go in the next milestone. Anything not done by release day moves to the one after.
-- **Review.** Before tagging, the diff since the last release gets a security read, with the base image, the Mac app, the verifier and the evidence formats first. The release notes say what was read and by whom.
-- **Notes.** Each release adds an entry to [CHANGELOG.md](../../CHANGELOG.md): what changed in each layer, the new identities (app cdhash, base image hashes), whether it breaks anything, the evidence formats it writes and reads, and who should upgrade and by when.
-- **Next.** The day a release is tagged, the next milestone is created with its due date.
+The next two releases are GitHub milestones with tentative dates, about two weeks apart. Issues go into one of them. The next release has a candidate branch, `release/vX.Y.Z`, cut from `main`; work meant for it merges there, and the branch merges to `main` and is tagged when it's ready. Each release adds an entry to [CHANGELOG.md](../../CHANGELOG.md).
 
 ## Maintainer
 

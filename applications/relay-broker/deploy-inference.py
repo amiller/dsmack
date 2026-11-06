@@ -88,6 +88,7 @@ def prepare(args):
     manifest = {"name": project, "source": "tarball://" + project,
                 "ref": ref,
                 "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "container", "mode": "attested",
+                "listen": {"port": 8080, "protocol": "http"},
                 "env": {"OPERATOR_TOKEN_SHA256": args.operator_token_sha256, "DSTACK_SOCKET": "/run/broker/dstack.sock"}}
     if args.encrypted_env:
         manifest["env"]["NEAR_ENCRYPTED_ENV"] = json.dumps(envelope(json.loads(args.encrypted_env.read_text())))

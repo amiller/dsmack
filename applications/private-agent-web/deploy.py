@@ -143,6 +143,8 @@ def main():
         "mode": "attested",
         "entry": "server.ts",
         "isolation": "container",
+        # Path-routed on the shared ingress port; a container otherwise claims its own port (3000 is taken).
+        "listen": {"port": 8080, "protocol": "http"},
         "env": {**page_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256, "DSTACK_SOCKET":"/run/broker/dstack.sock"},
     }
     boundary = "private-agent-" + secrets.token_hex(16)

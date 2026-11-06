@@ -140,7 +140,8 @@ export class Quorum {
           to: this.escrow,
           data: abi.encodeFunctionData(name, args),
         }, tag]);
-        return abi.decodeFunctionResult(name, raw)[0];
+        const r = abi.decodeFunctionResult(name, raw);
+        return r.length > 1 ? r : r[0];
       },
     };
   }

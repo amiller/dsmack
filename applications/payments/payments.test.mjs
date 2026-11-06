@@ -97,6 +97,13 @@ test("quorum freezes calls to a common finalized hash and tolerates one wrong pr
     });
   }
 });
+test("a call with several outputs returns them by name", async () => {
+  const operator = "0x2000000000000000000000000000000000000002";
+  const s = await rpc({ eth_call: () => abi.encodeFunctionResult("terms", [operator, 5]) }).q.snapshot();
+  const t = await s.call("terms", [escrow, zero]);
+  assert.equal(t.operator, operator);
+  assert.equal(t.cap, 5n);
+});
 test("stale, wrong chain, changed code and split state cannot mint credit", async () => {
   await assert.rejects(
     rpc({ eth_getBlockByNumber: (_, __, v) => ({ ...v, timestamp: "0x1" }) }).q

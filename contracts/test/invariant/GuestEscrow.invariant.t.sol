@@ -108,6 +108,7 @@ contract GuestEscrowHandler is Test {
         C memory c; c.u = buyer(b); c.th = hashes[h % 3]; c.key = guest(k);
         (c.op, c.cap, c.closedAt,) = esc.terms(c.u, c.th);
         if (c.op == address(0)) return;
+        for (uint256 j; j < 3 && k % 4 != 0; j++) { (address o,,,) = esc.guestKeys(guest(k + j)); if (o == c.op) { k += j; c.key = guest(k); break; } }
         c.prev = esc.claimed(c.u, c.th, c.key); c.total = esc.totalClaimed(c.u, c.th);
         uint256 room = c.cap - c.total; if (esc.balance(c.u) < room) room = esc.balance(c.u);
         c.cum = c.prev + (room > 0 && inc % 8 != 0 ? bound(inc, 1, room) : bound(inc, 0, c.cap + 1));

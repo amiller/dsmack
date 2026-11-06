@@ -2,11 +2,11 @@
 // deno run -A applications/payments/anvil-e2e.mjs
 import assert from "node:assert/strict";
 import { ContractFactory, JsonRpcProvider, Wallet } from "npm:ethers@6.17.0";
-import { Payments } from "../relay-broker/payments.mjs";
+import { Payments, accrueLease } from "../relay-broker/payments.mjs";
 import { Inference } from "../relay-broker/inference.mjs";
 import { AgentSessions } from "../relay-broker/agent.mjs";
 import { canonical, signingKey } from "../relay-broker/grants.mjs";
-import { Receipt, receiptDomain, receiptSigner, claimDomain, Claim, verifyTypedData } from "./schema.mjs";
+import { Receipt, receiptDomain, receiptSigner, claimDomain, Claim, AcceptTerms, verifyTypedData } from "./schema.mjs";
 const provider = new JsonRpcProvider("http://127.0.0.1:18545", 84532, {cacheTimeout:-1});
 const owner=await provider.getSigner(0), user=await provider.getSigner(1), operator=await provider.getSigner(2);
 const userAddress=(await user.getAddress()).toLowerCase(), operatorAddress=await operator.getAddress();
@@ -52,18 +52,32 @@ payments.state.inferenceCredit[userAddress].pending="local";
 payments.state.inferenceRequests={local:{status:"responded",inferenceId:"inference-local",reservedNanoUsd:"100000",usedTokens:"7"}};
 await inference.usage(await signed("usage"));
 assert.equal(inference.summary(userAddress).spentNanoUsd,"1000000");
-const week=Math.floor(now/604800);
-await provider.send("evm_increaseTime",[604800]);await provider.send("evm_mine",[]);
-now=Number((await provider.getBlock("latest")).timestamp);
-const authorization=await payments.weeklyClaim(userAddress,operatorAddress,week);
+const terms="0x"+"ab".repeat(32);
+await (await rail.connect(user).acceptTerms(terms,operatorAddress,1000)).wait();
+payments.state.termsAccruals={[userAddress]:{[terms]:accrueLease(payments.state,userAddress,{operator:operatorAddress,terms_hash:terms,owed:"1000"})}};
+const authorization=await payments.termsClaim(userAddress,terms);
 assert.equal(authorization.claim.cumulativeOwed,"1000");
 assert.equal(verifyTypedData(claimDomain(await rail.getAddress(),userAddress),{Claim},authorization.claim,authorization.signature),brokerKey.address);
 await (await rail.claim(userAddress,authorization.claim,authorization.signature)).wait();
 assert.equal(await usdc.balanceOf(operatorAddress),1000n);
 await assert.rejects(rail.claim(userAddress,authorization.claim,authorization.signature));
-const excessive={operator:operatorAddress,cumulativeOwed:"1000001",period:week};
+const excessive={...authorization.claim,cumulativeOwed:"1001"};
 const excessiveSig=await brokerKey.signTypedData(claimDomain(await rail.getAddress(),userAddress),{Claim},excessive);
-await assert.rejects(rail.claim(userAddress,excessive,excessiveSig));
+await assert.rejects(rail.claim(userAddress,excessive,excessiveSig),/terms cap/);
+// x402-style top-up: the payer signs only an EIP-3009 TransferWithAuthorization to the escrow; anyone submits it.
+const payer=Wallet.createRandom();
+await (await usdc.mint(payer.address,250000)).wait();
+const transfer={from:payer.address,to:await rail.getAddress(),value:250000,validAfter:0,validBefore:now+3600,nonce:"0x"+"cd".repeat(32)};
+const transferSig=await payer.signTypedData({name:"USDC",version:"2",chainId:84532,verifyingContract:await usdc.getAddress()},
+ {TransferWithAuthorization:[{name:"from",type:"address"},{name:"to",type:"address"},{name:"value",type:"uint256"},
+  {name:"validAfter",type:"uint256"},{name:"validBefore",type:"uint256"},{name:"nonce",type:"bytes32"}]},transfer);
+await (await rail.depositWithAuthorization(payer.address,250000,0,transfer.validBefore,transfer.nonce,transferSig)).wait();
+assert.equal(await rail.balance(payer.address),250000n);
+// Relayed terms acceptance: the payer signs AcceptTerms, the owner submits it.
+const relayed={termsHash:"0x"+"ef".repeat(32),operator:operatorAddress,cap:"250000"};
+const termsSig=await payer.signTypedData(claimDomain(await rail.getAddress(),payer.address),{AcceptTerms},relayed);
+await (await rail.acceptTermsFor(payer.address,relayed.termsHash,operatorAddress,relayed.cap,termsSig)).wait();
+assert.deepEqual([...await rail.terms(payer.address,relayed.termsHash)],[operatorAddress,250000n]);
 await (await rail.connect(user).requestExit()).wait();
 await assert.rejects(inference.prepare(await signed("prepare",{attestationNonce:"cd".repeat(32)})),e=>e.code==="ACCOUNT_EXITING");
 await assert.rejects(rail.connect(user).withdraw());

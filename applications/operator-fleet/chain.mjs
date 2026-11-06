@@ -25,7 +25,7 @@ export class Earnings {
       const chunk = [], totals = new Map(this.cumulative);
       for (const log of logs) {
         const event = abi.parseLog(log), user = event.args.user, operator = event.args.operator;
-        const key = user.toLowerCase() + ":" + operator.toLowerCase();
+        const key = user.toLowerCase() + ":" + event.args.termsHash;
         const cumulative = BigInt(event.args.cumulativeOwed), previous = totals.get(key) ?? 0n;
         if (cumulative <= previous) throw Error("Claim total did not advance");
         const block = await provider.getBlock(log.blockNumber);

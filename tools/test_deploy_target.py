@@ -125,6 +125,29 @@ class SourceGateTests(unittest.TestCase):
             self.assertEqual(paths, ['/_api/projects', '/_api/projects/relay-broker-staging/promote', '/relay-broker-staging/key'])
             guard.assert_called_once_with('local-fixture', 1)
 
+    def test_signer_project_keeps_shared_key_path_and_separates_layover(self):
+        broker=load('broker_deploy_signer', ROOT/'applications/relay-broker/deploy-inference.py')
+        def bundle(command, **kwargs):
+            Path(command[-1]).write_text('export default {};')
+        cases={'production': dict(payments={'chainId':84532}, inference=dict(origins=['production'])),
+               'staging': dict(payments={'chainId':84532}, inference=dict(origins=['production'])),
+               'layover': dict(payments={'chainId':84532}, leaseWorkloads=[{}], workloads=[])}
+        packed={}
+        for target, cfg in cases.items():
+            with tempfile.TemporaryDirectory() as tmp:
+                root=Path(tmp); (root/'config.json').write_text(json.dumps(cfg))
+                with patch.object(broker, 'source_ref', return_value='c'), patch.object(broker.subprocess, 'run', side_effect=bundle):
+                    broker.prepare(SimpleNamespace(target=target, config=root/'config.json', operator_token_sha256='a'*64,
+                                                   encrypted_env=None, out=root/'prepared', staging_origin='https://private-agent-staging.dstack.soc1024.com'))
+                with tarfile.open(root/'prepared/relay-broker.tgz') as package:
+                    packed[target]=json.load(package.extractfile('applications/relay-broker/config.json'))['signerProject']
+        self.assertEqual(packed, {'production': 'relay-broker', 'staging': 'relay-broker', 'layover': 'relay-broker-layover'})
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp); (root/'config.json').write_text(json.dumps(dict(cases['layover'], signerProject='relay-broker')))
+            with self.assertRaisesRegex(ValueError, 'signerProject'):
+                broker.prepare(SimpleNamespace(target='layover', config=root/'config.json', operator_token_sha256='a'*64,
+                                               encrypted_env=None, out=root/'prepared', staging_origin='https://private-agent-staging.dstack.soc1024.com'))
+
     def test_path_host_staging_routes_and_deploys_without_a_chain_transaction(self):
         page=load('page_deploy_path', ROOT/'applications/private-agent-web/deploy.py')
         bundle=load('page_bundle_path', ROOT/'applications/private-agent-web/bundle.py')

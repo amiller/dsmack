@@ -100,10 +100,11 @@ try {
  await (await token.mint(ownerAddress,10000)).wait();
  await (await token.approve(cfg.escrow,10000)).wait();
  await (await rail.deposit(10000)).wait();
- const period=Math.floor(Number((await provider.getBlock("latest")).timestamp)/604800)-1;
- const claim={operator:ownerAddress,cumulativeOwed:"10000",period};
+ const period=Math.floor(Number((await provider.getBlock("latest")).timestamp)/604800)-1,termsHash=keccak256("0x01");
+ await (await rail.acceptTerms(termsHash,ownerAddress,10000)).wait();
+ const claim={operator:ownerAddress,termsHash,cumulativeOwed:"10000",period};
  const domain={name:"DsmackPrepaid",version:"1",chainId:84532,verifyingContract:cfg.escrow,salt:"0x"+ownerAddress.slice(2).toLowerCase().padStart(64,"0")};
- const types={Claim:[{name:"operator",type:"address"},{name:"cumulativeOwed",type:"uint256"},{name:"period",type:"uint64"}]};
+ const types={Claim:[{name:"operator",type:"address"},{name:"termsHash",type:"bytes32"},{name:"cumulativeOwed",type:"uint256"},{name:"period",type:"uint64"}]};
  await (await rail.claim(ownerAddress,claim,await claimKey.signTypedData(domain,types,claim))).wait();
  await provider.send("anvil_mine",["0x100"]);
  await page.clock.install({time:new Date(Number((await provider.getBlock("latest")).timestamp)*1000)});

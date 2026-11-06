@@ -48,6 +48,16 @@ def envelope(value):
     return value
 
 
+def project_for(target):
+    return "relay-broker-layover" if target == "layover" else project_name("relay-broker", target)
+
+
+def signer_project(target):
+    # key.ts derives every GetKey path from this name. Production and staging keep the
+    # original relay-broker keys; the Layover broker gets its own.
+    return "relay-broker-layover" if target == "layover" else "relay-broker"
+
+
 def write_json(path, value):
     with path.open("x") as out:
         out.write(json.dumps(value, indent=2) + "\n")
@@ -55,7 +65,7 @@ def write_json(path, value):
 
 def prepare(args):
     ref = source_ref(REPO, args.target)
-    project = project_name("relay-broker", args.target)
+    project = project_for(args.target)
     config = json.loads(args.config.read_text())
     if args.target != "staging" and args.staging_origin != STAGING_HOST:
         raise ValueError("--staging-origin requires --target staging")
@@ -64,7 +74,13 @@ def prepare(args):
         if config.get("inference"):
             config["inference"]["origins"] = [args.staging_origin]
     public_config(config)
-    if not config.get("payments") or not config.get("inference"):
+    if "signerProject" in config:
+        raise ValueError("signerProject is set by the deploy target, not the configuration")
+    config["signerProject"] = signer_project(args.target)
+    if args.target == "layover":
+        if not config.get("payments") or not config.get("leaseWorkloads") or config.get("inference") or config.get("workloads"):
+            raise ValueError("layover configuration needs payments and leaseWorkloads, and no inference or node workloads")
+    elif not config.get("payments") or not config.get("inference"):
         raise ValueError("configuration needs payments and inference blocks")
     if not re.fullmatch(r"[0-9a-f]{64}", args.operator_token_sha256):
         raise ValueError("operator token SHA256 must be 64 lowercase hex characters")
@@ -154,7 +170,7 @@ def client(url, admin=None):
 
 def deploy(args):
     ref = source_ref(REPO, args.target)
-    project_name_value = project_name("relay-broker", args.target)
+    project_name_value = project_for(args.target)
     manifest = json.loads((args.prepared / "relay-broker.manifest.json").read_text())
     required = {"name": project_name_value, "runtime": "deno", "entry": "applications/relay-broker/server.ts",
                 "isolation": "shared", "source": "tarball://" + project_name_value, "mode": "attested"}
@@ -211,7 +227,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("prepare", help="local packaging only")
-    p.add_argument("--target", choices=("staging", "production"), required=True)
+    p.add_argument("--target", choices=("staging", "production", "layover"), required=True)
     p.add_argument("--staging-origin", choices=(STAGING_HOST, WEBHOST), default=STAGING_HOST)
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--operator-token-sha256", required=True)
@@ -219,7 +235,7 @@ def main():
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(run=prepare)
     p = sub.add_parser("deploy", help="upload and promote only with --apply")
-    p.add_argument("--target", choices=("staging", "production"), required=True)
+    p.add_argument("--target", choices=("staging", "production", "layover"), required=True)
     p.add_argument("--wait-idle-minutes", type=float, default=10)
     p.add_argument("--prepared", type=Path, required=True)
     p.add_argument("--url", default=WEBHOST)

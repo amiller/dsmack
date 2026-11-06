@@ -170,8 +170,9 @@ The deployment manifest contains the operator hash and ciphertext envelope.
 - `GET /key`, `/payments/key`: signing public keys.
 - `GET /relays`, `/nodes`: live attested registrations; `POST` renews them.
 - `POST /grant`: signed Ed25519 request for byte/time credit.
-- `/payments/challenge`, `/classes`, `/nodes`, `/claim`:
-  payment admission, posted S1 prices and weekly cumulative USDC claims.
+- `/payments/challenge`, `/classes`, `/nodes`, `/claim`, `/lease-statement`:
+  payment admission, posted S1 prices, cumulative claims per accepted terms, and
+  attested Layover lease statements.
 - `GET /inference/quote`, `/status`, `/environment-key`: public configuration.
 - `POST /inference/credit`, `/prepare`, `/chat`, `/usage`: EIP-191 wallet requests
   to claim credit, attest the model, dispatch ciphertext and reconcile costs.

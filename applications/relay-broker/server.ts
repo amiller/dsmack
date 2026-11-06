@@ -14,7 +14,7 @@ import { rpcChain } from "../../dstack-compat/secret-release/policy.mjs";
 import { withEnrollment } from "./attestation.mjs";
 import { Broker, limits, Refused } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
-import { getProviderEnvKey, getSigningKey } from "./key.ts";
+import { getProviderEnvKey, getSigningKey, projectSocket } from "./key.ts";
 import { decryptEnvelope, info as environmentInfo } from "./provider-env.mjs";
 import { sandbox } from "./sandbox.mjs";
 import { AgentSessions } from "./agent.mjs";
@@ -27,7 +27,7 @@ async function load(ctx: Context) {
   if (!ctx.dataDir) {
     throw new Error("webhost must provide a persistent dataDir");
   }
-  const key = await getSigningKey(ctx.env.DSTACK_SOCKET);
+  const key = await getSigningKey(projectSocket(cfg.signerProject), cfg.signerProject);
   const atomicSave = async (path: string, value: object) => {
     await Deno.writeTextFile(path + ".tmp", JSON.stringify(value), {
       mode: 0o600,
@@ -50,7 +50,7 @@ async function load(ctx: Context) {
     }
     payments = new Payments({
       cfg: cfg.payments,
-      key: await getSigningKey(ctx.env.DSTACK_SOCKET, true),
+      key: await getSigningKey(projectSocket(cfg.signerProject), cfg.signerProject, true),
       state,
       save: (v: object) => atomicSave(path, v),
     });
@@ -60,7 +60,7 @@ async function load(ctx: Context) {
     if (!payments) {
       throw new Error("inference requires a configured payment broker");
     }
-    const encryptionKey = await getProviderEnvKey(ctx.env.DSTACK_SOCKET);
+    const encryptionKey = await getProviderEnvKey(projectSocket(cfg.signerProject), cfg.signerProject);
     providerEnvironment = await environmentInfo(encryptionKey, payments.key);
     const secrets = ctx.env.NEAR_ENCRYPTED_ENV
       ? await decryptEnvelope(
@@ -111,7 +111,7 @@ async function load(ctx: Context) {
     state: workspaceState, save: (v: object) => atomicSave(workspacePath, v) });
   const continuity = new Continuity({
     cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
-    anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
+    anchorKey: payments?.key ?? await getSigningKey(projectSocket(cfg.signerProject), cfg.signerProject, true),
     state: syncState,
     save: (v: object) => atomicSave(syncPath, v),
     put: async (cid: string, ciphertext: string) => {
@@ -336,7 +336,7 @@ async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/payments/key") {
       const key = b.payments?.key ??
-        await getSigningKey(ctx?.env.DSTACK_SOCKET, true);
+        await getSigningKey(projectSocket(b.cfg.signerProject), b.cfg.signerProject, true);
       response = Response.json({
         algorithm: "secp256k1",
         address: key.address,
@@ -354,8 +354,9 @@ async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined
         response = Response.json(await p.list(b.live()));
       } else if (req.method === "GET" && path === "/payments/claim") {
         const query = new URL(req.url).searchParams;
-        response = Response.json(await p.weeklyClaim(query.get("user"), query.get("operator"),
-          query.has("period") ? Number(query.get("period")) : undefined));
+        response = Response.json(await p.termsClaim(query.get("user"), query.get("terms")));
+      } else if (req.method === "POST" && path === "/payments/lease-statement") {
+        response = Response.json(await p.leaseStatement(await body(req), b.cfg));
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/key") {
       response = Response.json({

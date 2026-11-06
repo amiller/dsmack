@@ -6,10 +6,9 @@ verifier that reads its evidence.
 
 ## Cadence
 
-A release is cut every other Friday. The next one always exists as a GitHub milestone with a due date, so there is one place to propose what goes in it. If nothing in the milestone is ready, the date moves two weeks and the milestone says why. A release with nothing in it is skipped, not cut empty.
+A release is cut every other Tuesday, never on a Friday. The next one always exists as a GitHub milestone with a due date, so there is one place to propose what goes in it. If nothing in the milestone is ready, the date moves two weeks and the milestone says why. A release with nothing in it is skipped, not cut empty.
 
-- **Input.** Open an issue and ask for it to go in the next milestone. Anything not done by the freeze moves to the one after.
-- **Freeze.** On the Wednesday before, the milestone stops taking new work. What's left is fixes and the release notes.
+- **Input.** Open an issue and ask for it to go in the next milestone. Anything not done by release day moves to the one after.
 - **Review.** Before tagging, the diff since the last release gets a security read, with the base image, the Mac app, the verifier and the evidence formats first. The release notes say what was read and by whom.
 - **Notes.** Each release adds an entry to [CHANGELOG.md](../../CHANGELOG.md): what changed in each layer, the new identities (app cdhash, base image hashes), whether it breaks anything, the evidence formats it writes and reads, and who should upgrade and by when.
 - **Next.** The day a release is tagged, the next milestone is created with its due date.

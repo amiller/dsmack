@@ -2,7 +2,7 @@
 
 One entry per release. The cadence and what each entry covers are in [docs/release/releasing.md](docs/release/releasing.md#cadence). Layers and what counts as breaking are in [docs/versioning.md](docs/versioning.md).
 
-## Next: v0.2.0 (planned Fri Nov 20, 2026)
+## Next: v0.2.0 (planned Tue Nov 17, 2026)
 
 Milestone: [Platform v0.2.0](https://github.com/amiller/dsmack/milestone/9). Breaking changes collected in #39. Macs re-enroll once, at this release.
 

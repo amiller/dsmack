@@ -12,6 +12,7 @@ export class Quorum {
       fetcher = fetch,
       rpcIpv4 = false,
       rpcProxy,
+      blockTag = "finalized",
     },
   ) {
     require(
@@ -24,7 +25,11 @@ export class Quorum {
         /^0x[0-9a-fA-F]{64}$/.test(codeHash),
       "escrow and deployed code hash pins required",
     );
-    Object.assign(this, { rpcs, escrow, codeHash, now, fetcher });
+    // "safe" (about 2 minutes behind on Base Sepolia, versus about 18 for
+    // "finalized") is for testnet staging only; deploy-inference.py refuses it
+    // for production.
+    require(["finalized", "safe"].includes(blockTag), "blockTag must be finalized or safe");
+    Object.assign(this, { rpcs, escrow, codeHash, now, fetcher, blockTag });
     this.threshold = Math.floor(rpcs.length / 2) + 1;
     this.client = rpcProxy
       ? Deno.createHttpClient({ proxy: { url: rpcProxy } })
@@ -96,7 +101,7 @@ export class Quorum {
         Number(BigInt(await this.rpc(u, "eth_chainId", []))) === CHAIN,
         "Base Sepolia only",
       );
-      const h = await this.rpc(u, "eth_getBlockByNumber", ["finalized", false]);
+      const h = await this.rpc(u, "eth_getBlockByNumber", [this.blockTag, false]);
       require(h?.hash, "missing finalized head");
       return { url: u, head: h };
     }));

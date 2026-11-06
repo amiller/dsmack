@@ -37,7 +37,7 @@ const code = "0x6000",
     rpcs: ["https://a.invalid", "https://b.invalid", "https://c.invalid"],
     destinationPolicyHash: zero,
   };
-function rpc(overrides = {}, rpcs = cfg.rpcs) {
+function rpc(overrides = {}, rpcs = cfg.rpcs, extra = {}) {
   const block = {
     number: "0x20",
     hash: "0x" + "aa".repeat(32),
@@ -59,7 +59,7 @@ function rpc(overrides = {}, rpcs = cfg.rpcs) {
     if (overrides[method]) result = overrides[method](url, params, result);
     return Response.json({ jsonrpc: "2.0", id: 1, result });
   };
-  return { q: new Quorum({ ...cfg, rpcs, now: () => now, fetcher }), calls, block };
+  return { q: new Quorum({ ...cfg, ...extra, rpcs, now: () => now, fetcher }), calls, block };
 }
 test("quorum requires a strict majority of configured hosts, including failed hosts", async () => {
   for (const count of [4, 5]) {
@@ -158,6 +158,13 @@ test("a provider with a lagging finalized tag can corroborate state at the quoru
     },
   });
   assert.equal((await q.snapshot()).block.number, "0x20");
+});
+
+test("a staging quorum reads the safe head and refuses any other shallow tag", async () => {
+  const { q, calls } = rpc({}, cfg.rpcs, { blockTag: "safe" });
+  await q.snapshot();
+  assert.deepEqual([...new Set(calls.filter((c) => c.method === "eth_getBlockByNumber").map((c) => c.params[0]))], ["safe", "0x20"]);
+  assert.throws(() => rpc({}, cfg.rpcs, { blockTag: "latest" }), /blockTag must be finalized or safe/);
 });
 
 test("two matching state replies complete without waiting for a stalled third provider", async () => {

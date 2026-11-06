@@ -2,19 +2,27 @@
 """Replace a dead App Attest key without changing the signed runner.
 
 The pool (pool.py --key-rotation CONFIG) counts signing failures per key. After two in a row on the same
-key it marks the key dead, stops launching with it and starts `rotate` once. `rotate` then:
+key it marks the key suspect, stops launching with it and starts `rotate` once. `rotate` then:
+  probe    runs one short hvf-v3 with the current key and one with a fresh throwaway key. Only if the current
+           key still fails while the throwaway key signs is the key marked dead; otherwise the suspicion is
+           cleared and the pool launches with it again
   enroll   runs the runner's own `enroll` command into a new dir with a fresh challenge
   sign/send/confirm  submits AppleAttestRegistry enroll(leaf, authData, clientData, intermediateId) from the
            Mac's gas wallet and checks keys(kid) through layover-chain (Helios-verified)
   link     has the provisioner sign MacLink(kid, publisher, operator, nonce+1) and posts it (dsmack link)
   switch   moves runner/enrollment aside (kept as enrollment.dead-*) and puts the new one in its place;
            follower runners (the line loops) link to runner/enrollment and pick it up at their next launch
-  restart  restarts the pool service
+  restart  restarts the pool service, unless the pool's workload manifest still pins another key id: then
+           the running generation stays up (it refuses launches with a key its manifest does not pin) and
+           rotate ends with that error; `resume` restarts once the pin is gone
 Each finished step is recorded in STATE/rotation-<dead kid>/progress.json; `resume` continues from there.
+A reverted enroll transaction ends the rotation; the error names the recovery: fix the cause, move
+STATE/rotation-<dead kid> aside and run `rotate` again, which enrolls another fresh key.
 
   key_rotation.py check --config C              dry run: every precondition, no writes
   key_rotation.py rotate --config C --dead-kid 0x...
   key_rotation.py resume --config C --dead-kid 0x...
+  key_rotation.py dead-clear --config C --kid 0x...   forget a key's failures, suspicion or death
   key_rotation.py new-gas-wallet PATH
 """
 import argparse
@@ -23,6 +31,7 @@ import hashlib
 import json
 import os
 import secrets
+import shutil
 import subprocess
 import sys
 import time
@@ -41,7 +50,7 @@ ENROLL = keccak(text='enroll(bytes,bytes,bytes,bytes32)')[:4]
 KEYS = keccak(text='keys(bytes32)')[:4]
 
 
-class KeyDead(RuntimeError):
+class KeyUnusable(RuntimeError):
     pass
 
 
@@ -77,20 +86,31 @@ class KeyWatch:
         return json.loads(self.file.read_bytes()) if self.file.exists() else {}
 
     def require_live(self, kid):
-        if self.keys().get(kid, {}).get('dead_at'):
-            raise KeyDead(kid)
+        entry = self.keys().get(kid, {})
+        if entry.get('dead_at') or entry.get('suspect_at'):
+            raise KeyUnusable('%s is %s' % (kid, 'dead' if entry.get('dead_at') else 'suspect, being probed'))
 
     def observe(self, kid, failed):
-        """True exactly when this observation makes the key dead."""
+        """True exactly when this observation makes the key suspect: its second signing failure in a row."""
         keys = self.keys()
         entry = keys.setdefault(kid, {'failures': 0})
-        if entry.get('dead_at'):
+        if entry.get('dead_at') or entry.get('suspect_at'):
             return False
         entry['failures'] = entry['failures'] + 1 if failed else 0
         if entry['failures'] >= 2:
-            entry['dead_at'] = int(time.time())
+            entry['suspect_at'] = int(time.time())
         write_json(self.file, keys)
-        return bool(entry.get('dead_at'))
+        return 'suspect_at' in entry
+
+    def set(self, kid, **fields):
+        keys = self.keys()
+        keys[kid] = fields
+        write_json(self.file, keys)
+
+    def clear(self, kid):
+        keys = self.keys()
+        keys.pop(kid, None)
+        write_json(self.file, keys)
 
     def rotate(self, kid):
         log_path = self.state/('rotation-' + kid[2:10] + '.log')
@@ -194,7 +214,8 @@ def check(config, dead_kid=None, need_gas=True):
     for follower in config['followers']:
         if os.readlink(Path(follower)/'enrollment') != str(runner/'enrollment'):
             raise RuntimeError('%s/enrollment must link to %s' % (follower, runner/'enrollment'))
-    for path in (runner/'DsmackRunner.app/Contents/MacOS/dsmack-runner', Path(config['dsmack']), Path(config['launcher'])):
+    for path in (runner/'DsmackRunner.app/Contents/MacOS/dsmack-runner', Path(config['dsmack']), Path(config['launcher']),
+                 Path(config['probe'][0])):
         if not os.access(path, os.X_OK):
             raise RuntimeError('not executable: %s' % path)
     auth = json.loads(Path(config['authorization']).read_bytes())
@@ -216,6 +237,7 @@ def check(config, dead_kid=None, need_gas=True):
             simulated = str(error)
         if 'already enrolled' not in simulated:
             raise RuntimeError('enroll simulation for enrolled %s did not revert with already enrolled: %s' % (kid, simulated))
+        simulated = 'reverted: already enrolled'
     keys = Path(config['state'])/'keys.json'
     gas = Account.from_key(Path(config['gas_key']).read_text().strip())
     price = int(rpc(config, 'eth_gasPrice'), 16) * 2
@@ -231,12 +253,17 @@ def check(config, dead_kid=None, need_gas=True):
 
 
 class Rotation:
-    def __init__(self, config, dead_kid, resume):
-        self.config, self.dead_kid = config, dead_kid
-        self.runner = Path(config['runner'])
-        self.work = Path(config['state'])/('rotation-' + dead_kid[2:])
-        self.work.mkdir(parents=True, exist_ok=resume)
+    def __init__(self, config_path, dead_kid, resume):
+        self.config, self.dead_kid, self.resume = json.loads(config_path.read_bytes()), dead_kid, resume
+        self.watch = KeyWatch(config_path)
+        self.runner = Path(self.config['runner'])
+        self.work = Path(self.config['state'])/('rotation-' + dead_kid[2:])
+        self.probes = Path(self.config['state'])/('probe-' + dead_kid[2:10] + '-' + str(time.time_ns()))
         self.progress = self.work/'progress.json'
+        if resume and not self.work.exists():
+            raise FileNotFoundError(self.work)
+        if not resume and self.work.exists():
+            raise FileExistsError(self.work)
         self.done = json.loads(self.progress.read_bytes()) if self.progress.exists() else {}
 
     def step(self, name, run):
@@ -249,15 +276,64 @@ class Rotation:
         log(name, status='done', **self.done[name])
         return self.done[name]
 
-    def enroll(self):
-        challenge, new = self.work/'challenge.bin', self.runner/('enrollment.new-' + str(int(time.time())))
+    def runner_enroll(self, out, work):
+        challenge = work/(out.name + '.challenge')
         challenge.write_bytes(secrets.token_bytes(32))
-        subprocess.run([self.config['launcher'], '-n', '-W', '--stdout', str(self.work/'enroll.stdout'), '--stderr',
-                        str(self.work/'enroll.stderr'), str(self.runner/'DsmackRunner.app'), '--args', 'enroll', str(new),
+        subprocess.run([self.config['launcher'], '-n', '-W', '--stdout', str(work/(out.name + '.stdout')), '--stderr',
+                        str(work/(out.name + '.stderr')), str(self.runner/'DsmackRunner.app'), '--args', 'enroll', str(out),
                         str(challenge)], check=True, timeout=900)
         # open(1) exits 0 whatever the app did; the three files are the only evidence the enroll worked.
-        if not all((new/f).is_file() for f in ('keyId.txt', 'clientData.bin', 'attestation.cbor')):
-            raise RuntimeError('runner enroll wrote no enrollment into %s: %s' % (new, (self.work/'enroll.stderr').read_text(errors='replace')))
+        if not all((out/f).is_file() for f in ('keyId.txt', 'clientData.bin', 'attestation.cbor')):
+            raise RuntimeError('runner enroll wrote no enrollment into %s: %s' % (out, (work/(out.name + '.stderr')).read_text(errors='replace')))
+
+    def probe(self, enrollment, name):
+        """One short hvf-v3 run with ENROLLMENT's key on the pool's workload: True if the runner signed its launch
+        assertion, False if it failed to sign."""
+        runner, run = self.probes/name/'runner', self.probes/name/'run-probe'
+        runner.mkdir(parents=True)
+        run.mkdir()
+        for part in ('base', 'DsmackRunner.app', 'runtime'):
+            os.symlink(self.runner/part, runner/part)
+        os.symlink(enrollment, runner/'enrollment')
+        workload = Path(self.config['workload'])
+        os.link(workload/'workload.img', run/'workload.img')
+        shutil.copyfile(workload/'compose-manifest.json', run/'compose-manifest.json')
+        vm = json.loads((workload/'compose-manifest.json').read_bytes())['base_vm']
+        with (self.probes/name/'probe.log').open('w') as out:
+            subprocess.run(self.config['probe'] + [str(runner), str(run), '120', 'mini-%d-%d' % (vm['memory_mb'], vm['vcpus'])],
+                           stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT, check=True, timeout=900)
+        for path in [run/'workload.img', *(run/'out').glob('*.img*')]:
+            path.unlink()
+        signed = (run/'out/launch-assertion.cbor').is_file()
+        log('probe', key=name, kid=kid_of(enrollment), signed=signed, run=str(run))
+        if not signed and not key_failure(run, None):
+            raise RuntimeError('probe %s neither signed nor failed to sign; inspect %s' % (name, run))
+        return signed
+
+    def confirm_dead(self):
+        """Probe the suspect key against a throwaway key. Anything short of proof of death clears the suspicion."""
+        try:
+            if kid_of(self.runner/'enrollment') != self.dead_kid:
+                raise RuntimeError('runner/enrollment no longer holds %s' % self.dead_kid)
+            self.probes.mkdir(parents=True)
+            if self.probe(self.runner/'enrollment', 'current'):
+                self.watch.clear(self.dead_kid)
+                log('key_healthy', kid=self.dead_kid, note='the current key signs; suspicion cleared, nothing rotated')
+                return False
+            self.runner_enroll(self.probes/'throwaway', self.probes)
+            if not self.probe(self.probes/'throwaway', 'throwaway'):
+                raise RuntimeError('a fresh throwaway key fails to sign too, so this is not a dead key')
+        except BaseException:
+            self.watch.clear(self.dead_kid)
+            log('suspicion_cleared', kid=self.dead_kid)
+            raise
+        self.watch.set(self.dead_kid, dead_at=int(time.time()), probes=str(self.probes))
+        log('key_dead', kid=self.dead_kid, probes=str(self.probes))
+        return True
+
+    def enroll(self):
+        new = self.runner/('enrollment.new-' + str(time.time_ns()))
+        self.runner_enroll(new, self.work)
         kid, data = enroll_call(new, self.config)
         if kid == self.dead_kid:
             raise RuntimeError('runner enroll returned the dead key')
@@ -283,7 +359,7 @@ class Rotation:
                 raise RuntimeError('no receipt for %s' % tx)
             time.sleep(5)
         if receipt['status'] != '0x1':
-            raise RuntimeError('enroll transaction %s reverted' % tx)
+            return {'tx': tx, 'reverted': True}
         while not (state := key(self.config, kid))['enrolled']:
             if time.time() > deadline:
                 raise RuntimeError('keys(%s) not enrolled at the verified head after %s' % (kid, tx))
@@ -316,30 +392,42 @@ class Rotation:
         return {'backup': str(backup), 'kid': kid}
 
     def run(self):
+        if not self.resume:
+            if not self.confirm_dead():
+                return
+            self.work.mkdir()
         check(self.config, None if 'switch' in self.done else self.dead_kid, 'send' not in self.done)
         new = self.step('enroll', self.enroll)
         signed = self.step('sign', lambda: self.sign(new['kid'], enroll_call(Path(new['dir']), self.config)[1]))
         self.step('send', lambda: {'tx': rpc(self.config, 'eth_sendRawTransaction', signed['raw'])})
-        self.step('confirm', lambda: self.confirm(new['kid'], signed['tx']))
+        if self.step('confirm', lambda: self.confirm(new['kid'], signed['tx'])).get('reverted'):
+            raise RuntimeError('enroll transaction %s reverted, so this rotation is over: %s is still dead and runner/enrollment is '
+                               'unchanged (%s is unused). Recover: find the cause (an Apple leaf older than three days, a CDHash '
+                               'CDRegistry does not admit, gas), fix it, `mv %s %s.reverted` and run `key_rotation.py rotate` '
+                               'again, which enrolls another fresh key.' % (signed['tx'], self.dead_kid, new['dir'], self.work, self.work))
         self.step('link', lambda: self.link(new['kid']))
         self.step('switch', lambda: self.switch(Path(new['dir']), new['kid']))
-        self.step('restart', lambda: {'command': subprocess.run(self.config['restart'], check=True, timeout=120).args})
         pin = manifest_pin(self.config)
         if pin and pin.lower() != new['kid']:
-            raise RuntimeError('pool workload %s pins enrollmentKeyId %s, so the broker refuses its guests and pool.py refuses '
-                               'to start; repack the workload with %s and register its class (operator key)'
-                               % (self.config['workload'], pin, new['kid']))
+            raise RuntimeError('switched to %s; the line runners use it from their next launch. The pool is NOT restarted: its '
+                               'workload %s pins enrollmentKeyId %s, so the broker would refuse its guests. The running '
+                               'generation keeps heartbeating and refuses launches. Once the workload no longer pins the key '
+                               '(or is repacked with %s and its class registered), run `key_rotation.py resume` to restart it.'
+                               % (new['kid'], self.config['workload'], pin, new['kid']))
+        self.step('restart', lambda: {'command': subprocess.run(self.config['restart'], check=True, timeout=120).args})
         log('rotated', kid=new['kid'])
 
 
 def main():
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest='command', required=True)
-    for name in ('check', 'rotate', 'resume'):
+    for name in ('check', 'rotate', 'resume', 'dead-clear'):
         s = sub.add_parser(name)
         s.add_argument('--config', type=Path, required=True)
-        if name != 'check':
+        if name in ('rotate', 'resume'):
             s.add_argument('--dead-kid', required=True)
+        if name == 'dead-clear':
+            s.add_argument('--kid', required=True)
     sub.add_parser('new-gas-wallet').add_argument('path', type=Path)
     a = p.parse_args()
     if a.command == 'new-gas-wallet':
@@ -349,13 +437,17 @@ def main():
         a.path.with_suffix('.address').write_text(account.address + '\n')
         print(account.address)
         return
-    config = json.loads(a.config.read_bytes())
+    if a.command == 'dead-clear':
+        watch = KeyWatch(a.config)
+        log('dead-clear', kid=a.kid.lower(), was=watch.keys().get(a.kid.lower()))
+        watch.clear(a.kid.lower())
+        return
     if a.command == 'check':
-        check(config)
-        for step in ('enroll', 'sign', 'send', 'confirm', 'link', 'switch', 'restart'):
+        check(json.loads(a.config.read_bytes()))
+        for step in ('probe', 'enroll', 'sign', 'send', 'confirm', 'link', 'switch', 'restart'):
             log('would ' + step)
         return
-    Rotation(config, a.dead_kid.lower(), a.command == 'resume').run()
+    Rotation(a.config, a.dead_kid.lower(), a.command == 'resume').run()
 
 
 if __name__ == '__main__':

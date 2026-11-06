@@ -73,6 +73,8 @@ def inherited_guests(state):
         started_at = slot['started_at']
         active.append(dict(slot_id=slot['slot_id'], started_at=started_at,
             started=time.monotonic()-(time.time()-started_at), path=path, process=ExistingProcess(pid),
+            # Launches recorded before key tracking name no kid; their outcome is not counted against a key.
+            kid=attempt.get('kid'),
             node=slot['attestation'], previous=set(), admit_seconds=int(node['environment']['ADMIT_SECONDS'])))
     if not active:
         raise RuntimeError('legacy handoff needs an attested serving guest')

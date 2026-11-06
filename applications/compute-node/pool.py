@@ -22,7 +22,7 @@ import time
 from urllib.request import urlopen
 from urllib.error import HTTPError, URLError
 
-from key_rotation import KeyDead, KeyWatch, key_failure, kid_of
+from key_rotation import KeyUnusable, KeyWatch, key_failure, kid_of
 
 HERE = Path(__file__).resolve().parent
 
@@ -109,12 +109,6 @@ def validate_config(runner, workload, config):
                  runner/'runtime/helper/gvproxy-darwin', runner/'enrollment/keyId.txt', workload/'workload.img'):
         if not path.is_file():
             raise FileNotFoundError(path)
-    # The broker refuses a guest whose PAYMENTS_CONFIG pins a key other than the one its runner attests with.
-    pinned = json.loads(json.loads(manifest['docker_compose_file'])['services']['node']['environment']['PAYMENTS_CONFIG']).get('enrollmentKeyId')
-    kid = kid_of(runner/'enrollment')
-    if pinned and pinned.lower() != kid:
-        raise ValueError(f'workload manifest pins enrollmentKeyId {pinned} but the runner enrollment holds {kid}; '
-                         'repack the workload and register its class')
     return manifest
 
 
@@ -379,6 +373,10 @@ class Pool:
 
     def launch(self, slot):
         kid = kid_of(self.args.runner/'enrollment')
+        # The broker refuses a guest whose PAYMENTS_CONFIG pins a key other than the one its runner attests with.
+        pinned = self.payments.get('enrollmentKeyId')
+        if pinned and pinned.lower() != kid:
+            raise KeyUnusable(f'{kid}: the workload manifest pins enrollmentKeyId {pinned}')
         if self.keys:
             self.keys.require_live(kid)
         check = preflight(self.args.state, self.active, self.args.pool_root, self.args.coexist_pool)
@@ -400,7 +398,7 @@ class Pool:
                 'admit_seconds': self.args.seconds-self.args.drain_seconds, 'readiness_deadline': time.monotonic()+self.args.readiness_timeout}
         self.active.append(node)
         slot['retry_pending'] = False
-        self.event('launch', slot_id=slot['slot_id'], run=str(run), driver_pid=proc.pid)
+        self.event('launch', slot_id=slot['slot_id'], run=str(run), driver_pid=proc.pid, kid=kid)
 
     def tick(self):
         if self.boot_lock and not any(n['node'] is None for n in self.active):
@@ -447,8 +445,8 @@ class Pool:
                         'exit_code': result.get('outputs', {}).get('exit_code'), 'driver_exit_code': proc.returncode}
                     (node['path']/'evidence/guest-error.json').write_text(json.dumps(slot['last_error'])+'\n')
                     self.remember_error({'at': int(time.time()), 'slot_id': slot['slot_id'], **slot['last_error']})
-                    if self.keys and self.keys.observe(node['kid'], key_failure(node['path'], slot['last_error'])):
-                        self.event('key_dead', kid=node['kid'], rotation_log=str(self.keys.rotate(node['kid'])))
+                    if self.keys and node['kid'] and self.keys.observe(node['kid'], key_failure(node['path'], slot['last_error'])):
+                        self.event('key_suspect', kid=node['kid'], rotation_log=str(self.keys.rotate(node['kid'])))
                     external = closed and external_broker_error(slot['last_error'])
                     if not external:
                         slot['consecutive_failures'] += 1
@@ -462,7 +460,7 @@ class Pool:
                         self.event('guest_retry', slot_id=slot['slot_id'], retry_seconds=delay,
                                    consecutive_failures=slot['consecutive_failures'], last_error=slot['last_error'])
                 else:
-                    if self.keys:
+                    if self.keys and node['kid']:
                         self.keys.observe(node['kid'], False)
                     slot['consecutive_failures'] = 0
                     slot.update(broker_backoff=0, retry_at=0, last_error=None)
@@ -509,9 +507,9 @@ class Pool:
                         self.launch(slot)
                     except MacOccupied:
                         self.event('waiting_for_other_lane', slot_id=slot['slot_id'])
-                    except KeyDead as error:
+                    except KeyUnusable as error:
                         slot['retry_at'] = now + 300
-                        self.event('key_dead_no_launch', slot_id=slot['slot_id'], kid=str(error), retry_seconds=300)
+                        self.event('key_unusable_no_launch', slot_id=slot['slot_id'], error=str(error), retry_seconds=300)
                     except BrokerUnavailable:
                         self.retry_broker(slot, self.last_broker_error)
                     break

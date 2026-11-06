@@ -10,6 +10,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest import mock
 from urllib.parse import parse_qs, urlsplit
 
 from eth_account import Account
@@ -39,7 +40,7 @@ class EnrollCallTests(unittest.TestCase):
 
 
 class KeyWatchTests(unittest.TestCase):
-    def test_two_consecutive_signing_failures_kill_a_key_once(self):
+    def test_two_consecutive_signing_failures_make_a_key_suspect_once(self):
         with tempfile.TemporaryDirectory() as tmp:
             config = Path(tmp)/'rotation.json'
             config.write_text(json.dumps({'state': str(Path(tmp)/'state')}))
@@ -49,9 +50,10 @@ class KeyWatchTests(unittest.TestCase):
             self.assertFalse(watch.observe('0xa', True))
             self.assertTrue(watch.observe('0xa', True))
             self.assertFalse(watch.observe('0xa', True))
+            self.assertNotIn('dead_at', watch.keys()['0xa'])
             watch.require_live('0xb')
             # A later generation reads the same state.
-            with self.assertRaises(kr.KeyDead):
+            with self.assertRaisesRegex(kr.KeyUnusable, 'suspect'):
                 kr.KeyWatch(config).require_live('0xa')
 
     def test_signing_failures_are_read_from_guest_error_or_runner_stderr(self):
@@ -117,6 +119,17 @@ assert a[0] == 'enroll' and len(open(a[2], 'rb').read()) == 32
 shutil.copytree(%r, a[1])
 ''' % (sys.executable, str(FIXTURE))
 
+FAKE_PROBE = '''#!%s
+import json, pathlib, sys
+runner, run = pathlib.Path(sys.argv[1]), pathlib.Path(sys.argv[2])
+assert (run/'workload.img').is_file() and sys.argv[3:] == ['120', 'mini-4096-1']
+signs = json.loads((pathlib.Path(%r)/'signs.json').read_text())
+if (runner/'enrollment/keyId.txt').read_text().strip() in signs:
+    (run/'out').mkdir(); (run/'out/launch-assertion.cbor').write_bytes(b'assertion'); (run/'out/scratch.img').write_bytes(b'x')
+else:
+    (run/'stderr.txt').write_text('mar: hvf-v3 failed: Error Domain=com.apple.devicecheck.error Code=0 "(null)"')
+'''
+
 FAKE_DSMACK = '''#!%s
 import json, sys, urllib.request
 a = dict(zip(sys.argv[2::2], sys.argv[3::2]))
@@ -149,12 +162,15 @@ class RotationTests(unittest.TestCase):
         (root/'authorization.json').write_text(json.dumps({'domain': DOMAIN, 'signature': '0x', 'authorization': {
             'operator': OPERATOR, 'provisioner': keys['provisioner'].address.lower(), 'nonce': '1'}}))
         scripts = {'DsmackRunner.app/Contents/MacOS/dsmack-runner': '#!/bin/sh\n', 'open': FAKE_OPEN,
-                   'dsmack': FAKE_DSMACK % (sys.executable, keys['publisher'].address.lower(), OPERATOR)}
+                   'dsmack': FAKE_DSMACK % (sys.executable, keys['publisher'].address.lower(), OPERATOR),
+                   'probe': FAKE_PROBE % (sys.executable, str(root))}
         for name, text in scripts.items():
             path = (runner if name.startswith('Dsmack') else root)/name
             path.write_text(text)
             path.chmod(0o755)
         (root/'workload').mkdir()
+        (root/'workload/workload.img').write_bytes(b'workload')
+        self.signs([(FIXTURE/'keyId.txt').read_text().strip()])
         self.config = {
             'runner': str(runner), 'followers': [str(follower)], 'workload': str(root/'workload'), 'state': str(root/'state'),
             'registry': REGISTRY, 'intermediate_id': '0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90',
@@ -162,18 +178,28 @@ class RotationTests(unittest.TestCase):
             'rpc': base + '/rpc', 'chain_read': base + '/chain', 'chain_id': 84532, 'gas_key': str(root/'gas.key'), 'gas_limit': 16000000,
             'dsmack': str(root/'dsmack'), 'launcher': str(root/'open'), 'authorization': str(root/'authorization.json'),
             'provisioner_key': str(root/'provisioner.key'), 'publisher_key': str(root/'publisher.key'),
-            'broker': base + '/broker', 'restart': ['touch', str(root/'restarted')], 'confirm_seconds': 5}
+            'broker': base + '/broker', 'restart': ['touch', str(root/'restarted')], 'confirm_seconds': 5,
+            'probe': [str(root/'probe')]}
+        self.config_path = root/'key-rotation.json'
+        self.config_path.write_text(json.dumps(self.config))
         self.pin(None)
+
+    def signs(self, key_ids):
+        (self.root/'signs.json').write_text(json.dumps(key_ids))
+
+    def keys(self):
+        return kr.KeyWatch(self.config_path).keys()
 
     def pin(self, kid):
         payments = json.dumps({'node': '0xclass'} | ({'enrollmentKeyId': kid} if kid else {}))
         compose = json.dumps({'services': {'node': {'environment': {'PAYMENTS_CONFIG': payments}}}})
-        (self.root/'workload/compose-manifest.json').write_text(json.dumps({'docker_compose_file': compose}))
+        (self.root/'workload/compose-manifest.json').write_text(json.dumps({'docker_compose_file': compose,
+                                                                            'base_vm': {'memory_mb': 4096, 'vcpus': 1}}))
 
     def rotate(self, resume=False):
         with contextlib.redirect_stdout(io.StringIO()) as out:
             try:
-                kr.Rotation(self.config, DEAD_KID, resume).run()
+                kr.Rotation(self.config_path, DEAD_KID, resume).run()
             finally:
                 self.log = [json.loads(line) for line in out.getvalue().splitlines()]
 
@@ -190,18 +216,48 @@ class RotationTests(unittest.TestCase):
         self.assertEqual([l['link']['kid'] for l in self.chain['links']], [NEW_KID])
         self.assertTrue((self.root/'restarted').exists())
         self.assertEqual(self.log[-1]['step'], 'rotated')
+        self.assertEqual([(l['key'], l['signed']) for l in self.log if l['step'] == 'probe'], [('current', False), ('throwaway', True)])
+        self.assertIn('dead_at', self.keys()[DEAD_KID])
+        self.assertFalse(list((self.root/'state').glob('probe-*/*/run-probe/workload.img')))
+        self.assertFalse(list((self.root/'state').glob('probe-*/*/run-probe/out/*.img')))
+        self.assertTrue((self.root/'workload/workload.img').exists())
         with self.assertRaises(FileExistsError):
-            kr.Rotation(self.config, DEAD_KID, False)
+            kr.Rotation(self.config_path, DEAD_KID, False)
 
-    def test_reverted_enroll_stops_and_resume_never_sends_twice(self):
-        self.chain['status'] = '0x0'
-        with self.assertRaisesRegex(RuntimeError, 'reverted'):
+    def test_a_key_that_signs_again_is_cleared_not_rotated(self):
+        kr.KeyWatch(self.config_path).set(DEAD_KID, failures=2, suspect_at=1)
+        self.signs([(DEAD_FIXTURE/'keyId.txt').read_text().strip()])
+        self.rotate()
+        self.assertEqual(self.log[-1]['step'], 'key_healthy')
+        self.assertNotIn(DEAD_KID, self.keys())
+        self.assertFalse(self.chain['sent'])
+        self.assertFalse((self.root/'state'/('rotation-' + DEAD_KID[2:])).exists())
+        self.assertEqual(kr.kid_of(self.root/'runner/enrollment'), DEAD_KID)
+
+    def test_a_throwaway_key_that_fails_too_clears_the_suspicion(self):
+        kr.KeyWatch(self.config_path).set(DEAD_KID, failures=2, suspect_at=1)
+        self.signs([])
+        with self.assertRaisesRegex(RuntimeError, 'throwaway key fails to sign too'):
             self.rotate()
+        self.assertNotIn(DEAD_KID, self.keys())
+        self.assertFalse(self.chain['sent'])
+        kr.KeyWatch(self.config_path).require_live(DEAD_KID)
+
+    def test_reverted_enroll_ends_the_rotation_and_the_documented_recovery_works(self):
+        self.chain['status'] = '0x0'
+        work = self.root/'state'/('rotation-' + DEAD_KID[2:])
+        with self.assertRaisesRegex(RuntimeError, 'reverted, so this rotation is over.*mv %s %s.reverted' % (work, work)):
+            self.rotate()
+        with self.assertRaisesRegex(RuntimeError, 'reverted, so this rotation is over'):
+            self.rotate(resume=True)
+        self.assertEqual(len(self.chain['sent']), 1)
         self.assertEqual(kr.kid_of(self.root/'runner/enrollment'), DEAD_KID)
         self.assertFalse(self.chain['links'])
         self.chain['status'] = '0x1'
-        self.rotate(resume=True)
-        self.assertEqual(len(self.chain['sent']), 1)
+        self.chain['enrolled'].discard(NEW_KID[2:])
+        work.rename(str(work) + '.reverted')
+        self.rotate()
+        self.assertEqual(len(self.chain['sent']), 2)
         self.assertEqual(kr.kid_of(self.root/'runner/enrollment'), NEW_KID)
 
     def test_enroll_that_writes_nothing_fails_before_any_transaction(self):
@@ -210,13 +266,27 @@ class RotationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'runner enroll wrote no enrollment.*App Attest unsupported'):
             self.rotate()
         self.assertFalse(self.chain['sent'])
+        self.assertNotIn(DEAD_KID, self.keys())
 
-    def test_a_pinned_manifest_is_reported_after_the_switch(self):
+    def test_a_pinned_manifest_switches_the_lines_but_does_not_restart_the_pool(self):
         self.pin(DEAD_KID)
-        with self.assertRaisesRegex(RuntimeError, 'pins enrollmentKeyId %s' % DEAD_KID):
+        with self.assertRaisesRegex(RuntimeError, 'pool is NOT restarted.*pins enrollmentKeyId %s' % DEAD_KID):
             self.rotate()
-        self.assertEqual(kr.kid_of(self.root/'runner/enrollment'), NEW_KID)
+        self.assertEqual(kr.kid_of(self.root/'lines/runner/enrollment'), NEW_KID)
+        self.assertFalse((self.root/'restarted').exists())
+        self.pin(None)
+        self.rotate(resume=True)
         self.assertTrue((self.root/'restarted').exists())
+        self.assertEqual(len(self.chain['sent']), 1)
+
+    def test_dead_clear_revives_a_key(self):
+        kr.KeyWatch(self.config_path).set(DEAD_KID, dead_at=1)
+        with self.assertRaises(kr.KeyUnusable):
+            kr.KeyWatch(self.config_path).require_live(DEAD_KID)
+        with mock.patch.object(sys, 'argv', ['key_rotation.py', 'dead-clear', '--config', str(self.config_path), '--kid', DEAD_KID]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            kr.main()
+        kr.KeyWatch(self.config_path).require_live(DEAD_KID)
 
     def test_dry_run_checks_without_writing(self):
         with contextlib.redirect_stdout(io.StringIO()):
@@ -237,6 +307,9 @@ class RotationTests(unittest.TestCase):
         with self.assertRaisesRegex(RuntimeError, 'holds 0 wei'):
             self.rotate()
         self.assertFalse(list((self.root/'runner').glob('enrollment.new-*')))
+        self.chain['wei'] = 10**18
+        self.rotate(resume=True)
+        self.assertEqual(kr.kid_of(self.root/'runner/enrollment'), NEW_KID)
 
 
 if __name__ == '__main__':

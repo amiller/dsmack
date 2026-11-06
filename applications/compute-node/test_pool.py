@@ -174,7 +174,7 @@ class PoolTests(unittest.TestCase):
         root.mkdir(exist_ok=True); (root/'evidence').mkdir(exist_ok=True)
         return {'slot_id': 0, 'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
 
-    def test_two_signing_failures_kill_the_key_rotate_once_and_stop_launches(self):
+    def test_two_signing_failures_make_the_key_suspect_rotate_once_and_stop_launches(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
             (root/'rotation.json').write_text(json.dumps({'state': str(root/'keys')}))
@@ -187,12 +187,58 @@ class PoolTests(unittest.TestCase):
                     instance.active = [dict(self.failed_node(root/str(number)), kid='0xdead')]
                     instance.tick()
             rotate.assert_called_once_with('0xdead')
-            instance.event.assert_any_call('key_dead', kid='0xdead', rotation_log=str(root/'rotation.log'))
-            instance.launch = Mock(side_effect=pool.KeyDead('0xdead'))
+            instance.event.assert_any_call('key_suspect', kid='0xdead', rotation_log=str(root/'rotation.log'))
+            with self.assertRaisesRegex(pool.KeyUnusable, 'suspect'):
+                instance.keys.require_live('0xdead')
+            instance.launch = Mock(side_effect=pool.KeyUnusable('0xdead is suspect'))
             instance.slots[0]['retry_at'] = 0
             instance.tick()
             self.assertGreater(instance.slots[0]['retry_at'], pool.time.monotonic())
-            instance.event.assert_called_with('key_dead_no_launch', slot_id=0, kid='0xdead', retry_seconds=300)
+            instance.event.assert_called_with('key_unusable_no_launch', slot_id=0, error='0xdead is suspect', retry_seconds=300)
+
+    def test_launch_refuses_a_key_the_manifest_does_not_pin_before_any_boot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            (root/'enrollment').mkdir()
+            (root/'enrollment/keyId.txt').write_text('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=')
+            instance.args.runner = root
+            instance.payments = {'enrollmentKeyId': '0x' + '11'*32}
+            with patch.object(pool, 'preflight') as preflight, self.assertRaisesRegex(pool.KeyUnusable, 'pins enrollmentKeyId 0x1111'):
+                pool.Pool.launch(instance, instance.slots[0])
+            preflight.assert_not_called()
+
+    def test_adopted_guests_carry_their_launch_kid_and_legacy_ones_are_not_counted(self):
+        import pool_handoff
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs = [root/'run-1', root/'run-2']
+            for run in runs:
+                run.mkdir()
+                (run/'compose-manifest.json').write_text(json.dumps({'docker_compose_file': json.dumps(
+                    {'services': {'node': {'environment': {'ADMIT_SECONDS': '3120'}}}})}))
+            events = [{'event': 'launch', 'slot_id': 0, 'run': str(runs[0]), 'driver_pid': 11, 'kid': '0xdead'},
+                      {'event': 'launch', 'slot_id': 1, 'run': str(runs[1]), 'driver_pid': 12},
+                      {'event': 'ready', 'run': str(runs[0]), 'relay_peer': 'a'}, {'event': 'ready', 'run': str(runs[1]), 'relay_peer': 'b'}]
+            (root/'pool.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+            (root/'directory.json').write_text(json.dumps({'slots': [
+                {'slot_id': i, 'relay_peer': p, 'attestation': {'relay_peer': p}, 'started_at': 1} for i, p in enumerate('ab')]}))
+            commands = {'11': 'python pool_mac_run.py /r %s' % runs[0], '12': 'python pool_mac_run.py /r %s' % runs[1]}
+            with patch.object(pool_handoff.subprocess, 'check_output', side_effect=lambda cmd, text: commands[cmd[3]]):
+                adopted = pool_handoff.inherited_guests(root)
+            self.assertEqual([n['kid'] for n in adopted], ['0xdead', None])
+            instance = self.instance(root)
+            instance.slots.append(dict(instance.slots[0], slot_id=1))
+            (root/'rotation.json').write_text(json.dumps({'state': str(root/'keys')}))
+            instance.keys = pool.KeyWatch(root/'rotation.json')
+            for node in adopted:
+                node['process'] = Mock(poll=Mock(return_value=0), returncode=0)
+                (node['path']/'evidence').mkdir()
+            instance.active = adopted
+            failure = {'stage': 'POST /v1/Attest', 'error': 'App Attest: Error Domain=com.apple.devicecheck.error Code=0'}
+            with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                instance.tick()
+            self.assertEqual(instance.keys.keys(), {'0xdead': {'failures': 1}})
 
     def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
         with tempfile.TemporaryDirectory() as tmp:

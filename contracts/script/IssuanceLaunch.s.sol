@@ -3,7 +3,12 @@ pragma solidity ^0.8.21;
 import {Script, console2} from "forge-std/Script.sol";
 import {ERC1967Proxy} from "@openzeppelin/contracts/proxy/ERC1967/ERC1967Proxy.sol";
 import {LayoverCredit} from "../src/LayoverCredit.sol";
+import {DstackKmsChain} from "../src/DstackKmsChain.sol";
 import {LastResortBuyer} from "../src/LastResortBuyer.sol";
+
+interface IBaseKms {
+    function kmsInfo() external view returns (bytes memory, bytes memory, bytes memory, bytes memory);
+}
 
 /// LAYC and its only minter on Base mainnet, in three transactions from one deployer EOA: LayoverCredit with the
 /// LastResortBuyer proxy's address (predicted from the deployer's nonce) as owner, the LastResortBuyer implementation, and
@@ -16,6 +21,12 @@ contract IssuanceLaunch is Script {
     function run() external {
         require(block.chainid == 8453, "Base mainnet only");
         (address controller, address kmsRoot) = (vm.envAddress("CONTROLLER"), vm.envAddress("KMS_ROOT"));
+        uint256 uncheckedRoot = vm.envOr("KMS_ROOT_UNCHECKED", uint256(0));
+        console2.log("KMS_ROOT_UNCHECKED", uncheckedRoot);
+        if (uncheckedRoot != 1) {
+            (bytes memory k256Pubkey,,,) = IBaseKms(0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C).kmsInfo();
+            require(DstackKmsChain.toAddress(k256Pubkey) == kmsRoot, "kms root");
+        }
         vm.startBroadcast();
         address proxyAt = vm.computeCreateAddress(msg.sender, vm.getNonce(msg.sender) + 2);
         LayoverCredit layc = new LayoverCredit(proxyAt);

@@ -9,9 +9,12 @@ cd "$(dirname "$0")/.."
 : "${BASE_RPC:?Base mainnet RPC}" "${OWNER:?owner address}"
 BLOCK=${1:-$(cast block-number --rpc-url "$BASE_RPC")}
 PORT=${PORT:-8547}; RPC=http://127.0.0.1:$PORT
-anvil --fork-url "$BASE_RPC" --fork-block-number "$BLOCK" --port "$PORT" --silent &
+anvil --fork-url "$BASE_RPC" --fork-block-number "$BLOCK" --port "$PORT" --compute-units-per-second 10 --silent &
 ANVIL=$!; trap 'kill $ANVIL' EXIT
-until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do sleep 1; done
+until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do
+  kill -0 "$ANVIL" 2>/dev/null || { echo "anvil failed to start" >&2; exit 1; }
+  sleep 1
+done
 acct() { cast wallet address --mnemonic "test test test test test test test test test test test junk" --mnemonic-index "$1"; }
 USDC=0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 LP_USDC=${LP_USDC:-300000000}
 export OWNER LP_USDC
@@ -27,7 +30,7 @@ send() { local what=$1 from=$2 to=$3 data=$4
 
 forge build --force >/dev/null
 # The KMS root is a test key (Minions.KMS_PK = 0x6B35 in test/LastResortBuyer.t.sol) so the smoke can sign a minion's chain.
-CONTROLLER=$OWNER KMS_ROOT=$(cast wallet address --private-key 0x$(printf "%064x" 0x6B35)) forge script script/IssuanceLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --slow
+KMS_ROOT_UNCHECKED=1 CONTROLLER=$OWNER KMS_ROOT=$(cast wallet address --private-key 0x$(printf "%064x" 0x6B35)) forge script script/IssuanceLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --slow
 IOUT=broadcast/IssuanceLaunch.s.sol/8453/run-latest.json
 export LAYC=$(jq -r '[.transactions[] | select(.contractName == "LayoverCredit")][0].contractAddress' $IOUT)
 export LRB=$(jq -r '[.transactions[] | select(.contractName == "ERC1967Proxy")][0].contractAddress' $IOUT)

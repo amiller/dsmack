@@ -279,4 +279,4 @@ hands its role on in two steps (`transferOwnership`, then `acceptOwnership` from
 Base's 2^24 per-transaction cap). `script/MainnetLP.s.sol` opens the LAYC/USDC Uniswap v3 pool at $1 with a USDC-only
 position from $0.80 to $1. `script/mainnet-fork.sh` rehearses all of it on an anvil fork, with the owner steps
 (`setBuild`, `registerBuild`, both enrolls of the Mini key from `fixtures/mainnet/`) and `script/MainnetSmoke.s.sol`. The
-runbook is souk-co/layover `notes/mainnet-launch.md`.
+runbook is [layover-private notes/mainnet-launch.md](https://github.com/souk-co/layover-private/blob/mainnet-launch/notes/mainnet-launch.md).

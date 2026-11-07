@@ -5,15 +5,15 @@ import {GuestEscrow} from "../../src/GuestEscrow.sol";
 import {LayoverCredit} from "../../src/LayoverCredit.sol";
 import {IGuestAttest} from "../../src/GuestEscrow.sol";
 
-/// No guest keys are registered in these checks; only the constructor's registry() binding is needed.
+/// No guest keys are registered in these checks; registry() answers whoever asks, which passes the escrow constructor's
+/// binding check (halmos does not place contracts at their CREATE addresses).
 contract NoAttest is IGuestAttest {
-    address public immutable registry;
-    constructor(address r) { registry = r; }
+    function registry() external view returns (address) { return msg.sender; }
     function verify(bytes32, bytes calldata) external pure returns (bytes32) { revert("unused"); }
     function assertionEvidence(bytes32) external pure returns (bytes32, bytes32, bytes32, uint64, uint32) { revert("unused"); }
 }
 
-/// Symbolic checks for halmos: FOUNDRY_TEST=test/halmos FOUNDRY_DYNAMIC_TEST_LINKING=false halmos (from contracts/).
+/// Symbolic checks for halmos: FOUNDRY_TEST=test/halmos FOUNDRY_DYNAMIC_TEST_LINKING=false halmos --loop 4 (from contracts/).
 /// forge test skips check_ functions.
 contract SymbolicLayoverCredit is Test {
     LayoverCredit c;
@@ -42,7 +42,7 @@ contract SymbolicGuestEscrow is Test {
     address buyer = address(0xB1);
     function setUp() public {
         token = new LayoverCredit(address(this), 1_000_000e6);
-        NoAttest m = new NoAttest(vm.computeCreateAddress(address(this), 3));
+        NoAttest m = new NoAttest();
         esc = new GuestEscrow(address(token), address(this), m);
         token.transfer(buyer, 1_000_000e6);
         vm.prank(buyer); token.approve(address(esc), type(uint256).max);

@@ -12,38 +12,44 @@ contract LayoverCreditTest is Test {
 
     function setUp() public {
         vm.warp(1000);
-        c = new LayoverCredit(owner, 1_000_000e6);
+        c = new LayoverCredit(owner);
         payer = vm.addr(payerKey);
-        vm.prank(owner); c.transfer(payer, 100e6);
+        vm.prank(owner); c.mint(payer, 100e6);
     }
     function auth(bytes32 typehash, address to, uint256 value, uint256 before, bytes32 nonce) internal view returns (uint8, bytes32, bytes32) {
         bytes32 h = keccak256(abi.encode(typehash, payer, to, value, 0, before, nonce));
         return vm.sign(payerKey, keccak256(abi.encodePacked("\x19\x01", c.DOMAIN_SEPARATOR(), h)));
     }
 
-    function testGenesisAndMetadata() public view {
-        assertEq(c.totalSupply(), 1_000_000e6);
-        assertEq(c.balanceOf(owner), 1_000_000e6 - 100e6);
+    function testNoGenesisAndMetadata() public {
+        LayoverCredit fresh = new LayoverCredit(owner);
+        assertEq(fresh.totalSupply(), 0);
+        assertEq(fresh.balanceOf(owner), 0);
         assertEq(c.decimals(), 6);
         assertEq(c.symbol(), "LAYC");
         assertEq(c.CAP(), 21_000_000e6);
     }
-    function testGenesisOverCapReverts() public {
-        vm.expectRevert("owner/genesis");
-        new LayoverCredit(owner, 21_000_000e6 + 1);
+    function testZeroOwnerReverts() public {
+        vm.expectRevert("owner");
+        new LayoverCredit(address(0));
     }
     function testMintWithinEpochRewardOnly() public {
         vm.expectRevert("owner only");
         c.mint(bob, 1);
         vm.startPrank(owner);
-        c.mint(bob, 7_000e6);
+        c.mint(bob, 6_900e6);
         vm.expectRevert("epoch reward");
         c.mint(bob, 188e6);
         c.mint(bob, 187e6);
+        vm.expectRevert("period not over");
+        c.advanceEpoch();
+        vm.warp(block.timestamp + 1 days);
+        c.advanceEpoch();
+        vm.expectRevert("period not over");
         c.advanceEpoch();
         c.mint(bob, 7_187e6);
         vm.stopPrank();
-        assertEq(c.balanceOf(bob), 7_187e6 * 2);
+        assertEq(c.balanceOf(bob), 7_087e6 + 7_187e6); // setUp minted 100 to the payer in epoch 0
     }
     function testHalvingSchedule() public view {
         assertEq(c.reward(0), 7_187e6);
@@ -53,7 +59,8 @@ contract LayoverCreditTest is Test {
         assertEq(c.reward(1461 * 300), 0);
     }
     function testCapBindsAcrossEpochs() public {
-        LayoverCredit full = new LayoverCredit(owner, 21_000_000e6 - 5e6);
+        LayoverCredit full = new LayoverCredit(owner);
+        vm.store(address(full), bytes32(0), bytes32(uint256(21_000_000e6 - 5e6))); // totalSupply, slot 0
         vm.startPrank(owner);
         full.mint(bob, 5e6);
         vm.expectRevert(bytes("cap"));

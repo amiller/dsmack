@@ -3,10 +3,10 @@ pragma solidity ^0.8.21;
 
 /// @notice Layover Credit (LAYC): 6-decimal ERC-20 with EIP-3009 (transferWithAuthorization, receiveWithAuthorization,
 /// cancelAuthorization) so x402-style deposits land through an escrow's depositWithAuthorization.
-/// Supply is capped at 21,000,000. The constructor mints the genesis pot to the owner; after that the owner mints at most
-/// reward(epoch) per epoch, and the reward halves every HALVING_EPOCHS epochs (7,187 per epoch at first: daily epochs over
-/// four-year halvings give ~21M). The owner advances the epoch. What triggers an advance (time, revenue, or verified paid
-/// volume) is nikete's decision and is not enforced here; an epoch's unminted reward does not roll forward.
+/// Supply starts at zero and is capped at 21,000,000. The owner, set at deploy (on Base mainnet the LastResortBuyer proxy),
+/// is the only minter: at most reward(epoch) per epoch, halving every HALVING_EPOCHS epochs (7,187 per epoch at first:
+/// daily epochs over four-year halvings give ~21M). The owner advances the epoch, at most once per EPOCH_PERIOD, so no
+/// minter, whatever its code, mints more than one reward per day; an epoch's unminted reward does not roll forward.
 contract LayoverCredit {
     string public constant name = "Layover Credit";
     string public constant symbol = "LAYC";
@@ -15,6 +15,7 @@ contract LayoverCredit {
     uint256 public constant CAP = 21_000_000e6;
     uint256 public constant INITIAL_REWARD = 7_187e6;
     uint256 public constant HALVING_EPOCHS = 1461;
+    uint256 public constant EPOCH_PERIOD = 1 days;
     bytes32 public constant TRANSFER_WITH_AUTHORIZATION_TYPEHASH = keccak256("TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)");
     bytes32 public constant RECEIVE_WITH_AUTHORIZATION_TYPEHASH = keccak256("ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)");
     bytes32 public constant CANCEL_AUTHORIZATION_TYPEHASH = keccak256("CancelAuthorization(address authorizer,bytes32 nonce)");
@@ -22,6 +23,7 @@ contract LayoverCredit {
     address public immutable owner;
     uint256 public totalSupply;
     uint256 public epoch;
+    uint256 public epochStart;
     uint256 public mintedInEpoch;
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -32,10 +34,9 @@ contract LayoverCredit {
     event AuthorizationCanceled(address indexed authorizer, bytes32 indexed nonce);
     event EpochAdvanced(uint256 epoch, uint256 reward);
 
-    constructor(address owner_, uint256 genesis) {
-        require(owner_ != address(0) && genesis <= CAP, "owner/genesis");
-        owner = owner_;
-        _mint(owner_, genesis);
+    constructor(address owner_) {
+        require(owner_ != address(0), "owner");
+        (owner, epochStart) = (owner_, block.timestamp);
     }
 
     function DOMAIN_SEPARATOR() public view returns (bytes32) {
@@ -46,7 +47,8 @@ contract LayoverCredit {
 
     function advanceEpoch() external {
         require(msg.sender == owner, "owner only");
-        epoch += 1; mintedInEpoch = 0;
+        require(block.timestamp >= epochStart + EPOCH_PERIOD, "period not over");
+        epoch += 1; mintedInEpoch = 0; epochStart = block.timestamp;
         emit EpochAdvanced(epoch, reward(epoch));
     }
     function mint(address to, uint256 amount) external {

@@ -7,7 +7,7 @@ contract CDRegistryTest is Test {
     bytes32 constant OURS = 0x90a07dc69293aa64c279caed89cfebd3fde0ad92b510f752ed45ba829157fff6;
     function rd(string memory n, string memory ext) internal view returns (bytes memory) { return vm.readFileBinary(string.concat(D, n, ext)); }
     function registry(bytes memory cd, bytes memory page0, bytes memory ent) internal returns (CDRegistry r) {
-        r = new CDRegistry();
+        r = new CDRegistry(address(this));
         r.setBuild(cd, page0, ent);
     }
     function mac() internal returns (CDRegistry) { return registry(rd("A-original", ".cd"), rd("A-original", ".page0"), rd("A-original", ".ent")); }
@@ -44,7 +44,7 @@ contract CDRegistryTest is Test {
     }
     /// Derived offsets equal the ones cd_args.py recorded in the fixtures.
     function test_loadCommandsMatchFixtures() public {
-        CDRegistry r = new CDRegistry();
+        CDRegistry r = new CDRegistry(address(this));
         string[10] memory js = ["../cd-args-probe-macos", "../cd-args-developer-id", "../cd-args-release-development", "iphone-honest", "iphone-modified",
             "node-honest", "node-resigned", "node-modified", "node-synthetic-team", "node-synthetic-prefix-only"];
         for (uint256 i; i < js.length; i++) {
@@ -57,7 +57,7 @@ contract CDRegistryTest is Test {
         assertEq(l, 2320); assertEq(c, 3608);
     }
     function test_loadCommandsRejectMalformed() public {
-        CDRegistry r = new CDRegistry();
+        CDRegistry r = new CDRegistry(address(this));
         bytes memory p = rd("A-original", ".page0"); p[2320 + 8 + 2] = "X";
         vm.expectRevert("__LINKEDIT"); r.loadCommands(p);
         p = rd("A-original", ".page0"); p[3592] = 0x1d;
@@ -121,6 +121,14 @@ contract CDRegistryTest is Test {
         bytes32 changed = r.registerBuild(withEnt(ent), rd("A-original", ".page0"), ent);
         assertEq(r.bundleIdHash(changed), sha256("dev.dsmack.providex"));
         assertEq(r.bundleIdHash(original), sha256("dev.dsmack.provider"));
+    }
+    /// The owner is the constructor argument, so a Safe can own a registry an EOA deployed.
+    function test_ownerIsConstructorArgument() public {
+        CDRegistry r = new CDRegistry(address(7));
+        (bytes memory cd, bytes memory page0, bytes memory ent) = (rd("A-original", ".cd"), rd("A-original", ".page0"), rd("A-original", ".ent"));
+        vm.expectRevert("owner"); r.setBuild(cd, page0, ent);
+        vm.prank(address(7)); r.setBuild(cd, page0, ent);
+        vm.expectRevert("owner"); new CDRegistry(address(0));
     }
     function test_ownerSetsBuildAndOldBuildsStopResolving() public {
         CDRegistry r = mac();

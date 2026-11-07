@@ -7,6 +7,7 @@ import "../src/UsageEscrow.sol";
 contract MockUSDC {
     uint8 public constant decimals = 6;
     bytes32 public constant TRANSFER_TYPEHASH = keccak256("TransferWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)");
+    bytes32 public constant RECEIVE_TYPEHASH = keccak256("ReceiveWithAuthorization(address from,address to,uint256 value,uint256 validAfter,uint256 validBefore,bytes32 nonce)");
     bytes32 public constant CANCEL_TYPEHASH = keccak256("CancelAuthorization(address authorizer,bytes32 nonce)");
     mapping(address => uint256) public balanceOf;
     mapping(address => mapping(address => uint256)) public allowance;
@@ -27,6 +28,13 @@ contract MockUSDC {
         bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external {
         require(block.timestamp > validAfter && block.timestamp < validBefore, "authorization time");
         _use(from, nonce, keccak256(abi.encode(TRANSFER_TYPEHASH, from, to, value, validAfter, validBefore, nonce)), v, r, s);
+        balanceOf[from] -= value; balanceOf[to] += value;
+    }
+    function receiveWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
+        bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external {
+        require(to == msg.sender, "caller must be the payee");
+        require(block.timestamp > validAfter && block.timestamp < validBefore, "authorization time");
+        _use(from, nonce, keccak256(abi.encode(RECEIVE_TYPEHASH, from, to, value, validAfter, validBefore, nonce)), v, r, s);
         balanceOf[from] -= value; balanceOf[to] += value;
     }
     function cancelAuthorization(address authorizer, bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external {
@@ -72,7 +80,7 @@ contract UsageEscrowTest is Test {
         return UsageEscrow.Claim(operator, termsHash, owed, 30);
     }
     function transferDigest(uint256 value, bytes32 nonce) internal view returns (bytes32) {
-        bytes32 structHash = keccak256(abi.encode(usdc.TRANSFER_TYPEHASH(), vm.addr(payerKey), address(rail), value, 0, deadline, nonce));
+        bytes32 structHash = keccak256(abi.encode(usdc.RECEIVE_TYPEHASH(), vm.addr(payerKey), address(rail), value, 0, deadline, nonce));
         return keccak256(abi.encodePacked("\x19\x01", usdc.DOMAIN_SEPARATOR(), structHash));
     }
     function authorizationParts(uint256 value, bytes32 nonce) internal view returns (uint8, bytes32, bytes32) {
@@ -156,18 +164,20 @@ contract UsageEscrowTest is Test {
         vm.expectRevert("authorization used");
         rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
     }
-    function testFrontRunAuthorizationIsRefusedNotCredited() public {
+    /// The payer signs ReceiveWithAuthorization, which only the escrow can execute: whoever else holds the signature can land
+    /// it on the token neither as a transfer nor as a receive, so the deposit is credited.
+    function testFrontRunCannotStrandDeposit() public {
         address payer = vm.addr(payerKey); usdc.mint(payer, 2e6);
         bytes32 nonce = keccak256("n2"); bytes memory sig = authorization(2e6, nonce);
-        frontRun(payer, nonce);
-        vm.expectRevert("authorization used");
-        rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
-        assertEq(rail.balance(payer), 0);
-    }
-    function frontRun(address payer, bytes32 nonce) internal {
         (uint8 v, bytes32 r, bytes32 s) = authorizationParts(2e6, nonce);
-        vm.prank(address(0x99));
+        vm.startPrank(address(0x99));
+        vm.expectRevert("invalid signature");
         usdc.transferWithAuthorization(payer, address(rail), 2e6, 0, deadline, nonce, v, r, s);
+        vm.expectRevert("caller must be the payee");
+        usdc.receiveWithAuthorization(payer, address(rail), 2e6, 0, deadline, nonce, v, r, s);
+        vm.stopPrank();
+        rail.depositWithAuthorization(payer, 2e6, 0, deadline, nonce, sig);
+        assertEq(rail.balance(payer), 2e6);
     }
     function testCancelledAuthorizationRefused() public {
         address payer = vm.addr(payerKey); usdc.mint(payer, 2e6);

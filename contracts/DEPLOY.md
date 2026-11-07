@@ -267,3 +267,16 @@ cast send $ESCROW 'setWorkload(bytes32,bytes32,bytes32,bool)' 0x$OS_IMAGE_HASH 0
 cast send $ATTEST 'enroll(bytes,bytes,bytes,bytes32)' $CERT $AUTH $CLIENT_DATA $INTERMEDIATE_ID   # within the 3-day leaf validity
 python3 contracts/guest_register.py $(jq -r .attestation guest-key) | jq -r .calldata | xargs cast send $ESCROW
 ```
+
+## Base mainnet (chain 8453), planned
+
+LAYC and its only minter, LastResortBuyer, come first (`script/IssuanceLaunch.s.sol`, the issuance lane): LAYC starts with
+no supply. `script/MainnetLaunch.s.sol` then takes `LAYC` and `OWNER` and deploys AppleEndorsements (and endorses the Apple
+intermediate), CDRegistry, the key-directory AppleAttestRegistryV1 bound to a Canary, GuestEscrow's own
+AppleAttestRegistryV1 and GuestEscrow, and a USDC UsageEscrow. `OWNER` holds CDRegistry, GuestEscrow and UsageEscrow; each
+hands its role on in two steps (`transferOwnership`, then `acceptOwnership` from the new owner, `src/Owned.sol`). Run
+`forge build --force` first and pass `--gas-estimate-multiplier 105` (the default 130% puts `endorseIntermediate` over
+Base's 2^24 per-transaction cap). `script/MainnetLP.s.sol` opens the LAYC/USDC Uniswap v3 pool at $1 with a USDC-only
+position from $0.80 to $1. `script/mainnet-fork.sh` rehearses all of it on an anvil fork, with the owner steps
+(`setBuild`, `registerBuild`, both enrolls of the Mini key from `fixtures/mainnet/`) and `script/MainnetSmoke.s.sol`. The
+runbook is souk-co/layover `notes/mainnet-launch.md`.

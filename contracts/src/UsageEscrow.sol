@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
+import {Owned} from "./Owned.sol";
 
 interface IERC20 {
     function transferFrom(address, address, uint256) external returns (bool);
@@ -7,21 +8,19 @@ interface IERC20 {
 }
 
 interface IERC3009 {
-    function authorizationState(address, bytes32) external view returns (bool);
-    function transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
+    function receiveWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external;
 }
 
 /// @notice Prepaid token accounts (6-decimal base units). A user accepts terms (operator, cap) under a terms hash;
 /// the broker signs cumulative claims per user and terms hash, and the user's address salts the EIP-712 domain.
-contract UsageEscrow {
+contract UsageEscrow is Owned {
     uint64 public constant ESCAPE_DELAY = 14 days;
     bytes32 public constant CLAIM_TYPEHASH = keccak256("Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed,uint64 period)");
     bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     IERC20 public immutable token;
-    address public immutable owner;
     address public brokerSigner;
     struct Node { address operator; uint8 unit; bytes32 composeHash; bytes32 imageHash; }
     struct Claim { address operator; bytes32 termsHash; uint256 cumulativeOwed; uint64 period; }
@@ -42,9 +41,9 @@ contract UsageEscrow {
     event Withdrawn(address indexed user, uint256 amount);
     event NodeRegistered(bytes32 indexed node, address indexed operator, uint8 unit, bytes32 composeHash, bytes32 imageHash);
 
-    constructor(address token_, address owner_) {
+    constructor(address token_, address owner_) Owned(owner_) {
         require(token_ != address(0) && owner_ != address(0), "zero address");
-        token = IERC20(token_); owner = owner_;
+        token = IERC20(token_);
     }
     function registerBroker(address broker) external {
         require(msg.sender == owner && brokerSigner == address(0) && broker != address(0), "broker admission");
@@ -81,15 +80,14 @@ contract UsageEscrow {
         deposits[user] += amount;
         emit Deposited(user, amount);
     }
-    /// @notice x402 top-up: executes the payer's EIP-3009 TransferWithAuthorization to this contract and credits `from`.
-    /// An authorization someone else already executed (or cancelled) is refused: its tokens, if any, are not credited.
+    /// @notice Top-up: executes the payer's EIP-3009 ReceiveWithAuthorization (to = this escrow) and credits `from`. Only
+    /// the payee may execute a ReceiveWithAuthorization, so nobody can land the transfer on the token directly and leave it
+    /// uncredited.
     function depositWithAuthorization(address from, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, bytes calldata signature) external {
-        IERC3009 t = IERC3009(address(token));
-        require(!t.authorizationState(from, nonce), "authorization used");
         _credit(from, value);
         (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        t.transferWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
+        IERC3009(address(token)).receiveWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
     }
 
     function claimDomain(address user) public view returns (bytes32) {

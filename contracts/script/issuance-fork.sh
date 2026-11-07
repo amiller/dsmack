@@ -38,6 +38,6 @@ echo "implementation after:  $(cast storage --rpc-url $RPC $LRB $IMPL_SLOT) (new
 echo "state kept: paid(unit-1) $(cast call --rpc-url $RPC $LRB 'paid(bytes32)(bool)' $(cast format-bytes32-string unit-1)), totalSupply $(cast call --rpc-url $RPC $LAYC 'totalSupply()(uint256)')"
 csend $LRB 'renounceUpgrades()'
 if out=$(cast call --rpc-url $RPC --from $CONTROLLER $LRB 'upgradeTo(address)' $NEW 2>&1); then echo "upgrade after renounce went through" >&2; exit 1; fi
-echo "refused: upgrade after renounce ($(grep -o 'upgrades renounced' <<<"$out"))"
+echo "refused: upgrade after renounce ($(grep -o -m1 'upgrades renounced' <<<"$out" | head -1))"
 [ "$(grep -c 'upgrades renounced' <<<"$out")" -ge 1 ]
 echo "upgradesRenounced $(cast call --rpc-url $RPC $LRB 'upgradesRenounced()(bool)'); LAYC owner $(cast call --rpc-url $RPC $LAYC 'owner()(address)')"

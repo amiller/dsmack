@@ -59,8 +59,9 @@ contract IssuanceSmoke is Script {
     }
 
     function newImpl() external {
+        LayoverCredit layc = lrb().token();
         vm.broadcast(RELAYER);
-        LastResortBuyer impl = new LastResortBuyer(lrb().token());
+        LastResortBuyer impl = new LastResortBuyer(layc);
         console2.log("NEW_IMPL", address(impl));
     }
 }

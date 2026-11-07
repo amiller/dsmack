@@ -41,7 +41,8 @@ contract Handler is Signer {
     function claim(uint256 idSeed, uint256 opSeed, uint256 signer, bool stale) external {
         bytes32 id = bytes32(bound(idSeed, 1, 60));
         (address o, uint256 e) = (op(opSeed), stale && layc.epoch() > 0 ? layc.epoch() - 1 : layc.epoch());
-        uint256 key = [keys[current], keys[1 - current], 0xBAD][signer % 3];
+        if (lrb.units(layc.epoch()) == 0) lrb.commitBook(layc.epoch(), 8, bookSig(keys[current], lrb, layc.epoch(), 8));
+        uint256 key = [keys[current], keys[current], keys[1 - current], 0xBAD][signer % 4];
         uint256 before = layc.totalSupply();
         try lrb.claim(id, o, e, keccak256(abi.encode(id)), unitSig(key, lrb, id, o, e, keccak256(abi.encode(id)))) {
             uint256 amount = layc.totalSupply() - before;
@@ -67,6 +68,8 @@ contract Handler is Signer {
     function idCount() external view returns (uint256) { return ids.length; }
 }
 
+/// forge-config: default.invariant.runs = 128
+/// forge-config: default.invariant.depth = 128
 contract LastResortBuyerInvariants is Test {
     Handler h;
     LastResortBuyer lrb;
@@ -76,6 +79,10 @@ contract LastResortBuyerInvariants is Test {
         h = new Handler();
         (lrb, layc) = (h.lrb(), h.layc());
         targetContract(address(h));
+        bytes4[] memory actions = new bytes4[](5);
+        (actions[0], actions[1], actions[2], actions[3], actions[4]) =
+            (h.advance.selector, h.commitBook.selector, h.claim.selector, h.activateMinion.selector, h.controllerActs.selector);
+        targetSelector(FuzzSelector(address(h), actions));
     }
     function invariant_supplyWithinCap() public view { assertLe(layc.totalSupply(), layc.CAP()); }
     function invariant_supplyIsSumOfPayouts() public view { assertEq(layc.totalSupply(), h.sumPayouts()); }

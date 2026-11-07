@@ -41,7 +41,8 @@ contract GuestEscrowBase is Test {
     bytes32 constant CDHASH = keccak256("runner cdhash");
 
     function deploy(IGuestAttest attest) internal {
-        token = new LayoverCredit(address(this), 1_000_000e6);
+        token = new LayoverCredit(address(this));
+        deal(address(token), address(this), 1_000_000e6, true);
         esc = new GuestEscrow(address(token), address(this), attest);
         esc.setWorkload(IMAGE, MANIFEST, CALLER, true);
     }

@@ -77,7 +77,8 @@ contract GuestEscrowHandler is Test {
         calls["acceptTerms"]++;
     }
     function closeTerms(uint256 b, uint256 h, bool relayed) external {
-        address u = buyer(b); bytes32 th = hashes[h % 3];
+        if (h % 16 != 0) return; // rare, so terms stay open long enough to be claimed against
+        address u = buyer(b); bytes32 th = hashes[(h / 16) % 3];
         (address o,, uint64 closedAt,) = esc.terms(u, th);
         if (o == address(0) || closedAt != 0) return;
         if (relayed) esc.closeTermsFor(u, th, _sign(buyerPk[b % 3], esc.closeDigest(u, th)));

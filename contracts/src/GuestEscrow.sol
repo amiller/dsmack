@@ -7,8 +7,7 @@ interface IERC20 {
 }
 
 interface IERC3009 {
-    function authorizationState(address, bytes32) external view returns (bool);
-    function transferWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
+    function receiveWithAuthorization(address from, address to, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, uint8 v, bytes32 r, bytes32 s) external;
 }
 
@@ -116,14 +115,14 @@ contract GuestEscrow {
         deposits[user] += amount;
         emit Deposited(user, amount);
     }
-    /// @notice x402 top-up: executes the payer's EIP-3009 TransferWithAuthorization to this contract and credits `from`.
+    /// @notice Top-up: executes the payer's EIP-3009 ReceiveWithAuthorization (to = this escrow) and credits `from`.
+    /// Only the payee may execute a ReceiveWithAuthorization, so nobody can land the transfer on the token directly and
+    /// leave it uncredited.
     function depositWithAuthorization(address from, uint256 value, uint256 validAfter, uint256 validBefore,
         bytes32 nonce, bytes calldata signature) external {
-        IERC3009 t = IERC3009(address(token));
-        require(!t.authorizationState(from, nonce), "authorization used");
         _credit(from, value);
         (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        t.transferWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
+        IERC3009(address(token)).receiveWithAuthorization(from, address(this), value, validAfter, validBefore, nonce, v, r, s);
     }
 
     function claimDomain(address user) public view returns (bytes32) {
@@ -155,6 +154,7 @@ contract GuestEscrow {
         require(terms[user][termsHash].operator == address(0), "terms already accepted");
         terms[user][termsHash] = Terms(operator, cap, 0, false);
         exposure[user] += cap;
+        require(exposure[user] <= balance(user), "terms unfunded");
         emit TermsAccepted(user, termsHash, operator, cap);
     }
 

@@ -63,7 +63,7 @@ contract GuestEscrowHandler is Test {
     function depositWithAuthorization(uint256 b, uint256 amount) external {
         address u = buyer(b); amount = bound(amount, 1, 2_000e6);
         bytes32 nonce = keccak256(abi.encode(authNonce++));
-        bytes32 h = keccak256(abi.encode(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), u, address(esc), amount, 0, block.timestamp + 1 hours, nonce));
+        bytes32 h = keccak256(abi.encode(token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), u, address(esc), amount, 0, block.timestamp + 1 hours, nonce));
         bytes memory sig = _sign(buyerPk[b % 3], keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), h)));
         esc.depositWithAuthorization(u, amount, 0, block.timestamp + 1 hours, nonce, sig);
         _move(u, address(esc), amount); calls["depositWithAuthorization"]++;
@@ -237,7 +237,7 @@ contract GuestEscrowInvariantTest is Test {
             assertLe(esc.paid(u) + esc.withdrawn(u), esc.deposits(u));
         }
     }
-    /// Every accepted term is funded: exposure <= balance. Fails on escrow-terms (finding 2): _accept does not check it.
+    /// Every accepted term is funded: exposure <= balance. _accept enforces it.
     function invariant_exposureFunded() public view {
         for (uint256 b; b < 3; b++) assertLe(esc.exposure(h.buyer(b)), esc.balance(h.buyer(b)));
     }

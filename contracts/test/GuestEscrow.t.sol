@@ -169,13 +169,11 @@ contract GuestEscrowTest is GuestEscrowBase {
         bytes memory g = sig(guestKey, operator, 1e6);
         vm.expectRevert("terms not accepted");
         esc.claim(other, termsHash, 1e6, g);
-        vm.prank(other); esc.acceptTerms(termsHash, operator, 10e6);
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(guestKey, esc.claimDigest(other, operator, termsHash, 1e6));
-        vm.expectRevert("deposit exceeded");
-        esc.claim(other, termsHash, 1e6, abi.encodePacked(r, s, v));
+        vm.prank(other); vm.expectRevert("terms unfunded"); esc.acceptTerms(termsHash, operator, 10e6);
     }
     function testSignatureBoundToBuyer() public {
         register(guestKey, operator);
+        token.approve(address(esc), 10e6); esc.depositFor(other, 10e6);
         vm.prank(other); esc.acceptTerms(termsHash, operator, 10e6);
         // buyer's claim signature, replayed for another account, recovers to a different (unregistered) key.
         bytes memory g = sig(guestKey, operator, 1e6);
@@ -285,18 +283,15 @@ contract GuestEscrowTest is GuestEscrowBase {
         assertEq(esc.balance(buyer), 10e6);
         assertEq(esc.exposure(buyer), 10e6);
     }
-    function testCapAboveDepositPayoutBoundedByDeposit() public {
-        register(guestKey, operator);
+    function testCapAboveBalanceRefused() public {
         vm.startPrank(buyer);
+        vm.expectRevert("terms unfunded");
         esc.acceptTerms(keccak256("big"), operator, 500e6);
+        vm.expectRevert("terms unfunded");
+        esc.acceptTerms(keccak256("over"), operator, 40e6 + 1);
+        esc.acceptTerms(keccak256("full"), operator, 40e6);
         vm.stopPrank();
-        assertEq(esc.withdrawable(buyer), 0);
-        bytes memory g = sign(guestKey, esc.claimDigest(buyer, operator, keccak256("big"), 51e6));
-        vm.expectRevert("deposit exceeded");
-        esc.claim(buyer, keccak256("big"), 51e6, g);
-        g = sign(guestKey, esc.claimDigest(buyer, operator, keccak256("big"), 50e6));
-        esc.claim(buyer, keccak256("big"), 50e6, g);
-        assertEq(esc.balance(buyer), 0);
+        assertEq(esc.exposure(buyer), esc.balance(buyer));
     }
     function testCloseTermsForRelayedAndReplayed() public {
         uint256 bk = 0xB0B;
@@ -370,7 +365,7 @@ contract GuestEscrowTest is GuestEscrowBase {
         address payer = vm.addr(payerKey);
         token.transfer(payer, 5e6);
         bytes32 nonce = keccak256("x402");
-        bytes32 h = keccak256(abi.encode(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), payer, address(esc), 5e6, 0, block.timestamp + 1 hours, nonce));
+        bytes32 h = keccak256(abi.encode(token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), payer, address(esc), 5e6, 0, block.timestamp + 1 hours, nonce));
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(payerKey, keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), h)));
         esc.depositWithAuthorization(payer, 5e6, 0, block.timestamp + 1 hours, nonce, abi.encodePacked(r, s, v));
         assertEq(esc.balance(payer), 5e6);

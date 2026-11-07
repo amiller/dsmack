@@ -9,8 +9,12 @@ cd "$(dirname "$0")/.."
 : "${BASE_RPC:?Base mainnet RPC}" "${OWNER:?owner address}"
 BLOCK=${1:-$(cast block-number --rpc-url "$BASE_RPC")}
 PORT=${PORT:-8547}; RPC=http://127.0.0.1:$PORT
+if cast chain-id --rpc-url "$RPC" >/dev/null 2>&1; then
+  echo "RPC port $PORT already in use; choose another PORT" >&2
+  exit 1
+fi
 anvil --fork-url "$BASE_RPC" --fork-block-number "$BLOCK" --port "$PORT" --compute-units-per-second 10 --silent &
-ANVIL=$!; trap 'kill $ANVIL' EXIT
+ANVIL=$!; trap 'kill $ANVIL 2>/dev/null || true' EXIT
 until cast chain-id --rpc-url $RPC >/dev/null 2>&1; do
   kill -0 "$ANVIL" 2>/dev/null || { echo "anvil failed to start" >&2; exit 1; }
   sleep 1

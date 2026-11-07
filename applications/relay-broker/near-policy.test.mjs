@@ -1,4 +1,5 @@
-// Image provenance checks query rekor.sigstore.dev.
+// Image provenance uses recorded signed entries; LIVE_TESTS=1 queries Rekor.
+import { rekorFetch } from "./fixtures/rekor.mjs";
 import { strict as assert } from "node:assert";
 import { checkComposeBinding, checkImages, checkOs } from "./near-policy.mjs";
 
@@ -13,7 +14,7 @@ async function check(tier, a, appCompose = compose(a)) {
   checkOs(tier, a.intel_quote);
   if (a.compose_manager_attestation) checkOs(tier, a.compose_manager_attestation.quote);
   await checkComposeBinding(appCompose, a.intel_quote);
-  await checkImages(tier, appCompose);
+  await checkImages(tier, appCompose, rekorFetch);
 }
 
 for (const [gateway, report] of Object.entries(reports)) {
@@ -28,11 +29,11 @@ Deno.test("an unlisted image, an unbound compose or another tier's OS is rejecte
   const parsed = JSON.parse(appCompose);
   parsed.docker_compose_file += "\n  extra:\n    image: example/unlisted@sha256:" + "ab".repeat(32) + "\n";
   const tampered = JSON.stringify(parsed);
-  await assert.rejects(() => checkImages("gateway", tampered), /example\/unlisted is not an approved gateway image/);
+  await assert.rejects(() => checkImages("gateway", tampered, rekorFetch), /example\/unlisted is not an approved gateway image/);
   await assert.rejects(() => checkComposeBinding(tampered, gw.intel_quote), /MRCONFIGID/);
   parsed.docker_compose_file = parsed.docker_compose_file.replace(/@sha256:ab+/, ":latest");
-  await assert.rejects(() => checkImages("gateway", JSON.stringify(parsed)), /image without digest/);
-  await assert.rejects(() => checkImages("model", appCompose), /not an approved model image/);
+  await assert.rejects(() => checkImages("gateway", JSON.stringify(parsed), rekorFetch), /image without digest/);
+  await assert.rejects(() => checkImages("model", appCompose, rekorFetch), /not an approved model image/);
   assert.throws(() => checkOs("model", gw.intel_quote), /unknown model mrtd/);
 });
 
@@ -41,7 +42,7 @@ Deno.test("a Rekor entry with a forged timestamp or proof is rejected", async ()
   for (const [field, pattern] of [["signedEntryTimestamp", /Rekor SET/], ["rootHash", /inclusion proof root/]]) {
     const fresh = await import(`./near-policy.mjs?${field}`);
     const forging = async (url, init) => {
-      const r = await fetch(url, init);
+      const r = await rekorFetch(url, init);
       if (!String(url).endsWith("/entries/retrieve")) return r;
       const entries = await r.json();
       for (const e of entries.flatMap(Object.values)) {

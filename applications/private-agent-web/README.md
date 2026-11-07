@@ -241,7 +241,9 @@ EVIDENCE=/absolute/path/to/local-data/trust node trust-browser.test.mjs
 
 This uses Anvil, Chromium and the recorded public NEAR report, Intel collateral,
 NVIDIA NRAS token and public signing keys in `test-fixtures/near/`. The test fixes the
-clock and challenge to the recording and keeps all inference local.
+clock and challenge to the recording and keeps all inference local. Rekor provenance
+uses the signed entries in `../relay-broker/fixtures/rekor-responses.json`; set
+`LIVE_TESTS=1` to query Rekor from the evidence and browser tests.
 
 Run the chat recovery and capacity flows against a local mocked broker (requires
 Chromium and `openssl`):

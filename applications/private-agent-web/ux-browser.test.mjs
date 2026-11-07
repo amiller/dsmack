@@ -70,8 +70,8 @@ try {
     page.setDefaultTimeout(15000);
     page.on('pageerror', e => errors.push(e.message));
     page.on('console', msg => logs.push(msg.type() + ': ' + msg.text()));
-    // NEAR image provenance is read from the public Rekor log.
-    await page.route('**/*', route => [new URL(base).origin, 'https://rekor.sigstore.dev'].includes(new URL(route.request().url()).origin) ? route.continue() : route.abort());
+    // replayNear intercepts provenance; other external requests are blocked.
+    await page.route('**/*', route => new URL(base).origin === new URL(route.request().url()).origin ? route.continue() : route.abort());
     const calls = await backend(page, 'ux');
     if (['empty', 'busy'].includes(scenario)) {
       const network = structuredClone(networkFixture);

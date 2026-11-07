@@ -9,6 +9,7 @@ import {MockGuestAttest} from "../GuestEscrow.t.sol";
 /// (claim oracle, payee, monotonic cumulativeOwed, withdraw bound) are checked inside each action and recorded in
 /// `violation`, since a handler assertion would only revert and be discarded under fail_on_revert = false.
 contract GuestEscrowHandler is Test {
+    uint256 constant DL = type(uint256).max; // relayed-signature deadline
     GuestEscrow public esc;
     LayoverCredit public token;
     MockGuestAttest public attest;
@@ -30,7 +31,8 @@ contract GuestEscrowHandler is Test {
 
     constructor() {
         vm.warp(30 weeks);
-        token = new LayoverCredit(address(this), 1_000_000e6);
+        token = new LayoverCredit(address(this));
+        deal(address(token), address(this), 1_000_000e6, true);
         attest = new MockGuestAttest(vm.computeCreateAddress(address(this), vm.getNonce(address(this)) + 1));
         esc = new GuestEscrow(address(token), address(this), attest);
         for (uint256 i; i < 2; i++) esc.setWorkload(images[i], MANIFEST, CALLER, true);
@@ -74,7 +76,7 @@ contract GuestEscrowHandler is Test {
         uint256 i = h % 8 == 0 ? h % (termsCount[b % 3] + 1) : termsCount[b % 3]; // sometimes re-accept a used hash
         address u = buyer(b); bytes32 th = termsHash(b, i); address o = operators[op % 2]; cap = bound(cap, 1, 3_000e6);
         if (esc.exposure(u) + cap > esc.balance(u) && cap % 4 != 0) return; // keep most terms collateralized, a quarter not
-        if (relayed) esc.acceptTermsFor(u, th, o, cap, _sign(buyerPk[b % 3], esc.termsDigest(u, th, o, cap)));
+        if (relayed) esc.acceptTermsFor(u, th, o, cap, DL, _sign(buyerPk[b % 3], esc.termsDigest(u, th, o, cap, DL)));
         else { vm.prank(u); esc.acceptTerms(th, o, cap); }
         if (i == termsCount[b % 3]) termsCount[b % 3]++;
         calls["acceptTerms"]++;
@@ -85,7 +87,7 @@ contract GuestEscrowHandler is Test {
         address u = buyer(b); bytes32 th = termsHash(b, (h / 16) % termsCount[b % 3]);
         (address o,, uint64 closedAt,) = esc.terms(u, th);
         if (o == address(0) || closedAt != 0) return;
-        if (relayed) esc.closeTermsFor(u, th, _sign(buyerPk[b % 3], esc.closeDigest(u, th)));
+        if (relayed) esc.closeTermsFor(u, th, DL, _sign(buyerPk[b % 3], esc.closeDigest(u, th, DL)));
         else { vm.prank(u); esc.closeTerms(th); }
         calls["closeTerms"]++;
     }
@@ -148,10 +150,10 @@ contract GuestEscrowHandler is Test {
         for (uint256 i; i < expired.length; i++) { (, uint256 cap,,) = esc.terms(u, expired[i]); rest += cap - esc.totalClaimed(u, expired[i]); }
     }
     function _withdrawFor(uint256 pk, W memory w) internal returns (bool success) {
-        bytes memory sig = _sign(pk, esc.withdrawDigest(w.u, w.to, w.amount, esc.withdrawNonce(w.u)));
-        (success,) = address(esc).call(abi.encodeCall(esc.withdrawFor, (w.u, w.to, w.amount, sig, w.expired)));
+        bytes memory sig = _sign(pk, esc.withdrawDigest(w.u, w.to, w.amount, esc.withdrawNonce(w.u), DL));
+        (success,) = address(esc).call(abi.encodeCall(esc.withdrawFor, (w.u, w.to, w.amount, DL, sig, w.expired)));
         if (!success) return false;
-        (bool again,) = address(esc).call(abi.encodeCall(esc.withdrawFor, (w.u, w.to, w.amount, sig, new bytes32[](0))));
+        (bool again,) = address(esc).call(abi.encodeCall(esc.withdrawFor, (w.u, w.to, w.amount, DL, sig, new bytes32[](0))));
         if (again) _flag("withdrawFor replay");
     }
     function _expired(uint256 b, uint256 mask) internal view returns (bytes32[] memory out) {

@@ -1,19 +1,10 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
-import {Script, console2} from "forge-std/Script.sol";
+import {console2} from "forge-std/Script.sol";
 import {LayoverCredit} from "../src/LayoverCredit.sol";
 import {GuestEscrow} from "../src/GuestEscrow.sol";
-
-/// The issuance lane's LastResortBuyer (contracts/src/LastResortBuyer.sol on branch issuance), behind its proxy.
-interface ILastResortBuyer {
-    function advance() external;
-    function commitBook(uint256 epoch, uint256 units, bytes calldata sig) external;
-    function claim(bytes32 unitId, address operator, uint256 epoch, bytes32 workDigest, bytes calldata sig) external;
-    function floor(uint256 epoch) external view returns (uint256);
-    function DOMAIN_SEPARATOR() external view returns (bytes32);
-    function BOOK_TYPEHASH() external view returns (bytes32);
-    function UNIT_TYPEHASH() external view returns (bytes32);
-}
+import {LastResortBuyer} from "../src/LastResortBuyer.sol";
+import {Minions} from "../test/LastResortBuyer.t.sol";
 
 interface IRouter {
     struct ExactInputSingleParams { address tokenIn; address tokenOut; uint24 fee; address recipient; uint256 amountIn;
@@ -22,12 +13,14 @@ interface IRouter {
 }
 interface IERC20 { function approve(address, uint256) external returns (bool); function balanceOf(address) external view returns (uint256); }
 
-/// Anvil fork of Base mainnet only, after IssuanceLaunch, MainnetLaunch and MainnetLP, a day after LastResortBuyer deployed. GuestEscrow's verifier
-/// has been replaced (anvil_setCode) by MockGuestAttest, since no real guest assertion exists for mainnet yet.
-/// `open`: the host earns LAYC minted for one unit the minion bought from LastResortBuyer, sells it into the USDC bid, a buyer buys LAYC there and pays
+/// Anvil fork of Base mainnet only, after IssuanceLaunch, MainnetLaunch and MainnetLP, a day after LastResortBuyer deployed.
+/// GuestEscrow's verifier has been replaced (anvil_setCode) by MockGuestAttest, since no real guest assertion exists for
+/// mainnet yet. LastResortBuyer's KMS root is a test key here (Minions.KMS_PK), which signs the minion app's key the way a
+/// dstack KMS does. `open`: the controller approves the minion app, a minion registers its GetKey chain, and the host earns LAYC
+/// minted for 8 units that minion bought from LastResortBuyer, sells it into the USDC bid, a buyer buys LAYC there and pays
 /// the host through GuestEscrow (deposit, accept, claim, close). The caller advances the fork past CLAIM_GRACE; `settle`
 /// withdraws the rest. Keys are anvil's dev keys.
-contract MainnetSmoke is Script {
+contract MainnetSmoke is Minions {
     uint256 constant RELAYER = 0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80; // anvil 0
     uint256 constant BUYER = 0x47e179ec197488593b187f80a00eb0da91f1b9d0b13f8733639f19c30a34926a; // anvil 4
     uint256 constant OPERATOR = 0x8b3a350cf5c34c9194ca85829a2df0ec3153be0318b5e2d3348e872092edffba; // anvil 5
@@ -38,28 +31,35 @@ contract MainnetSmoke is Script {
     bytes32 constant IMAGE = keccak256("smoke image");
     bytes32 constant MANIFEST = keccak256("smoke manifest");
     bytes32 constant CDHASH = keccak256("smoke runner cdhash");
-    uint256 constant UNITS = 360;
+    uint256 constant UNITS = 8; // reward / 8 is 898.375 LAYC; MAX_FLOOR caps a unit at 1 LAYC
+    uint256 constant DL = type(uint256).max; // relayed-signature deadline
     bytes32 constant TERMS = keccak256("layover-terms/1 buyer smoke");
 
     function open() external {
         require(block.chainid == 8453, "Base mainnet fork only");
         GuestEscrow esc = GuestEscrow(vm.envAddress("GUEST_ESCROW"));
-        ILastResortBuyer lrb = ILastResortBuyer(vm.envAddress("LRB"));
+        LastResortBuyer lrb = LastResortBuyer(vm.envAddress("LRB"));
         LayoverCredit layc = LayoverCredit(address(esc.token()));
         (address buyer, address op, bytes32 caller) = (vm.addr(BUYER), vm.addr(OPERATOR), sha256("agent"));
 
-        vm.broadcast(vm.envAddress("OWNER"));
+        vm.startBroadcast(vm.envAddress("OWNER"));
         esc.setWorkload(IMAGE, MANIFEST, caller, true);
+        lrb.approveApp(APP);
+        vm.stopBroadcast();
         vm.startBroadcast(RELAYER);
+        require(register(lrb, MINION) == vm.addr(MINION) && lrb.isMinion(vm.addr(MINION)), "minion registered");
         lrb.advance();
         uint256 e = layc.epoch();
         lrb.commitBook(e, UNITS, _sign(MINION, _lrbDigest(lrb, keccak256(abi.encode(lrb.BOOK_TYPEHASH(), e, UNITS)))));
-        (bytes32 unit, bytes32 work) = (keccak256("smoke unit 1"), keccak256("smoke benchmark result"));
-        lrb.claim(unit, op, e, work, _sign(MINION, _lrbDigest(lrb, keccak256(abi.encode(lrb.UNIT_TYPEHASH(), unit, op, e, work)))));
+        for (uint256 i; i < UNITS; i++) {
+            (bytes32 unit, bytes32 work) = (keccak256(abi.encode("smoke unit", i)), keccak256(abi.encode("smoke benchmark result", i)));
+            lrb.claim(unit, op, e, work, _sign(MINION, _lrbDigest(lrb, keccak256(abi.encode(lrb.UNIT_TYPEHASH(), unit, op, e, work)))));
+        }
         _register(esc, op, caller);
         vm.stopBroadcast();
-        uint256 minted = lrb.floor(e);
-        require(minted == layc.reward(e) / UNITS && layc.balanceOf(op) == minted && layc.totalSupply() == minted, "host earned the floor");
+        require(lrb.floor(e) == lrb.MAX_FLOOR() && lrb.MAX_FLOOR() == 1e6, "floor capped at 1 LAYC");
+        uint256 minted = UNITS * lrb.floor(e);
+        require(layc.balanceOf(op) == minted && layc.totalSupply() == minted, "host earned 8 units at the floor");
 
         uint256 usdc0 = IERC20(USDC).balanceOf(op);
         vm.startBroadcast(OPERATOR);
@@ -78,12 +78,12 @@ contract MainnetSmoke is Script {
         uint256 earned = layc.balanceOf(op);
         vm.startBroadcast(RELAYER);
         _depositWithAuthorization(layc, esc, buyer, 3e6, bytes32(uint256(1)));
-        esc.acceptTermsFor(buyer, TERMS, op, 1e6, _sign(BUYER, esc.termsDigest(buyer, TERMS, op, 1e6)));
+        esc.acceptTermsFor(buyer, TERMS, op, 1e6, DL, _sign(BUYER, esc.termsDigest(buyer, TERMS, op, 1e6, DL)));
         esc.claim(buyer, TERMS, 4e5, _sign(GUEST, esc.claimDigest(buyer, op, TERMS, 4e5)));
-        esc.closeTermsFor(buyer, TERMS, _sign(BUYER, esc.closeDigest(buyer, TERMS)));
+        esc.closeTermsFor(buyer, TERMS, DL, _sign(BUYER, esc.closeDigest(buyer, TERMS, DL)));
         vm.stopBroadcast();
         require(layc.balanceOf(op) - earned == 4e5 && esc.balance(buyer) == 26e5 && esc.exposure(buyer) == 6e5, "buyer paid host");
-        console2.log("open done: host earned one unit's floor in new LAYC and sold it; buyer bought LAYC, deposited 3, host claimed 0.4");
+        console2.log("open done: host earned 8 units at the capped floor (8 LAYC) and sold them; buyer bought LAYC, deposited 3, host claimed 0.4");
     }
 
     function settle() external {
@@ -95,13 +95,13 @@ contract MainnetSmoke is Script {
         expired[0] = TERMS;
         uint256 before = layc.balanceOf(buyer);
         vm.startBroadcast(RELAYER);
-        esc.withdrawFor(buyer, buyer, 26e5, _sign(BUYER, esc.withdrawDigest(buyer, buyer, 26e5, esc.withdrawNonce(buyer))), expired);
+        esc.withdrawFor(buyer, buyer, 26e5, DL, _sign(BUYER, esc.withdrawDigest(buyer, buyer, 26e5, esc.withdrawNonce(buyer), DL)), expired);
         vm.stopBroadcast();
         require(layc.balanceOf(buyer) - before == 26e5 && esc.balance(buyer) == 0 && esc.exposure(buyer) == 0, "withdrawn");
         console2.log("settle done: buyer withdrew 2.6 LAYC after CLAIM_GRACE");
     }
 
-    function _lrbDigest(ILastResortBuyer lrb, bytes32 structHash) internal view returns (bytes32) {
+    function _lrbDigest(LastResortBuyer lrb, bytes32 structHash) internal view returns (bytes32) {
         return keccak256(abi.encodePacked("\x19\x01", lrb.DOMAIN_SEPARATOR(), structHash));
     }
     function _register(GuestEscrow esc, address op, bytes32 caller) internal {
@@ -113,7 +113,7 @@ contract MainnetSmoke is Script {
         esc.registerGuestKey(vm.addr(GUEST), op, a, ev, abi.encode(ctx, CDHASH));
     }
     function _depositWithAuthorization(LayoverCredit layc, GuestEscrow esc, address from, uint256 value, bytes32 nonce) internal {
-        bytes32 s = keccak256(abi.encode(layc.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), from, address(esc), value, 0, type(uint256).max, nonce));
+        bytes32 s = keccak256(abi.encode(layc.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), from, address(esc), value, 0, type(uint256).max, nonce));
         esc.depositWithAuthorization(from, value, 0, type(uint256).max, nonce,
             _sign(BUYER, keccak256(abi.encodePacked("\x19\x01", layc.DOMAIN_SEPARATOR(), s))));
     }

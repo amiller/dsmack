@@ -3,7 +3,7 @@ pragma solidity ^0.8.21;
 import {Script, console2} from "forge-std/Script.sol";
 import {AppleEndorsements} from "attest/AppleEndorsements.sol";
 import {CDRegistry} from "../src/CDRegistry.sol";
-import {AppleAttestRegistryV1} from "../src/AppleAttestRegistryV1.sol";
+import {AppleAttestRegistryV1, AppleAttestAnyBuildV1} from "../src/AppleAttestRegistryV1.sol";
 import {Canary, IAttestVerifier} from "../src/Canary.sol";
 import {LayoverCredit} from "../src/LayoverCredit.sol";
 import {GuestEscrow, IGuestAttest} from "../src/GuestEscrow.sol";
@@ -31,7 +31,8 @@ contract MainnetLaunch is Script {
         bytes32 intermediate = endorsements.endorseIntermediate(der);
         CDRegistry cds = new CDRegistry(owner);
         address canaryAt = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
-        AppleAttestRegistryV1 directory = new AppleAttestRegistryV1(endorsements, canaryAt, cds, AAGUID, CATEGORY, false);
+        // The Canary's verifier admits any build CDRegistry ever approved, so a setBuild does not strand armed entries.
+        AppleAttestAnyBuildV1 directory = new AppleAttestAnyBuildV1(endorsements, canaryAt, cds, AAGUID, CATEGORY, false);
         Canary canary = new Canary(IAttestVerifier(address(directory)));
         address escrowAt = vm.computeCreateAddress(deployer, vm.getNonce(deployer) + 1);
         AppleAttestRegistryV1 verifier = new AppleAttestRegistryV1(endorsements, escrowAt, cds, AAGUID, CATEGORY, false);
@@ -49,7 +50,7 @@ contract MainnetLaunch is Script {
         console2.log("intermediateId");
         console2.logBytes32(intermediate);
         console2.log("CDRegistry", address(cds));
-        console2.log("AppleAttestRegistryV1 directory (registry = Canary)", address(directory));
+        console2.log("AppleAttestAnyBuildV1 directory (registry = Canary)", address(directory));
         console2.log("Canary", address(canary));
         console2.log("AppleAttestRegistryV1 verifier (registry = GuestEscrow)", address(verifier));
         console2.log("GuestEscrow", address(escrow));

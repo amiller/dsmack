@@ -3,10 +3,11 @@ pragma solidity ^0.8.21;
 import "forge-std/Test.sol";
 import {LayoverCredit} from "../../src/LayoverCredit.sol";
 
-/// Genesis is 20,900,000 LAYC so random sequences reach CAP. The handler is the owner; `stranger` actions must revert.
+/// LAYC mints nothing at deploy; the handler is the owner and mints the actors' starting balances. Epochs are a day apart,
+/// and advanceEpoch runs up to 400 of them per call so random sequences reach CAP. `stranger` actions must revert.
 contract LayoverCreditHandler is Test {
     LayoverCredit public c;
-    uint256 public constant GENESIS = 20_900_000e6;
+    uint256 public constant GENESIS = 0;
     uint256[3] pk = [uint256(0xA1), 0xA2, 0xA3];
     address public stranger = address(0x5757);
     uint256 public minted;
@@ -19,9 +20,10 @@ contract LayoverCreditHandler is Test {
 
     constructor() {
         vm.warp(1000);
-        c = new LayoverCredit(address(this), GENESIS);
+        c = new LayoverCredit(address(this));
         scheduled = c.reward(0);
-        for (uint256 i; i < 3; i++) c.transfer(actor(i), 1_000e6);
+        for (uint256 i; i < 3; i++) c.mint(actor(i), 1_000e6);
+        minted = 3_000e6;
     }
     function actor(uint256 i) public view returns (address) { return vm.addr(pk[i % 3]); }
     function _flag(string memory why) internal { if (bytes(violation).length == 0) violation = why; }
@@ -38,6 +40,7 @@ contract LayoverCreditHandler is Test {
         n = bound(n, 1, 400);
         for (uint256 i; i < n; i++) {
             uint256 before = c.reward(c.epoch());
+            vm.warp(block.timestamp + 1 days);
             c.advanceEpoch();
             uint256 e = c.epoch();
             if (c.mintedInEpoch() != 0) _flag("mintedInEpoch not reset");
@@ -129,7 +132,7 @@ contract LayoverCreditInvariantTest is Test {
 }
 
 contract LayoverCreditHalvingTest is Test {
-    LayoverCredit c = new LayoverCredit(address(1), 0);
+    LayoverCredit c = new LayoverCredit(address(1));
     /// reward halves exactly at each multiple of 1,461 and is constant in between.
     function testFuzz_rewardHalvesEvery1461(uint256 e) public view {
         e = bound(e, 0, 1461 * 300);

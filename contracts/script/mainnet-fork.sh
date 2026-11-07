@@ -26,7 +26,8 @@ send() { local what=$1 from=$2 to=$3 data=$4
   printf '%s\t%s\n' "$what" "$h" >> $TXS; }
 
 forge build --force >/dev/null
-CONTROLLER=$OWNER MINION=$(acct 8) forge script script/IssuanceLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --slow
+# The KMS root is a test key (Minions.KMS_PK = 0x6B35 in test/LastResortBuyer.t.sol) so the smoke can sign a minion's chain.
+CONTROLLER=$OWNER KMS_ROOT=$(cast wallet address --private-key 0x$(printf "%064x" 0x6B35)) forge script script/IssuanceLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --slow
 IOUT=broadcast/IssuanceLaunch.s.sol/8453/run-latest.json
 export LAYC=$(jq -r '[.transactions[] | select(.contractName == "LayoverCredit")][0].contractAddress' $IOUT)
 export LRB=$(jq -r '[.transactions[] | select(.contractName == "ERC1967Proxy")][0].contractAddress' $IOUT)
@@ -36,7 +37,7 @@ log $IOUT "issuance: "
 forge script script/MainnetLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --gas-estimate-multiplier 105 --slow
 OUT=broadcast/MainnetLaunch.s.sol/8453/run-latest.json
 addr() { jq -r --arg n "$1" --argjson i "${2:-0}" '[.transactions[] | select(.contractName == $n and .transactionType == "CREATE")][$i].contractAddress' $OUT; }
-CDS=$(addr CDRegistry) DIRECTORY=$(addr AppleAttestRegistryV1 0) VERIFIER=$(addr AppleAttestRegistryV1 1)
+CDS=$(addr CDRegistry) DIRECTORY=$(addr AppleAttestAnyBuildV1 0) VERIFIER=$(addr AppleAttestRegistryV1 0)
 export GUEST_ESCROW=$(addr GuestEscrow)
 log $OUT "launch: "
 

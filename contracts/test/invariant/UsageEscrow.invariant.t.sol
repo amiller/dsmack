@@ -22,7 +22,8 @@ contract UsageEscrowHandler is Test {
 
     constructor() {
         vm.warp(30 weeks);
-        token = new LayoverCredit(address(this), 1_000_000e6);
+        token = new LayoverCredit(address(this));
+        deal(address(token), address(this), 1_000_000e6, true);
         esc = new UsageEscrow(address(token), address(this));
         broker = vm.addr(brokerPk[0]);
         esc.registerBroker(broker);
@@ -45,7 +46,7 @@ contract UsageEscrowHandler is Test {
         address a = user(u); amount = bound(amount, 1, 2_000e6);
         if (esc.exitRequestedAt(a) != 0) return;
         bytes32 nonce = keccak256(abi.encode(authNonce++));
-        bytes32 h = keccak256(abi.encode(token.TRANSFER_WITH_AUTHORIZATION_TYPEHASH(), a, address(esc), amount, 0, block.timestamp + 1 hours, nonce));
+        bytes32 h = keccak256(abi.encode(token.RECEIVE_WITH_AUTHORIZATION_TYPEHASH(), a, address(esc), amount, 0, block.timestamp + 1 hours, nonce));
         esc.depositWithAuthorization(a, amount, 0, block.timestamp + 1 hours, nonce, _sign(userPk[u % 3], keccak256(abi.encodePacked("\x19\x01", token.DOMAIN_SEPARATOR(), h))));
         calls["depositWithAuthorization"]++;
     }

@@ -30,9 +30,9 @@ interface IGuestAttest {
 contract GuestEscrow is Owned {
     uint64 public constant CLAIM_GRACE = 1 days;
     bytes32 public constant CLAIM_TYPEHASH = keccak256("Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed)");
-    bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap)");
-    bytes32 public constant CLOSE_TYPEHASH = keccak256("CloseTerms(bytes32 termsHash)");
-    bytes32 public constant WITHDRAW_TYPEHASH = keccak256("Withdraw(address to,uint256 amount,uint256 nonce)");
+    bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap,uint256 deadline)");
+    bytes32 public constant CLOSE_TYPEHASH = keccak256("CloseTerms(bytes32 termsHash,uint256 deadline)");
+    bytes32 public constant WITHDRAW_TYPEHASH = keccak256("Withdraw(address to,uint256 amount,uint256 nonce,uint256 deadline)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     bytes constant ATTEST_DOMAIN = "dsmack.appattest.guest-attest/1";
@@ -134,19 +134,24 @@ contract GuestEscrow is Owned {
     function _digest(address user, bytes32 structHash) private view returns (bytes32) {
         return keccak256(abi.encodePacked("\x19\x01", claimDomain(user), structHash));
     }
-    function termsDigest(address user, bytes32 termsHash, address operator, uint256 cap) public view returns (bytes32) {
-        return _digest(user, keccak256(abi.encode(TERMS_TYPEHASH, termsHash, operator, cap)));
+    /// Relayed AcceptTerms, CloseTerms and Withdraw signatures carry a deadline (unix seconds); past it they are refused.
+    function termsDigest(address user, bytes32 termsHash, address operator, uint256 cap, uint256 deadline) public view returns (bytes32) {
+        return _digest(user, keccak256(abi.encode(TERMS_TYPEHASH, termsHash, operator, cap, deadline)));
     }
-    function closeDigest(address user, bytes32 termsHash) external view returns (bytes32) {
-        return _digest(user, keccak256(abi.encode(CLOSE_TYPEHASH, termsHash)));
+    function closeDigest(address user, bytes32 termsHash, uint256 deadline) public view returns (bytes32) {
+        return _digest(user, keccak256(abi.encode(CLOSE_TYPEHASH, termsHash, deadline)));
     }
-    function withdrawDigest(address user, address to, uint256 amount, uint256 nonce) external view returns (bytes32) {
-        return _digest(user, keccak256(abi.encode(WITHDRAW_TYPEHASH, to, amount, nonce)));
+    function withdrawDigest(address user, address to, uint256 amount, uint256 nonce, uint256 deadline) public view returns (bytes32) {
+        return _digest(user, keccak256(abi.encode(WITHDRAW_TYPEHASH, to, amount, nonce, deadline)));
+    }
+    function _signed(address user, bytes32 digest, uint256 deadline, bytes calldata signature, string memory what) private view {
+        require(block.timestamp <= deadline, "signature expired");
+        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
+        require(_recover(digest, v, r, s) == user, what);
     }
     function acceptTerms(bytes32 termsHash, address operator, uint256 cap) external { _accept(msg.sender, termsHash, operator, cap); }
-    function acceptTermsFor(address user, bytes32 termsHash, address operator, uint256 cap, bytes calldata signature) external {
-        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        require(_recover(termsDigest(user, termsHash, operator, cap), v, r, s) == user, "terms signature");
+    function acceptTermsFor(address user, bytes32 termsHash, address operator, uint256 cap, uint256 deadline, bytes calldata signature) external {
+        _signed(user, termsDigest(user, termsHash, operator, cap, deadline), deadline, signature, "terms signature");
         _accept(user, termsHash, operator, cap);
     }
     function _accept(address user, bytes32 termsHash, address operator, uint256 cap) private {
@@ -187,9 +192,8 @@ contract GuestEscrow is Owned {
 
     /// @notice Stop new exposure on these terms. Guests may still claim for CLAIM_GRACE.
     function closeTerms(bytes32 termsHash) external { _close(msg.sender, termsHash); }
-    function closeTermsFor(address user, bytes32 termsHash, bytes calldata signature) external {
-        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        require(_recover(_digest(user, keccak256(abi.encode(CLOSE_TYPEHASH, termsHash))), v, r, s) == user, "close signature");
+    function closeTermsFor(address user, bytes32 termsHash, uint256 deadline, bytes calldata signature) external {
+        _signed(user, closeDigest(user, termsHash, deadline), deadline, signature, "close signature");
         _close(user, termsHash);
     }
     function _close(address user, bytes32 termsHash) private {
@@ -201,13 +205,14 @@ contract GuestEscrow is Owned {
 
     /// @notice Withdraw down to exposure, to the caller. `expired` are closed terms past their grace to drop from exposure first.
     function withdraw(uint256 amount, bytes32[] calldata expired) external { _withdraw(msg.sender, msg.sender, amount, expired); }
-    /// @notice Relayed withdrawal: `user` signs Withdraw(to, amount, nonce) with its current withdrawNonce.
-    function withdrawFor(address user, address to, uint256 amount, bytes calldata signature, bytes32[] calldata expired) external {
-        (uint8 v, bytes32 r, bytes32 s) = _split(signature);
-        require(_recover(_digest(user, keccak256(abi.encode(WITHDRAW_TYPEHASH, to, amount, withdrawNonce[user]++))), v, r, s) == user, "withdraw signature");
+    /// @notice Relayed withdrawal: `user` signs Withdraw(to, amount, nonce, deadline) with its current withdrawNonce. Every
+    /// withdrawal, direct or relayed, uses up the nonce, so a direct withdraw voids any outstanding relayed one.
+    function withdrawFor(address user, address to, uint256 amount, uint256 deadline, bytes calldata signature, bytes32[] calldata expired) external {
+        _signed(user, withdrawDigest(user, to, amount, withdrawNonce[user], deadline), deadline, signature, "withdraw signature");
         _withdraw(user, to, amount, expired);
     }
     function _withdraw(address user, address to, uint256 amount, bytes32[] calldata expired) private {
+        withdrawNonce[user]++;
         for (uint256 i; i < expired.length; i++) {
             Terms storage t = terms[user][expired[i]];
             require(t.closedAt != 0 && !t.released && block.timestamp >= uint256(t.closedAt) + CLAIM_GRACE, "not expired");

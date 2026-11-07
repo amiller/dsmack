@@ -17,7 +17,7 @@ contract NoAttest is IGuestAttest {
 /// forge test skips check_ functions.
 contract SymbolicLayoverCredit is Test {
     LayoverCredit c;
-    function setUp() public { c = new LayoverCredit(address(this), 20_990_000e6); }
+    function setUp() public { c = new LayoverCredit(address(this)); }
 
     /// For every epoch e, reward(e + 1461) == reward(e) / 2 (floor) and reward(e) == INITIAL_REWARD >> (e / 1461).
     function check_rewardHalves(uint256 e) public view {
@@ -28,7 +28,7 @@ contract SymbolicLayoverCredit is Test {
     /// Any two owner mints in any epoch keep mintedInEpoch ≤ reward(epoch) and totalSupply ≤ CAP.
     function check_mintBounded(uint256 epochs, uint256 a, uint256 b) public {
         vm.assume(epochs < 4);
-        for (uint256 i; i < epochs; i++) c.advanceEpoch();
+        for (uint256 i; i < epochs; i++) { vm.warp(block.timestamp + 1 days); c.advanceEpoch(); }
         try c.mint(address(0xA), a) {} catch {}
         try c.mint(address(0xB), b) {} catch {}
         assertLe(c.mintedInEpoch(), c.reward(c.epoch()));
@@ -41,16 +41,16 @@ contract SymbolicGuestEscrow is Test {
     LayoverCredit token;
     address buyer = address(0xB1);
     function setUp() public {
-        token = new LayoverCredit(address(this), 1_000_000e6);
+        token = new LayoverCredit(address(this));
         NoAttest m = new NoAttest();
         esc = new GuestEscrow(address(token), address(this), m);
-        token.transfer(buyer, 1_000_000e6);
+        token.mint(buyer, 7_187e6);
         vm.prank(buyer); token.approve(address(esc), type(uint256).max);
     }
     /// deposit d, accept caps c1 and c2, close the first, wait w, withdraw x with or without releasing it: a successful
     /// withdraw never leaves balance below exposure when the deposit covered both caps, and never pays more than balance.
     function check_withdrawKeepsExposure(uint256 d, uint256 c1, uint256 c2, uint256 w, uint256 x, bool release) public {
-        vm.assume(d > 0 && d <= 1_000_000e6 && c1 > 0 && c2 > 0 && c1 <= d && c2 <= d - c1 && w < 365 days);
+        vm.assume(d > 0 && d <= 7_187e6 && c1 > 0 && c2 > 0 && c1 <= d && c2 <= d - c1 && w < 365 days);
         vm.startPrank(buyer);
         esc.deposit(d);
         esc.acceptTerms(bytes32(uint256(1)), address(0x22), c1);

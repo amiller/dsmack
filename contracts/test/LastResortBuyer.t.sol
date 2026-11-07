@@ -149,7 +149,11 @@ contract LastResortBuyerTest is Minions {
         (bytes memory d, bytes memory a, bytes memory s1, bytes memory s2) = chain(KMS_PK, APP, APP_PK, "layover-minion", 0xA1);
         vm.expectRevert("app not approved"); lrb.registerMinion(APP, d, a, s1, s2);
         vm.prank(controller); lrb.approveApp(APP);
-        pay("u1", op); // re-approving the app restores its minions
+        assertFalse(lrb.isMinion(vm.addr(minionKey)));
+        vm.expectRevert("not minion"); lrb.claim("u1", op, 0, WORK, s);
+        register(lrb, minionKey);
+        assertEq(lrb.minionGeneration(vm.addr(minionKey)), lrb.appGeneration(APP));
+        pay("u1", op);
     }
     /// revokeMinion stops one key at once and for good; the app's other minions keep signing.
     function testRevokeMinion() public {
@@ -161,6 +165,10 @@ contract LastResortBuyerTest is Minions {
         vm.expectRevert("not minion"); lrb.claim("u1", op, 0, WORK, s);
         lrb.claim("u1", op, 0, WORK, unitSig(otherMinion, lrb, "u1", op, 0, WORK));
         (bytes memory d, bytes memory a, bytes memory s1, bytes memory s2) = chain(KMS_PK, APP, APP_PK, "layover-minion", minionKey);
+        vm.expectRevert("minion key"); lrb.registerMinion(APP, d, a, s1, s2);
+        vm.prank(controller); lrb.removeApp(APP);
+        vm.prank(controller); lrb.approveApp(APP);
+        assertFalse(lrb.isMinion(vm.addr(minionKey)));
         vm.expectRevert("minion key"); lrb.registerMinion(APP, d, a, s1, s2);
     }
 
@@ -281,6 +289,10 @@ contract LastResortBuyerTest is Minions {
         vm.prank(controller); lrb.upgradeTo(address(g));
         vm.expectRevert("period not over"); GreedyBuyer(address(lrb)).drain(address(0xBAD), 2);
         vm.expectRevert("epoch reward"); vm.prank(address(lrb)); layc.mint(address(0xBAD), 7_187e6 + 1);
+    }
+    function testUpgradeMustKeepKmsRoot() public {
+        LastResortBuyer other = new LastResortBuyer(layc, address(0xBAD));
+        vm.prank(controller); vm.expectRevert("kms root"); lrb.upgradeTo(address(other));
     }
     function testUpgradeMustKeepToken() public {
         LastResortBuyer other = new LastResortBuyer(new LayoverCredit(address(1)), vm.addr(KMS_PK));

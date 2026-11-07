@@ -47,6 +47,8 @@ contract LastResortBuyer is Initializable, UUPSUpgradeable {
     mapping(uint256 => uint256) public paidUnits;
     mapping(uint256 => mapping(address => uint256)) public paidTo;
     mapping(bytes32 => bool) public paid;
+    mapping(address => uint64) public appGeneration;
+    mapping(address => uint64) public minionGeneration;
 
     event ControllerTransferStarted(address indexed controller, address indexed pending);
     event ControllerTransferred(address indexed previous, address indexed controller);
@@ -86,8 +88,9 @@ contract LastResortBuyer is Initializable, UUPSUpgradeable {
         bytes calldata kmsSignature) external returns (address key) {
         require(approvedApps[app], "app not approved");
         key = DstackKmsChain.derivedSigner(kmsRoot, app, PURPOSE, derivedPubkey, appPubkey, appSignature, kmsSignature);
-        require(!revokedMinion[key] && minionApp[key] == address(0), "minion key");
+        require(!revokedMinion[key] && (minionApp[key] == address(0) || minionGeneration[key] != appGeneration[minionApp[key]]), "minion key");
         minionApp[key] = app;
+        minionGeneration[key] = appGeneration[app];
         emit MinionRegistered(key, app);
     }
 
@@ -120,7 +123,8 @@ contract LastResortBuyer is Initializable, UUPSUpgradeable {
 
     /// A key that registered under an app still approved, and was not revoked.
     function isMinion(address key) public view returns (bool) {
-        return minionApp[key] != address(0) && approvedApps[minionApp[key]] && !revokedMinion[key];
+        return minionApp[key] != address(0) && approvedApps[minionApp[key]] && !revokedMinion[key]
+            && minionGeneration[key] == appGeneration[minionApp[key]];
     }
     function _minion(bytes32 structHash, bytes calldata sig) private view returns (address m) {
         m = ECDSA.recover(keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR(), structHash)), sig);
@@ -129,6 +133,7 @@ contract LastResortBuyer is Initializable, UUPSUpgradeable {
 
     modifier onlyController() { require(msg.sender == controller, "controller only"); _; }
     function approveApp(address app) external onlyController {
+        appGeneration[app]++;
         approvedApps[app] = true;
         emit AppApproved(app, true);
     }
@@ -158,5 +163,6 @@ contract LastResortBuyer is Initializable, UUPSUpgradeable {
     function _authorizeUpgrade(address next) internal view override onlyController {
         require(!upgradesRenounced, "upgrades renounced");
         require(LastResortBuyer(next).token() == token, "token");
+        require(LastResortBuyer(next).kmsRoot() == kmsRoot, "kms root");
     }
 }

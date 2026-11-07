@@ -81,7 +81,11 @@ contract Handler is Minions {
         uint256 w = what % 8;
         if (w == 0) lrb.revokeMinion(vm.addr(keys[1])); // keys[0] is only ever stopped by removeApp, so runs keep paying
         if (w == 1) lrb.removeApp(APP);
-        if (w == 2 || w == 3) lrb.approveApp(APP);
+        if (w == 2 || w == 3) {
+            lrb.approveApp(APP);
+            register(lrb, keys[0]);
+            if (!lrb.revokedMinion(vm.addr(keys[1]))) register(lrb, keys[1]);
+        }
         if (w == 4) try layc.mint(controller, 1) { controllerMinted = true; } catch {}
         if (w == 5) try layc.advanceEpoch() { controllerMinted = true; } catch {}
         if (w == 6) try lrb.upgradeTo(address(new LastResortBuyerV2(layc, vm.addr(KMS_PK)))) {} catch {}

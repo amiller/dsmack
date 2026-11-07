@@ -21,12 +21,7 @@ contract IssuanceLaunch is Script {
     function run() external {
         require(block.chainid == 8453, "Base mainnet only");
         (address controller, address kmsRoot) = (vm.envAddress("CONTROLLER"), vm.envAddress("KMS_ROOT"));
-        uint256 uncheckedRoot = vm.envOr("KMS_ROOT_UNCHECKED", uint256(0));
-        console2.log("KMS_ROOT_UNCHECKED", uncheckedRoot);
-        if (uncheckedRoot != 1) {
-            (bytes memory k256Pubkey,,,) = IBaseKms(0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C).kmsInfo();
-            require(DstackKmsChain.toAddress(k256Pubkey) == kmsRoot, "kms root");
-        }
+        checkKmsRoot(kmsRoot);
         vm.startBroadcast();
         address proxyAt = vm.computeCreateAddress(msg.sender, vm.getNonce(msg.sender) + 2);
         LayoverCredit layc = new LayoverCredit(proxyAt);
@@ -39,5 +34,14 @@ contract IssuanceLaunch is Script {
         console2.log("LayoverCredit", address(layc));
         console2.log("LastResortBuyer implementation", address(impl));
         console2.log("LastResortBuyer proxy (LAYC owner)", address(lrb));
+    }
+
+    function checkKmsRoot(address kmsRoot) internal {
+        uint256 uncheckedRoot = vm.envOr("KMS_ROOT_UNCHECKED", uint256(0));
+        console2.log("KMS_ROOT_UNCHECKED", uncheckedRoot);
+        if (uncheckedRoot != 1) {
+            (bytes memory k256Pubkey,,,) = IBaseKms(0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C).kmsInfo();
+            require(DstackKmsChain.toAddress(k256Pubkey) == kmsRoot, "kms root");
+        }
     }
 }

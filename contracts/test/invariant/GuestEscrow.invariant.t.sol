@@ -99,8 +99,8 @@ contract GuestEscrowHandler is Test {
         return abi.encodeCall(esc.registerGuestKey, (key, o, a, ev, abi.encode(ctx, keccak256("cdhash"))));
     }
     function _registered(address key) internal view returns (bool) { (address o,,,) = esc.guestKeys(key); return o != address(0); }
-    function setWorkload(uint256 w, bool ok) external {
-        esc.setWorkload(images[w % 2], MANIFEST, CALLER, ok); calls["setWorkload"]++;
+    function setWorkload(uint256 w, uint256 ok) external {
+        esc.setWorkload(images[w % 2], MANIFEST, CALLER, ok % 4 != 0); calls["setWorkload"]++;
     }
 
     struct C { address u; bytes32 th; address key; address op; uint256 cap; uint64 closedAt; uint256 prev; uint256 cum; uint256 total; bool predicted; }
@@ -156,7 +156,7 @@ contract GuestEscrowHandler is Test {
         }
         assembly ("memory-safe") { mstore(out, n) }
     }
-    function warp(uint256 dt) external { vm.warp(block.timestamp + bound(dt, 1, 3 days)); calls["warp"]++; }
+    function warp(uint256 dt) external { vm.warp(block.timestamp + (dt % 8 == 0 ? bound(dt, 1, 3 days) : bound(dt, 1, 6 hours))); calls["warp"]++; }
 
     /// Every holder's token balance matches the ghost ledger after each money-moving action, so the action paid exactly
     /// the address the handler predicted (operator for a claim, `to` for a withdraw) and nobody else.

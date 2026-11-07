@@ -17,7 +17,7 @@ contract GuestEscrowHandler is Test {
     address[2] public operators = [address(0x0901), address(0x0902)];
     address[2] public recipients = [address(0x7001), address(0x7002)];
     address public sponsor = address(0x5905);
-    bytes32[3] public hashes = [keccak256("t0"), keccak256("t1"), keccak256("t2")];
+    mapping(uint256 => uint256) public termsCount;
     bytes32[2] images = [keccak256("img0"), keccak256("img1")];
     bytes32 constant MANIFEST = keccak256("manifest");
     bytes32 constant CALLER = keccak256("caller");
@@ -43,6 +43,7 @@ contract GuestEscrowHandler is Test {
     function _give(address to, uint256 a) internal { token.transfer(to, a); expected[to] += a; }
     function buyer(uint256 i) public view returns (address) { return vm.addr(buyerPk[i % 3]); }
     function guest(uint256 i) public view returns (address) { return vm.addr(guestPk[i % 3]); }
+    function termsHash(uint256 b, uint256 i) public pure returns (bytes32) { return keccak256(abi.encode(b % 3, i)); }
     function holderCount() external view returns (uint256) { return holders.length; }
     function _flag(string memory why) internal { if (bytes(violation).length == 0) violation = why; }
     function _sign(uint256 pk, bytes32 d) internal pure returns (bytes memory) { (uint8 v, bytes32 r, bytes32 s) = vm.sign(pk, d); return abi.encodePacked(r, s, v); }
@@ -70,15 +71,18 @@ contract GuestEscrowHandler is Test {
         esc.depositWithAuthorization(u, amount, 0, block.timestamp + 1 hours, nonce, sig);
     }
     function acceptTerms(uint256 b, uint256 h, uint256 op, uint256 cap, bool relayed) external {
-        address u = buyer(b); bytes32 th = hashes[h % 3]; address o = operators[op % 2]; cap = bound(cap, 1, 3_000e6);
+        uint256 i = h % 8 == 0 ? h % (termsCount[b % 3] + 1) : termsCount[b % 3]; // sometimes re-accept a used hash
+        address u = buyer(b); bytes32 th = termsHash(b, i); address o = operators[op % 2]; cap = bound(cap, 1, 3_000e6);
         if (esc.exposure(u) + cap > esc.balance(u) && cap % 4 != 0) return; // keep most terms collateralized, a quarter not
         if (relayed) esc.acceptTermsFor(u, th, o, cap, _sign(buyerPk[b % 3], esc.termsDigest(u, th, o, cap)));
         else { vm.prank(u); esc.acceptTerms(th, o, cap); }
+        if (i == termsCount[b % 3]) termsCount[b % 3]++;
         calls["acceptTerms"]++;
     }
     function closeTerms(uint256 b, uint256 h, bool relayed) external {
         if (h % 16 != 0) return; // rare, so terms stay open long enough to be claimed against
-        address u = buyer(b); bytes32 th = hashes[(h / 16) % 3];
+        if (termsCount[b % 3] == 0) return;
+        address u = buyer(b); bytes32 th = termsHash(b, (h / 16) % termsCount[b % 3]);
         (address o,, uint64 closedAt,) = esc.terms(u, th);
         if (o == address(0) || closedAt != 0) return;
         if (relayed) esc.closeTermsFor(u, th, _sign(buyerPk[b % 3], esc.closeDigest(u, th)));
@@ -106,7 +110,8 @@ contract GuestEscrowHandler is Test {
 
     struct C { address u; bytes32 th; address key; address op; uint256 cap; uint64 closedAt; uint256 prev; uint256 cum; uint256 total; bool predicted; }
     function claim(uint256 b, uint256 h, uint256 k, uint256 inc) external {
-        C memory c; c.u = buyer(b); c.th = hashes[h % 3]; c.key = guest(k);
+        if (termsCount[b % 3] == 0) return;
+        C memory c; c.u = buyer(b); c.th = termsHash(b, h % termsCount[b % 3]); c.key = guest(k);
         (c.op, c.cap, c.closedAt,) = esc.terms(c.u, c.th);
         if (c.op == address(0)) return;
         for (uint256 j; j < 3 && k % 4 != 0; j++) { (address o,,,) = esc.guestKeys(guest(k + j)); if (o == c.op) { k += j; c.key = guest(k); break; } }
@@ -126,7 +131,7 @@ contract GuestEscrowHandler is Test {
     }
     struct W { address u; address to; uint256 amount; uint256 bal; uint256 exp; bytes32[] expired; bool success; }
     function withdraw(uint256 b, uint256 amount, uint256 releaseMask, bool relayed, uint256 r, bool exact) external {
-        W memory w; w.u = buyer(b); w.expired = _expired(w.u, releaseMask);
+        W memory w; w.u = buyer(b); w.expired = _expired(b, releaseMask);
         w.bal = esc.balance(w.u); w.exp = esc.exposure(w.u) - _rest(w.u, w.expired);
         w.amount = exact && w.bal > w.exp ? w.bal - w.exp : bound(amount, 1, w.bal + 1);
         w.to = relayed ? recipients[r % 2] : w.u;
@@ -149,11 +154,12 @@ contract GuestEscrowHandler is Test {
         (bool again,) = address(esc).call(abi.encodeCall(esc.withdrawFor, (w.u, w.to, w.amount, sig, new bytes32[](0))));
         if (again) _flag("withdrawFor replay");
     }
-    function _expired(address u, uint256 mask) internal view returns (bytes32[] memory out) {
-        out = new bytes32[](3); uint256 n;
-        for (uint256 i; i < 3; i++) {
-            (address o,, uint64 closedAt, bool released) = esc.terms(u, hashes[i]);
-            if (o != address(0) && closedAt != 0 && !released && block.timestamp >= uint256(closedAt) + esc.CLAIM_GRACE() && (mask >> i) & 1 == 1) out[n++] = hashes[i];
+    function _expired(uint256 b, uint256 mask) internal view returns (bytes32[] memory out) {
+        address u = buyer(b); uint256 n; out = new bytes32[](termsCount[b % 3]);
+        for (uint256 i; i < out.length; i++) {
+            bytes32 th = termsHash(b, i);
+            (address o,, uint64 closedAt, bool released) = esc.terms(u, th);
+            if (o != address(0) && closedAt != 0 && !released && block.timestamp >= uint256(closedAt) + esc.CLAIM_GRACE() && (mask >> (i % 256)) & 1 == 1) out[n++] = th;
         }
         assembly ("memory-safe") { mstore(out, n) }
     }
@@ -166,9 +172,9 @@ contract GuestEscrowHandler is Test {
     }
     /// Monotonic per-key cumulativeOwed, checked across every action by the invariant below.
     function checkMonotonic() external {
-        for (uint256 b; b < 3; b++) for (uint256 h; h < 3; h++) for (uint256 k; k < 3; k++) {
+        for (uint256 b; b < 3; b++) for (uint256 h; h < termsCount[b]; h++) for (uint256 k; k < 3; k++) {
             bytes32 slot = keccak256(abi.encode(b, h, k));
-            uint256 now_ = esc.claimed(buyer(b), hashes[h], guest(k));
+            uint256 now_ = esc.claimed(buyer(b), termsHash(b, h), guest(k));
             if (now_ < lastClaimed[slot]) _flag("cumulativeOwed decreased");
             lastClaimed[slot] = now_;
         }
@@ -202,8 +208,8 @@ contract GuestEscrowInvariantTest is Test {
     }
     /// totalClaimed ≤ cap, and totalClaimed == Σ over guest keys of claimed.
     function invariant_paidWithinCap() public view {
-        for (uint256 b; b < 3; b++) for (uint256 i; i < 3; i++) {
-            address u = h.buyer(b); bytes32 th = h.hashes(i);
+        for (uint256 b; b < 3; b++) for (uint256 i; i < h.termsCount(b); i++) {
+            address u = h.buyer(b); bytes32 th = h.termsHash(b, i);
             (, uint256 cap,,) = esc.terms(u, th);
             uint256 tot = esc.totalClaimed(u, th);
             assertLe(tot, cap);
@@ -215,9 +221,9 @@ contract GuestEscrowInvariantTest is Test {
     function invariant_exposureAccounting() public view {
         for (uint256 b; b < 3; b++) {
             address u = h.buyer(b); uint256 sum;
-            for (uint256 i; i < 3; i++) {
-                (address o, uint256 cap,, bool released) = esc.terms(u, h.hashes(i));
-                if (o != address(0) && !released) sum += cap - esc.totalClaimed(u, h.hashes(i));
+            for (uint256 i; i < h.termsCount(b); i++) {
+                (address o, uint256 cap,, bool released) = esc.terms(u, h.termsHash(b, i));
+                if (o != address(0) && !released) sum += cap - esc.totalClaimed(u, h.termsHash(b, i));
             }
             assertEq(esc.exposure(u), sum);
         }

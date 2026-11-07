@@ -32,7 +32,7 @@ send() { local what=$1 from=$2 to=$3 data=$4
   [ "$(cast receipt --rpc-url $RPC "$h" --json | jq -r .status)" = 0x1 ] || { echo "$what failed: $h" >&2; exit 1; }
   printf '%s\t%s\n' "$what" "$h" >> $TXS; }
 
-forge build --force >/dev/null
+forge build >/dev/null
 # The KMS root is a test key (Minions.KMS_PK = 0x6B35 in test/LastResortBuyer.t.sol) so the smoke can sign a minion's chain.
 KMS_ROOT_UNCHECKED=1 CONTROLLER=$OWNER KMS_ROOT=$(cast wallet address --private-key 0x$(printf "%064x" 0x6B35)) forge script script/IssuanceLaunch.s.sol --rpc-url $RPC --broadcast --unlocked --sender $OWNER --slow
 IOUT=broadcast/IssuanceLaunch.s.sol/8453/run-latest.json

@@ -71,6 +71,9 @@ log broadcast/MainnetLP.s.sol/8453/run-latest.json "LP: "
 
 cast rpc --rpc-url $RPC evm_increaseTime 86401 >/dev/null && cast rpc --rpc-url $RPC evm_mine >/dev/null
 forge script script/MainnetSmoke.s.sol --sig 'open()' --rpc-url $RPC --broadcast --unlocked --sender $(acct 0) --slow
+echo "minion registered $(acct 8): $(cast call --rpc-url $RPC $LRB 'isMinion(address)(bool)' $(acct 8))"
+EPOCH=$(cast call --rpc-url $RPC $LAYC 'epoch()(uint256)' | cut -d' ' -f1)
+echo "floor capped at 1 LAYC: $(cast call --rpc-url $RPC $LRB 'floor(uint256)(uint256)' $EPOCH); book $(cast call --rpc-url $RPC $LRB 'units(uint256)(uint256)' $EPOCH)"
 cast rpc --rpc-url $RPC evm_increaseTime 86401 >/dev/null && cast rpc --rpc-url $RPC evm_mine >/dev/null
 forge script script/MainnetSmoke.s.sol --sig 'settle()' --rpc-url $RPC --broadcast --unlocked --sender $(acct 0) --slow
 log broadcast/MainnetSmoke.s.sol/8453/open-latest.json "smoke open: "; log broadcast/MainnetSmoke.s.sol/8453/settle-latest.json "smoke settle: "

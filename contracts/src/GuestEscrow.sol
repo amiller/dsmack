@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
+import {Owned} from "./Owned.sol";
 
 interface IERC20 {
     function transferFrom(address, address, uint256) external returns (bool);
@@ -27,7 +28,7 @@ interface IGuestAttest {
 /// Each guest key has its own cumulative per (buyer, terms hash); the sum over keys stays within the terms' cap.
 /// The buyer withdraws any time down to its exposure, the sum over unreleased terms of cap - totalClaimed. Closing terms
 /// keeps them claimable for CLAIM_GRACE; after that `release` (run inside withdraw) drops their remainder from exposure.
-contract GuestEscrow {
+contract GuestEscrow is Owned {
     uint64 public constant CLAIM_GRACE = 1 days;
     bytes32 public constant CLAIM_TYPEHASH = keccak256("Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed)");
     bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap)");
@@ -37,7 +38,6 @@ contract GuestEscrow {
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     bytes constant ATTEST_DOMAIN = "dsmack.appattest.guest-attest/1";
     IERC20 public immutable token;
-    address public immutable owner;
     IGuestAttest public immutable attest;
     /// The guest Attest client-data fields other than the event head and report_data.
     struct Attested { bytes32 image; bytes32 manifest; bytes32 run; bytes32 caller; }
@@ -63,10 +63,10 @@ contract GuestEscrow {
     event Released(address indexed user, bytes32 indexed termsHash, uint256 remainder);
     event Withdrawn(address indexed user, address indexed to, uint256 amount);
 
-    constructor(address token_, address owner_, IGuestAttest attest_) {
+    constructor(address token_, address owner_, IGuestAttest attest_) Owned(owner_) {
         require(token_ != address(0) && owner_ != address(0), "zero address");
         require(attest_.registry() == address(this), "attest registry");
-        (token, owner, attest) = (IERC20(token_), owner_, attest_);
+        (token, attest) = (IERC20(token_), attest_);
     }
 
     function workloadId(bytes32 image, bytes32 manifest, bytes32 caller) public pure returns (bytes32) {

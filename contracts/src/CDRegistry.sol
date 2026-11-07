@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
 import {StrictDER} from "attest/StrictDER.sol";
+import {Owned} from "./Owned.sol";
 
 /// Admits re-signed copies of one approved Mach-O, by any signer. Pinned (behavior):
 /// - code slots 1..n and codeLimit;
@@ -21,7 +22,7 @@ import {StrictDER} from "attest/StrictDER.sol";
 /// The owner sets the current build; rpIdHash resolves only CDHashes registered under it.
 /// Copies of any build ever approved stay registrable, and buildOf/rpOf resolve them, so a
 /// consumer can pin a build (Canary entries) independently of setBuild.
-contract CDRegistry {
+contract CDRegistry is Owned {
     struct Build {
         bytes32 rest;
         bytes32 maskedPage0;
@@ -31,8 +32,7 @@ contract CDRegistry {
         uint256 linkeditCmd;
         uint256 codeSigCmd;
     }
-    address public immutable owner;
-    constructor(address owner_) { require(owner_ != address(0), "owner"); owner = owner_; }
+    constructor(address owner_) Owned(owner_) { require(owner_ != address(0), "owner"); }
     mapping(bytes32 => bool) public approved;
     bytes32 public buildId;
     mapping(bytes32 => bytes32) public rpOf;

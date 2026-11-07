@@ -270,11 +270,13 @@ python3 contracts/guest_register.py $(jq -r .attestation guest-key) | jq -r .cal
 
 ## Base mainnet (chain 8453), planned
 
-`script/MainnetLaunch.s.sol` deploys AppleEndorsements (and endorses the Apple intermediate), CDRegistry, the key-directory
-AppleAttestRegistryV1 bound to a Canary, LayoverCredit, GuestEscrow's own AppleAttestRegistryV1 and GuestEscrow, and a
-USDC UsageEscrow, from one deployer that keeps no role. Owners come from `BUILD_OWNER`, `ESCROW_OWNER`, `USAGE_OWNER` and
-`MINT_OWNER`; CDRegistry now takes its owner as a constructor argument so a Safe can hold it. Run with `--force` and
-`--gas-estimate-multiplier 105` (the default 130% puts `endorseIntermediate` over Base's 2^24 per-transaction cap).
-`script/mainnet-fork.sh` rehearses it on an anvil fork with the owner steps (`setBuild`, `registerBuild`, both enrolls of
-the Mini key from `fixtures/mainnet/`) and `script/MainnetSmoke.s.sol`. The runbook, gas and service changes are in
-souk-co/layover `notes/mainnet-launch.md`.
+LAYC and its only minter, LastResortBuyer, come first (`script/IssuanceLaunch.s.sol`, the issuance lane): LAYC starts with
+no supply. `script/MainnetLaunch.s.sol` then takes `LAYC` and `OWNER` and deploys AppleEndorsements (and endorses the Apple
+intermediate), CDRegistry, the key-directory AppleAttestRegistryV1 bound to a Canary, GuestEscrow's own
+AppleAttestRegistryV1 and GuestEscrow, and a USDC UsageEscrow. `OWNER` holds CDRegistry, GuestEscrow and UsageEscrow; each
+hands its role on in two steps (`transferOwnership`, then `acceptOwnership` from the new owner, `src/Owned.sol`). Run
+`forge build --force` first and pass `--gas-estimate-multiplier 105` (the default 130% puts `endorseIntermediate` over
+Base's 2^24 per-transaction cap). `script/MainnetLP.s.sol` opens the LAYC/USDC Uniswap v3 pool at $1 with a USDC-only
+position from $0.80 to $1. `script/mainnet-fork.sh` rehearses all of it on an anvil fork, with the owner steps
+(`setBuild`, `registerBuild`, both enrolls of the Mini key from `fixtures/mainnet/`) and `script/MainnetSmoke.s.sol`. The
+runbook is souk-co/layover `notes/mainnet-launch.md`.

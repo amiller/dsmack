@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.21;
+import {Owned} from "./Owned.sol";
 
 interface IERC20 {
     function transferFrom(address, address, uint256) external returns (bool);
@@ -14,14 +15,13 @@ interface IERC3009 {
 
 /// @notice Prepaid token accounts (6-decimal base units). A user accepts terms (operator, cap) under a terms hash;
 /// the broker signs cumulative claims per user and terms hash, and the user's address salts the EIP-712 domain.
-contract UsageEscrow {
+contract UsageEscrow is Owned {
     uint64 public constant ESCAPE_DELAY = 14 days;
     bytes32 public constant CLAIM_TYPEHASH = keccak256("Claim(address operator,bytes32 termsHash,uint256 cumulativeOwed,uint64 period)");
     bytes32 public constant TERMS_TYPEHASH = keccak256("AcceptTerms(bytes32 termsHash,address operator,uint256 cap)");
     bytes32 private constant DOMAIN_TYPEHASH = keccak256("EIP712Domain(string name,string version,uint256 chainId,address verifyingContract,bytes32 salt)");
     uint256 private constant HALF_ORDER = 0x7fffffffffffffffffffffffffffffff5d576e7357a4501ddfe92f46681b20a0;
     IERC20 public immutable token;
-    address public immutable owner;
     address public brokerSigner;
     struct Node { address operator; uint8 unit; bytes32 composeHash; bytes32 imageHash; }
     struct Claim { address operator; bytes32 termsHash; uint256 cumulativeOwed; uint64 period; }
@@ -42,9 +42,9 @@ contract UsageEscrow {
     event Withdrawn(address indexed user, uint256 amount);
     event NodeRegistered(bytes32 indexed node, address indexed operator, uint8 unit, bytes32 composeHash, bytes32 imageHash);
 
-    constructor(address token_, address owner_) {
+    constructor(address token_, address owner_) Owned(owner_) {
         require(token_ != address(0) && owner_ != address(0), "zero address");
-        token = IERC20(token_); owner = owner_;
+        token = IERC20(token_);
     }
     function registerBroker(address broker) external {
         require(msg.sender == owner && brokerSigner == address(0) && broker != address(0), "broker admission");

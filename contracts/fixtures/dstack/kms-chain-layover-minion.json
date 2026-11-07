@@ -1,0 +1,12 @@
+{
+  "kmsRoot": "0x52d3CF51c8A37A2CCfC79bBb98c7810d7Dd4CE51",
+  "appId": "0xf92c25adb846ad686851488c39392b94f2d8cbb3",
+  "purpose": "layover-minion",
+  "address": "0x5DCD48fF9486Ca181a9eCf53f6008D1e8C90e7Fc",
+  "derivedPubkey": "0x0302f435fe74bcf1dfc9d85e83c43b17190f787e7a6f8245217f4e01aa357a66eb",
+  "appPubkey": "0x037b847fb7947baa3c38a360aab5a37307a549822f666ff1919d7378cefe99bb70",
+  "appSignature": "0x6e07b022cdb350538d55b7d13e4ebceb7c05ba08596c468436c6e62fa8b9bf672d28c2d6a864c01b117df28bcd0d1158796b72a27ef4721bc14215bdb7671b9401",
+  "kmsSignature": "0x870a976fc27981243c7a012cdfb9af01fc74a8f3fc121c71bdf23595a23379ce003eeb8e84f14b81349b57d6a6c38f4aea17d05df1fe1e7c2860175b5cda37ad01",
+  "source": "Live layover-tee /minion, dstack-0.5.12; verified with minion/keychain.py; address stable across CVM restart.",
+  "kmsContract": "0x2f83172A49584C017F2B256F0FB2Dca14126Ba9C"
+}

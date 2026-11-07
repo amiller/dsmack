@@ -292,6 +292,20 @@ contract LastResortBuyerTest is Minions {
 /// against a LastResortBuyer pinned to the Base KMS root: the chain reaches the root, and the key is refused only because
 /// it was derived for purpose "ethereum", not PURPOSE.
 contract LastResortBuyerRealChainTest is Test {
+    function testRealLayoverMinionChain() public {
+        string memory j = vm.readFile("fixtures/dstack/kms-chain-layover-minion.json");
+        address app = vm.parseJsonAddress(j, ".appId");
+        assertEq(app, address(0xF92c25ADB846Ad686851488C39392b94f2D8cBB3));
+        (LastResortBuyer lrb,) = Deploy.issuance(vm, address(this), vm.parseJsonAddress(j, ".kmsRoot"));
+        lrb.approveApp(app);
+        (bytes memory d, bytes memory a) = (vm.parseJsonBytes(j, ".derivedPubkey"), vm.parseJsonBytes(j, ".appPubkey"));
+        (bytes memory s1, bytes memory s2) = (vm.parseJsonBytes(j, ".appSignature"), vm.parseJsonBytes(j, ".kmsSignature"));
+        address expected = vm.parseJsonAddress(j, ".address");
+        address minion = lrb.registerMinion(app, d, a, s1, s2);
+        assertEq(minion, expected);
+        assertTrue(lrb.isMinion(minion));
+    }
+
     function testRealBaseKmsChain() public {
         string memory j = vm.readFile("fixtures/dstack/kms-chain-base-20260916.json");
         address app = vm.parseJsonAddress(j, ".appId");

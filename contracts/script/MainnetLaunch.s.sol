@@ -15,7 +15,7 @@ import {UsageEscrow} from "../src/UsageEscrow.sol";
 /// Two registries are bound to their consumer at deploy, so the order is fixed and the consumers' addresses are predicted.
 contract MainnetLaunch is Script {
     bytes16 constant AAGUID = "appattest";
-    uint32 constant CATEGORY = 3; // Apple Development, as on Base Sepolia
+    uint32 constant CATEGORY = 3; // Apple Development + Developer ID (registry policy accepts 3 and 6)
     address constant USDC = 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913;
 
     function run() external {

@@ -197,6 +197,13 @@ def deploy(args):
         return
     args.evidence.mkdir(parents=True, exist_ok=True)
     api = client(args.url, token())
+    if getattr(args, "retain_environment", False):
+        current = api("/_api/projects/" + project_name_value, auth=True)
+        if not {"OPERATOR_TOKEN_SHA256", "DSTACK_SOCKET"} <= set(current.get("env", {})):
+            raise ValueError("existing broker environment is missing its operator token or dstack socket")
+        # Webhost carries stored env forward when the upload omits env. Its read API
+        # masks values, so a code/config release must not round-trip those masks.
+        manifest = {key: value for key, value in manifest.items() if key != "env"}
     boundary = "relay-broker-" + secrets.token_hex(16)
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="manifest"\r\nContent-Type: application/json\r\n\r\n'.encode()
             + json.dumps(manifest).encode()
@@ -249,6 +256,7 @@ def main():
     p.add_argument("--url", default=WEBHOST)
     p.add_argument("--evidence", type=Path, required=True)
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--retain-environment", action="store_true", help="Keep the existing broker's complete stored environment, including the encrypted provider envelope")
     p.set_defaults(run=deploy)
     args = parser.parse_args()
     args.run(args)

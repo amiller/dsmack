@@ -399,6 +399,12 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			registrationMu.Unlock()
 			payment := paid.Registration
 			payment.Challenge = request.Challenge
+            freshKeyAttestation, err := attest(paid.GuestKeyReport())
+            if err != nil { return }
+            freshGuestKey := map[string]string{"address": paid.Registration.ReceiptSigner,
+                "operator": paid.Operator, "escrow": payments.GuestEscrow,
+                "attestation": hex.EncodeToString(freshKeyAttestation)}
+            copy["guest_key"] = freshGuestKey
 			copy["payments"] = payment
 			copy["attestation"] = hex.EncodeToString(att)
 			s.Write(canon(copy))

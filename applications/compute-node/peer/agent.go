@@ -59,7 +59,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		n.recordError(strings.Join(append([]string{code}, details...), ": "))
 		writeFrame(s, map[string]string{"status": "refused", "error": code})
 	}
-	if readFrame(s, 4096, &a) != nil {
+	if readFrame(s, 16384, &a) != nil {
 		refuse("grant")
 		return
 	}

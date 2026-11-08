@@ -128,6 +128,25 @@ class SourceGateTests(unittest.TestCase):
             self.assertEqual(paths, ['/_api/projects', '/_api/projects/relay-broker-staging/promote', '/relay-broker-staging/key'])
             guard.assert_called_once_with('local-fixture', 'relay-broker-staging', 'operator-fixture')
 
+            # A registry/config release must not erase the provider envelope when
+            # the operator can only read redacted environment values from webhost.
+            uploads=[]
+            def retained_api(path, **kwargs):
+                if path == '/_api/projects/relay-broker-staging':
+                    return {'env': {'OPERATOR_TOKEN_SHA256':'<redacted>', 'DSTACK_SOCKET':'<redacted>', 'NEAR_ENCRYPTED_ENV':'<redacted>'}}
+                if path == '/_api/projects':
+                    uploads.append(kwargs['body'])
+                    return dict(runtime='deno', isolation='container', mode='attested')
+                return {}
+            with patch.object(broker, 'source_ref', return_value='another-commit'), \
+                 patch.object(broker, 'token', return_value='fixture-only'), \
+                 patch.object(broker, 'client', return_value=retained_api), patch.object(broker, 'drained') as guard:
+                broker.deploy(SimpleNamespace(target='staging', prepared=root/'prepared', evidence=root/'retained-evidence',
+                                              apply=True, url='local-fixture', operator_token=root/'operator', retain_environment=True))
+            uploaded_manifest=json.loads(uploads[0].split(b'\r\n\r\n',1)[1].split(b'\r\n--',1)[0])
+            self.assertNotIn('env', uploaded_manifest)
+            guard.assert_called_once_with('local-fixture', 'relay-broker-staging', 'operator-fixture')
+
     def test_production_safe_block_tag_only_on_base_sepolia(self):
         broker=load('broker_deploy_safe', ROOT/'applications/relay-broker/deploy-inference.py')
         self.assertEqual(broker.payments_chain(), 84532)

@@ -21,7 +21,6 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>1.0</string>
-<key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 </dict></plist>
 PLIST

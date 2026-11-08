@@ -1,3 +1,4 @@
+import AppKit
 import CryptoKit
 import DeviceCheck
 import Foundation
@@ -109,6 +110,20 @@ Thread.detachNewThread {
 }
 
 if a[1] == "enroll", a.count == 4 {
+    // On Touch ID Macs, macOS requires an active GUI application context with an NSApplication
+    // run loop to evaluate Secure Enclave ACL requirements (csec(pslvl(1))) during attestKey().
+    let app = NSApplication.shared
+    app.setActivationPolicy(.regular)
+    app.activate(ignoringOtherApps: true)
+    let window = NSWindow(
+        contentRect: NSRect(x: 100, y: 100, width: 320, height: 180),
+        styleMask: [.titled, .closable],
+        backing: .buffered,
+        defer: false
+    )
+    window.title = "DsmackRunner Enrollment"
+    window.makeKeyAndOrderFront(nil)
+
     let svc = DCAppAttestService.shared
     guard svc.isSupported else { throw Fail("App Attest unsupported in this process; refusing to run") }
     setRunDeadline(started + .seconds(setupAllowanceSeconds))

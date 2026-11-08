@@ -136,8 +136,9 @@ export class AgentSessions {
         need(!existing.some(s => s.wallet === wallet && s.escrow?.termsHash === escrow.termsHash),
           "TERMS_ALREADY_USED", "use fresh accepted terms for each stay", 409);
         const t = JSON.parse(escrow.terms);
-        const browse = { ...browseTerms(fleet.find(m => m.publisher === placement.publisher)?.config?.browse, r.browse),
-          token: crypto.randomUUID().replaceAll("-", "") };
+        const { nanoUsdPerSecond: _legacyBrowsePrice, ...policy } =
+          browseTerms(fleet.find(m => m.publisher === placement.publisher)?.config?.browse, r.browse);
+        const browse = { ...policy, token: crypto.randomUUID().replaceAll("-", "") };
         const agreedBrowse = { mode: t.browse?.mode ?? t.browse?.default ?? "none", hosts: t.browse?.hosts ?? [] };
         need(browse.mode === agreedBrowse.mode && canonical({ hosts: browse.hosts }) === canonical({ hosts: agreedBrowse.hosts }),
           "BROWSE_REFUSED", "browse policy differs from accepted terms");

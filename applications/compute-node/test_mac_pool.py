@@ -255,17 +255,30 @@ class TransportDiscoveryTests(unittest.TestCase):
                 mac_pool.discover_transport(url, retry_seconds=.01)
             self.assertEqual(len(requests), 1)
 
-    def test_transport_outage_has_a_deadline_and_stop_skips_further_requests(self):
-        with transport_server([503]) as (url, requests), contextlib.redirect_stdout(io.StringIO()):
-            started = time.monotonic()
+    def test_transport_outage_has_a_deadline(self):
+        # Scheduling a local HTTP server must not consume the retry budget.
+        clock = [0.0]
+        timeouts = []
+        def unavailable(url, timeout):
+            timeouts.append(timeout)
+            clock[0] += .25  # Account for time spent in the request itself.
+            raise mac_pool.URLError('offline')
+        def sleep(seconds):
+            clock[0] += seconds
+        with mock.patch.object(mac_pool.time, 'monotonic', side_effect=lambda: clock[0]), \
+                mock.patch.object(mac_pool.time, 'sleep', side_effect=sleep), \
+                mock.patch.object(mac_pool, 'urlopen', side_effect=unavailable), \
+                contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, 'unavailable after'):
-                mac_pool.discover_transport(url, budget_seconds=.04, retry_seconds=.01)
-            self.assertGreater(len(requests), 1)
-            self.assertLess(time.monotonic() - started, 1)
-            calls = len(requests)
+                mac_pool.discover_transport('http://broker', budget_seconds=3, retry_seconds=1)
+        self.assertEqual(timeouts, [3, 1.75, .5])
+        self.assertEqual(clock[0], 3)
+
+    def test_stop_skips_further_requests(self):
+        with transport_server([503]) as (url, requests), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, 'stopped during'):
-                mac_pool.discover_transport(url, stopped=lambda: len(requests) > calls, retry_seconds=.01)
-            self.assertEqual(len(requests), calls + 1)
+                mac_pool.discover_transport(url, stopped=lambda: bool(requests), retry_seconds=.01)
+            self.assertEqual(len(requests), 1)
 
 
 class OwnedTransportCleanupTests(unittest.TestCase):

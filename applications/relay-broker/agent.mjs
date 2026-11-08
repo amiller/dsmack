@@ -138,8 +138,12 @@ export class AgentSessions {
         const t = JSON.parse(escrow.terms);
         const browse = { ...browseTerms(fleet.find(m => m.publisher === placement.publisher)?.config?.browse, r.browse),
           token: crypto.randomUUID().replaceAll("-", "") };
-        need(t.browse == null || (browse.mode === t.browse.mode && canonical({ hosts: browse.hosts }) === canonical({ hosts: t.browse.hosts ?? [] })),
+        const agreedBrowse = { mode: t.browse?.mode ?? t.browse?.default ?? "none", hosts: t.browse?.hosts ?? [] };
+        need(browse.mode === agreedBrowse.mode && canonical({ hosts: browse.hosts }) === canonical({ hosts: agreedBrowse.hosts }),
           "BROWSE_REFUSED", "browse policy differs from accepted terms");
+        const postedRate = fleet.find(m => m.publisher === placement.publisher)?.config?.rate_layc_per_second;
+        need(Number.isSafeInteger(postedRate) && postedRate > 0 && t.rate_layc_per_second === postedRate,
+          "RATE_CHANGED", "accepted LAYC rate differs from the host's signed offer", 409);
         const verifiedBlock = await fundedGuestStay(b, escrow, node);
         const seconds = t.minutes * 60;
         const expires = b.now() + seconds;

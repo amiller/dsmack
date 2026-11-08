@@ -48,6 +48,8 @@ export async function fundedGuestStay(b, escrow, node) {
  need(accepted.operator.toLowerCase() === t.operator && accepted.cap === BigInt(t.cap) && accepted.closedAt === 0n &&
    !accepted.released && balance[0] >= exposure[0] && exposure[0] >= BigInt(t.cap) && claimed[0] === 0n,
    "couch terms are not open and fully funded");
+ if (key.operator === "0x0000000000000000000000000000000000000000")
+   throw new InferenceError("GUEST_KEY_PENDING", "guest key registration is not in the broker's verified block yet", 409, 2);
  need(key.operator.toLowerCase() === t.operator && (await read("approved", [key.workload]))[0],
    "attested guest key is not registered under an approved workload");
  return s.block;

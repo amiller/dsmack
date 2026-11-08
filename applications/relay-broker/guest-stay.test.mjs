@@ -38,7 +38,7 @@ async function fixture() {
   attestation:{nodeBinding:{binding:{receiptSigner:guest.address}}}};
  const broker={payments,inference,key:brokerKey,cfg:{agent:{guestEscrowCodeHash:keccak256(code)}},live:()=>[node],gone:()=>false,now:()=>now};
  const fleet=async()=>[{publisher:operator.address.toLowerCase(),online:true,received_at:now,updated_at:now,
-  config:{max_guests:1},slots:[{slot_id:0,state:"ready",relay_peer:peer}]}];
+  config:{max_guests:1,rate_layc_per_second:15},slots:[{slot_id:0,state:"ready",relay_peer:peer}]}];
  const sessions=new AgentSessions(broker,fleet);
  const signed=async(action,extra={})=>{const body={action,wallet:buyer.address,nonce:hex(crypto.getRandomValues(new Uint8Array(16))),issuedAt:now,...extra};return {...body,sig:await buyer.signMessage(canonical(body))};};
  const open=async()=>sessions.open(await signed("agent-open",{conversationId:"thread-1",client_peer:peer,node_peer:peer,acceptedTerms}));
@@ -70,7 +70,7 @@ test("funded couch starts with no credit account and relays the guest claim with
 test("unfunded terms and unregistered or revoked guest keys cannot open a stay",async()=>{
  for(const [field,value] of [["balance",[0n]],["terms",["0x"+"00".repeat(20),4500n,0n,false]],["guestKeys",["0x"+"00".repeat(20),"0x"+"12".repeat(32),"0x"+"12".repeat(32),"0x"+"12".repeat(32)]],["approved",[false]]]){
   const f=await fixture();f.reads[field]=value;
-  await assert.rejects(f.open(),e=>e.code==="GUEST_ESCROW");
+  await assert.rejects(f.open(),e=>["GUEST_ESCROW","GUEST_KEY_PENDING"].includes(e.code));
   assert.equal(f.payments.state.agentSessions,undefined);assert.equal(f.payments.state.inferenceCredit,undefined);
  }
 });
@@ -84,4 +84,19 @@ test("tampered final flags and claims cannot stop or charge an active couch",asy
  next.claim.cumulative_owed="4501";
  await assert.rejects(f.sessions.receipt(next),e=>e.code==="GUEST_ESCROW");
  assert.equal(f.payments.state.agentSessions[s.sessionId].guestSeconds,0);
+});
+
+test("the signed host LAYC offer prevents accepting a cheaper buyer-authored rate", async () => {
+ const f=await fixture(),t=JSON.parse(f.acceptedTerms.terms);
+ t.rate_layc_per_second=14;t.cap="4200";
+ f.acceptedTerms.terms=JSON.stringify(t);f.acceptedTerms.termsHash=keccak256(toUtf8Bytes(f.acceptedTerms.terms));
+ await assert.rejects(f.open(),e=>e.code==="RATE_CHANGED");
+ assert.equal(f.payments.state.agentSessions,undefined);
+});
+
+test("the amin's accepted browse price card binds the host's default policy",async()=>{
+ const f=await fixture(),t=JSON.parse(f.acceptedTerms.terms);
+ t.browse={default:"none",open:5000,named:100};
+ f.acceptedTerms.terms=JSON.stringify(t);f.acceptedTerms.termsHash=keccak256(toUtf8Bytes(f.acceptedTerms.terms));
+ const s=await f.open();assert.equal(s.browse.mode,"none");assert.deepEqual(s.browse.hosts,[]);
 });

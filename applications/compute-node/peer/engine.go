@@ -60,7 +60,7 @@ type admission struct {
 type terms struct {
 	id               string
 	seconds, expires int64
-	escrow *payments.CouchTerms
+	escrow           *payments.CouchTerms
 }
 
 func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, now int64) (terms, error) {
@@ -89,12 +89,17 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 		return fail()
 	}
 	var escrow *payments.CouchTerms
- if value,ok:=body["escrow"];ok {
-  encoded,err:=json.Marshal(value);if err!=nil {return fail()}
-  escrow=&payments.CouchTerms{}
-  if json.Unmarshal(encoded,escrow)!=nil {return fail()}
- }
- return terms{id: id, seconds: int64(seconds), expires: int64(expiry), escrow:escrow}, nil
+	if value, ok := body["escrow"]; ok {
+		encoded, err := json.Marshal(value)
+		if err != nil {
+			return fail()
+		}
+		escrow = &payments.CouchTerms{}
+		if json.Unmarshal(encoded, escrow) != nil {
+			return fail()
+		}
+	}
+	return terms{id: id, seconds: int64(seconds), expires: int64(expiry), escrow: escrow}, nil
 }
 
 type engine struct {

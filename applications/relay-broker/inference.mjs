@@ -157,7 +157,7 @@ export class Inference {
       : action === "chat"
       ? ["sessionId", "body", "headers"]
       : action === "agent-open"
-      ? ["conversationId", "client_peer", "node_peer", "browse", "maxSpendNanoUsd", "operationId"]
+      ? ["conversationId", "client_peer", "node_peer", "browse", "maxSpendNanoUsd", "operationId", "acceptedTerms"]
       : ["agent-status", "agent-end"].includes(action)
       ? ["sessionId"]
       : [];
@@ -187,6 +187,19 @@ export class Inference {
       "wallet signature does not verify",
       403,
     );
+    const escrowStay = action === "agent-open" ? r.acceptedTerms !== undefined :
+      ["agent-status", "agent-end"].includes(action) && this.payments.state.agentSessions?.[r.sessionId]?.escrow;
+    if (escrowStay) {
+      // Authenticate wallet and nonce without touching its legacy credit ledger.
+      await this.payments.serial(async () => {
+        const nonces = Object.fromEntries(Object.entries(this.payments.state.guestRequestNonces ?? {})
+          .filter(([, at]) => at >= this.now() - 240));
+        const key = wallet + ":" + r.nonce;
+        check(!Object.hasOwn(nonces, key), "REQUEST_REPLAY", "wallet request nonce already used", 409);
+        await this.save({ ...this.payments.state, guestRequestNonces: { ...nonces, [key]: r.issuedAt } });
+      });
+      return wallet;
+    }
     const repeatable = ["prepare", "chat"].includes(action) || (action === "agent-open" && r.maxSpendNanoUsd !== undefined && r.operationId !== undefined);
     const requestHash = repeatable ? hex(new Uint8Array(await crypto.subtle.digest("SHA-256", enc.encode(canonical(unsigned))))) : undefined;
     await this.payments.syncBalance?.(wallet);

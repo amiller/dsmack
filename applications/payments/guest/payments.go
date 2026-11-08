@@ -114,10 +114,11 @@ type Registration struct {
 }
 type Meter struct {
 	Registration
-	key       *secp.PrivateKey
-	mu        sync.Mutex
-	sequences map[string]int64
-	closed    map[string]bool
+	key         *secp.PrivateKey
+	mu          sync.Mutex
+	sequences   map[string]int64
+	closed      map[string]bool
+	claimTotals map[string]*big.Int
 }
 
 // New binds a run to kid, the App Attest key that signs this guest's attestations (AttestedKeyID), not to a key named

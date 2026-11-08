@@ -9,7 +9,7 @@ import {CDRegistry} from "../src/CDRegistry.sol";
 import {P256Verifier} from "attest-test/P256Verifier.sol";
 contract Lookup is AppleAttestRegistryV1 {
     constructor(CDRegistry cds_,bytes16 aaguid_) AppleAttestRegistryV1(new AppleEndorsements(),msg.sender,cds_,aaguid_,3,false){}
-    function check(bytes memory auth) external view {(,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory);admit(cdhash,rp);}
+    function check(bytes memory auth) external view {(,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory,alternativeValidationCategory());admit(cdhash,rp);}
 }
 contract AppleAttestRegistryV1Test is Test {
     AppleAttestRegistryV1 adapter;CDRegistry cds;bytes cert;bytes auth;bytes clientData;bytes32 kid;bytes16 aaguid;string fixture;
@@ -87,8 +87,13 @@ contract AppleAttestRegistryV1Test is Test {
     function test_DeveloperIDEnrollmentThroughRegistry() public {
         developerID(6);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);
     }
-    function test_DeveloperIDNotAcceptedAsDevelopmentSigning() public {
-        developerID(3);vm.expectRevert("validation category");adapter.enroll(cert,auth,clientData,EF.id());
+    function test_DeveloperIDAcceptedAlongsideDevelopmentSigning() public {
+        developerID(3);assertEq(adapter.alternativeValidationCategory(),6);assertEq(adapter.enroll(cert,auth,clientData,EF.id()),kid);
+    }
+    function test_CategoryOutsideDevelopmentAndDeveloperIDRejected() public {
+        Lookup l=new Lookup(new CDRegistry(),bytes16("appattest"));
+        string memory f=vm.readFile("../app-attest/contracts/fixtures/iphone-apple.json");
+        vm.expectRevert("validation category");l.check(vm.parseJsonBytes(f,".assert.auth"));
     }
     function test_ReleaseDevelopmentAndDeveloperIDShareCodeBaseline() public {
         developerID(6);

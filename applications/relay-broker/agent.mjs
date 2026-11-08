@@ -4,6 +4,7 @@ import { peerBytes } from "./attestation.mjs";
 import { canonical, signGrant } from "./grants.mjs";
 import { receiptSigner } from "../payments/schema.mjs";
 import { accrue } from "./payments.mjs";
+import { couchTerms, fundedGuestStay, verifyGuestCheckpoint } from "./guest-stay.mjs";
 
 const need = (ok, code, message, status = 400) => {
   if (!ok) throw new InferenceError(code, message, status);
@@ -87,7 +88,7 @@ export class AgentSessions {
       ...(s.maxSpendNanoUsd !== undefined ? { maxSpendNanoUsd: s.maxSpendNanoUsd, operationId: s.operationId } : {}),
       stopReason: s.stopReason, rateNanoUsdPerSecond: s.rateNanoUsdPerSecond, browse: s.browse,
       active: this.active(s),
-      endRequested: !!s.endRequested, usageUnresolved: !s.final && !!s.receiptSeen && s.grant.expires_at <= this.b.now(), credit: this.b.inference.summary(s.wallet),
+      endRequested: !!s.endRequested, usageUnresolved: !s.final && !!s.receiptSeen && s.grant.expires_at <= this.b.now(), ...(s.escrow ? { escrow: s.escrow, claim: s.claim, rateLaycPerSecond: s.rateLaycPerSecond } : { credit: this.b.inference.summary(s.wallet) }),
     };
   }
   async open(r) {
@@ -129,6 +130,29 @@ export class AgentSessions {
       const offered = ranked.find(candidate => candidate.relay_peer === node.relay_peer && candidate.available);
       need(offered, "GUEST_BUSY", "guest logical slot is busy or no longer offered", 409);
       const placement = offered.placement;
+      if (r.acceptedTerms !== undefined) {
+        need(r.maxSpendNanoUsd === undefined && r.operationId === undefined, "BAD_REQUEST", "GuestEscrow stays use the accepted LAYC cap");
+        const escrow = couchTerms(r.acceptedTerms, wallet, node, placement, r.conversationId);
+        need(!existing.some(s => s.wallet === wallet && s.escrow?.termsHash === escrow.termsHash),
+          "TERMS_ALREADY_USED", "use fresh accepted terms for each stay", 409);
+        const t = JSON.parse(escrow.terms);
+        const browse = { ...browseTerms(fleet.find(m => m.publisher === placement.publisher)?.config?.browse, r.browse),
+          token: crypto.randomUUID().replaceAll("-", "") };
+        need(t.browse == null || (browse.mode === t.browse.mode && canonical({ hosts: browse.hosts }) === canonical({ hosts: t.browse.hosts ?? [] })),
+          "BROWSE_REFUSED", "browse policy differs from accepted terms");
+        const verifiedBlock = await fundedGuestStay(b, escrow, node);
+        const seconds = t.minutes * 60;
+        const expires = b.now() + seconds;
+        need(expires <= (node.payments.runExpires ?? 0) - 120 && expires <= (node.admit_until ?? expires),
+          "NODE_NOT_LIVE", "guest must outlive the accepted stay", 409);
+        const grant = await signGrant(b.key, { client_peer: r.client_peer, relay_peer: node.relay_peer,
+          unit: "seconds", seconds, expires_at: expires, escrow });
+        const s = { wallet, conversationId: r.conversationId, node, placement, browse, escrow, verifiedBlock,
+          grant, guestSeconds: 0, activeBudgetSeconds: seconds, rateLaycPerSecond: t.rate_layc_per_second,
+          reservedNanoUsd: "0", final: false, openedAt: b.now(), setupUntil: Math.min(b.now() + 90, expires) };
+        await this.save({ agentSessions: { ...b.payments.state.agentSessions, [grant.grant_id]: s } });
+        return this.view(s);
+      }
       const base = BigInt(b.cfg.payments?.prices?.S1?.nanoUsdPerSecond ?? "15000");
       need(base > 0n, "BAD_CONFIG", "guest second price must be positive", 503);
       const browse = { ...browseTerms(fleet.find(m => m.publisher === placement.publisher)?.config?.browse, r.browse),
@@ -181,8 +205,31 @@ export class AgentSessions {
       return this.view(s);
     });
   }
+  async guestClaim(r) {
+    const b = this.b;
+    return b.payments.serial(async () => {
+      const s = b.payments.state.agentSessions?.[r.sessionId];
+      need(s?.escrow, "SESSION_UNKNOWN", "unknown GuestEscrow stay", 403);
+      if (s.checkpoint && canonical(s.checkpoint) === canonical(r)) {
+        return { stop: !!s.endRequested || s.final, guestSeconds: s.guestSeconds, activeBudgetSeconds: s.grant.seconds };
+      }
+      need(!s.final, "SESSION_CLOSED", "stay is already final", 409);
+      await verifyGuestCheckpoint(r, s);
+      need(Number.isSafeInteger(r.endedAt) && r.endedAt >= (s.checkpoint?.endedAt ?? s.openedAt - receiptClockSkewSeconds) &&
+        r.endedAt <= b.now() + receiptClockSkewSeconds && r.endedAt <= s.grant.expires_at,
+        "GUEST_USAGE", "guest checkpoint timestamp outside stay", 409);
+      const stop = s.endRequested || r.final || b.now() >= s.grant.expires_at;
+      const next = { ...s, checkpoint: r, claim: r.claim, receiptSeen: true, guestSeconds: r.guestSeconds,
+        final: r.final, ...(r.final ? { closedReason: s.endRequested ? "owner" : "finished" } : {}) };
+      // Store and relay the guest's original claim. No credit debit or operator accrual.
+      await this.save({ agentSessions: { ...b.payments.state.agentSessions, [r.sessionId]: next } });
+      return { stop: !!stop, reason: s.endRequested ? "owner" : undefined, guestSeconds: next.guestSeconds,
+        activeBudgetSeconds: s.grant.seconds };
+    });
+  }
   async receipt(r) {
     const b = this.b;
+    if (r.claim !== undefined) return this.guestClaim(r);
     let signer;
     try { signer = receiptSigner(b.payments.cfg.escrow, r); }
     catch { throw new InferenceError("GUEST_SIGNATURE", "valid v5 guest receipt required", 403); }
@@ -192,6 +239,7 @@ export class AgentSessions {
       "BAD_REQUEST", "guest seconds receipt required");
     const session = b.payments.state.agentSessions?.[sessionId];
     need(session, "SESSION_UNKNOWN", "unknown guest session", 403);
+    need(!session.escrow, "GUEST_SIGNATURE", "GuestEscrow stay requires a guest claim", 403);
     need(signer.toLowerCase() === session.node.payments.receiptSigner.toLowerCase(),
       "GUEST_SIGNATURE", "receipt is not signed by the attested guest", 403);
     await b.payments.syncBalance(session.wallet);

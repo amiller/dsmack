@@ -3,6 +3,8 @@ package main
 import (
 	"bufio"
 	"bytes"
+ "crypto/ed25519"
+ "encoding/hex"
 	payments "dsmack-payments"
 	"encoding/json"
 	"fmt"
@@ -66,7 +68,10 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 		refuse("grant")
 		return
 	}
-	n.mu.Lock()
+	if t.escrow != nil {
+  if n.paid==nil || n.paid.ValidateCouchTerms(*t.escrow,t.seconds)!=nil {refuse("escrow-terms");return}
+ }
+ n.mu.Lock()
 	if a.Resume {
 		stay := n.agent
 		n.mu.Unlock()
@@ -111,6 +116,7 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 	used := func() int64 { return meter.used(time.Now()) }
 	var receiptMu sync.Mutex
 	finalized := false
+ var claimSequence int64
 	receipt := func(final bool) (bool, error) {
 		receiptMu.Lock()
 		defer receiptMu.Unlock()
@@ -124,8 +130,21 @@ func (n *engine) handleMCPIdle(s network.Stream, brokerURL string, client *http.
 			return true, fmt.Errorf("attested secp256k1 receipt meter required")
 		}
 		purchase, _ := new(big.Int).SetString(t.id, 16)
-		body, err := n.paid.Receipt(payments.Grant{PurchaseID: purchase.String(), Unit: 1,
-			Amount: strconv.FormatInt(t.seconds, 10), ServiceUntil: t.expires}, used(), final)
+		var body any
+        var err error
+        if t.escrow != nil {
+            usage:=used()
+            claim,claimErr:=n.paid.CouchClaim(*t.escrow,t.seconds,usage)
+            err=claimErr
+            claimSequence++
+            envelope:=map[string]any{"sessionId":t.id,"claim":claim,"guestSeconds":usage,"final":final,
+                "sequence":claimSequence,"endedAt":min(time.Now().Unix(),t.expires)}
+            envelope["controlSignature"]=hex.EncodeToString(ed25519.Sign(n.signer,canon(envelope)))
+            body=envelope
+        } else {
+            body,err=n.paid.Receipt(payments.Grant{PurchaseID: purchase.String(), Unit: 1,
+                Amount: strconv.FormatInt(t.seconds, 10), ServiceUntil: t.expires}, used(), final)
+        }
 		if err != nil {
 			return true, err
 		}

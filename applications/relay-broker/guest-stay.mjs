@@ -1,4 +1,4 @@
-import { Interface, keccak256, toUtf8Bytes, verifyTypedData, zeroPadValue } from "npm:ethers@6.17.0";
+import { Interface, keccak256, toUtf8Bytes, verifyTypedData, zeroPadValue } from "../payments/schema.mjs";
 import { InferenceError } from "./inference.mjs";
 import { canonical } from "./grants.mjs";
 

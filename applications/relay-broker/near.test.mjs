@@ -190,3 +190,14 @@ Deno.test("transport errors distinguish timeout, abort and attested connection f
     await assert.rejects(() => new NearProvider().chatEncrypted({ model: "test", body: {}, attestation }), refusal(code));
   }
 });
+
+Deno.test("only definitive authentication refusals mark a dispatch rejected", async () => {
+  for (const status of [401, 403, 429, 500]) {
+    const p = new NearProvider({ fetcher: () => new Response("private provider body", { status }) });
+    await assert.rejects(() => p.request("/v1/chat/completions", { token: "fixture", method: "POST" }), error => {
+      assert.equal(error.dispatchRejected, status === 401 || status === 403);
+      assert(!error.message.includes("private provider body"));
+      return true;
+    });
+  }
+});

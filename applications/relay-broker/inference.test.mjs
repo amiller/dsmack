@@ -778,3 +778,37 @@ test("the 278-byte usage check reports already sent after duplicate delivery or 
   const reusedNonce = await f.signed("credit", { nonce: request.nonce });
   await assert.rejects(restarted.credit(reusedNonce), code("REQUEST_REPLAY"));
 });
+
+test("provider authentication refusal retains a rejected dispatch without trapping wallet credit", async () => {
+  const f = fixture();
+  await f.credit();
+  const original = f.provider.chatEncrypted;
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("refused"), {
+    code: "PROVIDER_HTTP_401", dispatchRejected: true,
+  }); };
+  await assert.rejects(f.send, code("PROVIDER_HTTP_401"));
+  const [id, rejected] = Object.entries(f.saved().inferenceRequests)[0];
+  assert.equal(rejected.status, "rejected");
+  assert.equal(rejected.rejectionCode, "PROVIDER_HTTP_401");
+  assert.equal(rejected.inferenceId, null);
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd, "0");
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "0");
+  assert.equal((await f.inference.recover()).pendingRequests, 0);
+  f.provider.chatEncrypted = original;
+  await (await f.send()).text();
+  await f.inference.usage(await f.signed("usage"));
+  assert.deepEqual(f.saved().inferenceRequests[id], rejected);
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "300");
+});
+
+test("ambiguous provider transport failure keeps its reservation across restart", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("transport"), { code: "PROVIDER_TRANSPORT" }); };
+  await assert.rejects(f.send, code("PROVIDER_TRANSPORT"));
+  const state = f.saved(), wallet = f.wallet.address.toLowerCase();
+  assert(state.inferenceCredit[wallet].pending);
+  assert(BigInt(f.inference.summary(wallet).reservedNanoUsd) > 0n);
+  assert.equal((await f.inference.recover()).pendingRequests, 1);
+  assert.deepEqual(f.saved(), state);
+});

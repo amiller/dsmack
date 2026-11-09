@@ -100,7 +100,7 @@ export class Inference {
     return {
       pendingRequests:
         Object.values(this.payments.state.inferenceRequests ?? {}).filter((r) =>
-          r.status !== "charged"
+          r.status !== "charged" && r.status !== "rejected"
         ).length,
     };
   }
@@ -558,6 +558,20 @@ export class Inference {
       this.activeRequests.delete(localId);
       await response?.body?.cancel();
       session.attestation.transport?.close?.();
+      if (error.dispatchRejected === true) {
+        await this.payments.serial(async () => {
+          const state = this.payments.state, ledger = state.inferenceRequests[localId];
+          const account = this.account(wallet);
+          check(account.pending === localId && ledger.status === "sent" && !ledger.inferenceId,
+            "USAGE_MISMATCH", "rejected dispatch ledger changed", 502);
+          await this.save({
+            ...state,
+            inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...account, pending: null } },
+            inferenceRequests: { ...state.inferenceRequests,
+              [localId]: { ...ledger, status: "rejected", rejectionCode: error.code, rejectedAt: this.now() } },
+          });
+        });
+      }
       throw error;
     }
     const inference = this, decoder = new TextDecoder(), providerReader = response.body.getReader();

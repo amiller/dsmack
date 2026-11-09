@@ -6,6 +6,7 @@ python3 workload.py <repo> <base commit> <ethers.js> <base image files> <out>
 
 Prints manifest_sha256, os_image_hash and the workload disk digest; out/ holds compose-manifest.json and workload.img.
 """
+import base64
 import gzip
 import hashlib
 import io
@@ -34,6 +35,11 @@ def fsha(p):
         for b in iter(lambda: f.read(1 << 20), b""):
             h.update(b)
     return h.hexdigest()
+
+
+def b64(p):
+    """Compose rejects '$' anywhere, so the measured driver source travels base64-encoded."""
+    return base64.b64encode(p.read_bytes()).decode()
 
 
 def fetch_node(out):
@@ -75,8 +81,8 @@ def manifest(files, node_sha256, pinned):
     bounty = {"HOST": HOST, "PORT": PORT, "CANDIDATE": inputs.CANDIDATE, "PINNED": pinned,
               "CHECK": (here / "check-98.mjs").read_text(), "DOMAIN": inputs.DOMAIN}
     checker = {"image": "127.0.0.1:5005/node@" + NODE_DIGEST, "entrypoint": ["/usr/local/bin/node"],
-               "command": ["--input-type=module", "-e", (here / "driver.mjs").read_text()],
-               "environment": {"BOUNTY": json.dumps(bounty, sort_keys=True, separators=(",", ":"))}, "read_only": True,
+               "command": ["--input-type=module", "-e", 'await import("data:text/javascript;base64,%s")' % b64(here / "driver.mjs")],
+               "environment": {"BOUNTY": base64.b64encode(canon(bounty)).decode()}, "read_only": True,
                "volumes": ["state:/workspace/state:rw", "artifacts:/workspace/artifacts:rw",
                            "/var/run/dstack.sock:/var/run/dstack.sock:ro"]}
     return canon({
@@ -88,9 +94,17 @@ def manifest(files, node_sha256, pinned):
         "docker_compose_file": canon({"services": {"checker": checker}}).decode(),
         "harness": {"name": "node", "path": "/usr/local/bin/node", "sha256": node_sha256, "version": "node-24.15.0"},
         "image_platform": {"architecture": "arm64", "os": "linux"},
-        "limits": {"timeout_s": 600},
+        "limits": {"output_max_bytes": 1 << 24, "timeout_s": 600, "workspace_max_bytes": 1 << 28},
+        "required_envs": [],
+        "runner": {"compose_tool": {"name": "docker-compose", "version": "2.26.1-4"}, "container_runtime": "runc",
+                   "kind": "oci-compose", "runtime_closure": {"components": [{"name": "runc", "path": "/usr/bin/runc",
+                   "registration_args": [], "sha256": "6a8bd8a019e7b10a8d30a9fa85656f795d5957ab7269e5579f438a065b753332"}]},
+                   "runtime_name": "runc", "runtime_version": "1.1.15+ds1"},
+        "runtime_inputs": {"env": {"mode": "inject"}, "stdin": {"max_bytes": 0, "mode": "none"},
+                           "user_config": {"max_bytes": 0, "mode": "none"}},
         "network": {"mode": "nat", "listen_ports": [], "egress": [{"destination": HOST + "/32", "protocol": "tcp", "port": PORT}]},
-        "outputs": {"artifacts": [{"name": "result", "path": "/workspace/artifacts/result.json"}], "capture": ["stdout", "stderr"]}})
+        "outputs": {"artifacts": [{"name": "result", "path": "/workspace/artifacts/result.json"}], "capture": ["stdout", "stderr"],
+                    "completion_service": "checker"}})
 
 
 if __name__ == "__main__":

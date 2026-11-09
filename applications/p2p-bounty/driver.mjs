@@ -10,7 +10,7 @@ import { dirname } from "node:path";
 import { request } from "node:http";
 import { connect } from "node:net";
 
-const { HOST, PORT, CANDIDATE, PINNED, CHECK, DOMAIN } = JSON.parse(process.env.BOUNTY);
+const { HOST, PORT, CANDIDATE, PINNED, CHECK, DOMAIN } = JSON.parse(Buffer.from(process.env.BOUNTY, "base64"));
 const sha = (alg, b) => createHash(alg).update(b).digest();
 const need = (ok, msg) => { if (!ok) throw new Error(msg); };
 

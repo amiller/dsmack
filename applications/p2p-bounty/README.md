@@ -36,9 +36,12 @@ passing through its refusal code and status unchanged.
 
 ## Claim
 
-You need an Apple-silicon Mac on macOS 27, the runner alpha.3 zip (`DsmackRunner.app`, the
-guest image, disk templates and `gvproxy`), this bounty's `workload.img`,
-`compose-manifest.json` and `ethers.js`, Foundry and a little Base ETH for gas.
+You need an Apple-silicon Mac on macOS 27, the
+[runner alpha.3](https://github.com/amiller/dsmack/releases/tag/runner-v0.1.0-alpha.3) zip
+unpacked as `runner/` (gunzip its `runtime/base/*.ext4.gz`), gvisor-tap-vsock v0.8.9's
+`gvproxy-darwin` at `runner/runtime/helper/gvproxy-darwin` (sha256
+`c6f7b4bc7f21bf810b5cf54e04d979b014c5d96472a03a9e97fe62a00940067c`), this bounty's
+`workload.img`, `compose-manifest.json` and `ethers.js`, Foundry, and a little Base ETH for gas.
 
 1. Fix #98 on a branch of this repository and commit, but don't push until you have claimed:
    anyone with an enrolled Mac can claim a fix that is already public.
@@ -46,16 +49,15 @@ guest image, disk templates and `gvproxy`), this bounty's `workload.img`,
 
    ```sh
    head -c 32 /dev/urandom > challenge.bin
-   open -n -W DsmackRunner.app --args enroll $PWD/enrollment $PWD/challenge.bin
-   read LEAF AUTH < <(PYTHONPATH=$DSMACK python3 -c "import sys;from verifier.core import decode;a=decode(open(sys.argv[1],'rb').read());print('0x'+a['attStmt']['x5c'][0].hex(),'0x'+a['authData'].hex())" enrollment/attestation.cbor)
-   cast send $VERIFIER 'enroll(bytes,bytes,bytes,bytes32)' $LEAF $AUTH 0x$(xxd -p enrollment/clientData.bin | tr -d '\n') \
+   open -n -W runner/DsmackRunner.app --args enroll $PWD/runner/enrollment $PWD/challenge.bin
+   read LEAF AUTH < <(PYTHONPATH=$DSMACK python3 -c "import sys;from verifier.core import decode;a=decode(open(sys.argv[1],'rb').read());print('0x'+a['attStmt']['x5c'][0].hex(),'0x'+a['authData'].hex())" runner/enrollment/attestation.cbor)
+   cast send $VERIFIER 'enroll(bytes,bytes,bytes,bytes32)' $LEAF $AUTH 0x$(xxd -p runner/enrollment/clientData.bin | tr -d '\n') \
      0xb4fb420570c9ae811939c8953a785ed10beeca40453a89404f36e87a12b88d90 --gas-limit 16000000 --rpc-url $RPC --account $ACCOUNT
    ```
 
    If you re-sign the runner under your own team, `registerBuild` it on the CDRegistry first.
-3. Build the request and run the checker. `runner/` holds `DsmackRunner.app`, `base/`,
-   `runtime/base/*-template.ext4`, `runtime/helper/gvproxy-darwin` and `enrollment/`; `run/`
-   holds `workload.img` and `compose-manifest.json`:
+3. Build the request and run the checker, with `enrollment/` from step 2 inside `runner/` and
+   `workload.img` and `compose-manifest.json` in `run/`:
 
    ```sh
    python3 -c "import json,inputs;print(json.dumps(inputs.request('$DSMACK','260ac93fb247d057829e033bac24d33ecf9dd2c7','<your commit>','<payee>',8453,'$BOUNTY',0,'ethers.js')))" > request.json

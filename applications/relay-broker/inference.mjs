@@ -87,13 +87,36 @@ export class Inference {
     await this.payments.serial(async () => {
       const state = this.payments.state;
       const requests = { ...state.inferenceRequests };
+      const accounts = { ...state.inferenceCredit };
       let changed = false;
+      // Operator configuration may carry definitive refusals read from the
+      // authenticated webhost log. Match both the short nonce reference and
+      // dispatch time, uniquely; never turn an unknown dispatch into a refund.
+      for (const evidence of this.cfg.rejectedDispatches ?? []) {
+        const at = Date.parse(evidence.time) / 1000;
+        check(evidence.event === "near_chat" && /^[0-9a-f]{8}$/.test(evidence.ref) &&
+          [401, 403].includes(evidence.http_status) && Number.isFinite(at),
+          "USAGE_MISMATCH", "authentication refusal evidence required", 502);
+        const matches = Object.entries(requests).filter(([, r]) =>
+          r.requestNonce?.slice(0, 8) === evidence.ref &&
+          r.createdAt <= at && at - r.createdAt <= 60);
+        check(matches.length === 1, "USAGE_MISMATCH", "refusal must identify exactly one dispatch", 502);
+        const [id, request] = matches[0];
+        if (request.status === "rejected" && request.rejectionEvidence &&
+          canonical(request.rejectionEvidence) === canonical(evidence)) continue;
+        check(request.status === "sent" && !request.inferenceId && accounts[request.wallet]?.pending === id,
+          "USAGE_MISMATCH", "refusal does not match an unresolved dispatch", 502);
+        requests[id] = { ...request, status: "rejected", rejectionCode: `PROVIDER_HTTP_${evidence.http_status}`,
+          rejectionEvidence: evidence, rejectedAt: this.now() };
+        accounts[request.wallet] = { ...accounts[request.wallet], pending: null };
+        changed = true;
+      }
       for (const [id, request] of Object.entries(requests)) {
         if (request.status !== "streaming" || !request.inferenceId) continue;
         requests[id] = { ...request, status: "responded", interrupted: true };
         changed = true;
       }
-      if (changed) await this.save({ ...state, inferenceRequests: requests });
+      if (changed) await this.save({ ...state, inferenceRequests: requests, inferenceCredit: accounts });
     });
     // A persisted dispatch without a billing ID is ambiguous. Keep its credit
     // reserved: restarting must never send another request on its behalf.

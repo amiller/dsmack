@@ -294,3 +294,19 @@ and voucher file to recover an interrupted response. The broker applies each
 nonce once; the recipient refreshes credit to continue its saved conversation.
 A new wallet starts with its gifted amount; refreshing credit preserves it.
 Existing grants and spending survive broker restarts unchanged.
+
+## Recover historical authentication refusals
+
+A broker version that reserved credit before recording provider refusals can
+retain a `sent` dispatch with no billing ID. Read the authenticated webhost
+`/_api/projects/PROJECT/logs?tail=2000` on the deployment machine. For each
+confirmed `near_chat` HTTP 401 or 403, retain only its `event`, `ref`, `time` and
+`http_status` fields in the operator config's `inference.rejectedDispatches`
+array. Prepare and deploy with `deploy-inference.py` and its authenticated drain.
+
+At startup the broker matches each record to exactly one persisted request by
+nonce reference and dispatch time (within 60 seconds). It records the refusal
+on that request and releases its reservation atomically. Reapplying the same
+evidence is idempotent. The request remains in the ledger. Requests with known
+billing IDs continue through `/inference/usage`; transport failures retain their
+reservations until provider billing evidence is available.

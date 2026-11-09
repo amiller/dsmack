@@ -465,11 +465,13 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return err
 		}
 	} else if err := renew(); err != nil {
-		fmt.Fprintln(os.Stderr, "awaiting paid admission:", err)
+		reportRenewal("awaiting paid admission", err)
 	}
 	fmt.Println("compute node registered", h.ID())
-	tick := time.NewTicker(90 * time.Second)
-	defer tick.Stop()
+	reservationTick := time.NewTicker(90 * time.Second)
+	defer reservationTick.Stop()
+	registrationTick := time.NewTicker(25 * time.Second)
+	defer registrationTick.Stop()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(stop)
@@ -482,10 +484,11 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return fmt.Errorf("tool server exited: %v", err)
 		case err := <-gatewayErrors:
 			return err
-		case <-tick.C:
+		case <-reservationTick.C:
 			if err := reserve(); err != nil {
 				return err
 			}
+		case <-registrationTick.C:
 			if paid == nil {
 				if err := renew(); err != nil {
 					renewalFailures++
@@ -497,7 +500,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 					renewalFailures = 0
 				}
 			} else if err := renew(); err != nil {
-				fmt.Fprintln(os.Stderr, "paid registration:", err)
+				reportRenewal("paid registration", err)
 			}
 		case <-timer.C:
 			return nil

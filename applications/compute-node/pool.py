@@ -559,6 +559,7 @@ class Pool:
 
     def snapshot(self):
         now = time.monotonic()
+        wall_now = time.time()
         slots = []
         for slot in self.slots:
             active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
@@ -573,7 +574,8 @@ class Pool:
                         replaced = any(n['node'] and n['started'] > node['started'] for n in active)
                         state = ('draining' if now >= node['started'] + node['admit_seconds']
                                  else 'busy' if registered.get('telemetry', {}).get('busy')
-                                 else 'draining' if replaced else 'ready')
+                                 else 'draining' if replaced
+                                 else 'attesting' if registered.get('expires_at', 0) <= wall_now else 'ready')
                     elif (node['path']/'out/console-v3.log').exists():
                         state = 'attesting'
                 error = slot['last_error']

@@ -55,7 +55,7 @@ export class Broker {
     require(!this.payments || r.payments, "paid broker requires receipt key admission");
     const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);
     const out = Object.fromEntries(["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"].map((k) => [k, r[k]]));
-    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
+    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: this.now() + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
     if (r.payments) out.payments = r.payments;
     if (r.guest_key) out.guest_key = r.guest_key;

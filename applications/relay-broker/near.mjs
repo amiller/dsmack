@@ -35,7 +35,10 @@ async function upstreamError(response, observed = () => {}) {
       } finally { await reader.cancel(); reader.releaseLock(); }
     }
   } catch { /* A malformed error body must not hide its HTTP status. */ }
-  return new NearError(`PROVIDER_HTTP_${response.status}${shortCode}`, response.status === 429 ? 429 : 502);
+  const error = new NearError(`PROVIDER_HTTP_${response.status}${shortCode}`, response.status === 429 ? 429 : 502);
+  // Authentication refusal is definitive: the provider did not accept inference.
+  error.dispatchRejected = response.status === 401 || response.status === 403;
+  return error;
 }
 function transportError(error, signal, fallback = "PROVIDER_TRANSPORT") {
   return new NearError(signal?.aborted || error?.name === "AbortError" ? "PROVIDER_ABORTED"

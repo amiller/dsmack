@@ -78,20 +78,21 @@ def manifest(files, node_sha256, pinned):
     meta = json.loads((files / "metadata.json").read_bytes())
     root = [t.split("=", 1)[1] for t in meta["cmdline"].split() if t.startswith("dstack.rootfs_hash=")][0]
     here = Path(__file__).resolve().parent
-    bounty = {"HOST": HOST, "PORT": PORT, "CANDIDATE": inputs.CANDIDATE, "PINNED": pinned,
-              "CHECK": (here / "check-98.mjs").read_text(), "DOMAIN": inputs.DOMAIN}
-    checker = {"image": "127.0.0.1:5005/node@" + NODE_DIGEST, "entrypoint": ["/usr/local/bin/node"],
-               "command": ["--input-type=module", "-e", 'await import("data:text/javascript;base64,%s")' % b64(here / "driver.mjs")],
-               "environment": {"BOUNTY": base64.b64encode(canon(bounty)).decode()}, "read_only": True,
-               "volumes": ["state:/workspace/state:rw", "artifacts:/workspace/artifacts:rw",
-                           "/var/run/dstack.sock:/var/run/dstack.sock:ro"]}
+    bounty = {"HOST": HOST, "PORT": PORT, "CANDIDATE": inputs.CANDIDATE, "PINNED": pinned, "DOMAIN": inputs.DOMAIN}
+    node = {"image": "127.0.0.1:5005/node@" + NODE_DIGEST, "entrypoint": ["/usr/local/bin/node"], "read_only": True}
+    run = lambda f: ["--input-type=module", "-e", 'await import("data:text/javascript;base64,%s")' % b64(here / f)]
+    services = {
+        "checker": dict(node, command=run("driver.mjs"),
+                        environment={"BOUNTY": base64.b64encode(canon(bounty)).decode()},
+                        volumes=["artifacts:/workspace/artifacts:rw", "/var/run/dstack.sock:/var/run/dstack.sock:ro"]),
+        "candidate": dict(node, command=run("harness.mjs"), volumes=["state:/workspace/state:rw"])}
     return canon({
         "manifest_version": 4, "name": NAME, "allowed_envs": [], "allowed_files": [],
         "base_vm": {"architecture": "aarch64", "cmdline": meta["cmdline"], "memory_mb": 4096, "vcpus": 1,
                     "initrd_sha256": fsha(files / "initramfs.cpio.gz"), "kernel_sha256": fsha(files / "Image"),
                     "metadata_sha256": fsha(files / "metadata.json"), "os_image_hash": fsha(files / "sha256sum.txt"),
                     "rootfs_sha256": fsha(files / "rootfs.squashfs.verity"), "verity_root_hash": root},
-        "docker_compose_file": canon({"services": {"checker": checker}}).decode(),
+        "docker_compose_file": canon({"services": services}).decode(),
         "harness": {"name": "node", "path": "/usr/local/bin/node", "sha256": node_sha256, "version": "node-24.15.0"},
         "image_platform": {"architecture": "arm64", "os": "linux"},
         "limits": {"output_max_bytes": 1 << 24, "timeout_s": 600, "workspace_max_bytes": 1 << 28},

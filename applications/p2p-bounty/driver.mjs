@@ -1,16 +1,15 @@
-// Guest side of a p2p bounty run. The host sends one JSON line over the pinned egress:
-// {chain_id, bounty, id, payee, commit, objects: [hex loose git objects], files: {path: base64}}.
-// Every byte is checked against this measured file: base files and ethers by PINNED sha256, the
-// candidate file by walking git objects down from `commit`. The check runs offline; only if it
-// passes does this call /v1/Attest with report_data = Bounty.reportData(id, payee, commit).
-import { createHash } from "node:crypto";
-import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { dirname } from "node:path";
-import { request } from "node:http";
+// The `checker` service, the only one the bounty pins and the only one with the dstack socket. The host
+// sends one JSON line over the pinned egress: {chain_id, bounty, id, payee, commit, objects: [hex loose git
+// objects], files: {path: base64}}. Base files and ethers are checked against PINNED sha256 and the candidate
+// file against the git objects under `commit`. No candidate code runs here: the `candidate` service runs it
+// against stub stores this process serves with per-run random answers, and this process judges the results.
+// Only if all cases match does it call /v1/Attest with report_data = Bounty.reportData(id, payee, commit).
+import { createHash, randomBytes, randomInt } from "node:crypto";
+import { writeFileSync } from "node:fs";
+import { createServer, request } from "node:http";
 import { connect } from "node:net";
 
-const { HOST, PORT, CANDIDATE, PINNED, CHECK, DOMAIN } = JSON.parse(Buffer.from(process.env.BOUNTY, "base64"));
+const { HOST, PORT, CANDIDATE, PINNED, DOMAIN } = JSON.parse(Buffer.from(process.env.BOUNTY, "base64"));
 const sha = (alg, b) => createHash(alg).update(b).digest();
 const need = (ok, msg) => { if (!ok) throw new Error(msg); };
 
@@ -30,7 +29,7 @@ function object(id, type) {
   return raw.subarray(nul + 1);
 }
 let id = /^tree ([0-9a-f]{40})$/m.exec(object(req.commit, "commit").toString())[1];
-for (const [i, name] of CANDIDATE.split("/").entries()) {
+for (const name of CANDIDATE.split("/")) {
   const tree = object(id, "tree");
   let found;
   for (let p = 0; p < tree.length && !found;) {
@@ -46,16 +45,32 @@ for (const [path, digest] of Object.entries(PINNED)) {
   files[path] = Buffer.from(req.files[path], "base64");
   need(sha("sha256", files[path]).toString("hex") === digest, "pinned file mismatch " + path);
 }
-const root = "/workspace/state/tree";
 files["applications/payments/schema.mjs"] = Buffer.from(files["applications/payments/schema.mjs"].toString().replaceAll('"npm:ethers@6.17.0"', '"/workspace/state/tree/ethers.js"'));
-files["check.mjs"] = Buffer.from(CHECK);
-for (const [path, raw] of Object.entries(files)) { mkdirSync(dirname(root + "/" + path), { recursive: true }); writeFileSync(root + "/" + path, raw); }
 
+const token = randomBytes(16).toString("hex"), code = "E_" + randomBytes(6).toString("hex").toUpperCase(), status = randomInt(400, 500);
+const stub = createServer((req, res) => {
+  const ok = req.url === "/begin";
+  res.writeHead(ok ? 200 : status, { "content-type": "application/json" });
+  res.end(JSON.stringify(ok ? { token } : { error: { code, message: "refused" } }));
+});
+await new Promise((resolve) => stub.listen(8081, "0.0.0.0", resolve));
+const cases = [{ url: "http://checker:8081", action: "begin" }, { url: "http://checker:8081", action: "commit" }, { url: "http://checker:8082", action: "begin" }];
+const body = JSON.stringify({ files: Object.fromEntries(Object.entries(files).map(([p, b]) => [p, b.toString("base64")])), cases });
+const post = () => new Promise((resolve, reject) => {
+  const r = request({ host: "candidate", port: 8080, path: "/run", method: "POST", timeout: 120000 }, (res) => {
+    let b = ""; res.on("data", (c) => b += c); res.on("end", () => resolve(b));
+  });
+  r.on("error", reject); r.on("timeout", () => r.destroy(new Error("candidate timeout"))); r.end(body);
+});
 let out = { commit: req.commit, payee: req.payee, passed: false };
-try {
-  out.log = execFileSync(process.execPath, ["check.mjs"], { cwd: root, timeout: 120000, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
-  out.passed = true;
-} catch (error) { out.log = String(error.stdout ?? "") + String(error.stderr ?? error.message); }
+for (let i = 0; i < 60 && out.results === undefined; i++) {
+  try { out.results = JSON.parse(await post()); } catch (error) { out.error = String(error); await new Promise((r) => setTimeout(r, 1000)); }
+}
+const [live, refused, down] = out.results ?? [];
+out.passed = live?.value?.token === token && Object.keys(live.value).length === 1
+  && refused?.code === code && refused?.status === status
+  && down?.code === "WORKSPACE_STORE_UNAVAILABLE" && down?.status === 503;
+stub.close();
 
 if (out.passed) {
   const u256 = (v) => Buffer.from(BigInt(v).toString(16).padStart(64, "0"), "hex");

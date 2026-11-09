@@ -26,7 +26,7 @@ continuity. It defaults to `rpc` followed by the public Base Sepolia providers.
 `continuity.rpcs` selects a separate ordered list for the sync anchor.
 
 Start with `config.example.json`; set the RPC, App Attest registries and approved
-workload tuples (`manifest_sha256`, `os_image_hash`, `cdhash`, `service`). Compute
+workload tuples (`manifest_sha256`, `os_image_hash`, `service`); CDRegistry decides the runner CDHash, so copies re-signed under any team are admitted once registered. Compute
 the manifest SHA-256 from the exact compose bytes and obtain the image hash from
 its `base_vm.os_image_hash`. App Attest keys are read only from
 AppleAttestRegistry (`keys(kid)`); the broker refuses a config with

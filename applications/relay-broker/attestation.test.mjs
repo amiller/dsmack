@@ -12,3 +12,8 @@ test("paid registration binds its settlement key and fresh challenge",async()=>{
  await assert.rejects(verifyRelay({...r,payments:{...r.payments,receiptSigner:Wallet.createRandom().address}},cfg,chain(),now),/paid receipt public key\/signer/);
  await assert.rejects(verifyRelay({...r,payments:{...r.payments,challenge:"01".repeat(32)}},cfg,chain(),now),/binding/);
 });
+test("the registry, not the workload config, decides the CDHash",async()=>{
+ const r=f.paid,now=1793120000,{cdhash,...w}=r,cfg={workloads:[{...w,service:"node"}]};
+ await verifyRelay(r,cfg,chain(),now);
+ await assert.rejects(verifyRelay(r,cfg,{...chain(),rpIdHash:async()=>new Uint8Array(32)},now),/approved CDRegistry build/);
+});

@@ -58,6 +58,20 @@ test("unregistered peers cannot get grants; a signed bind/1 relay proof admits t
   assert.equal(grant.expires_at, registered.expires_at);
 });
 
+test("slow compute verification does not consume its discovery lease", async () => {
+  let now = NOW;
+  const b = broker({ now: () => now, payments: { register: async () => {
+    now += 45;
+    return { verified_at: now };
+  } } });
+  const registered = await b.register({ ...r, kind: "compute", payments: {} });
+  assert.equal(registered.expires_at, now + limits.compute_lease_seconds);
+  now += limits.compute_lease_seconds - 1;
+  assert.equal(b.live().length, 1);
+  now++;
+  assert.deepEqual(b.live(), []);
+});
+
 test("a renewed registration keeps the last refused relay hop", async () => {
   const b = broker();
   (await b.register(r)).unreachable = { at: NOW, error: "RESOURCE_LIMIT_EXCEEDED" };

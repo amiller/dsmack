@@ -114,15 +114,44 @@ class PoolTests(unittest.TestCase):
             instance.payments = {'node': '0xclass'}; instance.config = {}; instance.hardware = {}
             now = pool.time.monotonic()
             old = {'slot_id': 0, 'started': now - 1900, 'started_at': 1, 'admit_seconds': 3120, 'path': root,
-                   'node': {'relay_peer': 'old', 'telemetry': {'busy': False}}}
+                   'node': {'relay_peer': 'old', 'expires_at': pool.time.time() + 3600, 'telemetry': {'busy': False}}}
             new = dict(old, started=now - 60, started_at=2, node=None)
             instance.active = [old, new]
             states = lambda: [s['state'] for s in instance.snapshot()['slots']]
             self.assertEqual(states(), ['ready', 'launching'])
-            new['node'] = {'relay_peer': 'new', 'telemetry': {'busy': False}}
+            new['node'] = {'relay_peer': 'new', 'expires_at': pool.time.time() + 3600, 'telemetry': {'busy': False}}
             self.assertEqual(states(), ['draining', 'ready'])
             old['node']['telemetry']['busy'] = True
             self.assertEqual(states(), ['busy', 'ready'])
+
+    def test_expired_cached_broker_admission_is_not_advertised_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            instance.payments = {'node': 'class'}; instance.config = {}; instance.hardware = {}
+            registered = {'relay_peer': 'guest', 'expires_at': 1120, 'telemetry': {'busy': False}}
+            node = {'slot_id': 0, 'started': 500, 'started_at': 1000, 'admit_seconds': 570, 'path': root,
+                    'process': Mock(poll=Mock(return_value=None)), 'node': registered}
+            instance.active = [node]; instance.last_status_poll = 0
+            state = lambda: instance.snapshot()['slots'][0]['state']
+            with patch.object(pool.time, 'monotonic', return_value=500), patch.object(pool.time, 'time', return_value=1119):
+                self.assertEqual(state(), 'ready')
+            # The existing broker-index poll loses the peer, while its VM remains owned and running.
+            with patch.object(pool.time, 'monotonic', return_value=500), patch.object(pool.time, 'time', return_value=1120), \
+                    patch.object(instance, 'nodes', return_value=[]):
+                instance.tick()
+                self.assertEqual(state(), 'attesting')
+                self.assertIs(node['node'], registered)
+                instance.launch.assert_not_called()
+                registered['telemetry']['busy'] = True
+                self.assertEqual(state(), 'busy')
+                node['admit_seconds'] = 0
+                self.assertEqual(state(), 'draining')
+            node['admit_seconds'] = 570
+            renewed = dict(registered, expires_at=1241, telemetry={'busy': False})
+            with patch.object(pool.time, 'monotonic', return_value=516), patch.object(pool.time, 'time', return_value=1121), \
+                    patch.object(instance, 'nodes', return_value=[renewed]):
+                instance.tick()
+                self.assertEqual(state(), 'ready')
 
     def test_only_new_verified_matching_registration_is_ready(self):
         base = {'kind': 'compute', 'relay_peer': 'old', 'manifest_sha256': 'compose', 'os_image_hash': 'image',

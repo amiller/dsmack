@@ -812,3 +812,43 @@ test("ambiguous provider transport failure keeps its reservation across restart"
   assert.equal((await f.inference.recover()).pendingRequests, 1);
   assert.deepEqual(f.saved(), state);
 });
+
+test("authenticated operator refusal evidence reconciles a unique historical dispatch exactly once", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Error("legacy refusal without structured status"); };
+  await assert.rejects(f.send);
+  const state = f.saved(), [id, request] = Object.entries(state.inferenceRequests)[0];
+  const evidence = { event: "near_chat", ref: request.requestNonce.slice(0, 8),
+    time: new Date(request.createdAt * 1000 + 200).toISOString(), http_status: 401 };
+  const recovered = fixture({ state, cfg: { rejectedDispatches: [evidence] } });
+  assert.equal((await recovered.inference.recover()).pendingRequests, 0);
+  const result = recovered.saved();
+  assert.equal(result.inferenceCredit[request.wallet].pending, null);
+  assert.equal(result.inferenceCredit[request.wallet].spentNanoUsd, "0");
+  assert.deepEqual(result.inferenceRequests[id], { ...request, status: "rejected",
+    rejectionCode: "PROVIDER_HTTP_401", rejectionEvidence: evidence, rejectedAt: request.createdAt });
+  const restarted = fixture({ state: result, cfg: { rejectedDispatches: [evidence] } });
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 0);
+});
+
+test("historical rejection recovery refuses ambiguous, mismatched or non-authentication evidence without writing", async () => {
+  const wallet = Wallet.createRandom().address.toLowerCase(), at = 2000000000;
+  const request = { wallet, status: "sent", inferenceId: null, requestNonce: "ab".repeat(16), createdAt: at, reservedNanoUsd: "5000" };
+  const evidence = { event: "near_chat", ref: "abababab", time: new Date(at * 1000 + 200).toISOString(), http_status: 401 };
+  const base = { inferenceCredit: { [wallet]: { pending: "old" } }, inferenceRequests: { old: request } };
+  const cases = [
+    [base, { ...evidence, http_status: 500 }],
+    [base, { ...evidence, ref: "00000000" }],
+    [base, { ...evidence, time: new Date((at + 61) * 1000).toISOString() }],
+    [{ ...base, inferenceRequests: { old: request, collision: { ...request, requestNonce: "abababab" + "cd".repeat(12) } } }, evidence],
+    [{ ...base, inferenceRequests: { old: { ...request, inferenceId: "known-provider-id" } } }, evidence],
+  ];
+  for (const [state, entry] of cases) {
+    const f = fixture({ state, cfg: { rejectedDispatches: [entry] } });
+    await assert.rejects(() => f.inference.recover(), code("USAGE_MISMATCH"));
+    assert.equal(f.records.length, 0);
+    assert.deepEqual(f.payments.state, state);
+  }
+});

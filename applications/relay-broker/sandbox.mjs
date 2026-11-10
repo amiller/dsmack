@@ -38,9 +38,12 @@ export async function sandbox(req, broker, transport = nativeTransport) {
       // unavailable. Retry one empty response with the identical challenge.
       attestation = await forwarder.forward("attestation", payload, { signal });
     }
+    delete node.unreachable;
     return Response.json(attestation);
   } catch (error) {
     const code = error.code || "node_unreachable", status = error.status || 502;
+    // The last relay hop outcome rides on the node entry (/nodes, then the Mac's fleet heartbeat).
+    if (code === "node_unreachable") node.unreachable = { at: broker.now(), error: error.detail?.message ?? error.message };
     if (error.detail) return Response.json({ error: code, stage: error.stage || code, detail: error.detail }, { status });
     throw new Refused(code, status);
   }

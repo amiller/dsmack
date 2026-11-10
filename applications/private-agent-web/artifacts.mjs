@@ -6,7 +6,7 @@ import { ArtifactBridge } from "./artifact-bridge.mjs";
 
 export const ARTIFACT_ORIGIN = "https://artifacts.private-agent.dstack.soc1024.com";
 export const ARTIFACT_PROMPT = `Use the artifacts tool for runnable browser apps, with a .html filename. Write one complete self-contained HTML document: inline JavaScript and CSS, minimal styles, explicit background and readable text. Keep it concise (aim below 150 lines and 8000 characters). No imports, CDNs, remote fonts, fetch, external links, or browser storage. Use DOM controls. The tool returns browser console logs; fix reported errors. These apps run in the browser and do not need a guest.
-The host injects frozen window.dsmack; never define or override it. If absent, show a useful offline view. await dsmack.ready(), then dsmack.capabilities.has('storage.get') before a capability call. storage.get(key) returns JSON or null; storage.put(key,value) and storage.list() persist encrypted state scoped to this app. agent.complete({messages:[{role:'user',content:'...'}],maxTokens:512}) returns {text,model,usage}; it uses the viewer's once-granted app budget shown above the app. Handle NOT_AVAILABLE/PERMISSION_DENIED by asking the viewer to allow a budget in the host bar. credit.balance() returns read-only nano-USD strings; diagnostics.log(message) reports to the console. Catch DsmackBridgeError with code/message/retryable; never loop on denied calls. Host model calls treat app content as untrusted and never send a chat turn.`;
+The host injects frozen window.dsmack; never define or override it. If absent, show a useful offline view. await dsmack.ready(), then dsmack.capabilities.has('storage.get') before a capability call. storage.get(key) returns JSON or null; storage.put(key,value) and storage.list() persist encrypted state scoped to this app. agent.complete({messages:[{role:'user',content:'...'}],maxTokens:512}) returns {text,model,usage}; it uses the viewer's once-granted app budget shown above the app. For agent.complete, handle NOT_AVAILABLE/PERMISSION_DENIED by asking the viewer to allow a budget in the host bar. credit.balance() returns read-only nano-USD strings; diagnostics.log(message) reports to the console. Catch DsmackBridgeError with code/message/retryable; never loop on denied calls. Host model calls treat app content as untrusted and never send a chat turn. guest.run({command,timeoutSeconds:60}) runs one exact bash script only after the viewer confirms it in the trusted host card; it returns {text,isError,guest,evidence}. Maximum timeout is 120 seconds. A fresh empty guest is released after every call; create and read files within the same script. Never assume persistent guest files. USER_CANCELLED means stop; never automatically retry an unknown command. Guest time uses viewer credit separately from the model budget.`;
 
 // Pi routes messages by a caller-supplied ID. Bind each ID to its actual opaque
 // iframe before the upstream listener can see console or lifecycle messages.
@@ -41,6 +41,11 @@ window.addEventListener("message", (event) => {
 // code stays in its opaque child; upstream external-navigation handlers are absent.
 SandboxIframe.prototype.loadViaSandboxUrl = function(id, code) {
   this.artifactReadyCleanup?.();
+  this.artifactDispose?.();
+  const context = RUNTIME_MESSAGE_ROUTER.sandboxes.get(id);
+  if (context) context.providers = context.providers.map(provider => provider.forFrame?.() || provider);
+  const providers = context?.providers || [];
+  this.artifactDispose = () => { for (const provider of providers) provider.dispose?.(); };
   const frame = document.createElement("iframe");
   frame.sandbox.add("allow-scripts", "allow-same-origin", "allow-forms");
   frame.title = "Generated app";
@@ -65,10 +70,11 @@ SandboxIframe.prototype.loadViaSandboxUrl = function(id, code) {
 const disconnected = SandboxIframe.prototype.disconnectedCallback;
 SandboxIframe.prototype.disconnectedCallback = function() {
   this.artifactReadyCleanup?.();
+  this.artifactDispose?.();
   disconnected.call(this);
 };
 
-export function createArtifacts(agent, { state, models, credit, share, scopeForFilename = filename => JSON.stringify(["preview", filename]), error = console.error } = {}) {
+export function createArtifacts(agent, { state, models, guests, credit, share, scopeForFilename = filename => JSON.stringify(["preview", filename]), error = console.error } = {}) {
   const panel = new ArtifactsPanel();
   panel.addEventListener("artifact-unavailable", event => {
     const element = [...panel.artifactElements.values()].find(value => value.contains(event.target));
@@ -84,7 +90,7 @@ export function createArtifacts(agent, { state, models, credit, share, scopeForF
   };
   panel.getHtmlArtifactRuntimeProviders = () => {
     const filename = runtimeFilename;
-    return [new ArtifactBridge({ scope: scopeForFilename(filename), state, models, credit,
+    return [new ArtifactBridge({ scope: scopeForFilename(filename), state, models, guests, filename, credit,
       diagnostics: text => {
         const element = panel.artifactElements.get(filename);
         if (element) { element.logs = [...element.logs, { type: "log", text }]; element.requestUpdate(); }
@@ -182,5 +188,6 @@ export function createArtifacts(agent, { state, models, credit, share, scopeForF
       return original.execute(...args);
     },
   };
-  return { panel, tool, budgetBar, shareBar, refreshBudget, refreshSelectedBudget };
+  return { panel, tool, budgetBar, shareBar, refreshBudget, refreshSelectedBudget,
+    dispose: () => { for (const element of panel.querySelectorAll("sandbox-iframe")) element.artifactDispose?.(); } };
 }

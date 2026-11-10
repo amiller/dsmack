@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { sandbox } from "./sandbox.mjs";
 const peer="node", target="/ip4/192.0.2.1/tcp/4001/p2p/relay/p2p-circuit/p2p/node";
-const broker={cfg:{},live:()=>[{kind:"compute",relay_peer:peer,relay_maddr:target}]};
+const broker={cfg:{},now:()=>100,live:()=>[{kind:"compute",relay_peer:peer,relay_maddr:target}]};
 const request=(node=peer)=>new Request("http://broker/sandbox/nodes/"+node+"/attestation");
 const transport=forward=>async()=>({forward});
 
@@ -82,4 +82,14 @@ test("an aborted request cannot retry an empty attestation",async()=>{
  const response=await sandbox(req,broker,transport(async()=>{calls++;controller.abort();throw emptyAttestation();}));
  assert.equal(response.status,502);
  assert.equal(calls,1);
+});
+
+test("a refused relay hop is stamped on the node entry until an attestation gets through", async () => {
+ const node={kind:"compute",relay_peer:peer,relay_maddr:target}, live={...broker,live:()=>[node]};
+ const detail={name:"InvalidMessageError",message:"failed to connect via relay with status RESOURCE_LIMIT_EXCEEDED"};
+ const error=Object.assign(new Error("node_unreachable"),{code:"node_unreachable",stage:"node_unreachable",status:502,detail});
+ assert.equal((await sandbox(request(),live,transport(async()=>{throw error}))).status,502);
+ assert.deepEqual(node.unreachable,{at:100,error:detail.message});
+ assert.equal((await sandbox(request(),live,transport(async()=>({attestation:"proof"})))).status,200);
+ assert.equal(node.unreachable,undefined);
 });

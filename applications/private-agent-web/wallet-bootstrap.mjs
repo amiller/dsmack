@@ -10,11 +10,10 @@ if (window.top !== window.self) {
   const [bundle, legacy] = await Promise.all([store("continuity.keys"), store("burner")]);
   const key = bundle?.walletKey || legacy;
   document.getElementById("wallet").textContent = key
-    ? computeAddress(key) : "Choose Start fresh or recover your wallet.";
-  document.getElementById("welcome").hidden = !!key;
+    ? computeAddress(key) : "Your wallet is created when you send your first message.";
+  document.getElementById("recover-device").hidden = !!key;
   if (key) {
-    document.getElementById("chat-credit").textContent = "Chat credit · Checking balance…";
-    document.getElementById("chat-credit-status").textContent = "Your wallet is loaded. Checking your current credit…";
+    document.getElementById("chat-credit").textContent = "Checking credit…";
   }
   document.documentElement.dataset.walletLoaded = "true";
   performance.measure("startup:wallet-visible", { start, end: performance.now() });

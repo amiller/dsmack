@@ -32,7 +32,6 @@ import (
 const (
 	attestProto = "/dsmack/attest/1"
 	echoProto   = "/dsmack/echo/1"
-	domain      = "dsmack-libp2p-peer/1"
 )
 
 func must(err error) {
@@ -52,10 +51,19 @@ func NewHost(opts ...libp2p.Option) host.Host {
 	return h
 }
 
-// ReportData is sha256(domain || PeerId bytes), zero-padded to 64 bytes.
-func ReportData(id peer.ID) []byte {
-	d := sha256.Sum256(append([]byte(domain), []byte(id)...))
-	return append(d[:], make([]byte, 32)...)
+// ReportData binds the transport and profile keys; nil challenge selects epoch mode.
+func ReportData(id peer.ID, seal, receipt, challenge []byte) []byte {
+	if challenge == nil {
+		challenge = make([]byte, 32)
+	}
+	h := sha256.New()
+	h.Write([]byte("dsmack.bind/1"))
+	h.Write([]byte(id))
+	h.Write(seal)
+	h.Write(receipt)
+	first := h.Sum(nil)
+	second := sha256.Sum256(append(append([]byte{}, first...), challenge...))
+	return append(first, second[:]...)
 }
 
 func Attest(rd []byte) []byte {
@@ -116,7 +124,7 @@ func serveMain(relayAddr string, seconds int, file string) {
 	must(err)
 	var blob []byte
 	if file == "" {
-		blob = Attest(ReportData(h.ID()))
+		blob = Attest(ReportData(h.ID(), nil, nil, nil))
 		must(os.WriteFile("/workspace/artifacts/attestation", blob, 0o644))
 		must(os.WriteFile("/workspace/artifacts/peer-id", []byte(h.ID().String()+"\n"), 0o644))
 	} else {

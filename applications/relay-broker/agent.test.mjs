@@ -1,24 +1,28 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { Wallet } from "npm:ethers@6.17.0";
+import { Receipt, receiptDomain } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, creditGrantPrefix } from "./inference.mjs";
 import { AgentSessions } from "./agent.mjs";
+import { Broker } from "./broker.mjs";
 import { canonical, signingKey } from "./grants.mjs";
 const hex = (v) => [...new Uint8Array(v)].map(v => v.toString(16).padStart(2,"0")).join("");
 const peer = "12D3KooWPXeq29kZzJxDgCA92X16PSiM5Bv1XxAshJ8wJzYv9k6x";
-async function fixture({ starter = "250000000", lifetime = 1800, initialized = true } = {}) {
+async function fixture({ starter = "250000000", lifetime = 1800, initialized = true, inferenceCfg = {}, agentCfg = {}, hostBrowse } = {}) {
  let now=2000000000;
  const wallet=Wallet.createRandom(), other=Wallet.createRandom();
  const key=await signingKey("12".repeat(32));
- const receiptKey=await crypto.subtle.generateKey("Ed25519",true,["sign","verify"]);
- const receipt_key=hex(await crypto.subtle.exportKey("raw",receiptKey.publicKey));
- const payments=new Payments({cfg:{},key:{},quorum:{},state:{},save:async()=>{},now:()=>now});
- const inference=new Inference({payments,cfg:{model:"fixture/model",starterCreditNanoUsd:starter},provider:{apiKey:"fixture"},now:()=>now});
- const node={kind:"compute",relay_peer:peer,receipt_key,admit_until:now+lifetime};
- const broker={payments,inference,key,cfg:{},live:()=>[node],now:()=>now};
+ const receiptKey=Wallet.createRandom();
+ const escrow="0x1000000000000000000000000000000000000001";
+ const payments=new Payments({cfg:{escrow},key:Wallet.createRandom(),chain:{snapshot:async()=>({call:async()=>0n})},state:{},save:async()=>{},now:()=>now});
+ const inference=new Inference({payments,cfg:{model:"fixture/model",starterCreditNanoUsd:starter,...inferenceCfg},provider:{apiKey:"fixture"},now:()=>now});
+ const node={kind:"compute",relay_peer:peer,admit_until:now+lifetime,
+  payments:{receiptSigner:receiptKey.address,operator:other.address},
+  attestation:{nodeBinding:{binding:{receiptSigner:receiptKey.address}}}};
+ const broker={payments,inference,key,cfg:{agent:agentCfg},live:()=>[node],gone:()=>false,now:()=>now};
  let fleetSlots;
- const readFleet=async()=>[{publisher:"mac-one",online:true,received_at:now,updated_at:now,
+ const readFleet=async()=>[{publisher:"mac-one",online:true,received_at:now,updated_at:now,config:{max_guests:1,...(hostBrowse?{browse:hostBrowse}:{})},
   slots:fleetSlots??broker.live().map((n,slot_id)=>({slot_id,state:"ready",relay_peer:n.relay_peer}))}];
  const sessions=new AgentSessions(broker,readFleet);
  async function signed(action,extra={},who=wallet) {
@@ -26,11 +30,13 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
   return {...body,sig:await who.signMessage(canonical(body))};
  }
  if(initialized)await inference.credit(await signed("credit"));
- async function open(who=wallet) {return sessions.open(await signed("agent-open",{conversationId:"conversation",client_peer:peer,node_peer:peer},who));}
- async function receipt(sessionId,guestSeconds,final=false,wrongKey=false,closedReason=undefined) {
-  const body={sessionId,node_peer:peer,guestSeconds,final,...(closedReason?{closedReason}:{})};
-  const key=wrongKey?(await crypto.subtle.generateKey("Ed25519",true,["sign","verify"])).privateKey:receiptKey.privateKey;
-  return {...body,sig:hex(await crypto.subtle.sign("Ed25519",key,new TextEncoder().encode(canonical(body))))};
+ async function open(who=wallet,browse) {return sessions.open(await signed("agent-open",{conversationId:"conversation",client_peer:peer,node_peer:peer,...(browse?{browse}:{})},who));}
+ const sequences=new Map();
+ async function receipt(sessionId,guestSeconds,final=false,wrongKey=false) {
+  const sequence=(sequences.get(sessionId)??0)+1;sequences.set(sessionId,sequence);
+  const body={purchaseId:BigInt("0x"+sessionId).toString(),sequence,unit:1,used:String(guestSeconds),
+   endedAt:Math.min(now,payments.state.agentSessions[sessionId].grant.expires_at),finalReceipt:final};
+  return {receipt:body,signature:await (wrongKey?Wallet.createRandom():receiptKey).signTypedData(receiptDomain(escrow),{Receipt},body)};
  }
  return {sessions,inference,payments,signed,open,receipt,other,wallet,broker,node,readFleet,
   setSlots:value=>{fleetSlots=value;},advance:(s)=>now+=s};
@@ -38,14 +44,14 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
 
 test("guest seconds reserve and settle the same credit; untrusted reports cannot charge it",async()=>{
  const f=await fixture(),session=await f.open();
- assert.equal(session.credit.reservedNanoUsd,"300000");
- assert.equal(session.credit.remainingNanoUsd,"249700000");
+ assert.equal(session.credit.reservedNanoUsd,"900000");
+ assert.equal(session.credit.remainingNanoUsd,"249100000");
  await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,5,false,true)),e=>e.code==="GUEST_SIGNATURE");
  await f.sessions.receipt(await f.receipt(session.sessionId,5));
  let status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.guestSeconds,5);
- assert.equal(status.credit.spentNanoUsd,"50000");
- assert.equal(status.credit.reservedNanoUsd,"300000");
+ assert.equal(status.credit.spentNanoUsd,"900000");
+ assert.equal(status.credit.reservedNanoUsd,"75000");
  await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,4)),e=>e.code==="GUEST_USAGE");
  await assert.rejects(f.sessions.status(await f.signed("agent-end",{sessionId:session.sessionId},f.other),true),e=>e.code==="CREDIT_NOT_CONFIRMED");
  await f.inference.credit(await f.signed("credit",{},f.other));
@@ -57,20 +63,115 @@ test("guest seconds reserve and settle the same credit; untrusted reports cannot
  await f.sessions.receipt(final); await f.sessions.receipt(final);
  status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.active,false);
- assert.equal(status.credit.spentNanoUsd,"80000");
+ assert.equal(status.credit.spentNanoUsd,"900000");
  assert.equal(status.credit.reservedNanoUsd,"0");
 });
 
 test("concurrent claims hold one guest and expired unused grants release without invented usage",async()=>{
  const f=await fixture();
- const results=await Promise.allSettled([f.open(),f.open()]);
+ const spare={...f.node,relay_peer:peer+"-spare"};
+ f.broker.live=()=>[f.node,spare];
+ const requests=await Promise.all([f.node,spare].map(node=>f.signed("agent-open",{
+  conversationId:node.relay_peer,client_peer:peer,node_peer:node.relay_peer})));
+ const results=await Promise.allSettled(requests.map(request=>f.sessions.open(request)));
  assert.equal(results.filter(r=>r.status==="fulfilled").length,1);
  const first=results.find(r=>r.status==="fulfilled").value;
+ const refusal=results.find(r=>r.status==="rejected").reason;
+ assert.equal(refusal.code,"SESSION_ACTIVE");
+ assert(refusal.message.includes(first.sessionId));
  f.advance(1801);
  const status=await f.sessions.status(await f.signed("agent-status",{sessionId:first.sessionId}));
  assert.equal(status.active,false);
  assert.equal(status.credit.reservedNanoUsd,"0");
  assert.equal(status.credit.spentNanoUsd,"0");
+});
+
+test("a session on a guest that is no longer live does not hold the wallet slot",async()=>{
+ const f=await fixture();
+ const gone={...f.node,relay_peer:peer+"-gone"};
+ f.broker.live=()=>[gone,f.node];
+ f.setSlots([{slot_id:1,state:"ready",relay_peer:gone.relay_peer},{slot_id:0,state:"ready",relay_peer:f.node.relay_peer}]);
+ await f.sessions.open(await f.signed("agent-open",{conversationId:"old",client_peer:peer,node_peer:gone.relay_peer}));
+ f.broker.live=()=>[f.node];
+ const next=await f.sessions.open(await f.signed("agent-open",{conversationId:"new",client_peer:peer,node_peer:f.node.relay_peer}));
+ assert(next.sessionId);
+});
+
+test("ending a session frees the wallet slot before its guest finishes",async()=>{
+ const f=await fixture();
+ const other={...f.node,relay_peer:peer+"-other"};
+ f.broker.live=()=>[other,f.node];
+ f.setSlots([{slot_id:1,state:"ready",relay_peer:other.relay_peer},{slot_id:0,state:"ready",relay_peer:f.node.relay_peer}]);
+ const first=await f.sessions.open(await f.signed("agent-open",{conversationId:"old",client_peer:peer,node_peer:other.relay_peer}));
+ await f.sessions.receipt(await f.receipt(first.sessionId,1));
+ await f.sessions.status(await f.signed("agent-end",{sessionId:first.sessionId}),true);
+ const next=await f.sessions.open(await f.signed("agent-open",{conversationId:"new",client_peer:peer,node_peer:f.node.relay_peer}));
+ assert(next.sessionId);
+});
+
+test("configured wallet slot limit persists across session handlers and ending a stay frees one slot",async()=>{
+ const f=await fixture({agentCfg:{maxActiveSessionsPerWallet:2}});
+ const nodes=Array.from({length:3},(_,i)=>({...f.node,relay_peer:peer+"-slot-"+i}));
+ f.broker.live=()=>nodes;
+ const claim=async index=>f.signed("agent-open",{conversationId:"conversation-"+index,
+  client_peer:peer,node_peer:nodes[index].relay_peer});
+ const first=await f.sessions.open(await claim(0));
+ const second=await f.sessions.open(await claim(1));
+ const reloaded=new AgentSessions(f.broker,f.readFleet);
+ await assert.rejects(reloaded.open(await claim(2)),error=>{
+  assert.equal(error.code,"SESSION_ACTIVE");
+  assert(error.message.includes(first.sessionId));assert(error.message.includes(second.sessionId));
+  return true;
+ });
+ await f.sessions.status(await f.signed("agent-end",{sessionId:first.sessionId}),true);
+ const replacement=await reloaded.open(await claim(2));
+ assert.equal(replacement.active,true);
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd,"1800000");
+});
+
+test("HTTP broker enforces daily starter credit and wallet slots across ledger reload",async()=>{
+ const {handleRequest}=await import("./server.ts");
+ const f=await fixture({initialized:false,inferenceCfg:{dailyStarterBudgetNanoUsd:"500000000"}});
+ const dir=await Deno.makeTempDir(),path=dir+"/payments.json";
+ f.payments.save=next=>Deno.writeTextFile(path,JSON.stringify(next));
+ const spare={...f.node,relay_peer:peer+"-spare"};
+ f.broker.live=()=>[f.node,spare];
+ const [mac]=await f.readFleet();
+ await Deno.writeTextFile(dir+"/fleet.json",JSON.stringify({heartbeats:{[mac.publisher]:mac},
+  links:{[mac.publisher]:{link:{operator:f.wallet.address,kid:"fixture"}}}}));
+ const server=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},
+  request=>handleRequest(request,f.broker,{dataDir:dir,env:{}}));
+ const post=async(path,body)=>{
+  const response=await fetch(`http://127.0.0.1:${server.addr.port}${path}`,{
+   method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+  return {status:response.status,body:await response.json()};
+ };
+ const credit=async who=>post("/inference/credit",await f.signed("credit",{},who));
+ const open=async(who,node,conversationId)=>post("/agent/open",await f.signed("agent-open",{
+  conversationId,client_peer:peer,node_peer:node.relay_peer},who));
+ try {
+  assert.equal((await credit(f.wallet)).body.grantedNanoUsd,"250000000");
+  assert.equal((await credit(f.other)).body.grantedNanoUsd,"250000000");
+  const first=await open(f.wallet,f.node,"first");assert.equal(first.status,200);
+  const persisted=JSON.parse(await Deno.readTextFile(path));
+  const payments=new Payments({cfg:{},key:{},chain:{},state:persisted,save:f.payments.save,now:f.broker.now});
+  f.broker.payments=payments;
+  f.broker.inference=new Inference({payments,cfg:f.inference.cfg,provider:{apiKey:"fixture"},now:f.broker.now});
+  const exhausted=await credit(Wallet.createRandom());
+  assert.equal(exhausted.status,402);assert.equal(exhausted.body.error.code,"STARTER_BUDGET_EXHAUSTED");
+  assert.match(exhausted.body.error.message,/free credit for today is used up/);
+  assert.equal((await credit(f.wallet)).status,200);
+  const blocked=await open(f.wallet,spare,"second");
+  assert.equal(blocked.status,409);assert.equal(blocked.body.error.code,"SESSION_ACTIVE");
+  assert(blocked.body.error.message.includes(first.body.sessionId));
+  assert.equal((await open(f.other,spare,"other-wallet")).status,200);
+  const ended=await post("/agent/end",await f.signed("agent-end",{sessionId:first.body.sessionId}));
+  assert.equal(ended.status,200);assert.equal(ended.body.active,false);
+  assert.equal((await open(f.wallet,f.node,"resumed")).status,200);
+  f.advance(86400-2000000000%86400);
+  assert.equal((await credit(Wallet.createRandom())).status,200);
+  assert.equal(JSON.parse(await Deno.readTextFile(path)).inferenceStarterGrants.grantedNanoUsd,"250000000");
+ } finally {await server.shutdown();await Deno.remove(dir,{recursive:true});}
 });
 
 test("ending before transport admission releases credit and revokes the unused grant",async()=>{
@@ -89,12 +190,12 @@ test("expired started session releases ownership and preserves unresolved credit
  f.advance(1801);
  let status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.usageUnresolved,true);
- assert.equal(status.credit.reservedNanoUsd,"300000");
+ assert.equal(status.credit.reservedNanoUsd,"75000");
  await f.sessions.receipt(await f.receipt(session.sessionId,6,true));
  status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.usageUnresolved,false);
  assert.equal(status.credit.reservedNanoUsd,"0");
- assert.equal(status.credit.spentNanoUsd,"60000");
+ assert.equal(status.credit.spentNanoUsd,"900000");
 });
 
 test("four payout guests advertise distinct availability and a fifth claim is busy",async()=>{
@@ -164,76 +265,8 @@ test("four different logical slots admit concurrently and a fifth direct claim c
 });
 
 
-test("active seconds replenish one grant beyond the old half-credit cutoff and idle wall time is not charged",async()=>{
- const f=await fixture({starter:"1000000",lifetime:3600}),session=await f.open();
- assert.equal(session.grant.seconds,3600);assert.equal(session.activeBudgetSeconds,30);
- const grant=session.grant;
- await f.sessions.receipt(await f.receipt(session.sessionId,0));
- f.advance(300);
- assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"0");
- for(const used of [20,40,60,80]){
-  const receipt=await f.sessions.receipt(await f.receipt(session.sessionId,used));
-  assert.equal(receipt.stop,false);
-  assert(receipt.activeBudgetSeconds>used);
- }
- assert.equal(Object.keys(f.payments.state.agentSessions).length,1);
- assert.deepEqual(f.payments.state.agentSessions[session.sessionId].grant,grant);
- const exhausted=await f.sessions.receipt(await f.receipt(session.sessionId,100));
- assert.equal(exhausted.stop,true);assert.equal(exhausted.reason,"credit");
- assert.equal(exhausted.activeBudgetSeconds,100);
- await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,101)),e=>e.code==="GUEST_USAGE");
- await f.sessions.receipt(await f.receipt(session.sessionId,100,true));
- assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"1000000");
- assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd,"0");
- await assert.rejects(f.open(),e=>e.code==="CREDIT_EXHAUSTED");
-});
-
-test("rolling reservations protect an in-flight model budget and final idle release returns unused seconds",async()=>{
- const f=await fixture({starter:"1000000"}),session=await f.open(),wallet=f.wallet.address.toLowerCase();
- // This is the same pending ledger state persisted by Inference.chat before
- // dispatch. A concurrent guest checkpoint cannot consume its model budget.
- f.payments.state.inferenceCredit[wallet].pending="model";
- f.payments.state.inferenceRequests={model:{status:"sent",reservedNanoUsd:"600000"}};
- const updated=await f.sessions.receipt(await f.receipt(session.sessionId,20));
- assert.equal(updated.activeBudgetSeconds,40);
- assert.equal(f.inference.summary(wallet).remainingNanoUsd,"0");
- assert.equal(f.payments.state.inferenceRequests.model.reservedNanoUsd,"600000");
- const final=await f.sessions.receipt(await f.receipt(session.sessionId,20,true));
- assert.equal(final.stop,true);
- assert.equal(f.inference.summary(wallet).spentNanoUsd,"200000");
- assert.equal(f.inference.summary(wallet).reservedNanoUsd,"600000");
-});
-
-test("operator-funded onboarding preserves its gift on credit refresh, exhausts and resumes only after another gift",async()=>{
- const f=await fixture({initialized:false}),issuer=Wallet.createRandom(),escrow="0x"+"81".repeat(20);
- const gift=async nonce=>{
-  const grant={v:1,chainId:84532,escrow,brokerKey:f.broker.key.public_key,wallet:f.wallet.address,
-   amountNanoUsd:"200000",nonce,expiresAt:f.broker.now()+600};
-  await f.inference.grantCredit({grant,signature:await issuer.signMessage(creditGrantPrefix+canonical(grant))},
-   {issuer:issuer.address,escrow,brokerKey:f.broker.key.public_key});
- };
- assert.equal(f.payments.state.inferenceCredit?.[f.wallet.address.toLowerCase()],undefined);
- await gift("ab".repeat(32));
- const initial=await f.inference.credit(await f.signed("credit"));
- assert.equal(initial.grantedNanoUsd,"200000");assert.equal(initial.remainingNanoUsd,"200000");
- const session=await f.open();assert.equal(session.activeBudgetSeconds,20);
- assert.equal((await f.sessions.receipt(await f.receipt(session.sessionId,20))).reason,"credit");
- const exhausted=await f.inference.credit(await f.signed("credit"));
- assert.equal(exhausted.grantedNanoUsd,"200000");assert.equal(exhausted.remainingNanoUsd,"0");
- await gift("cd".repeat(32));
- const ending=await f.sessions.receipt(await f.receipt(session.sessionId,20));
- assert.equal(ending.stop,true);assert.equal(ending.reason,"credit");
- await f.sessions.receipt(await f.receipt(session.sessionId,20,true));
- const replacement={...f.node,relay_peer:peer+"-after-credit"};f.broker.live=()=>[replacement];
- const resumed=await f.sessions.open(await f.signed("agent-open",{conversationId:"conversation",client_peer:peer,node_peer:replacement.relay_peer}));
- assert.notEqual(resumed.sessionId,session.sessionId);assert.equal(resumed.activeBudgetSeconds,20);
- const credit=f.inference.summary(f.wallet.address.toLowerCase());
- assert.equal(credit.grantedNanoUsd,"400000");assert.equal(credit.spentNanoUsd,"200000");
-});
-
-
 test("unused setup grants release after 90 seconds while wall expiry leaves room for an admitted call",async()=>{
- const f=await fixture({lifetime:3300});f.node.payments={runExpires:f.broker.now()+3600};
+ const f=await fixture({lifetime:3300});f.node.payments={...f.node.payments,runExpires:f.broker.now()+3600};
  const session=await f.open();
  assert.equal(session.handoverAt,f.node.admit_until);
  assert.equal(session.grant.expires_at,f.broker.now()+3480);
@@ -244,34 +277,6 @@ test("unused setup grants release after 90 seconds while wall expiry leaves room
  const status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
  assert.equal(status.active,false);assert.equal(status.closedReason,"unused-grant-expired");
  assert.equal(status.credit.spentNanoUsd,"0");assert.equal(status.credit.reservedNanoUsd,"0");
-});
-
-
-test("a signed final idle reason releases an unbilled stay; checkpoints cannot supply close reasons",async()=>{
- const f=await fixture(),session=await f.open();
- await f.sessions.receipt(await f.receipt(session.sessionId,0));
- await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,0,false,false,"idle")),e=>e.code==="BAD_REQUEST");
- f.advance(300);
- const final=await f.sessions.receipt(await f.receipt(session.sessionId,0,true,false,"idle"));
- assert.equal(final.activeBudgetSeconds,session.activeBudgetSeconds,"final reply keeps the authorized counter monotonic");
- const status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
- assert.equal(status.closedReason,"idle");assert.equal(status.active,false);
- assert.equal(status.credit.spentNanoUsd,"0");assert.equal(status.credit.reservedNanoUsd,"0");
-});
-
-
-test("late original full-reservation receipts remain payable after rolling budgets are introduced",async()=>{
- const f=await fixture(),session=await f.open(),record=f.payments.state.agentSessions[session.sessionId];
- // Original persisted stays predate the rolling budget and setup deadline.
- delete record.activeBudgetSeconds;delete record.setupUntil;
- record.reservedNanoUsd=String(BigInt(record.grant.seconds)*BigInt(record.rateNanoUsdPerSecond));
- await f.sessions.receipt(await f.receipt(session.sessionId,700));
- assert.equal(record.grant.seconds,1800);
- assert.equal(f.payments.state.agentSessions[session.sessionId].activeBudgetSeconds,undefined);
- assert.equal(f.payments.state.agentSessions[session.sessionId].reservedNanoUsd,"11000000");
- await f.sessions.receipt(await f.receipt(session.sessionId,1600,true));
- const credit=f.inference.summary(f.wallet.address.toLowerCase());
- assert.equal(credit.spentNanoUsd,"16000000");assert.equal(credit.reservedNanoUsd,"0");
 });
 
 
@@ -302,6 +307,229 @@ test("a fresh browser cannot resume an expired conversation until its admitted g
   const resumed=await post("conversation");assert.equal(resumed.status,200);
   const next=await resumed.json();assert.notEqual(next.sessionId,first.sessionId);
   assert.equal(next.conversationId,"conversation");
-  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"60000");
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"900000");
  } finally {await Deno.remove(dir,{recursive:true});}
+});
+
+
+test("S1 bills a 60 second minimum once and only active seconds beyond it",async()=>{
+ const f=await fixture({starter:"1500000"}),session=await f.open(),wallet=f.wallet.address.toLowerCase();
+ assert.equal(session.rateNanoUsdPerSecond,"15000");assert.equal(session.activeBudgetSeconds,60);
+ await f.sessions.receipt(await f.receipt(session.sessionId,0));
+ assert.equal(f.inference.summary(wallet).spentNanoUsd,"900000");
+ for(const used of [20,40,60,80,100]) {
+  f.advance(20);
+  await f.sessions.receipt(await f.receipt(session.sessionId,used));
+ }
+ const final=await f.receipt(session.sessionId,100,true);
+ await f.sessions.receipt(final);await f.sessions.receipt(final);
+ assert.equal(f.inference.summary(wallet).spentNanoUsd,"1500000");
+ assert.equal(f.inference.summary(wallet).reservedNanoUsd,"0");
+ await assert.rejects(f.open(),e=>e.code==="CREDIT_EXHAUSTED");
+});
+
+test("less than the minimum cannot start and pending inference credit stays reserved",async()=>{
+ const poor=await fixture({starter:"899999"});
+ await assert.rejects(poor.open(),e=>e.code==="CREDIT_EXHAUSTED");
+ const f=await fixture({starter:"1500000"}),session=await f.open(),wallet=f.wallet.address.toLowerCase();
+ f.payments.state.inferenceCredit[wallet].pending="model";
+ f.payments.state.inferenceRequests={model:{status:"sent",reservedNanoUsd:"600000"}};
+ const started=await f.sessions.receipt(await f.receipt(session.sessionId,0));
+ assert.equal(started.activeBudgetSeconds,60);
+ await f.sessions.receipt(await f.receipt(session.sessionId,60,true));
+ assert.equal(f.inference.summary(wallet).spentNanoUsd,"900000");
+ assert.equal(f.inference.summary(wallet).reservedNanoUsd,"600000");
+});
+
+
+test("directory distinguishes all slots busy from no online Macs, even without live guest registrations", async () => {
+ const {handleRequest}=await import("./server.ts");
+ const f=await fixture(),dir=await Deno.makeTempDir();
+ const get=()=>handleRequest(new Request("https://broker.example/nodes"),f.broker,{dataDir:dir,env:{}});
+ try {
+  f.broker.live=()=>[];
+  const empty=await get();
+  assert.equal(empty.status,503); assert.equal((await empty.json()).error.code,"FLEET_EMPTY");
+  const mac={publisher:"mac-one",received_at:f.broker.now(),updated_at:f.broker.now(),slots:[{slot_id:0,state:"busy"}]};
+  await Deno.writeTextFile(dir+"/fleet.json",JSON.stringify({heartbeats:{[mac.publisher]:mac},
+   links:{[mac.publisher]:{link:{operator:f.wallet.address,kid:"fixture"}}}}));
+  const busy=await get(),error=(await busy.json()).error;
+  assert.equal(busy.status,503); assert.equal(error.code,"FLEET_BUSY");
+  assert.equal(error.retryAfterSeconds,15); assert.equal(busy.headers.get("retry-after"),"15");
+  f.advance(60);
+  assert.equal((await (await get()).json()).error.code,"FLEET_EMPTY");
+ } finally { await Deno.remove(dir,{recursive:true}); }
+});
+
+test("browse terms: the stay names its sites within the host's signed policy, priced by the host's surcharge, looked up by token",async()=>{
+ const plain=await fixture(),none=await plain.open();
+ assert.deepEqual({...none.browse,token:undefined},{mode:"none",hosts:[],nanoUsdPerSecond:"0",token:undefined});
+ assert.match(none.browse.token,/^[0-9a-f]{32}$/);
+ assert.equal(none.rateNanoUsdPerSecond,"15000");
+ assert.deepEqual(plain.sessions.browsePolicy(none.browse.token,"mac-one"),{mode:"none",hosts:[],expires_at:none.grant.expires_at});
+ const hostBrowse={default:"named",max:"open",price:{open_nano_usd_per_second:"5000",named_host_nano_usd_per_second:"100"}};
+ const named=await (await fixture({hostBrowse})).open(undefined,{mode:"named",hosts:["shop.example","maps.example"]});
+ assert.deepEqual([named.browse.mode,named.browse.hosts,named.rateNanoUsdPerSecond],["named",["shop.example","maps.example"],"15200"]);
+ const wide=await fixture({hostBrowse}),open=await wide.open(undefined,{mode:"open",hosts:[]});
+ assert.equal(open.rateNanoUsdPerSecond,"20000");
+ assert.deepEqual(wide.sessions.browsePolicy(open.browse.token,"mac-one").mode,"open");
+ await wide.sessions.status(await wide.signed("agent-end",{sessionId:open.sessionId}),true);
+ assert.throws(()=>wide.sessions.browsePolicy(open.browse.token,"mac-one"),/no active stay on this Mac/);
+ assert.throws(()=>wide.sessions.browsePolicy("nothex","mac-one"),/browse token and publisher required/);
+ const capped=await fixture({hostBrowse:{default:"none",max:"named"}});
+ await assert.rejects(capped.open(undefined,{mode:"open",hosts:[]}),/browse up to named/);
+ await assert.rejects(capped.open(undefined,{mode:"named",hosts:["Not A Host"]}),/browse must be/);
+ await assert.rejects(capped.open(undefined,{mode:"none",hosts:["shop.example"]}),/hosts only for named/);
+});
+
+test("a browse token works only on the stay's own Mac and stops when the stay ends, even with grant time left",async()=>{
+ const f=await fixture({hostBrowse:{default:"none",max:"open"}}),s=await f.open(undefined,{mode:"open",hosts:[]});
+ const mac=s.placement.publisher;
+ assert.equal(f.sessions.browsePolicy(s.browse.token,mac).mode,"open");
+ assert.throws(()=>f.sessions.browsePolicy(s.browse.token,"0x"+"b2".repeat(20)),/no active stay on this Mac/);
+ f.advance(60);
+ await f.sessions.receipt(await f.receipt(s.sessionId,60,true));
+ assert.ok(s.grant.expires_at>f.broker.now());
+ assert.throws(()=>f.sessions.browsePolicy(s.browse.token,mac),/no active stay on this Mac/);
+});
+
+test("a started stay whose guest stops registering closes at its last receipt and frees the wallet (#102)",async()=>{
+ const f=await fixture({starter:"2500000"}),session=await f.open();
+ await f.sessions.receipt(await f.receipt(session.sessionId,5));
+ f.advance(200);
+ f.broker.gone=()=>true;
+ const status=await f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
+ assert.equal(status.active,false);assert.equal(status.closedReason,"guest-unreachable");assert.equal(status.usageUnresolved,false);
+ assert.equal(status.credit.reservedNanoUsd,"0");assert.equal(status.credit.spentNanoUsd,"900000");
+ await assert.rejects(f.sessions.receipt(await f.receipt(session.sessionId,9,true)),e=>e.code==="GUEST_USAGE");
+ f.broker.gone=()=>false;
+ assert.notEqual((await f.open()).sessionId,session.sessionId);
+});
+
+test("a broker restart or a blip shorter than grant_seconds keeps a started stay; only longer silence closes it (#102)",async()=>{
+ const f=await fixture(),session=await f.open();
+ await f.sessions.receipt(await f.receipt(session.sessionId,5));
+ const status=async()=>f.sessions.status(await f.signed("agent-status",{sessionId:session.sessionId}));
+ const restarted=new Broker({cfg:{},now:f.broker.now});
+ f.broker.gone=p=>restarted.gone(p);
+ assert.equal((await status()).active,true,"fresh process, guest not yet re-registered");
+ f.advance(250);
+ assert.equal((await status()).active,true,"silent 250 s after restart");
+ restarted.seen.set(f.node.relay_peer,f.broker.now());
+ f.advance(250);
+ await f.sessions.receipt(await f.receipt(session.sessionId,6));
+ assert.equal((await status()).active,true,"silent 250 s after its last registration");
+ f.advance(51);
+ const closed=await status();
+ assert.equal(closed.active,false);assert.equal(closed.closedReason,"guest-unreachable");
+});
+
+test("signed session cap includes browse and minimum before grant, and keeps fractional remainder",async()=>{
+ const f=await fixture({hostBrowse:{default:"none",max:"open",price:{open_nano_usd_per_second:"5000"}}});
+ const operationId=crypto.randomUUID(),base={conversationId:"budget",client_peer:peer,node_peer:peer,
+  browse:{mode:"open",hosts:[]},operationId};
+ await assert.rejects(f.sessions.open(await f.signed("agent-open",{...base,maxSpendNanoUsd:"1199999"})),e=>e.code==="BUDGET_TOO_SMALL");
+ assert.equal(Object.keys(f.payments.state.agentSessions??{}).length,0);
+ const s=await f.sessions.open(await f.signed("agent-open",{...base,maxSpendNanoUsd:"1400001"}));
+ assert.equal(s.rateNanoUsdPerSecond,"20000");assert.equal(s.maxSpendNanoUsd,"1400001");
+ await f.sessions.receipt(await f.receipt(s.sessionId,0));
+ f.advance(60);
+ const next=await f.sessions.receipt(await f.receipt(s.sessionId,60));
+ assert.equal(next.activeBudgetSeconds,70);
+ assert.equal(BigInt(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd)+BigInt(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd),1400000n);
+ f.advance(10);
+ await assert.rejects(f.sessions.receipt(await f.receipt(s.sessionId,71)),e=>e.code==="GUEST_USAGE");
+ const stop=await f.sessions.receipt(await f.receipt(s.sessionId,70));
+ assert.equal(stop.stop,true);assert.equal(stop.reason,"budget");assert.equal(stop.activeBudgetSeconds,70);
+ const final=await f.receipt(s.sessionId,70,true);
+ await f.sessions.receipt(final);await f.sessions.receipt(final);
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"1400000");
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd,"0");
+});
+
+test("capped opens persist idempotent operations across restart and reject retagging",async()=>{
+ const f=await fixture(),operationId=crypto.randomUUID();
+ const fields={conversationId:"budget",client_peer:peer,node_peer:peer,maxSpendNanoUsd:"900000",operationId};
+ const signed=await f.signed("agent-open",fields),s=await f.sessions.open(signed);
+ assert.equal((await f.sessions.open(signed)).sessionId,s.sessionId);
+ f.payments.state=JSON.parse(JSON.stringify(f.payments.state));
+ const restored=new AgentSessions(f.broker,f.readFleet);
+ assert.equal((await restored.open(await f.signed("agent-open",fields))).sessionId,s.sessionId);
+ for(const delta of [{maxSpendNanoUsd:"900001"},{node_peer:"different"},{conversationId:"different"},{client_peer:peer.slice(0,-1)+"y"}])
+  await assert.rejects(restored.open(await f.signed("agent-open",{...fields,...delta})),e=>e.code==="OPERATION_CONFLICT");
+ await f.sessions.receipt(await f.receipt(s.sessionId,0));
+ f.advance(60);
+ const stop=await f.sessions.receipt(await f.receipt(s.sessionId,60));
+ assert.equal(stop.reason,"budget");
+ await f.sessions.receipt(await f.receipt(s.sessionId,60,true));
+ const closed=await restored.open(await f.signed("agent-open",fields));
+ assert.equal(closed.sessionId,s.sessionId);assert.equal(closed.active,false);
+ assert.equal(Object.keys(f.payments.state.agentSessions).length,1);
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd,"900000");
+});
+
+test("cap authority requires both explicit fields and the wallet signature",async()=>{
+ const f=await fixture(),base={conversationId:"budget",client_peer:peer,node_peer:peer};
+ for(const extra of [{operationId:crypto.randomUUID()},{maxSpendNanoUsd:"900000"},{maxSpendNanoUsd:900000,operationId:crypto.randomUUID()},
+  {maxSpendNanoUsd:"0900000",operationId:crypto.randomUUID()}])
+  await assert.rejects(f.sessions.open(await f.signed("agent-open",{...base,...extra})),e=>e.code==="BAD_REQUEST");
+ const signed=await f.signed("agent-open",{...base,maxSpendNanoUsd:"900000",operationId:crypto.randomUUID()});
+ await assert.rejects(f.sessions.open({...signed,maxSpendNanoUsd:"999999"}),e=>e.code==="BUYER_SIGNATURE");
+});
+
+test("concurrent capped retry creates one durable reservation and failed save cannot return a grant",async()=>{
+ const f=await fixture(),fields={conversationId:"budget",client_peer:peer,node_peer:peer,maxSpendNanoUsd:"900000",operationId:crypto.randomUUID()};
+ const responses=await Promise.all([1,2].map(async()=>f.sessions.open(await f.signed("agent-open",fields))));
+ assert.equal(responses[0].sessionId,responses[1].sessionId);
+ assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd,"900000");
+ const broken=await fixture();
+ const request=await broken.signed("agent-open",{...fields,operationId:crypto.randomUUID()});
+ // Permit nonce persistence, then fail the session transaction.
+ const save=broken.payments.save;broken.payments.save=async state=>{if(state.agentSessions)throw Error("disk unavailable");await save(state);};
+ await assert.rejects(broken.sessions.open(request),/disk unavailable/);
+ assert.equal(Object.keys(broken.payments.state.agentSessions??{}).length,0);
+ assert.equal(broken.inference.summary(broken.wallet.address.toLowerCase()).spentNanoUsd,"0");
+});
+
+test("a draining broker offers no new stays",async()=>{
+ const f=await fixture();
+ const node={...f.node,telemetry:{busy:false}};
+ f.broker.live=()=>[node];
+ assert.equal(f.sessions.available(node),true);
+ f.broker.draining=true;
+ assert.equal(f.sessions.available(node),false);
+ await assert.rejects(f.sessions.open(await f.signed("agent-open",{conversationId:"drained",client_peer:peer,node_peer:node.relay_peer})),e=>e.code==="GUEST_BUSY");
+});
+
+// Guest Unix seconds and broker Unix seconds can straddle a second boundary.
+test("guest receipt clock skew does not retire a stay", async () => {
+ const f = await fixture(), { sessionId } = await f.open();
+ const start = await f.receipt(sessionId, 0);
+ assert.equal((await f.sessions.receipt(start)).stop, false);
+ f.advance(5);
+ const checkpoint = await f.receipt(sessionId, 1);
+ f.advance(-1); // Incident: receipt 01:57:12 received at 01:57:11.953Z.
+ assert.equal((await f.sessions.receipt(checkpoint)).stop, false);
+ assert.equal((await f.sessions.receipt(checkpoint)).stop, false);
+ // Keep the skew bounded, and still reject an older signed sequence.
+ f.advance(6);
+ const future = await f.receipt(sessionId, 1);
+ f.advance(-6);
+ await assert.rejects(f.sessions.receipt(future), e => e.code === "GUEST_USAGE");
+ f.advance(2);
+ const older = await f.receipt(sessionId, 1);
+ const newer = await f.receipt(sessionId, 1);
+ await f.sessions.receipt(newer);
+ await assert.rejects(f.sessions.receipt(older), e => e.code === "GUEST_USAGE");
+ const final = await f.receipt(sessionId, 1, true);
+ assert.equal((await f.sessions.receipt(final)).stop, true);
+ assert.equal(f.payments.state.agentSessions[sessionId].final, true);
+});
+
+test("a slightly slow guest clock can submit its start receipt", async () => {
+ const f = await fixture(), { sessionId } = await f.open();
+ f.advance(-1);
+ const start = await f.receipt(sessionId, 0);
+ f.advance(1);
+ assert.equal((await f.sessions.receipt(start)).stop, false);
 });

@@ -1,8 +1,9 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { FetchRequest, JsonRpcProvider, Wallet } from "../payments/schema.mjs";
+import { Contract, FetchRequest, JsonRpcProvider, Wallet, keccak256 } from "../payments/schema.mjs";
 import { canonical, signingKey } from "./grants.mjs";
-import { Continuity, cidFor, decode, headDigest, anchorReceipt } from "./continuity.mjs";
+import { Continuity, cidFor, decode, headDigest, anchorReceipt, headAbi } from "./continuity.mjs";
+import { syncRpcProvider } from "./continuity-rpc.mjs";
 const encode = (bytes) => btoa(String.fromCharCode(...bytes)).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
 async function fixture() {
   const wallet=Wallet.createRandom(), stranger=Wallet.createRandom(),key=await signingKey("11".repeat(32));
@@ -70,4 +71,31 @@ test("anchor receipt polling awaits rate-limit recovery without block subscripti
  await assert.rejects(anchorReceipt({send:async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});}},hash,{attempts:2,sleep:async()=>{}}),error=>error.status===503&&error.message.includes("25/second request limit reached"));
  const f=await fixture();f.chain.heads=async()=>{throw Object.assign(new Error("25/second request limit reached"),{code:-32007});};
  await assert.rejects(f.broker.call("head",await f.request("head")),error=>error.status===503&&error.message.includes("25/second request limit reached"));
+});
+
+
+test("sync RPC failover preserves signed bytes, backs off quotas and propagates contract reverts", async () => {
+ const wallet = Wallet.createRandom(), raw = await wallet.signTransaction({ chainId: 84532, type: 2, nonce: 0,
+   maxPriorityFeePerGas: 1, maxFeePerGas: 2, gasLimit: 21000, to: wallet.address, value: 0 });
+ const urls = ["https://one.invalid", "https://two.invalid"], calls = [], broadcasts = [];
+ let now = 0;
+ const provider = syncRpcProvider(urls, { now: () => now, fetcher: async (url, opts) => {
+   const r = JSON.parse(opts.body); calls.push([url, r.method]);
+   if (r.method === "eth_chainId") return Response.json({ result: "0x14a34" });
+   if (r.method === "eth_sendRawTransaction") broadcasts.push(r.params[0]);
+   if (r.method === "eth_getBalance") return Response.json({ error: { code: 3, message: "execution reverted" } });
+   if (url === urls[0]) return Response.json({ error: { code: -32007, message: "request limit" } });
+   return Response.json({ result: r.method === "eth_call" ? "0x" + "0".repeat(128) : keccak256(raw) });
+ } });
+ try {
+   const chain = new Contract("0x" + "33".repeat(20), headAbi, provider);
+   assert.equal((await chain.heads(wallet.address)).counter, 0n);
+   assert.equal((await chain.heads(wallet.address)).counter, 0n);
+   assert.equal(calls.filter(([url, method]) => url === urls[0] && method === "eth_call").length, 1);
+   now = 1000;
+   assert.equal(await provider.send("eth_sendRawTransaction", [raw]), keccak256(raw));
+   assert.deepEqual(broadcasts, [raw, raw]);
+   await assert.rejects(provider.send("eth_getBalance", [wallet.address, "latest"]), /execution reverted/);
+   assert.equal(calls.filter(([, method]) => method === "eth_getBalance").length, 1);
+ } finally { provider.destroy(); }
 });

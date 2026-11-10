@@ -29,7 +29,7 @@ function fixture({ state, cfg = {} } = {}) {
     cfg: {},
     key: {},
     state,
-    quorum: {},
+    chain: {},
     now: () => now,
     save: async (next) => {
       saved = structuredClone(next);
@@ -188,7 +188,7 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
       cfg: {},
       key: {},
       state: f.saved(),
-      quorum: {},
+      chain: {},
       save: async () => {},
     }),
     cfg: { model: MODEL },
@@ -202,6 +202,52 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
     "250000000",
   );
   assert.equal(f.calls(), 0);
+});
+
+test("concurrent starter claims share the default $5 daily budget and existing wallets keep their credit", async () => {
+  const f = fixture(), wallets = Array.from({ length: 21 }, () => Wallet.createRandom());
+  const results = await Promise.allSettled(wallets.map(wallet => f.credit(wallet)));
+  assert.equal(results.filter(r => r.status === "fulfilled").length, 20);
+  const refused = results.find(r => r.status === "rejected").reason;
+  assert.equal(refused.code, "STARTER_BUDGET_EXHAUSTED");
+  assert.match(refused.message, /free credit for today is used up/);
+  assert.equal(f.saved().inferenceStarterGrants.grantedNanoUsd, "5000000000");
+  const existing = wallets[results.findIndex(r => r.status === "fulfilled")];
+  assert.equal((await f.credit(existing)).grantedNanoUsd, "250000000");
+  assert.equal(f.saved().inferenceStarterGrants.grantedNanoUsd, "5000000000");
+});
+
+test("configured starter budget survives restart, refuses partial grants and resets at midnight UTC", async () => {
+  const cfg = { dailyStarterBudgetNanoUsd: "375000000" }, f = fixture({ cfg });
+  await f.credit();
+  const other = Wallet.createRandom();
+  await assert.rejects(f.credit(other), code("STARTER_BUDGET_EXHAUSTED"));
+  assert.equal(f.payments.state.inferenceCredit[other.address.toLowerCase()], undefined);
+  const restarted = fixture({ cfg, state: f.saved() });
+  await assert.rejects(restarted.credit(other), code("STARTER_BUDGET_EXHAUSTED"));
+  assert.equal((await restarted.credit(f.wallet)).grantedNanoUsd, "250000000");
+  const day = restarted.saved().inferenceStarterGrants.utcDay;
+  restarted.advance(86400 - 2000000000 % 86400 - 1);
+  await assert.rejects(restarted.credit(other), code("STARTER_BUDGET_EXHAUSTED"));
+  restarted.advance(1);
+  assert.equal((await restarted.credit(other)).grantedNanoUsd, "250000000");
+  assert.notEqual(restarted.saved().inferenceStarterGrants.utcDay, day);
+  assert.equal(restarted.saved().inferenceStarterGrants.grantedNanoUsd, "250000000");
+  await assert.rejects(restarted.credit(), code("STARTER_BUDGET_EXHAUSTED"));
+});
+
+test("zero starter budget disables new grants and a failed save cannot consume budget", async () => {
+  const disabled = fixture({ cfg: { dailyStarterBudgetNanoUsd: "0" } });
+  await assert.rejects(disabled.credit(), code("STARTER_BUDGET_EXHAUSTED"));
+  const f = fixture({ cfg: { dailyStarterBudgetNanoUsd: "250000000" } });
+  const save = f.payments.save, claim = await f.signed("credit");
+  f.payments.save = async () => { throw Error("disk full"); };
+  await assert.rejects(f.inference.credit(claim), /disk full/);
+  assert.equal(f.payments.state.inferenceStarterGrants, undefined);
+  assert.equal(f.payments.state.inferenceCredit, undefined);
+  f.payments.save = save;
+  assert.equal((await f.inference.credit(claim)).grantedNanoUsd, "250000000");
+  assert.equal(f.saved().inferenceStarterGrants.grantedNanoUsd, "250000000");
 });
 
 test("fresh verified model sessions accept SDK ciphertext and reject plaintext or swapped keys", async () => {
@@ -333,7 +379,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
       cfg: {},
       key: {},
       state: saved,
-      quorum: {},
+      chain: {},
       save: async () => {},
     });
   const restarted = new Inference({
@@ -359,11 +405,12 @@ test("unknown dispatched requests remain reserved across restart and are never r
   );
 });
 
-test("browser disconnect still drains the encrypted provider stream for billing evidence", async () => {
+test("browser cancellation stops provider generation and settles its exact partial charge once", async () => {
   const f = fixture();
   await f.credit();
-  let finishSource, responded;
-  const gate = new Promise((resolve) => finishSource = resolve),
+  let finishCancellation, cancellationStarted, responded, providerCalls = 0;
+  const cancellation = new Promise(resolve => finishCancellation = resolve),
+    started = new Promise(resolve => cancellationStarted = resolve),
     stored = new Promise((resolve) => responded = resolve);
   const save = f.payments.save;
   f.payments.save = async (next) => {
@@ -374,21 +421,16 @@ test("browser disconnect still drains the encrypted provider stream for billing 
       )
     ) responded();
   };
-  f.provider.chatEncrypted = async () =>
-    new Response(
+  f.provider.chatEncrypted = async () => {
+    providerCalls++;
+    return new Response(
       new ReadableStream({
-        async start(controller) {
+        start(controller) {
           controller.enqueue(
             new TextEncoder().encode('data: {"choices":[]}\n\n'),
           );
-          await gate;
-          controller.enqueue(
-            new TextEncoder().encode(
-              'data: {"usage":{"total_tokens":12}}\n\ndata: [DONE]\n\n',
-            ),
-          );
-          controller.close();
         },
+        async cancel() { cancellationStarted(); await cancellation; },
       }),
       {
         headers: {
@@ -397,21 +439,44 @@ test("browser disconnect still drains the encrypted provider stream for billing 
         },
       },
     );
+  };
   const response = await f.send();
   assert.equal(f.inference.status().inFlightStreams, 1);
   const consumer = response.body.getReader();
   await consumer.read();
   const pendingRead = consumer.read();
-  await consumer.cancel();
+  const stopped = consumer.cancel();
+  await started;
   await pendingRead;
-  assert.equal(f.inference.status().inFlightStreams, 1, "disconnected browser still has a metered provider stream");
-  finishSource();
+  assert.equal(f.inference.status().inFlightStreams, 1, "deploy guard waits until upstream cancellation is confirmed");
+  finishCancellation();
+  await stopped;
   await stored;
   await new Promise(resolve => setTimeout(resolve, 0));
   assert.equal(f.inference.status().inFlightStreams, 0);
+  const request = Object.values(f.saved().inferenceRequests)[0];
+  assert.equal(request.inferenceId, "inference-disconnected");
+  assert.equal(request.interrupted, true);
+  assert.equal(request.usedTokens, null);
+  f.cost("0");
+  await assert.rejects(f.inference.usage(await f.signed("usage")), code("USAGE_PENDING"));
+  assert(BigInt(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd) > 0n);
+  await assert.rejects(f.prepare(), code("REQUEST_IN_FLIGHT"));
+  const costs = f.provider.costs;
+  f.provider.costs = async args => {
+    assert.deepEqual(args.requestIds, ["inference-disconnected"]);
+    return costs(args);
+  };
+  f.cost("300");
   const result = await f.inference.usage(await f.signed("usage"));
   assert.equal(result.spentNanoUsd, "300");
-  assert.equal(result.usedTokens, "12");
+  assert.equal(result.usedTokens, "0");
+  assert.equal(result.unreportedTokenRequests, 1);
+  assert.equal(result.reservedNanoUsd, "0");
+  assert.equal((await f.inference.usage(await f.signed("usage"))).spentNanoUsd, "300");
+  assert.equal(f.costsCalls(), 2);
+  assert.equal(providerCalls, 1, "cancellation and reconciliation never redispatch provider work");
+  await f.prepare();
 });
 
 test("provider billing IDs cannot charge a different wallet and missing token evidence stays pending", async () => {
@@ -604,7 +669,7 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   const state = structuredClone(f.saved());
   const [id, request] = Object.entries(state.inferenceRequests)[0];
   state.inferenceRequests[id] = { ...request, status: "streaming", usedTokens: null, streamCompleted: false };
-  const payments = new Payments({ cfg: {}, key: {}, state, quorum: {}, save: async () => {} });
+  const payments = new Payments({ cfg: {}, key: {}, state, chain: {}, save: async () => {} });
   const restarted = new Inference({ payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
   await restarted.recover();
   assert.equal(restarted.status().inFlightStreams, 0);
@@ -642,4 +707,148 @@ test("completed provider reply stays busy while ciphertext is queued for its HTT
   assert.equal(f.inference.status().inFlightStreams, 1, "provider EOF alone cannot permit a deploy over queued ciphertext");
   await response.text();
   assert.equal(f.inference.status().inFlightStreams, 0);
+});
+
+test("funded inference debit accrues exactly once to the configured provider payee",async()=>{
+ const f=fixture();await f.credit();
+ const wallet=f.wallet.address.toLowerCase(),operator=Wallet.createRandom().address.toLowerCase();
+ f.payments.cfg.inferenceOperator=operator;
+ f.payments.state.inferenceCredit[wallet].depositedNanoUsd="1000000";
+ const response=await f.send();await response.text();
+ await f.inference.usage(await f.signed("usage"));
+ await f.inference.usage(await f.signed("usage"));
+ assert.equal(f.inference.summary(wallet).spentNanoUsd,"300");
+ assert.equal(f.payments.state.inferenceCredit[wallet].prepaidSpentNanoUsd,"300");
+ assert.equal(Object.values(f.payments.state.operatorAccruals[wallet][operator]).reduce((n,v)=>n+BigInt(v),0n),300n);
+});
+
+test("duplicate signed prepare shares one attestation and the same session", async () => {
+  const f = fixture();
+  await f.credit();
+  const request = await f.signed("prepare", { attestationNonce: "cd".repeat(32) });
+  const [a, b] = await Promise.all([f.inference.prepare(request), f.inference.prepare(request)]);
+  assert.deepEqual(a, b);
+  assert.deepEqual(await f.inference.prepare(request), a);
+  assert.equal(f.attests(), 1);
+  const changed = await f.signed("prepare", { nonce: request.nonce, attestationNonce: "ef".repeat(32) });
+  await assert.rejects(f.inference.prepare(changed), code("REQUEST_REPLAY"));
+});
+
+test("duplicate signed chat dispatches and reserves once, including after restart", async () => {
+  const f = fixture();
+  await f.credit();
+  const request = await f.signed("chat", await f.encrypted(await f.prepare()));
+  const responses = await Promise.all([f.inference.chat(request), f.inference.chat(request)]);
+  const original = responses.find(r => r.status === 200), duplicate = responses.find(r => r.status === 202);
+  assert(original && duplicate);
+  const dispatched = await duplicate.json();
+  assert.equal(dispatched.code, "REQUEST_ALREADY_DISPATCHED");
+  assert.equal(dispatched.sessionId, request.sessionId);
+  await original.text();
+  assert.equal(f.calls(), 1);
+  assert.equal(Object.keys(f.saved().inferenceRequests).length, 1);
+  const restarted = new Inference({ payments: f.payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  assert.equal((await restarted.chat(request)).status, 202);
+  await f.inference.usage(await f.signed("usage"));
+  assert.equal((await restarted.chat(request)).status, 202);
+  assert.equal(f.calls(), 1);
+  const changed = await f.signed("chat", { ...request, sig: undefined, body: { ...request.body, max_tokens: 1 } });
+  await assert.rejects(f.inference.chat(changed), code("REQUEST_REPLAY"));
+});
+
+
+test("the 278-byte usage check reports already sent after duplicate delivery or restart without another charge", async () => {
+  const f = fixture(); await f.credit();
+  const session = await f.prepare(), encrypted = await f.encrypted(session);
+  await (await f.inference.chat(await f.signed("chat", encrypted))).text();
+  const request = await f.signed("usage");
+  assert.equal(Buffer.byteLength(JSON.stringify(request)), 278);
+  const results = await Promise.allSettled([f.inference.usage(request), f.inference.usage(request)]);
+  const first = results.find(result => result.status === "fulfilled").value;
+  const duplicate = results.find(result => result.status === "rejected").reason;
+  assert.equal(duplicate.code, "REQUEST_ALREADY_SENT");
+  assert.match(duplicate.message, /usage check was already sent.*new signed request/);
+  assert.equal(first.spentNanoUsd, "300");
+  assert.equal(first.usedTokens, "8");
+  const restarted = new Inference({ payments: new Payments({ cfg: {}, key: {}, state: f.saved(), chain: {}, save: async () => {} }),
+    cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  await assert.rejects(restarted.usage(request), code("REQUEST_ALREADY_SENT"));
+  assert.deepEqual(await restarted.usage(await f.signed("usage")), first);
+  assert.equal(f.calls(), 1);
+  const reusedNonce = await f.signed("credit", { nonce: request.nonce });
+  await assert.rejects(restarted.credit(reusedNonce), code("REQUEST_REPLAY"));
+});
+
+test("provider authentication refusal retains a rejected dispatch without trapping wallet credit", async () => {
+  const f = fixture();
+  await f.credit();
+  const original = f.provider.chatEncrypted;
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("refused"), {
+    code: "PROVIDER_HTTP_401", dispatchRejected: true,
+  }); };
+  await assert.rejects(f.send, code("PROVIDER_HTTP_401"));
+  const [id, rejected] = Object.entries(f.saved().inferenceRequests)[0];
+  assert.equal(rejected.status, "rejected");
+  assert.equal(rejected.rejectionCode, "PROVIDER_HTTP_401");
+  assert.equal(rejected.inferenceId, null);
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).reservedNanoUsd, "0");
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "0");
+  assert.equal((await f.inference.recover()).pendingRequests, 0);
+  f.provider.chatEncrypted = original;
+  await (await f.send()).text();
+  await f.inference.usage(await f.signed("usage"));
+  assert.deepEqual(f.saved().inferenceRequests[id], rejected);
+  assert.equal(f.inference.summary(f.wallet.address.toLowerCase()).spentNanoUsd, "300");
+});
+
+test("ambiguous provider transport failure keeps its reservation across restart", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("transport"), { code: "PROVIDER_TRANSPORT" }); };
+  await assert.rejects(f.send, code("PROVIDER_TRANSPORT"));
+  const state = f.saved(), wallet = f.wallet.address.toLowerCase();
+  assert(state.inferenceCredit[wallet].pending);
+  assert(BigInt(f.inference.summary(wallet).reservedNanoUsd) > 0n);
+  assert.equal((await f.inference.recover()).pendingRequests, 1);
+  assert.deepEqual(f.saved(), state);
+});
+
+test("authenticated operator refusal evidence reconciles a unique historical dispatch exactly once", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Error("legacy refusal without structured status"); };
+  await assert.rejects(f.send);
+  const state = f.saved(), [id, request] = Object.entries(state.inferenceRequests)[0];
+  const evidence = { event: "near_chat", ref: request.requestNonce.slice(0, 8),
+    time: new Date(request.createdAt * 1000 + 200).toISOString(), http_status: 401 };
+  const recovered = fixture({ state, cfg: { rejectedDispatches: [evidence] } });
+  assert.equal((await recovered.inference.recover()).pendingRequests, 0);
+  const result = recovered.saved();
+  assert.equal(result.inferenceCredit[request.wallet].pending, null);
+  assert.equal(result.inferenceCredit[request.wallet].spentNanoUsd, "0");
+  assert.deepEqual(result.inferenceRequests[id], { ...request, status: "rejected",
+    rejectionCode: "PROVIDER_HTTP_401", rejectionEvidence: evidence, rejectedAt: request.createdAt });
+  const restarted = fixture({ state: result, cfg: { rejectedDispatches: [evidence] } });
+  await restarted.inference.recover();
+  assert.equal(restarted.records.length, 0);
+});
+
+test("historical rejection recovery refuses ambiguous, mismatched or non-authentication evidence without writing", async () => {
+  const wallet = Wallet.createRandom().address.toLowerCase(), at = 2000000000;
+  const request = { wallet, status: "sent", inferenceId: null, requestNonce: "ab".repeat(16), createdAt: at, reservedNanoUsd: "5000" };
+  const evidence = { event: "near_chat", ref: "abababab", time: new Date(at * 1000 + 200).toISOString(), http_status: 401 };
+  const base = { inferenceCredit: { [wallet]: { pending: "old" } }, inferenceRequests: { old: request } };
+  const cases = [
+    [base, { ...evidence, http_status: 500 }],
+    [base, { ...evidence, ref: "00000000" }],
+    [base, { ...evidence, time: new Date((at + 61) * 1000).toISOString() }],
+    [{ ...base, inferenceRequests: { old: request, collision: { ...request, requestNonce: "abababab" + "cd".repeat(12) } } }, evidence],
+    [{ ...base, inferenceRequests: { old: { ...request, inferenceId: "known-provider-id" } } }, evidence],
+  ];
+  for (const [state, entry] of cases) {
+    const f = fixture({ state, cfg: { rejectedDispatches: [entry] } });
+    await assert.rejects(() => f.inference.recover(), code("USAGE_MISMATCH"));
+    assert.equal(f.records.length, 0);
+    assert.deepEqual(f.payments.state, state);
+  }
 });

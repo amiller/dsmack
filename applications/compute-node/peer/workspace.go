@@ -191,7 +191,7 @@ func (w *workspaceSession) observe(line []byte) {
 }
 
 type workspaceMCP struct {
-	conn   net.Conn
+	conn   io.ReadWriteCloser
 	reader *bufio.Reader
 	next   int
 }

@@ -58,16 +58,19 @@ test('two DoH resolvers must agree, quoted TXT chunks and bare Google records no
  calls=0;
  await assert.rejects(fetchDkimKey('test._domainkey.example.com',{fetch:async()=>new Response(JSON.stringify({Status:0,Answer:[{type:16,data:++calls===1?record:record.replace('k=rsa','k=ed25519')}]}))}),/disagree/);
 });
-test('gate enrolls labelled wrap and fresh browser recovers same bundle without replay state',async()=>{
- let state;const gate=await new EmailGate({load:async()=>state,save:async s=>{state=structuredClone(s);},now:()=>now,verifyDkim:(p,o)=>verifyDkimRecovery(p,{...o,lookup:async()=>record})}).initialize();
+test('DKIM proof enrolls a labelled wrap and starts delayed recovery bound to the browser',async()=>{
+ let state,time=now;const gate=await new EmailGate({load:async()=>state,save:async s=>{state=structuredClone(s);},now:()=>time,verifyDkim:(p,o)=>verifyDkimRecovery(p,{...o,lookup:async()=>record})}).initialize();
  const a=await message(),bundle={v:1,dk:random(),walletKey:'0x'+'42'.repeat(32)},label=emailRecoveryLabel(a.proof.email,a.proof.userId);
  const post=async body=>{const r=await gate.handle(new Request('https://test/continuity/email/dkim',{method:'POST',body:JSON.stringify(body)}));return {status:r.status,...await r.json()};};
  const sealed=await seal(a.pair.privateKey,gate.state.publicKey,bundle,label+'|enroll|'+a.proof.nonce);
  assert.equal((await post({...a.proof,purpose:'enroll',sealed})).status,200);
  assert.ok(!JSON.stringify(state).includes(bundle.walletKey));
  assert.equal((await post({...a.proof,purpose:'enroll',sealed})).status,409);
- const b=await message(),recovered=await post({...b.proof,purpose:'recover'});assert.equal(recovered.status,200);
+ const b=await message(),pending=await post({...b.proof,purpose:'recover'});assert.equal(pending.status,202);
+ assert.equal((await post({...b.proof,purpose:'recover'})).releaseAt,pending.releaseAt);
+ time+=48*60*60_000;
+ const response=await gate.handle(new Request('https://test/continuity/email/release',{method:'POST',body:JSON.stringify({id:pending.id})}));
+ assert.equal(response.status,200);const recovered=await response.json();
  assert.deepEqual(await open(b.pair.privateKey,gate.state.publicKey,recovered.sealed,label+'|recover|'+b.proof.nonce),bundle);
  await assert.rejects(open(a.pair.privateKey,gate.state.publicKey,recovered.sealed,label+'|recover|'+b.proof.nonce));
- assert.equal((await post({...b.proof,purpose:'recover'})).status,200);
 });

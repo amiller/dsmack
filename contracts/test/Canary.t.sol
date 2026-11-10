@@ -78,7 +78,7 @@ contract CanaryTest is Test {
     }
 
     function test_forgeryPaysOnceToBoundClaimant() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
         bytes memory proof = abi.encode(c.forgeryContext(id, alice), RUNNER);
         // A front-runner cannot redirect the payout: the assertion is over alice's address.
         vm.expectRevert("assertion signature");
@@ -92,7 +92,7 @@ contract CanaryTest is Test {
     }
 
     function test_ownerCanaryBindsImageManifestAndClaimant() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Owner, RUNNER_BUILD, IMAGE, MANIFEST, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Owner, RUNNER_BUILD, IMAGE, MANIFEST, uint64(block.timestamp + 90 days));
         Canary.Event[] memory ev = events("canary-guest-key", false);
         // A run of another image (e.g. one the owner built to leak its key) or another workload does not pay.
         claim(id, alice, alice, keccak256("owner image"), MANIFEST, ev, RUNNER, "not this canary");
@@ -107,13 +107,13 @@ contract CanaryTest is Test {
     /// The supervisor seals before any workload exists and the app refuses events after the seal, so
     /// an event after system-ready could only come from a workload; such a log does not pay.
     function test_eventAfterSystemReadyDoesNotPay() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, IMAGE, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, IMAGE, 0, uint64(block.timestamp + 90 days));
         claim(id, alice, alice, IMAGE, MANIFEST, events("canary-guest-key", true), RUNNER, "system-ready last");
     }
 
     /// Runner entries admit any image, whose own supervisor knows its guest key; only the app's event pays them.
     function test_guestKeyDoesNotPayRunnerEntry() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Runner, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Runner, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
         claim(id, alice, alice, keccak256("any image"), MANIFEST, events("canary-guest-key", false), RUNNER, "canary event");
         claim(id, alice, alice, keccak256("any image"), MANIFEST, events("canary-runner-key", false), RUNNER, "");
         assertTrue(c.burnedBuild(RUNNER_BUILD));
@@ -121,13 +121,13 @@ contract CanaryTest is Test {
 
     /// The App Attest probe asserts any file it is given, so its assertions must not pay a runner canary.
     function test_keyAssertionFromAnotherBuildDoesNotPay() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, IMAGE, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, IMAGE, 0, uint64(block.timestamp + 90 days));
         claim(id, alice, alice, IMAGE, MANIFEST, events("canary-guest-key", false), PROBE, "build");
     }
 
     /// The App Attest probe asserts any file it is given, so its assertions must not pay a runner canary.
     function test_forgeryFromAnotherBuildDoesNotPay() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
         bytes memory proof = abi.encode(c.forgeryContext(id, alice), PROBE);
         vm.expectRevert("build");
         c.claimForgery(id, alice, proof);
@@ -135,23 +135,14 @@ contract CanaryTest is Test {
 
     /// The approved runner is signed for one device; anyone else attacks a copy re-signed by their own team.
     function test_reSignedRunnerCanClaim() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Runner, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Runner, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
         claim(id, alice, alice, keccak256("any image"), MANIFEST, events("canary-runner-key", false), RESIGNED, "");
         assertEq(alice.balance, 1 ether);
     }
 
     function test_guestCanaryRequiresImage() public {
         vm.expectRevert("unbound image");
-        c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
-    }
-
-    function test_reclaimOnlyAfterExpiry() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 30 days));
-        vm.expectRevert("reclaim");
-        c.reclaim(id);
-        vm.warp(block.timestamp + 31 days);
-        c.reclaim(id);
-        assertEq(address(this).balance, 10 ether);
+        c.arm{value: 1 ether}(Canary.Kind.Guest, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
     }
 
     /// A claim takes several transactions; the registry owner approving another build mid-claim
@@ -162,7 +153,7 @@ contract CanaryTest is Test {
         r.setBuild(cd, page0, ent);
         bytes32 pinned = r.buildId();
         c = new Canary(new MockAttest(ICDRegistry(address(r))));
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, pinned, 0, 0, uint64(block.timestamp + 30 days));
+        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, pinned, 0, 0, uint64(block.timestamp + 90 days));
         (bytes memory cd2, bytes memory page02, bytes memory ent2) = build("fixtures/cd-args-developer-id.json");
         r.setBuild(cd2, page02, ent2);
         bytes32 other = r.registerBuild(cd2, page02, ent2);
@@ -181,23 +172,14 @@ contract CanaryTest is Test {
         return (vm.parseJsonBytes(j, ".cd"), vm.parseJsonBytes(j, ".page0"), vm.parseJsonBytes(j, ".ent"));
     }
 
-    /// Retiring must leave claimants NOTICE to land a claim already under way.
-    function test_retireKeepsClaimsOpenForNotice() public {
+    /// The funder's only lever is reclaim after `until`; a break proven after that still goes on record.
+    function test_claimAfterExpiryBurnsWithoutPayout() public {
+        vm.expectRevert("terms");
+        c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 89 days));
         uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
-        vm.prank(bob); vm.expectRevert("funder"); c.retire(id);
-        c.retire(id);
-        vm.warp(block.timestamp + c.NOTICE());
         vm.expectRevert("reclaim");
         c.reclaim(id);
-        c.claimForgery(id, alice, abi.encode(c.forgeryContext(id, alice), RUNNER));
-        assertEq(alice.balance, 1 ether);
-    }
-
-    /// A break proven after the pot is reclaimed still goes on record.
-    function test_claimAfterReclaimBurnsWithoutPayout() public {
-        uint256 id = c.arm{value: 1 ether}(Canary.Kind.Forgery, RUNNER_BUILD, 0, 0, uint64(block.timestamp + 90 days));
-        c.retire(id);
-        vm.warp(block.timestamp + c.NOTICE() + 1);
+        vm.warp(block.timestamp + 90 days + 1);
         c.reclaim(id);
         assertEq(address(this).balance, 10 ether);
         vm.expectEmit(address(c));
@@ -205,6 +187,29 @@ contract CanaryTest is Test {
         c.claimForgery(id, alice, abi.encode(c.forgeryContext(id, alice), RUNNER));
         assertEq(alice.balance, 0);
         assertTrue(c.burnedBuild(RUNNER_BUILD));
+    }
+
+    /// The oracle's key is its report_data; only the pinned image, manifest and service publish it.
+    function test_oracleKeyFromReportDataOfPinnedService() public {
+        uint256 id = c.armOracle{value: 1 ether}(RUNNER_BUILD, IMAGE, MANIFEST, sha256("oracle"), uint64(block.timestamp + 90 days));
+        (uint256 x, uint256 y) = vm.publicKeyP256(CANARY_KEY);
+        Canary.Event[] memory ev = events("canary-guest-key", false);  // a real guest log carries the supervisor's key too
+        Canary.Attested memory a = Canary.Attested(IMAGE, MANIFEST, keccak256("run"), sha256("oracle"), abi.encodePacked(x, y));
+        oracleClaim(id, alice, alice, a, ev, "");
+        assertEq(alice.balance, 1 ether);
+        assertTrue(!c.burnedImage(IMAGE) && !c.burnedBuild(RUNNER_BUILD));
+        id = c.armOracle{value: 1 ether}(RUNNER_BUILD, IMAGE, MANIFEST, sha256("oracle"), uint64(block.timestamp + 90 days));
+        oracleClaim(id, bob, alice, a, ev, "canary signature");
+        a.caller = sha256("sidecar");  // another service of the same manifest picks its own report_data
+        oracleClaim(id, alice, alice, a, ev, "not this canary");
+    }
+
+    function oracleClaim(uint256 id, address payable to, address signedFor, Canary.Attested memory a,
+                         Canary.Event[] memory ev, bytes memory err) internal {
+        bytes32 ctx = sha256(abi.encodePacked("dsmack.appattest.guest-attest/1", a.image, a.manifest, a.run, head(ev), a.caller, a.reportData));
+        (bytes32 r, bytes32 s) = vm.signP256(CANARY_KEY, c.claimDigest(id, signedFor));
+        if (err.length > 0) vm.expectRevert(err);
+        c.claimKey(id, to, a, ev, abi.encode(ctx, RUNNER), r, s);
     }
 
     receive() external payable {}

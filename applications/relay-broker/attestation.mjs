@@ -1,3 +1,4 @@
+import { reportData } from "../../dstack-compat/binding.mjs";
 import { cat, checkAssertion, decodeAttestation, hex, sha256, unhex } from "../../dstack-compat/secret-release/policy.mjs";
 
 const enc = new TextEncoder();
@@ -35,24 +36,22 @@ export async function verifyRelay(r, cfg, chain, now) {
   require(hex(a.caller) === hex(await sha256(enc.encode(workload.service))), "caller is not the relay service");
   require(typeof r.receipt_key === "string" && /^[0-9a-f]{64}$/.test(r.receipt_key), "receipt key must be Ed25519 hex");
   require(r.kind === undefined || r.kind === "relay" || r.kind === "compute", "node kind");
-  let legacyReport;
+  let seal = new Uint8Array(), receipt = unhex(r.receipt_key), challenge = new Uint8Array(32);
   if (r.kind === "compute") {
     require(typeof r.secret_key === "string" && /^[0-9a-f]{128}$/.test(r.secret_key), "P-256 secret public key");
-    legacyReport = cat(await sha256(cat(enc.encode("dsmack-compute-node/1"), peer, unhex(r.secret_key), unhex(r.receipt_key))), new Uint8Array(32));
-  } else {
-    legacyReport = cat(await sha256(cat(enc.encode("dsmack-libp2p-peer/1"), peer)), unhex(r.receipt_key));
+    seal = unhex(r.secret_key);
   }
   if (r.payments) {
-    require(/^[0-9a-f]{64}$/.test(r.payments.challenge), "payment admission challenge");
-    const { binding } = await import("../payments/schema.mjs");
-    const expected = cat(unhex(binding(r.payments, r.relay_peer, r.manifest_sha256, r.os_image_hash).slice(2)),
-      await sha256(cat(legacyReport, unhex(r.payments.challenge))));
-    require(hex(a.report_data) === hex(expected), "paid receipt key and challenge binding");
-  } else if(r.kind === "compute") require(hex(a.report_data) === hex(legacyReport), "compute key binding");
-  else {
-    require(hex(a.report_data.slice(0,32))===hex(legacyReport.slice(0,32)), "PeerId binding");
-    require(hex(a.report_data.slice(32))===hex(legacyReport.slice(32)), "receipt key binding");
+    require(typeof r.payments.challenge === "string" && /^[0-9a-f]{64}$/.test(r.payments.challenge), "payment admission challenge");
+    const { computeAddress } = await import("../payments/schema.mjs");
+    const p = r.payments;
+    require(typeof p.receiptPublicKey === "string" && /^0x0[23][0-9a-f]{64}$/.test(p.receiptPublicKey) &&
+      computeAddress(p.receiptPublicKey).toLowerCase() === p.receiptSigner?.toLowerCase(), "paid receipt public key/signer");
+    receipt = cat(receipt, unhex(p.receiptPublicKey.slice(2)));
+    challenge = unhex(r.payments.challenge);
   }
+  const expected = await reportData(peer, seal, receipt, challenge);
+  require(hex(a.report_data) === hex(expected), "node PeerId/seal/receipt/challenge binding");
   // checkAssertion verifies the signature, enrollment lifetime, approved build, counter and canary.
   // Capture the authenticated CDHash during its category/authenticator check.
   let cdhash;

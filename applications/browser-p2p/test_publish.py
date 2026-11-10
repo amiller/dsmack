@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 
 class BrokerPublicationTests(unittest.TestCase):
-    def run_publication(self, replies, root):
+    def run_publication(self, replies, root, account=None, entries=None, sleep_effect=None):
         received = []
         class Handler(BaseHTTPRequestHandler):
             def do_POST(self):
@@ -27,12 +27,17 @@ class BrokerPublicationTests(unittest.TestCase):
             def log_message(self, *_): pass
         server = ThreadingHTTPServer(('127.0.0.1', 0), Handler)
         thread = threading.Thread(target=server.serve_forever, daemon=True); thread.start()
-        (root/'entries.json').write_text('[]'); (root/'token').write_text('unit-test-token')
+        (root/'entries.json').write_text(json.dumps(entries or [])); (root/'token').write_text('unit-test-token')
         args = ['publish.py','broker','--broker',f'http://127.0.0.1:{server.server_port}/tunnels',
                 '--entries',str(root/'entries.json'),'--operator-token',str(root/'token'),'--evidence',str(root)]
+        if account:
+            (root/'publisher.key').write_text(account.key.hex())
+            at = args.index('--operator-token'); del args[at:at+2]
+            args += ['--key', str(root/'publisher.key'), '--publisher-address', account.address,
+                     '--expiry-state', str(root/'expiry')]
         output = io.StringIO()
         try:
-            with patch.object(sys, 'argv', args), patch('time.sleep') as sleep, contextlib.redirect_stdout(output):
+            with patch.object(sys, 'argv', args), patch('time.sleep', side_effect=sleep_effect) as sleep, contextlib.redirect_stdout(output):
                 try:
                     runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
                 except SystemExit as exit:
@@ -40,6 +45,44 @@ class BrokerPublicationTests(unittest.TestCase):
             return received, sleep.call_args_list, output.getvalue()
         finally:
             server.shutdown(); server.server_close(); thread.join()
+
+    def test_hint_guest_directory_and_withdrawal_expiries_never_regress(self):
+        account = Account.create()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch('time.time', return_value=1000):
+                hint, _, _ = self.run_publication([(200, b'[]')], root, account, [{'expiresAt': 4600}])
+            with patch('time.time', return_value=1001):
+                guest, _, _ = self.run_publication([(200, b'[]')], root, account, [{'expiresAt': 1600}])
+            with patch('time.time', return_value=1002):
+                withdrawal, _, _ = self.run_publication([(200, b'[]')], root, account)
+            self.assertEqual([json.loads(value[0])['expiresAt'] for value in (hint, guest, withdrawal)], [4600, 4601, 4602])
+            self.assertEqual((root/'expiry').read_text(), '4602')
+
+    def test_same_second_withdrawal_waits_for_one_hour_expiry_window(self):
+        account = Account.create()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'expiry').write_text('4600')
+            clock = [1000]
+            with patch('time.time', side_effect=lambda:clock[0]):
+                received, sleeps, _ = self.run_publication([(200, b'[]')], root, account,
+                    sleep_effect=lambda seconds:clock.__setitem__(0, clock[0]+seconds))
+            self.assertEqual([call.args for call in sleeps], [(1,)])
+            self.assertEqual(json.loads(received[0])['expiresAt'], 4601)
+            self.assertEqual(clock[0], 1001)
+
+    def test_stale_refusal_recovers_broker_expiry_for_next_launcher_attempt(self):
+        account = Account.create()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            with patch('time.time', return_value=1000):
+                with self.assertRaisesRegex(RuntimeError, 'stale publisher update'):
+                    self.run_publication([(400, b'{"error":"stale publisher update","expiresAt":4600}')], root, account)
+            self.assertEqual((root/'expiry').read_text(), '4600')
+            with patch('time.time', return_value=1060):
+                received, _, _ = self.run_publication([(200, b'[]')], root, account)
+            self.assertEqual(json.loads(received[0])['expiresAt'], 4601)
 
     def test_two_transient_failures_then_success_keep_each_attempt(self):
         with tempfile.TemporaryDirectory() as tmp:

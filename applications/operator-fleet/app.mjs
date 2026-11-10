@@ -1,4 +1,4 @@
-import { formatEther, getAddress } from "../payments/schema.mjs";
+import { formatUnits, getAddress } from "../payments/schema.mjs";
 import { Earnings } from "./chain.mjs";
 import { summarize } from "./model.mjs";
 
@@ -6,7 +6,7 @@ const $ = id => document.getElementById(id);
 const el = (tag, text, cls) => { const node = document.createElement(tag); if (text != null) node.textContent = text; if (cls) node.className = cls; return node; };
 const json = value => JSON.stringify(value, (_, v) => typeof v === "bigint" ? v.toString() : v, 2);
 const short = value => value ? `${value.slice(0, 10)}…${value.slice(-6)}` : "—";
-const eth = value => formatEther(value);
+const usdc = value => formatUnits(value, 6);
 const when = seconds => seconds ? new Date(seconds * 1000).toLocaleString() : "—";
 const uptime = seconds => { const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - seconds)); return elapsed >= 3600 ? `${Math.floor(elapsed / 3600)}h ${Math.floor(elapsed % 3600 / 60)}m` : `${Math.floor(elapsed / 60)}m ${elapsed % 60}s`; };
 let config, earnings, operator, macs = [], events = [], snapshot, selected, chainAt = 0, refreshing = false;
@@ -15,13 +15,12 @@ function error(message) { $("error").hidden = !message; $("error").textContent =
 function download(value, label, filename) {
   const a = el("a", label); a.href = URL.createObjectURL(new Blob([json(value)], { type: "application/json" })); a.download = filename; downloads.push(a.href); return a;
 }
-function external(url, label) { const a = el("a", label); a.href = url; a.target = "_blank"; a.rel = "noopener noreferrer"; return a; }
 function status(mac) { return mac.online && Date.now() / 1000 - mac.updated_at < 60 ? mac.status : "offline"; }
 function redraw() {
   if (!operator) return;
   snapshot = summarize(events, macs, operator);
-  $("earned-all").textContent = chainAt ? eth(snapshot.all) : "—";
-  $("earned-week").textContent = chainAt ? eth(snapshot.week) : "—";
+  $("earned-all").textContent = chainAt ? usdc(snapshot.all) : "—";
+  $("earned-week").textContent = chainAt ? usdc(snapshot.week) : "—";
   $("guests").textContent = `${snapshot.macs.reduce((sum, m) => sum + (status(m) === "offline" ? 0 : m.running), 0)} / ${snapshot.macs.reduce((sum, m) => sum + m.config.max_guests, 0)}`;
   $("mac-count").textContent = `${snapshot.macs.length} Mac${snapshot.macs.length === 1 ? "" : "s"} · ${snapshot.macs.filter(m => status(m) !== "offline").length} online`;
   $("chart").replaceChildren();
@@ -29,7 +28,7 @@ function redraw() {
   for (const day of snapshot.daily) {
     const column = el("div", null, "day"), bar = el("div", null, "bar");
     bar.style.height = `${Number(day.earned * 10000n / max) / 100 * 1.05}px`;
-    column.append(el("span", chainAt ? eth(day.earned) : "—", "value"), bar, el("span", new Date(day.day * 86400000).toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })));
+    column.append(el("span", chainAt ? usdc(day.earned) : "—", "value"), bar, el("span", new Date(day.day * 86400000).toLocaleDateString(undefined, { weekday: "short", timeZone: "UTC" })));
     $("chart").append(column);
   }
   const search = $("search").value.toLowerCase();
@@ -44,10 +43,10 @@ function redraw() {
     const state = el("td"); state.append(el("span", status(mac), `pill ${status(mac)}`));
     const lastError = [...mac.errors].reverse()[0]?.error || mac.slots.find(s => s.last_error)?.last_error || "—";
     const last = el("td", lastError, "last-error"); last.title = lastError;
-    row.append(name, chip, el("td", `${status(mac) === "offline" ? 0 : mac.running} / ${mac.config.max_guests}`), state, el("td", chainAt ? mac.chain.jobs24h : "—"), el("td", chainAt ? `${eth(mac.chain.week)} ETH` : "—"), last);
+    row.append(name, chip, el("td", `${status(mac) === "offline" ? 0 : mac.running} / ${mac.config.max_guests}`), state, last);
     $("macs").append(row);
   }
-  if (!visible.length) { const row = el("tr"), cell = el("td", snapshot.macs.length ? "No Macs match your filters." : "No Macs are linked to this operator.", "muted"); cell.colSpan = 7; row.append(cell); $("macs").append(row); }
+  if (!visible.length) { const row = el("tr"), cell = el("td", snapshot.macs.length ? "No Macs match your filters." : "No Macs are linked to this operator.", "muted"); cell.colSpan = 5; row.append(cell); $("macs").append(row); }
   showDetail();
 }
 function showDetail() {
@@ -72,21 +71,7 @@ function showDetail() {
     if (slot.last_error) card.append(el("p", slot.last_error, "error"));
     slots.append(card);
   }
-  body.append(slots, el("h3", "Recent settled jobs", "section-title"));
-  if (!chainAt) body.append(el("p", "Reading escrow settlements…", "muted"));
-  else if (!mac.chain.jobs.length) body.append(el("p", "No settled jobs for this Mac’s node classes.", "muted"));
-  else {
-    const table = el("table"), thead = el("thead"), tr = el("tr");
-    ["Purchase", "Settled", "Guest seconds", "Receipt"].forEach(t => tr.append(el("th", t))); thead.append(tr); table.append(thead);
-    const tbody = el("tbody");
-    for (const job of mac.chain.jobs.slice(0, 20)) {
-      const row = el("tr"), purchase = el("td"), receipt = el("td");
-      purchase.append(external(`https://sepolia.basescan.org/tx/${job.transactionHash}`, `#${job.purchaseId} ↗`));
-      receipt.append(download({ ...job.envelope, transactionHash: job.transactionHash, blockNumber: job.blockNumber }, "Signed receipt ↗", `receipt-${job.purchaseId}.json`));
-      row.append(purchase, el("td", when(job.timestamp)), el("td", `${job.used}${job.finalReceipt ? " · final" : ""}`), receipt); tbody.append(row);
-    }
-    table.append(tbody); const wrap = el("div", null, "table-wrap"); wrap.append(table); body.append(wrap);
-  }
+  body.append(slots);
   body.append(el("h3", "Last ten errors", "section-title"));
   if (!mac.errors.length) body.append(el("p", "No errors reported.", "muted"));
   for (const item of mac.errors.slice(-10).reverse()) {
@@ -104,7 +89,7 @@ async function refresh(force = false) {
     if (!response.ok) throw Error(`Fleet heartbeat request failed (${response.status})`);
     const fleet = await response.json();
     if (!Array.isArray(fleet)) throw Error("Broker returned an invalid fleet response");
-    macs = fleet.map(mac => ({ ...mac, classes: [...mac.classes, ...(config.classesByPublisher?.[mac.publisher.toLowerCase()] || [])] }));
+    macs = fleet;
     redraw();
     if (force || Date.now() - chainAt > 60000) {
       events = await earnings.read(text => $("status").textContent = text);

@@ -5,35 +5,15 @@ import {
   formatEther,
   JsonRpcProvider,
   keccak256,
-  verifyTypedData,
+  parseUnits,
   Wallet,
 } from "ethers";
-import { abi, domain, NodeBinding, Receipt } from "../payments/schema.mjs";
-import { hex, peerBytes } from "@sandbox";
+import { abi } from "../payments/schema.mjs";
+import { hex } from "@sandbox";
 export { formatEther };
 export const require = (ok, message) => {
   if (!ok) throw new Error(message);
 };
-export async function signed(client, body) {
-  return {
-    ...body,
-    sig: hex(
-      new Uint8Array(
-        await crypto.subtle.sign(
-          "Ed25519",
-          client.privateKey,
-          new TextEncoder().encode(
-            JSON.stringify(
-              Object.fromEntries(
-                Object.keys(body).sort().map((k) => [k, body[k]]),
-              ),
-            ),
-          ),
-        ),
-      ),
-    ),
-  };
-}
 export async function walletBody(credit, action, fields = {}) {
   require(
     credit.signer && credit.address,
@@ -62,22 +42,16 @@ export class Credit {
     this.cfg = cfg;
     this.client = client;
     this.changed = changed;
-    this.rpc = new JsonRpcProvider(cfg.rpc, 84532, { staticNetwork: true });
-    this.purchases = [];
+    this.rpc = new JsonRpcProvider(cfg.rpc, 84532, { staticNetwork: true, cacheTimeout: -1 });
     this.chatCredit = undefined;
   }
   async init() {
-    this.purchases = (await store("purchases")) || [];
     const key = await store("burner");
     if (key) {
       this.signer = new Wallet(key, this.rpc);
       this.address = this.signer.address;
     }
     return this;
-  }
-  async save() {
-    await store("purchases", this.purchases);
-    this.changed();
   }
   async burner() {
     require(
@@ -119,148 +93,38 @@ export class Credit {
       "Broker payment identity or escrow does not match the deployment pins.",
     );
   }
-  selected(unit) {
-    return this.purchases.find((p) =>
-      p.unit === unit && p.status === "confirmed" && !p.closed &&
-      p.payer?.toLowerCase() === this.address?.toLowerCase()
-    );
+  async deposit(amount) {
+    require(typeof amount === "string" && /^(0|[1-9][0-9]*)(\.[0-9]{1,6})?$/.test(amount), "Enter a USDC amount with up to six decimal places.");
+    const units = parseUnits(amount, 6);
+    require(units > 0n, "Deposit must be positive.");
+    const minimumGranted = BigInt(this.chatCredit?.grantedNanoUsd || "0") + units * 1000n;
+    const c = await this.contract();
+    const token = new Contract(await c.token(), ["function approve(address,uint256) returns(bool)"], this.signer);
+    await (await token.approve(this.cfg.escrow, units)).wait();
+    const tx = await c.deposit(units); await tx.wait();
+    return { hash: tx.hash, minimumGranted };
   }
-  forSpend(unit, minimum = 1n) {
-    return this.purchases.find((p) =>
-      p.unit === unit && p.status === "confirmed" && !p.closed && !p.receipt &&
-      !p.uncertain && !p.needsReconcile &&
-      p.payer?.toLowerCase() === this.address?.toLowerCase() &&
-      BigInt(p.amount) - BigInt(p.used || 0) >= BigInt(minimum)
-    ) || this.selected(unit);
-  }
-  async buy(quote, amount) {
-    require(quote, "This credit service is unavailable.");
-    require(/^[1-9][0-9]*$/.test(amount), "Enter a positive whole amount.");
-    require(
-      quote.unit === 1 && BigInt(amount) <= 600n,
-      "Amount exceeds the purchase limit.",
-    );
-    const c = await this.contract(), price = await c.quote(quote.node);
-    require(
-      price === BigInt(quote.price),
-      "Price changed. Refresh the quote before buying.",
-    );
-    const tx = await c.buy(
-      quote.node,
-      quote.unit,
-      amount,
-      "0x" + hex(peerBytes(this.client.peer).slice(6)),
-      { value: price * BigInt(amount) },
-    );
-    const p = {
-      unit: quote.unit,
-      node: quote.node,
-      amount,
-      used: "0",
-      paidWei: (price * BigInt(amount)).toString(),
-      priceWei: price.toString(),
-      payer: this.address,
-      txHash: tx.hash,
-      status: "pending",
-    };
-    this.purchases.push(p);
-    await this.save();
-    await this.mined(p);
-    return p;
-  }
-  async mined(p) {
-    const r = await this.rpc.getTransactionReceipt(p.txHash);
-    if (!r) return;
-    require(r.status === 1, "Credit purchase reverted on chain.");
-    const e = r.logs.map((l) => {
+  async waitForDeposit(minimumGranted, refresh) {
+    const wallet = this.address;
+    while (this.address === wallet) {
       try {
-        return abi.parseLog(l);
-      } catch {
-        return null;
-      }
-    }).find((e) => e?.name === "Purchase");
-    require(e, "Credit transaction has no Purchase event.");
-    p.purchaseId = e.args.purchaseId.toString();
-    p.expires = Number(e.args.expires);
-    await this.save();
+        await refresh();
+        if (this.address === wallet && BigInt(this.chatCredit?.grantedNanoUsd || "0") >= minimumGranted) return true;
+      } catch { /* Keep checking through temporary broker or network failures. */ }
+      if (this.address !== wallet) break;
+      await new Promise(resolve => setTimeout(resolve, 30000));
+    }
+    return false;
   }
-  async confirm(api, p) {
-    if (!p.purchaseId) await this.mined(p);
-    require(p.purchaseId, "Purchase is awaiting an on-chain receipt.");
-    const r = await api(
-      "/payments/confirm",
-      await signed(this.client, {
-        client_peer: this.client.peer,
-        purchaseId: p.purchaseId,
-        txHash: p.txHash,
-      }),
-    );
-    require(
-      r.purchaseId === p.purchaseId &&
-        /^0x[0-9a-f]{64}$/.test(r.finalizedBlock),
-      "Broker did not return a finalized purchase confirmation.",
-    );
-    p.status = "confirmed";
-    p.finalizedBlock = r.finalizedBlock;
-    await this.save();
-  }
-  checkReceipt(envelope, p) {
-    require(
-      String(envelope.receipt.purchaseId) === p.purchaseId,
-      "Refund receipt is for a different purchase.",
-    );
-    require(
-      verifyTypedData(
-        domain(this.cfg.escrow),
-        { NodeBinding },
-        envelope.nodeBinding.binding,
-        envelope.nodeBinding.signature,
-      ).toLowerCase() === this.cfg.grantSigner.toLowerCase(),
-      "Refund broker binding signature is invalid.",
-    );
-    require(
-      verifyTypedData(
-        domain(this.cfg.escrow),
-        { Receipt },
-        envelope.receipt,
-        envelope.signature,
-      ).toLowerCase() ===
-        envelope.nodeBinding.binding.receiptSigner.toLowerCase(),
-      "Refund receipt signature is invalid.",
-    );
-    const b = envelope.nodeBinding.binding;
-    require(
-      b.node === p.node && BigInt(envelope.receipt.used) <= BigInt(p.amount) &&
-        envelope.receipt.finalReceipt,
-      "Refund receipt exceeds purchased credit or is not final.",
-    );
-    return envelope;
-  }
-  async settle(envelope, p) {
-    this.checkReceipt(envelope, p);
-    const c = await this.contract();
-    const tx = await c.settle(
-      [envelope.receipt],
-      [envelope.signature],
-      b,
-      envelope.nodeBinding.signature,
-    );
-    p.settlementHash = tx.hash;
-    await this.save();
-    await tx.wait();
-    p.closed = true;
-    p.used = String(envelope.receipt.used);
-    await this.save();
-  }
-  async withdraw() {
-    const c = await this.contract();
-    const value = await c.credits(this.address);
-    require(
-      value > 0n,
-      "No withdrawable credit. Close usage and settle, or wait until the escrow refund period ends.",
-    );
-    const tx = await c.withdraw();
-    await tx.wait();
-    return tx.hash;
+  async closeAccount() {
+    const c = await this.contract(), exit = Number(await c.exitRequestedAt(this.address));
+    if (!exit) {
+      const tx = await c.requestExit(); await tx.wait();
+      return "Account closing. Withdraw remaining USDC after 14 days; new spending is stopped.";
+    }
+    const ready = (exit + 14 * 86400) * 1000;
+    require(Number((await this.rpc.getBlock("latest")).timestamp) * 1000 >= ready, "USDC withdrawal opens " + new Date(ready).toLocaleString() + ".");
+    const tx = await c.withdraw(); await tx.wait();
+    return "Remaining USDC withdrawn.";
   }
 }

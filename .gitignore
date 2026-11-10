@@ -16,6 +16,7 @@ local-data/
 .env.*
 !.env.example
 node_modules/
+applications/egress-policy/monitor/weights/
 .DS_Store
 
 tools/parser-tests/
@@ -32,3 +33,6 @@ tools/attest-build/
 app-attest/contracts/broadcast/
 /results/
 contracts/results/
+
+applications/operator-fleet/dist/
+contracts/foundry.lock

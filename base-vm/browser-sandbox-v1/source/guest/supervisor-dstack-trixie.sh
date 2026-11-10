@@ -567,13 +567,18 @@ stop_broker() {
 CTL=""
 for p in /sys/class/virtio-ports/*; do [ "$(cat "$p/name")" = dsmack-ctl ] && CTL=/dev/${p##*/}; done
 [ -n "$CTL" ] || fail 31
+# The app attests the session's compose manifest; the agent refuses to seal unless the one vdc
+# manifest the guest runs has that sha256.
+MFS=$(ls $APP/manifests/*.app-compose.json 2>/dev/null)
+[ "$(printf '%s\n' "$MFS" | grep -c .)" = 1 ] || { echo "DSMACK_MANIFEST_COUNT exactly one vdc manifest required"; fail 35; }
+MANIFEST_SHA256=$(sha256sum "$MFS" | awk '{print $1}')
 SERVICES=$(python3 -c 'import json,sys; print(" ".join(sorted({s for f in sys.argv[1:] for s in json.loads(json.load(open(f))["docker_compose_file"])["services"]})))' $APP/manifests/*.app-compose.json) || fail 32
 $B mkdir -p -m 0755 /run/dsmack-agent
-python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --canary-key /run/rootcontrol/canary-guest.key --secret-key --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" -- $SERVICES >/run/rootcontrol/agent.log 2>&1 &
+python3 /usr/local/lib/dsmack/dstack-agent/agent.py --ctl "$CTL" --dir /run/dsmack-agent --canary-key /run/rootcontrol/canary-guest.key --secret-key --manifest-sha256 "$MANIFEST_SHA256" --event "services=$(printf %s "$SERVICES" | python3 -c 'import sys; print(sys.stdin.buffer.read().hex())')" -- $SERVICES >/run/rootcontrol/agent.log 2>&1 &
 AGENT_PID=$!
 i=0
 until [ -e /run/dsmack-agent/sealed ]; do
-  i=$((i+1)); { [ $i -le 120 ] && kill -0 $AGENT_PID 2>/dev/null; } || { tail -20 /run/rootcontrol/agent.log | diag; fail 33; }
+  i=$((i+1)); { [ $i -le 120 ] && kill -0 $AGENT_PID 2>/dev/null; } || { tail -20 /run/rootcontrol/agent.log | diag; tail -1 /run/rootcontrol/agent.log; fail 33; }
   $B usleep 250000
 done
 echo "DSMACK_AGENT_SEALED $CTL"

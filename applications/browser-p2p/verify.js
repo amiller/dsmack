@@ -1,3 +1,4 @@
+import { reportData } from "../../dstack-compat/binding.mjs"
 import { decode as cbor } from 'cborg'
 import { decodeAttestation, authData, cat, hex, sha256 as sha } from '../../dstack-compat/secret-release/policy.mjs'
 export { cat, hex }
@@ -31,7 +32,7 @@ export async function verify(blob, remotePeer, trust, entry) {
   const expectedManifest=hex(await sha(enc.encode(canonical(template))))
   need(hex(a.os_image_hash)===trust.osImage && hex(a.manifest_sha256)===expectedManifest,'measurement')
   need(hex(a.caller)===hex(await sha(enc.encode('peer'))),'caller')
-  const report=cat(await sha(cat(enc.encode('dsmack-libp2p-peer/1'),remotePeer.toMultihash().bytes)),new Uint8Array(32))
+  const report=await reportData(remotePeer.toMultihash().bytes)
   need(hex(a.report_data)===hex(report),'PeerId binding')
   const assertion=cbor(a.assertion), auth=assertion.authenticatorData, ad=authData(auth,3)
   need(hex(ad.rp)===hex(await sha(enc.encode(trust.appId))),'app identity')

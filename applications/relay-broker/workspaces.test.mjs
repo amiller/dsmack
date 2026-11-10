@@ -121,3 +121,34 @@ test("broker-to-Mac calls use the payment signer and recursively canonical EIP-1
     assert.equal(seen.action,"begin");assert.equal(seen.head.workspaceId,workspaceId);
   } finally {await server.shutdown();}
 });
+
+test("a store that cannot be reached, drops the connection or stalls is WORKSPACE_STORE_UNAVAILABLE / 503",async()=>{
+  const f=await fixture(), timeout=AbortSignal.timeout;let release;const held=new Promise(r=>release=r);
+  const remote=(url,action)=>new Workspaces({...f.options,cfg:{stores:{[mac]:url}},store:undefined}).remote(mac,action,{});
+  const logged=[], log=console.error;console.error=line=>logged.push(JSON.parse(line));
+  const unavailable=e=>e.code==="WORKSPACE_STORE_UNAVAILABLE"&&e.status===503&&e.cause instanceof Error&&
+    logged.at(-1).event==="workspace_store_unavailable"&&logged.at(-1).mac===mac&&logged.at(-1).error===e.cause.name;
+  const closed=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},()=>new Response());
+  const port=closed.addr.port;await closed.shutdown();
+  const drop=Deno.listen({hostname:"127.0.0.1",port:0});
+  const dropped=(async()=>{const conn=await drop.accept();await conn.read(new Uint8Array(65536));
+    await conn.write(new TextEncoder().encode('HTTP/1.1 200 OK\r\ncontent-type: application/json\r\ncontent-length: 64\r\n\r\n{"head":'));conn.close();})();
+  const server=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},async request=>{
+    const action=new URL(request.url).pathname.slice(1);
+    if(action==="refuse")return Response.json({error:{code:"E_STORE",message:"no"}},{status:409});
+    if(action==="stall-body")return new Response(new ReadableStream({start(c){c.enqueue(new TextEncoder().encode('{"head":'))},pull:()=>held}));
+    if(action==="stall")await held;
+    return Response.json({offset:0});
+  });
+  const url="http://127.0.0.1:"+server.addr.port;
+  AbortSignal.timeout=()=>timeout.call(AbortSignal,200);
+  try {
+    await assert.rejects(remote("http://127.0.0.1:"+port,"begin"),unavailable);
+    await assert.rejects(remote("http://127.0.0.1:"+drop.addr.port,"begin"),unavailable);await dropped;
+    await assert.rejects(remote(url,"stall"),unavailable);
+    await assert.rejects(remote(url,"stall-body"),unavailable);
+    await assert.rejects(remote(url,"refuse"),e=>e.code==="E_STORE"&&e.status===409);
+    assert.deepEqual(await remote(url,"begin"),{offset:0});
+    assert.equal(logged.length,4,"refusals and answers are not logged as unreachable");
+  } finally {AbortSignal.timeout=timeout;console.error=log;release();drop.close();await server.shutdown();}
+});

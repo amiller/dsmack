@@ -24,6 +24,7 @@ for people: they name a set of identities that were released together.
 One tag for the repository: `vX.Y.Z`. A release ships the Mac app, the base images it
 admits, and the verifier that reads its evidence. Workloads, applications and
 contracts are not released with Dsmack; they pin the Dsmack release they need.
+An application tags its own releases, e.g. `private-agent-v0.4.0`.
 
 Before 1.0, a minor bump (`v0.2.0`) may break things and a patch bump (`v0.2.1`)
 does not. After 1.0, only a major bump breaks.

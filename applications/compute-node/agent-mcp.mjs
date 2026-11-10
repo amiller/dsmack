@@ -11,11 +11,15 @@ import { Value } from "typebox/value";
 import { createBashTool, createReadTool, createWriteTool, createEditTool, toolCatalog, piVersion } from "./pi-tools.mjs";
 
 import { WorkspaceSnapshots } from "./workspace.mjs";
+import { MonitorSession, failedMonitorResult } from "./monitor-client.mjs";
+import { browseForwarder, browsePolicy } from "./browse-forwarder.mjs";
 
 export const COMMAND_TIMEOUT_SECONDS = 120;
 export const OUTPUT_CAP_BYTES = 50 * 1024;
 export const RAW_OUTPUT_CAP_BYTES = 1024 * 1024;
 const exec = promisify(execFile);
+// The stay's browse token arrives from the client in _meta; policy is what the operator proxy reports it enforces.
+export const browse = { token: null, policy: { mode: "none", hosts: [] } };
 
 export async function workspacePath(root, input) {
   const path = resolve(input);
@@ -64,9 +68,8 @@ export function createWorkspaceTools(root) {
       const working = await safe(cwd);
       const child = spawn("/bin/bash", ["--noprofile", "--norc", "-c", command], {
         cwd: working, detached: true,
-        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: root, TMPDIR: resolve(root, ".tmp"), LANG: "C.UTF-8", TERM: "dumb",
-          HTTP_PROXY: process.env.HTTPS_PROXY || "", HTTPS_PROXY: process.env.HTTPS_PROXY || "", ALL_PROXY: process.env.HTTPS_PROXY || "",
-          http_proxy: process.env.HTTPS_PROXY || "", https_proxy: process.env.HTTPS_PROXY || "", all_proxy: process.env.HTTPS_PROXY || "" },
+        env: { PATH: "/usr/local/bin:/usr/bin:/bin", HOME: resolve(root, "state/home"), TMPDIR: resolve(root, "state/tmp"), LANG: "C.UTF-8", TERM: "dumb",
+          ...Object.fromEntries(["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "http_proxy", "https_proxy", "all_proxy"].map((k) => [k, process.env.AGENT_TOOL_PROXY || ""])) },
         stdio: ["ignore", "pipe", "pipe"],
       });
       let bytes = 0, failure;
@@ -98,9 +101,10 @@ export function environment(root = "/workspace") {
     persistence: "This conversation’s files persist as numbered encrypted workspace saves and restore when it moves to a new guest. Dependencies, caches and generated build output are excluded.",
     commandTimeoutSeconds: COMMAND_TIMEOUT_SECONDS, outputCapBytes: OUTPUT_CAP_BYTES, rawOutputCapBytes: RAW_OUTPUT_CAP_BYTES,
     outputCapLines: 2000, idleTimeoutSeconds: 300, piVersion, mcpVersion: "2026-07-28", mcpSdkVersion: "2.4.0",
-    allowlist: JSON.parse(process.env.AGENT_NETWORK_ALLOWLIST || "[]"), proxy: process.env.HTTPS_PROXY || "",
-    network: "All outbound traffic is restricted by the measured guest firewall to the operator CONNECT proxy. The proxy accepts only its configured host allowlist; direct Internet connections are blocked.",
-    confinement: "Tools run as uid 1000 with no supplementary groups in a container with a read-only root filesystem. /workspace is the writable application directory; file tools reject paths or symlinks outside it. Shell commands can read installed system runtimes. Attestation socket and daemon state are restricted to root.",
+    allowlist: JSON.parse(process.env.AGENT_NETWORK_ALLOWLIST || "[]"), proxy: process.env.HTTPS_PROXY || "", toolProxy: process.env.AGENT_TOOL_PROXY || "",
+    browse: browse.policy,
+    network: "All outbound traffic is restricted by the measured guest firewall to the operator CONNECT proxy. The proxy admits the operator hosts and package hosts in allowlist, plus what this stay's browse policy allows (browse, as reported by the proxy for this stay's token); direct Internet connections are blocked.",
+    confinement: "Tools run as uid 1000 with no supplementary groups in a container with a read-only root filesystem. /workspace is the writable application directory (256 MiB, saved with the workspace, not executable); /workspace/state is the 2 GiB executable build area (HOME and TMPDIR, not saved). File tools reject paths or symlinks outside /workspace. Shell commands can read installed system runtimes. Attestation socket and daemon state are restricted to root.",
   };
 }
 
@@ -108,10 +112,21 @@ export function createAgentServer(root, options = {}) {
   const tools = createWorkspaceTools(root, options);
   const server = new Server({ name: "Dsmack attested Pi tools", version: piVersion }, { capabilities: { tools: {}, resources: {} }, supportedProtocolVersions: ["2026-07-28"] });
   const snapshots = options.snapshots ?? new WorkspaceSnapshots(root);
+  const monitor = options.monitor ?? new MonitorSession();
   const serial = (fn) => snapshots.serial(fn);
   server.setRequestHandler("tools/list", async () => ({ tools: toolCatalog().map(({ label, ...tool }) => ({ ...tool, title: label })) }));
   server.setRequestHandler("tools/call", (request, ctx) => serial(async () => {
     const { name, arguments: args = {}, _meta } = request.params;
+    const token = _meta?.["dsmack/browse"];
+    if (typeof token === "string" && /^[0-9a-f]{32}$/.test(token) && token !== browse.token) {
+      const previous = browse.token;
+      browse.token = token;
+      try { browse.policy = await browsePolicy(options.browsePort); } catch (error) { browse.token = previous; throw error; }
+    }
+    if (name === "dsmack_monitor") {
+      await monitor.preflight(args.prompt);
+      return { content: [{ type: "text", text: "Pre-flight checked" }] };
+    }
     if (name === "dsmack_workspace") {
       const result = await snapshots.call(args);
       const acknowledgement = args.operation === "read" ? { offset: result.offset, eof: result.eof } : result;
@@ -120,6 +135,8 @@ export function createAgentServer(root, options = {}) {
     const tool = tools.find((entry) => entry.name === name);
     if (!tool) throw new Error("Unknown tool");
     if (!Value.Check(tool.parameters, args)) throw new Error("Arguments do not match pi tool schema");
+    const denied = await monitor.tool(name, args, _meta?.["dsmack/monitorResponse"]);
+    if (denied) return failedMonitorResult(denied);
     const deadline = AbortSignal.timeout(COMMAND_TIMEOUT_SECONDS * 1000);
     const signal = AbortSignal.any([ctx.mcpReq.signal, deadline]);
     let progress = 0, notifications = Promise.resolve();
@@ -155,8 +172,8 @@ export function createAgentServer(root, options = {}) {
 }
 
 export async function initializeWorkspace(root) {
-  await mkdir(resolve(root, ".tmp"), { recursive: true });
-  process.env.TMPDIR = resolve(root, ".tmp");
+  for (const dir of [".tmp", "state/tmp", "state/home"]) await mkdir(resolve(root, dir), { recursive: true });
+  process.env.TMPDIR = resolve(root, "state/tmp");
   await exec("git", ["init", "-q"], { cwd: root });
   await writeFile(resolve(root, ".git/info/exclude"), ".tmp/\nartifacts/\nstate/\n");
   await exec("git", ["-c", "user.name=Dsmack", "-c", "user.email=agent@dsmack.invalid", "commit", "--allow-empty", "-qm", "Initial workspace"], { cwd: root });
@@ -168,10 +185,11 @@ export async function listen({ root = "/workspace", socket = process.env.AGENT_M
   let ready;
   const initialized = new Promise((done) => { ready = done; });
   const snapshots = new WorkspaceSnapshots(root);
+  const monitor = new MonitorSession();
   const listener = createServer((stream) => {
     stream.pause();
     initialized.then(() => {
-      serveStdio(() => createAgentServer(root, { snapshots }), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
+      serveStdio(() => createAgentServer(root, { snapshots, monitor }), { transport: new StdioServerTransport(stream, stream, { maxBufferSize: 8 * 1024 * 1024 }), legacy: "reject", onerror: (error) => console.error(error.message) });
       stream.resume();
     });
   });
@@ -180,6 +198,10 @@ export async function listen({ root = "/workspace", socket = process.env.AGENT_M
   if (process.getuid() === 0) {
     await chown(socket, 1000, 1000);
     process.setgroups([]); process.setgid(1000); process.setuid(1000);
+  }
+  if (process.env.HTTPS_PROXY) {
+    await browseForwarder(process.env.HTTPS_PROXY, () => browse.token);
+    process.env.AGENT_TOOL_PROXY = "http://127.0.0.1:18480";
   }
   await initializeWorkspace(root);
   ready();

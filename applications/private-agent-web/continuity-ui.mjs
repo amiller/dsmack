@@ -1,6 +1,6 @@
 import { store } from "./credit.mjs";
-import { discoverLinkRelay, createDeviceLinkReceiver, sendDeviceLink,
-  requestOriginMigration, serveOriginMigration } from "./device-link.mjs";
+import { discoverLinkRelay, createDeviceLinkReceiver, sendDeviceLink, requestOriginMigration, serveOriginMigration } from "./device-link.mjs";
+import { watchRecovery } from "./recovery-notice.mjs";
 import { createEmailGate } from "./email-gate-client.mjs";
 
 export function recoveryMessage(e) {
@@ -14,38 +14,38 @@ export function recoveryMessage(e) {
   if (e?.name === "InvalidStateError") return "That passkey is already registered. Try Recover with passkey, or choose a different passkey.";
   if (/attestation|measurement|quote|TCB|nonce|approved|policy|digest|event log|bound to/i.test(message)) return "We couldn’t verify the recovery service. Try again later, or link directly from your original device with a QR code.";
   if (/not found|no recovery|not enrolled|unknown email|no record/i.test(message)) return "No recovery method was found. Add a passkey or email on your original browser first, or use its QR link.";
-  if (/expired|invalid.*code|incorrect.*code/i.test(message)) return "The recovery code expired or wasn’t accepted. Request a new one and try again.";
   if (/email address/i.test(message)) return "Enter your email address, then try again.";
-  if (/Start fresh|recover your wallet/i.test(message)) return "Choose Start fresh or recover your wallet before adding recovery or linking another device.";
+  if (/create a wallet|recover your wallet/i.test(message)) return "Send a message to create a wallet, or recover from another device before adding recovery or linking devices.";
   if (/QR scanning|camera|Permission|NotFoundError/i.test(message + e?.name)) return "The camera is unavailable. Paste the QR link from your other device instead.";
-  if (/Request an email code/i.test(message)) return "Request an email code first, then enter it here.";
   if (/fetch|network|offline|receiver|configured|connection/i.test(message) || e instanceof TypeError) return "The recovery service couldn’t be reached. Check your connection and try again, or use a QR link from your original device.";
   return "Recovery couldn’t finish. Try again, or link from your original device with a QR code.";
 }
 
-export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
+export function continuityUI({ keys, credit, cfg, api, error, beforeExport, beforeSwitch }) {
   const $ = (id) => document.getElementById(id);
-  let hasValue = false;
-  let receiver, emailRequest, emailPurpose, dkimPoll;
+  let receiver, dkimPoll;
   const status = (text) => { $("continuity-status").textContent = text; };
   const report = (e) => { status(recoveryMessage(e)); };
-  const requireWallet = () => { if (!keys.bundle) throw Error("Choose Start fresh or recover your wallet first."); };
-  const update = async (state = {}) => {
-    if (state.hasValue !== undefined) hasValue = state.hasValue;
-    $("welcome").hidden = !!keys.bundle;
-    for (const id of ["add-passkey", "enroll-email", "enroll-email-smtp", "send-device"]) $(id).disabled = !keys.bundle;
-    const enrolled = await store("continuity.passkey") || await store("continuity.email");
-    $("recovery-nudge").hidden = !keys.bundle || !hasValue || !!enrolled;
+  const requireWallet = () => { if (!keys.bundle) throw Error("Send a message to create a wallet, or recover your wallet first."); };
+  const update = async () => {
+    const hasWallet = !!keys.bundle;
+    $("recover-device").hidden = hasWallet;
+    for (const id of ["add-passkey", "enroll-email", "send-device", "scan-device", "link-target", "switch-wallet"])
+      $(id).hidden = !hasWallet;
+    document.querySelector('label[for="link-target"]').hidden = !hasWallet;
+    for (const id of ["recover-passkey", "request-email", "receive-device"])
+      $(id).hidden = hasWallet;
   };
-  bindWelcome();
-  function bindWelcome() {
-    $("used-before").onclick = () => {
-      $("continuity-panel").hidden = false;
-      $("recover-passkey").focus();
-    };
-  }
+  const reveal = () => {
+    $("advanced").open = true;
+    $("continuity-panel").hidden = false;
+  };
+  $("recover-device").onclick = () => {
+    reveal();
+    $("recover-passkey").focus();
+  };
 
-  const onCode = (code) => { $("continuity-panel").hidden = false; $("link-code").textContent = code; };
+  const onCode = (code) => { reveal(); $("link-code").textContent = code; };
   const confirm = async (code) => {
     onCode(code);
     $("link-confirm").hidden = false;
@@ -55,6 +55,11 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     });
   };
   const imported = async (bundle) => {
+    if (keys.bundle && keys.bundle.walletKey !== bundle.walletKey) {
+      if (!window.confirm("This will replace the wallet loaded on this device with the linked wallet and its chats. Continue?"))
+        throw Error("Wallet replacement cancelled.");
+      await beforeSwitch();
+    }
     await keys.import(bundle);
     await store("continuity.imported", true);
     status("Device linked. Loading your chats…");
@@ -67,6 +72,18 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   bind("use-another-device", async () => {
     $("continuity-panel").hidden = !$("continuity-panel").hidden;
   });
+  bind("switch-wallet", async () => {
+    requireWallet();
+    if (!await store("continuity.passkey") && !await store("continuity.email")) {
+      status("Save a passkey or add a recovery email in this panel before switching wallets, so you can return to this wallet.");
+      $("add-passkey").focus();
+      return;
+    }
+    if (!window.confirm("Switch wallets on this device? Use your saved passkey or email to return to this wallet.")) return;
+    await beforeSwitch();
+    await keys.disconnect();
+    location.reload();
+  });
   bind("add-passkey", async () => {
     requireWallet();
     await beforeExport();
@@ -78,7 +95,34 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     await keys.recoverPasskey({ api });
     location.reload();
   });
-  const emailGate = createEmailGate({ base: "", policy: cfg.emailGate });
+  const emailGate = createEmailGate({ base: new URL(".", location.href).pathname.replace(/(?:\/a)?\/$/, ""), policy: cfg.emailGate });
+  const stopRecoveryNotice = watchRecovery({ gate: emailGate, getBundle: () => keys.bundle });
+  const showPending = (pending) => {
+    reveal();
+    $("finish-email-recovery").hidden = false;
+    status("Email recovery is waiting until " + new Date(pending.releaseAt).toLocaleString() +
+      ". Return to this browser after 48 hours to recover. Existing devices can cancel it.");
+  };
+  bind("finish-email-recovery", async () => {
+    const pending = await store("continuity.pendingEmail");
+    if (!pending) throw Error("No pending email recovery in this browser.");
+    try {
+      const result = await emailGate.release(pending);
+      if (result.pending) { showPending(result); return; }
+      await imported(result);
+      await store("continuity.pendingEmail", null);
+      location.reload();
+    } catch (e) {
+      if (e.status === 404 || e.status === 410) {
+        await store("continuity.pendingEmail", null);
+        $("finish-email-recovery").hidden = true;
+      }
+      throw e;
+    }
+  });
+  store("continuity.pendingEmail").then(pending => {
+    if (pending && !keys.bundle) showPending(pending);
+  }).catch(report);
   const emailInstructions = document.createElement("div");
   emailInstructions.id = "recovery-email-instructions";
   emailInstructions.hidden = true;
@@ -134,7 +178,7 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     dkimPoll = poll;
     emailInstructions.hidden = true;
     $("send-recovery-email").hidden = true;
-    status("Verifying the recovery gate’s attestation…");
+    status("Checking the recovery service…");
     if (purpose === "enroll") { requireWallet(); await beforeExport(); }
     const request = await emailGate.requestDkim($("recovery-email").value, purpose);
     if (poll.signal.aborted) return;
@@ -144,6 +188,8 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
       const headers = await emailGate.waitDkim(request, { signal: poll.signal });
       if (poll.signal.aborted) return;
       status("Checking your email signature in the attested gate…");
+      if (request.purpose === "recover") await store("continuity.pendingEmail",
+        { ...request, id: request.nonce, releaseAt: Date.now() + 48 * 60 * 60_000 });
       const result = await emailGate.confirmDkim(request, headers,
         request.purpose === "enroll" ? keys.bundle : undefined);
       if (poll.signal.aborted) return;
@@ -154,9 +200,8 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
         await update();
         status("Recovery email added. Use Recover with email on another device.");
       } else {
-        await imported(result);
-        status("Email verified. Your wallet and chats are recovered. Loading…");
-        location.reload();
+        await store("continuity.pendingEmail", { ...request, ...result });
+        showPending(result);
       }
     })().catch((e) => {
       if (e.name !== "AbortError" && dkimPoll === poll) report(e);
@@ -164,29 +209,6 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
   };
   bind("enroll-email", () => requestDkim("enroll"));
   bind("request-email", () => requestDkim("recover"));
-  const requestEmail = async (purpose) => {
-    if (purpose === "enroll") { requireWallet(); await beforeExport(); }
-    emailPurpose = purpose;
-    status("Verifying the recovery gate’s attestation…");
-    emailRequest = await emailGate.request($("recovery-email").value.trim(), purpose);
-    status("Enter the email code sent to your address.");
-  };
-  bind("enroll-email-smtp", () => requestEmail("enroll"));
-  bind("request-email-smtp", () => requestEmail("recover"));
-  bind("confirm-email", async () => {
-    if (!emailRequest) throw Error("Request an email code first.");
-    const result = await emailGate.confirm(emailRequest, $("recovery-code").value.trim(),
-      emailPurpose === "enroll" ? keys.bundle : undefined);
-    if (emailPurpose === "enroll") {
-      await store("continuity.email", true);
-      await update();
-      emailRequest = undefined;
-      status("Recovery email added. Use Recover by email on another device.");
-    } else {
-      await imported(result);
-      location.reload();
-    }
-  });
   bind("receive-device", async () => {
     await receiver?.close();
     receiver = await createDeviceLinkReceiver({ relayAddress: await discoverLinkRelay(cfg.tunnels),
@@ -227,8 +249,8 @@ export function continuityUI({ keys, credit, cfg, api, error, beforeExport }) {
     location.reload();
   });
   serveOriginMigration({ getBundle: async () => { requireWallet(); await beforeExport(); return keys.bundle; }, confirm, onCode, onStatus: status,
-    allowedOrigin: "https://private-agent.dstack.soc1024.com" }).catch((e) => { report(e); });
-  window.addEventListener("pagehide", () => { receiver?.close(); dkimPoll?.abort(); }, { once: true });
+    allowedOrigin: "https://private-agent.dstack.soc1024.com" }).catch(report);
+  window.addEventListener("pagehide", (event) => { receiver?.close(); dkimPoll?.abort(); if (!event.persisted) stopRecoveryNotice(); });
   update().catch(report);
   return { bind, status, update };
 }

@@ -37,7 +37,7 @@ Deno.test("provider errors never reflect credentials or raw responses", async ()
   });
   await assert.rejects(
     () => p.costs({ key: "fixture", requestIds: ["inference-1"] }),
-    refusal("PROVIDER_AUTH"),
+    refusal("PROVIDER_HTTP_401"),
   );
   p.fetcher = () => new Response('"sk-secret-fixture');
   await assert.rejects(
@@ -157,4 +157,47 @@ Deno.test("unverified evidence and non-HTTPS channels cannot send a prompt", asy
     () => pinned("http://127.0.0.1:1/chat", { method: "POST", body: "marker" }),
     /HTTPS/,
   );
+});
+
+Deno.test("upstream HTTP failures retain status and structured code without response content", async () => {
+  const original = console.error, logs = [];
+  console.error = line => logs.push(JSON.parse(line));
+  try {
+    for (const [status, body, suffix] of [
+      [401, { error: { code: "invalid_api_key", message: "private response" } }, "_INVALID_API_KEY"],
+      [402, { error: { code: "insufficient_credit" } }, "_INSUFFICIENT_CREDIT"],
+      [429, { error: { code: "rate_limit" } }, "_RATE_LIMIT"],
+      [503, { error: { message: "private response" } }, ""],
+      [400, { error: { code: "secret with spaces" } }, ""],
+    ]) {
+      const code = `PROVIDER_HTTP_${status}${suffix}`;
+      const attestation = { evidence: { model: "test", verified: true, expires_at: Date.now()/1000 + 60 },
+        transport: { fetchEncrypted: () => Response.json(body, { status }) } };
+      await assert.rejects(() => new NearProvider().chatEncrypted({ model: "test", body: {}, attestation }), refusal(code));
+      assert.equal(logs.at(-1).code, code);
+      assert.equal(logs.at(-1).http_status, status);
+      const p = new NearProvider({ fetcher: () => Response.json(body, { status }) });
+      await assert.rejects(() => p.costs({ key: "fixture", requestIds: ["known"] }), refusal(code));
+    }
+    assert(!JSON.stringify(logs).includes("private response"));
+    assert(!JSON.stringify(logs).includes("secret with spaces"));
+  } finally { console.error = original; }
+});
+Deno.test("transport errors distinguish timeout, abort and attested connection failure", async () => {
+  for (const [name, code] of [["TimeoutError", "PROVIDER_TIMEOUT"], ["AbortError", "PROVIDER_ABORTED"], ["Error", "NEAR_ATTESTATION_TRANSPORT"]]) {
+    const attestation = { evidence: { model: "test", verified: true, expires_at: Date.now()/1000 + 60 },
+      transport: { fetchEncrypted: () => { throw Object.assign(Error("private transport details"), { name }); } } };
+    await assert.rejects(() => new NearProvider().chatEncrypted({ model: "test", body: {}, attestation }), refusal(code));
+  }
+});
+
+Deno.test("only definitive authentication refusals mark a dispatch rejected", async () => {
+  for (const status of [401, 403, 429, 500]) {
+    const p = new NearProvider({ fetcher: () => new Response("private provider body", { status }) });
+    await assert.rejects(() => p.request("/v1/chat/completions", { token: "fixture", method: "POST" }), error => {
+      assert.equal(error.dispatchRejected, status === 401 || status === 403);
+      assert(!error.message.includes("private provider body"));
+      return true;
+    });
+  }
 });

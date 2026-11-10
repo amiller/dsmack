@@ -16,15 +16,18 @@ interface IAttestVerifier {
 /// boundary broke, and stays burned as public evidence.
 /// Each entry pins one CDRegistry build at arm time: assertions count from any re-signed copy
 /// registered under it, whatever the registry's current build. That build must never assert
-/// caller-chosen data. The funder ends an offer only by `retire`, which leaves NOTICE for claims.
-/// A claim after the pot is gone still burns the entry, as evidence with no payout.
+/// caller-chosen data. Terms are fixed at arm time, at least 90 days; the funder can only reclaim
+/// after `until`. A claim after the pot is gone still burns the entry, as evidence with no payout.
 /// FORGERY: an App Attest assertion by that build over a context it never asserts.
 /// GUEST/RUNNER/OWNER: a P-256 signature over the claimant's address by a per-run canary key
 /// whose public key is a system event in a guest Attest assertion by that build. The supervisor
 /// sends `canary-guest-key` (key in guest-root tmpfs) before the seal; the app appends
 /// `canary-runner-key` (key in its own memory) itself and refuses that name from the guest.
+/// ORACLE: the key is the attestation's report_data, set by the pinned workload service, which mints
+/// it and signs anything but a claim digest with it. Sound only on images whose guest refuses a vdc
+/// manifest other than the attested one.
 contract Canary {
-    enum Kind { Forgery, Guest, Runner, Owner }
+    enum Kind { Forgery, Guest, Runner, Owner, Oracle }
     struct Entry { Kind kind; bytes32 build; bytes32 image; bytes32 manifest; address funder; uint64 until; uint256 amount; bool burned; }
     bytes constant FORGERY_DOMAIN = "dsmack.canary.forgery/1";
     bytes constant CLAIM_DOMAIN = "dsmack.canary.claim/1";
@@ -38,19 +41,29 @@ contract Canary {
     /// O(1) lookups for consumers: a burned Guest/Owner entry marks its image, Forgery/Runner its build.
     mapping(bytes32 => bool) public burnedImage;
     mapping(bytes32 => bool) public burnedBuild;
+    /// The service (sha256 of its name) whose Attest call publishes an Oracle entry's key.
+    mapping(uint256 => bytes32) public oracleCaller;
     event Armed(uint256 indexed id, Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint256 amount, uint64 until);
     event Burned(uint256 indexed id, Kind kind, bytes32 build, bytes32 image, address claimant, uint256 amount);
-    event Retired(uint256 indexed id, Kind kind, uint256 amount, uint64 until);
-    uint64 public constant NOTICE = 14 days;
 
     constructor(IAttestVerifier attest_) { (attest, cds) = (attest_, attest_.cds()); }
 
     /// Entries are append-only; a zero image/manifest admits any. Funds return only after `until`.
     /// Guest/Owner keys live in the guest, so an unbound image would let the owner boot one that leaks its key.
-    function arm(Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint64 until) external payable returns (uint256 id) {
-        require(msg.value > 0 && until >= block.timestamp + NOTICE && build != 0, "terms");
+    function arm(Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint64 until) external payable returns (uint256) {
+        require(kind != Kind.Oracle, "kind");
+        return push(kind, build, image, manifest, until);
+    }
+
+    function armOracle(bytes32 build, bytes32 image, bytes32 manifest, bytes32 caller, uint64 until) external payable returns (uint256 id) {
+        require(caller != 0, "unbound caller");
+        oracleCaller[id = push(Kind.Oracle, build, image, manifest, until)] = caller;
+    }
+
+    function push(Kind kind, bytes32 build, bytes32 image, bytes32 manifest, uint64 until) internal returns (uint256 id) {
+        require(msg.value > 0 && until >= block.timestamp + 90 days && build != 0, "terms");
         require(kind == Kind.Forgery || kind == Kind.Runner || image != 0, "unbound image");
-        require(kind != Kind.Owner || manifest != 0, "unbound manifest");
+        require((kind != Kind.Owner && kind != Kind.Oracle) || manifest != 0, "unbound manifest");
         id = entries.length;
         entries.push(Entry(kind, build, image, manifest, msg.sender, until, msg.value, false));
         emit Armed(id, kind, build, image, manifest, msg.value, until);
@@ -76,8 +89,10 @@ contract Canary {
                       bytes calldata proof, bytes32 r, bytes32 s) external {
         Entry storage e = entries[id];
         require(e.kind != Kind.Forgery, "kind");
-        require((e.image == 0 || e.image == a.image) && (e.manifest == 0 || e.manifest == a.manifest), "not this canary");
+        require((e.image == 0 || e.image == a.image) && (e.manifest == 0 || e.manifest == a.manifest)
+                && oracleCaller[id] == (e.kind == Kind.Oracle ? a.caller : bytes32(0)), "not this canary");
         (bytes32 head, bytes calldata key) = canaryKey(e.kind, events);
+        if (e.kind == Kind.Oracle) require((key = a.reportData).length == 64, "canary key");
         checkBuild(id, attest.verify(sha256(abi.encodePacked(ATTEST_DOMAIN, a.image, a.manifest, a.run, head, a.caller, a.reportData)), proof));
         (bool ok, bytes memory res) = address(0x100).staticcall(
             abi.encode(claimDigest(id, claimant), r, s, bytes32(key[:32]), bytes32(key[32:])));
@@ -86,7 +101,7 @@ contract Canary {
     }
 
     /// Replays the event head. The log must end in its only system-ready and hold exactly one
-    /// canary event for `kind`, whose payload is the 64-byte public key x || y.
+    /// canary event for `kind` (Oracle ignores it), whose payload is the 64-byte public key x || y.
     function canaryKey(Kind kind, Event[] calldata events) internal pure returns (bytes32 head, bytes calldata key) {
         bytes32 want = keccak256(kind == Kind.Runner ? bytes("canary-runner-key") : bytes("canary-guest-key"));
         uint256 found;
@@ -102,15 +117,7 @@ contract Canary {
             head = sha256(abi.encodePacked(head, sha256(abi.encodePacked(uint32(name.length), name,
                                                                             uint32(payload.length), payload))));
         }
-        require(found == 1, "canary event");
-    }
-
-    /// Brings `until` to at most NOTICE from now. Claims never close; reclaim opens after `until`.
-    function retire(uint256 id) external {
-        Entry storage e = entries[id];
-        require(msg.sender == e.funder && !e.burned, "funder");
-        if (block.timestamp + NOTICE < e.until) e.until = uint64(block.timestamp + NOTICE);
-        emit Retired(id, e.kind, e.amount, e.until);
+        require(found == 1 || kind == Kind.Oracle, "canary event");
     }
 
     function reclaim(uint256 id) external {
@@ -133,8 +140,9 @@ contract Canary {
         require(!e.burned, "burned");
         uint256 a = e.amount;
         (e.burned, e.amount) = (true, 0);
+        // An Oracle burn shows a side channel into one signer, not a broken image or build.
         if (e.kind == Kind.Guest || e.kind == Kind.Owner) burnedImage[e.image] = true;
-        else burnedBuild[e.build] = true;
+        else if (e.kind != Kind.Oracle) burnedBuild[e.build] = true;
         emit Burned(id, e.kind, e.build, e.image, claimant, a);
         (bool ok,) = claimant.call{value: a}("");
         require(ok, "transfer");

@@ -3,7 +3,7 @@ import { readFleet } from "./fleet.mjs";
 const headers = { "access-control-allow-origin": "*", "access-control-allow-methods": "GET, OPTIONS",
   "cache-control": "no-store", "content-type": "application/json" };
 
-// Select public capacity fields: hostname, errors, run IDs and full ownership
+// Select public capacity fields: hostname, error bodies, run IDs and full ownership
 // envelopes belong to the operator fleet view, not the network map.
 export function networkSnapshot(fleet, now) {
   const macs = fleet.map(mac => {
@@ -13,6 +13,8 @@ export function networkSnapshot(fleet, now) {
       chip: typeof mac.hardware.chip === "string" ? mac.hardware.chip : "Unknown",
       ram_bytes: Number.isSafeInteger(mac.hardware.mem_bytes) ? mac.hardware.mem_bytes : null,
       slots: mac.config.max_guests, ready: ready.size, busy: busy.size,
+      slot_errors: mac.slots.filter(slot => typeof slot.last_error_code === "string")
+        .map(slot => ({ slot_id: slot.slot_id, code: slot.last_error_code })),
       last_heartbeat: mac.updated_at, received_at: mac.received_at, online: mac.online, status: mac.status };
   });
   const totals = { macs_online: 0, total_slots: 0, ready_slots: 0, busy_slots: 0, utilization: 0 };

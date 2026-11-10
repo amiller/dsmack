@@ -1,10 +1,9 @@
 // Register immutable class measurements and the broker before any VM starts.
 import { json, require } from "./schema.mjs";
 import { sender } from "./submit.mjs";
-import { confirmedTransactions, Quorum } from "./quorum.mjs";
-import { linkedOperator } from "./mac-operator.mjs";
-const [config, key, manifestPath, brokerUrl, publisher] = Deno.args;
-require(publisher, "usage: register-class.mjs CONFIG FUNDING_KEY MANIFEST BROKER PUBLISHER");
+import { confirmedTransactions, ChainReader } from "./chain-reader.mjs";
+const [config, key, manifestPath] = Deno.args;
+require(manifestPath, "usage: register-class.mjs CONFIG FUNDING_KEY MANIFEST");
 const cfg = JSON.parse(await Deno.readTextFile(config));
 const raw = await Deno.readFile(manifestPath),
   manifest = JSON.parse(new TextDecoder().decode(raw));
@@ -17,13 +16,11 @@ require(
     cfg.classes.includes(measured.node),
   "class configuration",
 );
-const kid = "0x" + measured.enrollmentKeyId.replace(/^0x/, "");
-const ownership = await fetch(brokerUrl.replace(/\/$/, "") + "/fleet/ownership?" +
-  new URLSearchParams({ publisher: publisher.toLowerCase(), kid }));
-require(ownership.ok, "Mac ownership lookup failed");
-const operator = linkedOperator(await ownership.json(), cfg.escrow, publisher, kid);
-require(operator === measured.operator.toLowerCase(), "guest class differs from linked Mac operator; pack a new class");
-const s = await new Quorum(cfg).snapshot(),
+// A class names code and an operator, never a Mac's App Attest key: the broker admits each run only if the key that
+// signed it is enrolled on AppleAttestRegistry and has a MacLink to this operator, so rotating a key keeps the class.
+require(!("enrollmentKeyId" in measured), "manifest pins an App Attest key; repack without enrollmentKeyId");
+const operator = measured.operator;
+const s = await new ChainReader(cfg).snapshot(),
   { wallet, contract } = await sender(cfg, key);
 require(
   (await s.call("owner")).toLowerCase() === wallet.address.toLowerCase(),
@@ -51,8 +48,6 @@ const tx = await contract.registerNode(
   measured.node,
   operator,
   1,
-  10000000000n,
-  30,
   composeHash,
   "0x" + imageHash.replace(/^0x/, ""),
 );

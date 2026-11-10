@@ -33,7 +33,7 @@ async function handleIndex(req,operatorHash,path) {
   const next=values.map(tunnel);const now=Date.now()/1000;
   if(next.some(e=>e.expiresAt<=now||e.expiresAt>now+3600))throw Error('expiry must be within one hour');
   if(operator)entries=next;else{
-   const prior=publishers.get(publisher);if(prior&&(prior.expiry>body.expiresAt||(prior.expiry===body.expiresAt&&prior.signature!==body.signature)))throw Error('stale publisher update');
+   const prior=publishers.get(publisher);if(prior&&(prior.expiry>body.expiresAt||(prior.expiry===body.expiresAt&&prior.signature!==body.signature)))return reply({error:'stale publisher update',expiresAt:prior.expiry},400);
    publishers.delete(publisher);publishers.set(publisher,{entries:next,expiry:body.expiresAt,signature:body.signature});while(publishers.size>32)publishers.delete(publishers.keys().next().value)
   }
   const saved={entries,publishers:[...publishers]};

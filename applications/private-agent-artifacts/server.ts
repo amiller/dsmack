@@ -44,6 +44,7 @@ function receive(event){const data=event.data;if(!data||typeof data!=='object')r
  if(data.type!=='sandbox-load'||typeof data.code!=='string'||typeof data.sandboxId!=='string')return;
  sandboxId=data.sandboxId;inner=document.createElement('iframe');inner.sandbox.add('allow-scripts','allow-forms');inner.title='Generated app';
  const guard='<!doctype html><meta http-equiv="x-dns-prefetch-control" content="off"><meta http-equiv="Content-Security-Policy" content="worker-src &apos;none&apos;; frame-src &apos;none&apos;"><script>addEventListener("message",function(e){if(e.source!==parent||e.origin!=='+JSON.stringify(${JSON.stringify(artifactOrigin)})+'||!e.data||e.data.sandboxId!=='+JSON.stringify(sandboxId)+'){e.stopImmediatePropagation()}},true);<'+'/script>';
+ let loaded=false;inner.addEventListener('load',()=>{if(!loaded){loaded=true;return}parent.postMessage({type:'dsmack-request',version:1,sandboxId,requestId:'navigation',method:'guest.cancelAll',params:{}},host)});
  blob=URL.createObjectURL(new Blob([guard,data.code],{type:'text/html'}));inner.src=blob;document.body.append(inner);
 }
 addEventListener('message',receive);

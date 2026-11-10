@@ -34,8 +34,9 @@ export function dsmackRuntime(sandboxId) {
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
         pending.delete(requestId);
+        if (method === "guest.run") parent.postMessage({ type: "dsmack-request", sandboxId, version: 1, requestId, method: "guest.cancel", params: {} }, "*");
         reject(new BridgeError("TIMEOUT", "Host request timed out", true));
-      }, method === "agent.complete" ? 120000 : 15000);
+      }, method === "guest.run" ? 300000 : method === "agent.complete" ? 120000 : 15000);
       pending.set(requestId, { resolve, reject, timer });
       try { parent.postMessage({ type: "dsmack-request", sandboxId, version: 1, requestId, method, params }, "*"); }
       catch { pending.delete(requestId); clearTimeout(timer); reject(new BridgeError("INVALID_ARGS", "Method parameters must be serializable.")); }
@@ -46,12 +47,14 @@ export function dsmackRuntime(sandboxId) {
     for (const capability of Object.values(value.capabilities)) Object.freeze(capability);
     Object.freeze(value.capabilities); snapshot = Object.freeze(value); return snapshot;
   };
+  addEventListener("pagehide", () => parent.postMessage({ type: "dsmack-request", sandboxId, version: 1, requestId: "pagehide", method: "guest.cancelAll", params: {} }, "*"));
   const sdk = Object.freeze({
     version: 1, BridgeError,
     ready: () => readyPromise ||= getCapabilities().catch(error => { readyPromise = undefined; throw error; }),
     capabilities: Object.freeze({ has: method => Boolean(snapshot?.capabilities[method]?.available) }),
     runtime: Object.freeze({ getCapabilities }),
     storage: Object.freeze({ get: key => invoke("storage.get", { key }), put: (key, value) => invoke("storage.put", { key, value }), list: () => invoke("storage.list") }),
+    guest: Object.freeze({ run: params => invoke("guest.run", params) }),
     agent: Object.freeze({ complete: params => invoke("agent.complete", params) }),
     credit: Object.freeze({ balance: () => invoke("credit.balance") }),
     diagnostics: Object.freeze({ log: message => invoke("diagnostics.log", { message }) }),
@@ -60,9 +63,12 @@ export function dsmackRuntime(sandboxId) {
 }
 
 export class ArtifactBridge {
-  constructor({ scope, state, models, credit, diagnostics }) {
-    Object.assign(this, { scope, state, models, credit, diagnostics });
+  constructor({ scope, state, models, guests, filename, credit, diagnostics }) {
+    Object.assign(this, { scope, state, models, guests, filename, credit, diagnostics });
+    this.owner = {};
   }
+  forFrame() { return new ArtifactBridge(this); }
+  dispose() { this.guests?.cancelOwner(this.owner); }
   getData() { return { __dsmackManifest: manifest }; }
   getRuntime() { return dsmackRuntime; }
   async handleMessage(message, respond) {
@@ -75,6 +81,8 @@ export class ArtifactBridge {
     try {
       if (!requestId(message.requestId)) fail("INVALID_ARGS", "A valid requestId is required.");
       if (message.version !== 1) fail("UNSUPPORTED_VERSION", "Bridge version 1 is required.");
+      if (message.method === "guest.cancelAll") { this.guests?.cancelOwner(this.owner); return; }
+      if (message.method === "guest.cancel") { this.guests?.cancel(this.scope, message.requestId, this.owner); return; }
       const method = manifest.methods.find(item => item.name === message.method);
       if (!method) fail("METHOD_NOT_FOUND", "Unknown Dsmack method.");
       const params = message.params;
@@ -87,7 +95,7 @@ export class ArtifactBridge {
       switch (message.method) {
         case "runtime.getCapabilities":
           result = { bridgeVersion: 1, capabilities: Object.fromEntries(manifest.methods.map(item => [item.name, {
-            supported: true, available: item.name.startsWith("storage.") ? Boolean(this.state) : item.name === "agent.complete" ? Boolean(this.models) : true,
+            supported: true, available: item.name.startsWith("storage.") ? Boolean(this.state) : item.name === "agent.complete" ? Boolean(this.models) : item.name === "guest.run" ? Boolean(this.guests) : true,
           }])) }; break;
         case "storage.get": case "storage.put": case "storage.list": {
           if (!this.state) fail("NOT_AVAILABLE", "Artifact storage is unavailable.");
@@ -111,6 +119,11 @@ export class ArtifactBridge {
             params.messages.reduce((bytes, item) => bytes + new TextEncoder().encode(item.content).length, 0) > 32768 ||
             (params.maxTokens !== undefined && (!Number.isSafeInteger(params.maxTokens) || params.maxTokens < 64))) fail("INVALID_ARGS", "Provide 1–32 user/assistant text messages below 32 KiB and optional integer maxTokens of at least 64.");
           result = await this.models.complete(this.scope, params); break;
+        case "guest.run":
+          if (!this.guests) fail("NOT_AVAILABLE", "App guest commands are unavailable.");
+          if (typeof params.command !== "string" || !params.command.trim() || new TextEncoder().encode(params.command).length > 32768 ||
+            (params.timeoutSeconds !== undefined && (!Number.isInteger(params.timeoutSeconds) || params.timeoutSeconds < 1 || params.timeoutSeconds > 120))) fail("INVALID_ARGS", "Provide a command below 32 KiB and timeout of 1–120 seconds.");
+          result = await this.guests.run(this.scope, params, { requestId: message.requestId, owner: this.owner, filename: this.filename }); break;
         case "credit.balance": {
           const credit = this.credit?.chatCredit;
           result = { wallet: this.credit?.address || null, remainingNanoUsd: credit?.remainingNanoUsd || "0",

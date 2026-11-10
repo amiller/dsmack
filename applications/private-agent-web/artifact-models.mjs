@@ -135,8 +135,9 @@ export class ArtifactModels {
     if (answer.billing?.dispatched && !answer.billing.settled) throw failure('NOT_AVAILABLE', pendingMessage);
     if (answer.stopReason === 'error' || answer.stopReason === 'aborted') {
       const message = answer.errorMessage || 'Artifact model request failed.';
-      throw failure(['INVALID_ARGS','PERMISSION_DENIED','NOT_AVAILABLE','HOST_ERROR'].includes(answer.errorCode) ? answer.errorCode : (/CREDIT_EXHAUSTED|BUDGET_EXHAUSTED|BUDGET_REQUIRED|BUDGET_ALREADY_SET/.test(message) ? 'PERMISSION_DENIED' :
-        /MODEL_COST_UNAVAILABLE|USAGE_PENDING/.test(message) ? 'NOT_AVAILABLE' : 'HOST_ERROR'), message);
+      const classification = answer.errorCode || answer.failure?.detail || message;
+      throw failure(['INVALID_ARGS','PERMISSION_DENIED','NOT_AVAILABLE','HOST_ERROR'].includes(answer.errorCode) ? answer.errorCode : (/CREDIT_EXHAUSTED|BUDGET_EXHAUSTED|BUDGET_REQUIRED|BUDGET_ALREADY_SET/.test(classification) ? 'PERMISSION_DENIED' :
+        /MODEL_COST_UNAVAILABLE|USAGE_PENDING/.test(classification) ? 'NOT_AVAILABLE' : 'HOST_ERROR'), message);
     }
     check(answer.billing?.settled, 'NOT_AVAILABLE', pendingMessage);
     check(!answer.content.some(part => part.type === 'toolCall'), 'HOST_ERROR', 'Artifact model response requested unavailable tools.');

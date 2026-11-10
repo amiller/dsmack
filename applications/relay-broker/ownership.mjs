@@ -121,3 +121,13 @@ export function applyOwnership(state, domain, action, body) {
   }
   return record;
 }
+
+// The operators whose current MacLink names kid. Each record is verified again under domain; a link signed by a
+// provisioner the operator has since revoked counts for nothing (revocation does not delete stored links).
+export function operatorsOf(state, domain, kid) {
+  return [...new Set(Object.values(state.links).filter(r => r.link.kid === kid.toLowerCase()).filter(r => {
+    applyOwnership(ownershipState(), domain, "link", r);
+    const a = r.authorization?.authorization;
+    return !a || !state.revocations[a.operator + ":" + a.provisioner];
+  }).map(r => r.link.operator))];
+}

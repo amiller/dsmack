@@ -208,24 +208,36 @@ strands a claim in flight. In this source an entry pins its build at arm time:
 - The canary verifier is `AppleAttestAnyBuildV1`: it admits a CDHash of any approved
   build. `Canary` reads the assertion's CDHash from `assertionEvidence(kid)` and
   requires `cds.buildOf(cdhash) == entry.build`.
-- `retire(id)` (funder) brings `until` to at most `NOTICE` (14 days) from now and
-  emits `Retired`. Claims never close; `reclaim` opens after `until`.
+- `until` is fixed at arm time and is at least 90 days out. The funder has no
+  `retire`; claims never close and `reclaim` opens after `until`.
 - A claim after the pot is reclaimed still burns the entry and emits `Burned` with
   amount 0.
 
 A pinned build stays claimable for as long as the entry exists, including after it is
 revoked for users; the entry measures that build. The secret-release policy and claim
-path should refuse a build with no unburned Forgery entry holding at least `NOTICE`
-of term (rotation: arm the new build, `setBuild`, then `retire` the old entries).
+path should refuse a build with no unburned Forgery entry with term left (rotation:
+arm the new build, `setBuild`, and let the old entries run out).
 
 Deploying it needs a new `CDRegistry` (re-run `setBuild` and `registerBuild` for the
 current runner, and repoint the main verifier, so a new `AppleAttestRegistryV1` too),
 a new `AppleAttestAnyBuildV1` with `registry` = the canary's predicted address, then
 the `Canary`, re-enrollment of each key in both verifiers, and `arm` (each entry's
-term is at least `NOTICE`). Deploy from the current owner key: `owner` is the deployer.
+term is at least 90 days). Deploy from the current owner key: `owner` is the deployer.
 Off chain, repoint the coordinator's `CDREGISTRY`, the secret-release policy's `attest`
 and `canary`, the dashboard `registry.json` entry (`canary-read-codec/3`), and `$CDS`
 in docs/canary/RUNNER-README.md.
+
+## Oracle canary
+
+`armOracle(build, image, manifest, caller, until)` arms an Oracle entry for the
+[oracle canary workload](../applications/oracle-canary/README.md). `claimKey` takes the
+P-256 key from the attestation's `report_data` instead of a canary event, and requires
+the entry's image, manifest and `caller` (sha256 of the service name, `oracle`). The
+workload mints that key, so an entry is sound only on an image whose guest refuses a vdc
+manifest other than the attested one (agent `--manifest-sha256`, from `os_image_hash`
+`eb2b54ce…` on). A burned Oracle entry marks neither `burnedImage` nor `burnedBuild`:
+it shows a side channel into one signer. Arm the `variable` and `constant` signer
+manifests as separate entries on one image.
 
 ## Key canaries
 

@@ -13,7 +13,7 @@ async function registerDiagnostic(b, r) {
   const keys = ["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash", "receipt_key", "secret_key", "admit_until"];
   const out = { ...Object.fromEntries(keys.filter((k) => r[k] !== undefined).map((k) => [k, r[k]])), kind: "compute", proof: r.attestation,
     attestation: { status: "verified", ...checked }, expires_at: b.now() + limits.compute_lease_seconds, operator_diagnostic: true };
-  b.relays.set(r.relay_peer, out);
+  b.relays.set(r.relay_peer, out); b.seen.set(r.relay_peer, b.now());
   return out;
 }
 
@@ -27,6 +27,7 @@ export class Broker {
     this.cfg = cfg; this.chain = chain; this.key = key;
     this.credits = credits; this.saveCredits = saveCredits; this.now = now;
     this.relays = new Map();
+    this.seen = new Map(); this.startedAt = now();
     this.pending = Promise.resolve();
   }
 
@@ -34,6 +35,12 @@ export class Broker {
     const now = this.now();
     for (const [id, r] of this.relays) if (r.expires_at <= now) this.relays.delete(id);
     return [...this.relays.values()].filter((r) => !r.admit_until || r.admit_until > now);
+  }
+
+  // A running guest re-registers every 25-30 s, including while it seals past admit_until. It counts as gone only after
+  // grant_seconds without a registration, so a broker restart (relays live in memory) or a shorter network blip closes nothing.
+  gone(peer) {
+    return this.now() - Math.max(this.startedAt, this.seen.get(peer) ?? 0) > limits.grant_seconds;
   }
 
   async register(r) {
@@ -48,9 +55,10 @@ export class Broker {
     require(!this.payments || r.payments, "paid broker requires receipt key admission");
     const attestation = r.payments ? await this.payments.register(r,this.cfg) : await verifyRelay(r, this.cfg, this.chain, now);
     const out = Object.fromEntries(["relay_peer", "relay_maddr", "manifest_sha256", "os_image_hash", "cdhash"].map((k) => [k, r[k]]));
-    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: now + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
+    Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: this.now() + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
     if (r.payments) out.payments = r.payments;
+    if (r.guest_key) out.guest_key = r.guest_key;
     if (telemetry) out.telemetry = telemetry;
     if (r.kind === "compute") {
       out.secret_key = r.secret_key;
@@ -59,7 +67,9 @@ export class Broker {
         out.admit_until = r.admit_until;
       }
     }
-    this.relays.set(r.relay_peer, out);
+    const unreachable = this.relays.get(r.relay_peer)?.unreachable;
+    if (unreachable) out.unreachable = unreachable;
+    this.relays.set(r.relay_peer, out); this.seen.set(r.relay_peer, now);
     return out;
   }
 
@@ -71,7 +81,7 @@ export class Broker {
   }
 
   async issue(r) {
-    require(!this.payments, "paid broker requires /payments/grant", 402);
+    require(!this.payments, "prepaid compute requires /agent/open", 402);
     const now = this.now();
     const fields = await verifyRequest(r, peerBytes);
     const { unit, amount } = fields;

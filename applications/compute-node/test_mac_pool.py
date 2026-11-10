@@ -13,6 +13,7 @@ import time
 from pathlib import Path
 import subprocess
 import unittest
+from unittest import mock
 from unittest.mock import Mock
 
 spec = importlib.util.spec_from_file_location('mac_pool', Path(__file__).with_name('mac-pool.py'))
@@ -27,9 +28,9 @@ class PublicationTests(unittest.TestCase):
         hint = {'url': 'wss://relay.example/', 'expiresAt': 123}
         log = io.StringIO()
         with contextlib.redirect_stdout(log):
-            self.assertFalse(mac_pool.republish(publish, hint, False))
-            self.assertFalse(mac_pool.republish(publish, hint, True))
-            self.assertTrue(mac_pool.republish(publish, hint, True))
+            self.assertFalse(mac_pool.republish(publish, [hint], False))
+            self.assertFalse(mac_pool.republish(publish, [hint], True))
+            self.assertTrue(mac_pool.republish(publish, [hint], True))
         self.assertEqual(publish.call_count, 3)
         events = [json.loads(line) for line in log.getvalue().splitlines()]
         self.assertEqual([event['error'] for event in events], ['CalledProcessError', 'TimeoutExpired'])
@@ -38,6 +39,82 @@ class PublicationTests(unittest.TestCase):
     def test_periodic_publication_does_not_mask_configuration_errors(self):
         with self.assertRaises(ValueError):
             mac_pool.republish(Mock(side_effect=ValueError('invalid publisher key')), {}, False)
+
+
+class RestartBackoffTests(unittest.TestCase):
+    def test_crashed_launchers_share_increasing_waits_before_transports(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            path = Path(tmp)/'launcher-backoff.json'
+            clock = [1000]
+            waits = []
+            def sleep(seconds):
+                waits.append(seconds); clock[0] += seconds
+            with mock.patch.object(mac_pool.time, 'time', side_effect=lambda: clock[0]), \
+                    mock.patch.object(mac_pool.time, 'sleep', side_effect=sleep):
+                self.assertTrue(mac_pool.RestartBackoff(path).begin(lambda:False))
+                for delay in (60, 120, 240, 480, 960, 1800, 1800):
+                    waits.clear()
+                    # Each new launcher gets a fresh generation but the same service root.
+                    self.assertTrue(mac_pool.RestartBackoff(path).begin(lambda:False))
+                    self.assertEqual(sum(waits), delay)
+
+    def test_only_a_sustained_healthy_run_resets_failures_and_wait_can_be_stopped(self):
+        with tempfile.TemporaryDirectory() as tmp, contextlib.redirect_stdout(io.StringIO()):
+            path = Path(tmp)/'launcher-backoff.json'
+            path.write_text(json.dumps(dict(failures=6, retry_at=2000)))
+            backoff = mac_pool.RestartBackoff(path)
+            with mock.patch.object(mac_pool.time, 'time', return_value=1000), \
+                    mock.patch.object(mac_pool.time, 'sleep') as sleep:
+                self.assertFalse(backoff.begin(lambda:True))
+                sleep.assert_not_called()
+            self.assertEqual(json.loads(path.read_text())['failures'], 6)
+            with mock.patch.object(mac_pool.time, 'monotonic', return_value=0):
+                backoff.tick(dict(slots=[dict(state='ready')]))
+            with mock.patch.object(mac_pool.time, 'monotonic', return_value=599):
+                backoff.tick(dict(slots=[dict(state='ready')]))
+                self.assertTrue(path.exists())
+                backoff.tick(dict(slots=[dict(state='failed')]))
+                backoff.tick(dict(slots=[dict(state='busy')]))
+            with mock.patch.object(mac_pool.time, 'monotonic', return_value=1199):
+                backoff.tick(dict(slots=[dict(state='busy')]))
+            self.assertFalse(path.exists())
+            with mock.patch.object(mac_pool.time, 'time', return_value=2000):
+                self.assertTrue(mac_pool.RestartBackoff(path).begin(lambda:False))
+            self.assertEqual(json.loads(path.read_text())['failures'], 1)
+
+
+class OrphanTransportTests(unittest.TestCase):
+    def reap(self, record, commands):
+        killed = []
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'transports.json'; path.write_text(json.dumps(record))
+            with mock.patch.object(mac_pool, 'process_command', side_effect=lambda pid: commands.get(pid)), \
+                    mock.patch.object(mac_pool.os, 'killpg', side_effect=lambda pid, sig: killed.append((pid, sig))), \
+                    mock.patch.object(mac_pool, 'transport_group_running', return_value=False):
+                reaped = mac_pool.reap_orphan_transports(path, grace_seconds=0)
+            return reaped, killed, path.exists()
+
+    def test_dead_owner_transports_are_reaped_but_reused_pids_are_kept(self):
+        record = dict(owner=10, ownerCommand='python mac-pool.py', groups=[
+            dict(pid=11, command='mac-relay /key'), dict(pid=12, command='cloudflared tunnel')])
+        reaped, killed, kept = self.reap(record, {11: 'mac-relay /key', 12: 'some other program'})
+        self.assertEqual(reaped, [11]); self.assertEqual(killed, [(11, signal.SIGTERM)]); self.assertFalse(kept)
+
+    def test_live_owner_refuses_start(self):
+        record = dict(owner=10, ownerCommand='python mac-pool.py', groups=[dict(pid=11, command='mac-relay /key')])
+        with self.assertRaises(RuntimeError):
+            self.reap(record, {10: 'python mac-pool.py', 11: 'mac-relay /key'})
+
+    def test_group_of_dead_leader_is_reaped(self):
+        record = dict(owner=10, ownerCommand='python mac-pool.py', groups=[dict(pid=11, command='cloudflared tunnel')])
+        with mock.patch.object(mac_pool, 'transport_group_running', side_effect=__import__('itertools').chain([True], __import__('itertools').repeat(False))):
+            killed = []
+            with tempfile.TemporaryDirectory() as tmp:
+                path = Path(tmp)/'transports.json'; path.write_text(json.dumps(record))
+                with mock.patch.object(mac_pool, 'process_command', return_value=None), \
+                        mock.patch.object(mac_pool.os, 'killpg', side_effect=lambda pid, sig: killed.append(pid)):
+                    reaped = mac_pool.reap_orphan_transports(path, grace_seconds=0)
+        self.assertEqual((reaped, killed), ([11], [11]))
 
 
 class GuestDirectoryTests(unittest.TestCase):
@@ -178,20 +255,80 @@ class TransportDiscoveryTests(unittest.TestCase):
                 mac_pool.discover_transport(url, retry_seconds=.01)
             self.assertEqual(len(requests), 1)
 
-    def test_transport_outage_has_a_deadline_and_stop_skips_further_requests(self):
-        with transport_server([503]) as (url, requests), contextlib.redirect_stdout(io.StringIO()):
-            started = time.monotonic()
+    def test_transport_outage_has_a_deadline(self):
+        # Scheduling a local HTTP server must not consume the retry budget.
+        clock = [0.0]
+        timeouts = []
+        def unavailable(url, timeout):
+            timeouts.append(timeout)
+            clock[0] += .25  # Account for time spent in the request itself.
+            raise mac_pool.URLError('offline')
+        def sleep(seconds):
+            clock[0] += seconds
+        with mock.patch.object(mac_pool.time, 'monotonic', side_effect=lambda: clock[0]), \
+                mock.patch.object(mac_pool.time, 'sleep', side_effect=sleep), \
+                mock.patch.object(mac_pool, 'urlopen', side_effect=unavailable), \
+                contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, 'unavailable after'):
-                mac_pool.discover_transport(url, budget_seconds=.04, retry_seconds=.01)
-            self.assertGreater(len(requests), 1)
-            self.assertLess(time.monotonic() - started, 1)
-            calls = len(requests)
+                mac_pool.discover_transport('http://broker', budget_seconds=3, retry_seconds=1)
+        self.assertEqual(timeouts, [3, 1.75, .5])
+        self.assertEqual(clock[0], 3)
+
+    def test_stop_skips_further_requests(self):
+        with transport_server([503]) as (url, requests), contextlib.redirect_stdout(io.StringIO()):
             with self.assertRaisesRegex(RuntimeError, 'stopped during'):
-                mac_pool.discover_transport(url, stopped=lambda: len(requests) > calls, retry_seconds=.01)
-            self.assertEqual(len(requests), calls + 1)
+                mac_pool.discover_transport(url, stopped=lambda: bool(requests), retry_seconds=.01)
+            self.assertEqual(len(requests), 1)
 
 
 class OwnedTransportCleanupTests(unittest.TestCase):
+    def test_guest_shutdown_timeout_still_stops_transports(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            pools = Mock(stop=Mock(side_effect=subprocess.TimeoutExpired('drain', 4300)))
+            with mock.patch.object(mac_pool, 'stop_transports', return_value=[123]) as stop:
+                with self.assertRaises(subprocess.TimeoutExpired):
+                    mac_pool.finish(pools, False, [], root/'pending', Mock(), [Mock()], [], [], root)
+                stop.assert_called_once()
+
+    def test_withdrawal_refusal_is_logged_and_does_not_fail_shutdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            publish = Mock(side_effect=subprocess.CalledProcessError(1, ['broker', 'HTTP 400 stale publisher update']))
+            with mock.patch.object(mac_pool, 'stop_transports', return_value=[]) as stop, \
+                    contextlib.redirect_stdout(io.StringIO()) as log:
+                mac_pool.finish(None, True, [], root/'pending', publish, [], [], [], root)
+            publish.assert_called_once_with([], False)
+            self.assertIn('periodic-publication-failed', log.getvalue())
+            stop.assert_called_once_with([])
+
+    def test_startup_failure_reaps_the_already_started_relay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            workload = root/'workload'; workload.mkdir()
+            (workload/'compose-manifest.json').write_text(json.dumps(dict(docker_compose_file=json.dumps(dict(
+                services=dict(node=dict(environment=dict(HTTPS_PROXY='http://127.0.0.1:18484'),
+                                        command=['serve', '/p2p/expected'])))))))
+            relay = root/'relay'
+            relay.write_text('#!'+sys.executable+"\nimport time\nprint('relay_peer=12D3KooWwrong',flush=True)\ntime.sleep(120)\n")
+            relay.chmod(0o755)
+            args = ['mac-pool.py', '--state', str(root/'pool-one'), '--runner', str(root), '--workload', str(workload),
+                    '--relay', str(relay), '--relay-key', str(relay), '--cloudflared', str(relay),
+                    '--publisher-key', str(relay), '--publisher-address', 'publisher', '--registry', 'registry',
+                    '--broker', 'https://broker.test', '--index', 'https://broker.test/tunnels', '--pool-version', 'test']
+            with mock.patch.object(sys, 'argv', args), mock.patch.object(mac_pool, 'operator_config'), \
+                    mock.patch.object(mac_pool, 'hardware'), mock.patch.object(mac_pool, 'measured_size'), \
+                    mock.patch.object(mac_pool, 'release_config'), mock.patch.object(mac_pool, 'preflight'), \
+                    mock.patch.object(mac_pool, 'discover_transport', return_value=PEER), \
+                    mock.patch.object(mac_pool.signal, 'signal'):
+                with self.assertRaisesRegex(ValueError, 'relay key does not match'):
+                    mac_pool.main()
+            stopped = json.loads((root/'pool-one/stopped.json').read_text())
+            self.assertTrue(stopped['ownedChildrenStopped'])
+            self.assertTrue(stopped['ownedTransportGroupsStopped'])
+            for pid in stopped['pids']:
+                self.assertFalse(mac_pool.transport_group_running(pid))
+
     def test_interrupted_pin_publication_reaps_its_owned_group_descendant(self):
         with tempfile.TemporaryDirectory() as temporary:
             root = Path(temporary)

@@ -1,16 +1,17 @@
+import "./node-env.mjs";
+import { nonceRef, errorCode, requestLog } from "./request-log.mjs";
 import { ArtifactShares, artifactStoreRemote } from "./artifact-shares.mjs";
 import { Continuity } from "./continuity.mjs";
 import { Workspaces } from "./workspaces.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
-import { fleet, readFleet } from "./fleet.mjs";
+import { fleet, readFleet, readOwnership } from "./fleet.mjs";
+import { HeliosReader, heliosAdmission, sharedSnapshots } from "../payments/helios-reader.mjs";
 import { networkMonitor } from "./network.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
 import { Inference, InferenceError } from "./inference.mjs";
 import { NearError, NearProvider } from "./near.mjs";
-import { rpcChain } from "../../dstack-compat/secret-release/policy.mjs";
-import { withEnrollment } from "./attestation.mjs";
 import { Broker, limits, Refused } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
 import { getProviderEnvKey, getSigningKey } from "./key.ts";
@@ -37,6 +38,15 @@ async function load(ctx: Context) {
     using directory = await Deno.open(ctx.dataDir, { read: true });
     await directory.sync();
   };
+  // App Attest keys come only from AppleAttestRegistry, so a rotated key needs no broker change.
+  if (cfg.enrollments || cfg.payments?.enrollments) {
+    throw new Error("broker config must not pin enrollments; enroll the key on AppleAttestRegistry");
+  }
+  // Guest admission reads only Helios-verified state through layover-chain, never a public RPC.
+  if (!cfg.payments || !/^https:\/\//.test(cfg.chainRead)) {
+    throw new Error("broker config needs payments and chainRead (the layover-chain URL)");
+  }
+  const helios = sharedSnapshots(new HeliosReader({ ...cfg.payments, chainRead: cfg.chainRead }));
   let payments;
   if (cfg.payments) {
     const path = ctx.dataDir + "/payments-" +
@@ -52,6 +62,8 @@ async function load(ctx: Context) {
       key: await getSigningKey(ctx.env.DSTACK_SOCKET, true),
       state,
       save: (v: object) => atomicSave(path, v),
+      ownership: () => readOwnership(ctx.dataDir + "/fleet.json"),
+      chain: helios,
     });
   }
   let inference, providerEnvironment;
@@ -71,7 +83,6 @@ async function load(ctx: Context) {
       ? new NearProvider({
         ...cfg.inference,
         apiKey: secrets.NEAR_API_KEY,
-        attestationPolicy: cfg.inference,
       })
       : undefined;
     inference = new Inference({ payments, cfg: cfg.inference, provider });
@@ -84,10 +95,7 @@ async function load(ctx: Context) {
   } catch (e) {
     if (!(e instanceof Deno.errors.NotFound)) throw e;
   }
-  const chain = withEnrollment(
-    rpcChain(cfg.rpc, cfg.attest, cfg.canary),
-    cfg.enrollments,
-  );
+  const chain = heliosAdmission(helios, { ...cfg, ...cfg.payments });
   const broker = new Broker({
     cfg,
     chain,
@@ -110,7 +118,7 @@ async function load(ctx: Context) {
   const workspaces = new Workspaces({ broker, cfg: cfg.workspaces,
     state: workspaceState, save: (v: object) => atomicSave(workspacePath, v) });
   const continuity = new Continuity({
-    cfg: { rpc: cfg.rpc, ...cfg.continuity }, key,
+    cfg: { rpc: cfg.rpc, rpcs: cfg.continuity?.rpc ? undefined : cfg.rpcs, ...cfg.continuity }, key,
     anchorKey: payments?.key ?? await getSigningKey(ctx.env.DSTACK_SOCKET, true),
     state: syncState,
     save: (v: object) => atomicSave(syncPath, v),
@@ -168,7 +176,7 @@ function page(b: Broker) {
   }).join("");
   return `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width"><title>Attested egress relay</title><style>body{font:16px system-ui;max-width:65rem;margin:3rem auto;padding:0 1rem;background:#101828;color:#edf2fa}a{color:#8cd8ff}article{border:1px solid #475467;border-radius:12px;padding:1rem;margin:1rem 0}h2,dd,pre{overflow-wrap:anywhere}h2{font-size:1rem}dd{margin:0 0 1rem}pre{white-space:pre-wrap;background:#1d2939;padding:1rem}</style><h1>Attested egress relay</h1><p>${
     b.payments
-      ? "Base Sepolia ETH · prices and paid grants at /payments/nodes"
+      ? "Prepaid USDC · posted prices at /payments/nodes"
       : `Free testnet credit: ${
         limits.max_bytes / 1048576
       } MiB and ${limits.grants_per_hour} grants per client PeerId per hour.`
@@ -177,7 +185,7 @@ function page(b: Broker) {
   }</html>`;
 }
 
-async function body(req: Request, maximum = 150000) {
+async function readBody(req: Request, maximum: number, observation: { ref: string | null }) {
   if (!req.body) throw new Refused("JSON body required", 400);
   let size = 0;
   const chunks = [];
@@ -197,6 +205,7 @@ async function body(req: Request, maximum = 150000) {
     if (!r || typeof r !== "object" || Array.isArray(r)) {
       throw new Error("object required");
     }
+    observation.ref = nonceRef(r.nonce);
     return r;
   } catch {
     throw new Refused("JSON object required", 400);
@@ -205,6 +214,7 @@ async function body(req: Request, maximum = 150000) {
 
 let state: ReturnType<typeof load> | undefined;
 export default async function handler(req: Request, ctx: Context) {
+  const started = performance.now();
   const loading = state ??= load(ctx);
   let broker;
   try {
@@ -213,15 +223,51 @@ export default async function handler(req: Request, ctx: Context) {
     // Shared-runtime promotion can briefly remove the project GetKey socket.
     // A rejected startup must not poison every later request after it returns.
     if (state === loading) state = undefined;
+    requestLog("broker_failure", { ref: null, code: "STARTUP_FAILED", status: 500, started, requestBytes: 0, responseBytes: null });
     throw error;
   }
-  return await handleRequest(req, broker, ctx);
+  return await handleRequest(req, broker, ctx, started);
 }
 
-export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
+export async function handleRequest(req: Request, b: Broker, ctx?: Context, started = performance.now()) {
+  const observation = { ref: null as string | null, requestBytes: 0 };
+  if (req.body) req = new Request(req, { body: req.body.pipeThrough(new TransformStream({
+    transform(chunk, controller) { observation.requestBytes += chunk.byteLength; controller.enqueue(chunk); },
+  })) });
+  let response;
+  try { response = await dispatchRequest(req, b, ctx, observation); }
+  catch (error) {
+    requestLog("broker_failure", { ...observation, code: "INTERNAL_ERROR", status: 500, started, responseBytes: null });
+    throw error;
+  }
+  if (observation.ref) response.headers.set("x-request-ref", observation.ref);
+  if (response.status < 400) return response;
+  const bytes = new Uint8Array(await response.arrayBuffer());
+  let code = "REQUEST_REFUSED";
+  try { code = errorCode(JSON.parse(new TextDecoder().decode(bytes)).error?.code); }
+  catch { /* Non-JSON refusal: only status and byte count are logged. */ }
+  requestLog("broker_failure", { ...observation, code, status: response.status, started, responseBytes: bytes.byteLength });
+  return new Response(bytes, { status: response.status, statusText: response.statusText, headers: response.headers });
+}
+
+// Operator-only. POST stops offering new stays, DELETE resumes; a new process starts undrained.
+export async function drain(req: Request, b: Broker, operatorHash?: string) {
+  const auth = req.headers.get("authorization") ?? "";
+  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(auth.slice(7))));
+  if (!operatorHash || !auth.startsWith("Bearer ") || Array.from(digest, x => x.toString(16).padStart(2, "0")).join("") !== operatorHash) {
+    return Response.json({ error: { code: "OPERATOR_REQUIRED", message: "operator token required" } }, { status: 403 });
+  }
+  const draining = req.method === "POST";
+  (b as Broker & { draining?: boolean }).draining = draining;
+  return Response.json({ draining });
+}
+
+async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined, observation: { ref: string | null }) {
+  const body = (request: Request, maximum = 150000) => readBody(request, maximum, observation);
   const path = new URL(req.url).pathname;
   if(path==="/tunnels")return await tunnelIndex(req,ctx?.env.OPERATOR_TOKEN_SHA256,ctx?.dataDir?ctx.dataDir+"/tunnels.json":undefined);
   if(path==="/fleet" || ["/fleet/ownership", "/fleet/link", "/fleet/unlink", "/fleet/revoke-provisioner"].includes(path))return await fleet(req,b.cfg.payments?.escrow,ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined);
+  if(path==="/drain" && (req.method==="POST" || req.method==="DELETE"))return await drain(req,b,ctx?.env.OPERATOR_TOKEN_SHA256);
   if(path==="/network" || path==="/network/history")return await (await networkMonitor(ctx?.dataDir?ctx.dataDir+"/fleet.json":undefined)).response(req);
   const origin = req.headers.get("origin");
   const allowedOrigin = origin &&
@@ -271,6 +317,9 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
       if (!sync) return finish(Response.json({ error: "sync not configured" }, { status: 503 }));
       try { response = Response.json(await sync.call(path.slice(6), await body(req, 3 * 1024 * 1024))); }
       catch (e) { if (e instanceof Error && "status" in e) return finish(Response.json({ error: e.message }, { status: Number(e.status) })); throw e; }
+    } else if (path.startsWith("/agent/browse/") && req.method === "GET") {
+      if (!b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
+      response = Response.json(new AgentSessions(b).browsePolicy(path.slice("/agent/browse/".length), new URL(req.url).searchParams.get("publisher")));
     } else if (path.startsWith("/agent/") && req.method === "POST") {
       if (!b.inference || !b.payments) throw new InferenceError("PROVIDER_NOT_CONFIGURED", "agent credit is not configured", 503);
       const sessions = new AgentSessions(b, () => readFleet(ctx?.dataDir ? ctx.dataDir + "/fleet.json" : undefined, b.now())), request = await body(req);
@@ -327,14 +376,10 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         response = Response.json(JSON.parse(json(await p.classes())));
       } else if (req.method === "GET" && path === "/payments/nodes") {
         response = Response.json(await p.list(b.live()));
-      } else if (req.method === "POST" && path === "/payments/confirm") {
-        response = Response.json(await p.confirm(await body(req)));
-      } else if (req.method === "POST" && path === "/payments/grant") {
-        response = Response.json(await p.grant(await body(req), b.live()));
-      } else if (req.method === "POST" && path === "/payments/receipts") {
-        response = Response.json(await p.collect(await body(req)));
-      } else if (req.method === "GET" && path === "/payments/receipts") {
-        response = Response.json(Object.values(p.state.receipts));
+      } else if (req.method === "GET" && path === "/payments/claim") {
+        const query = new URL(req.url).searchParams;
+        response = Response.json(await p.weeklyClaim(query.get("user"), query.get("operator"),
+          query.has("period") ? Number(query.get("period")) : undefined));
       } else response = new Response("not found", { status: 404 });
     } else if (req.method === "GET" && path === "/key") {
       response = Response.json({
@@ -363,7 +408,8 @@ export async function handleRequest(req: Request, b: Broker, ctx?: Context) {
         if (ranked.some(node => node.available)) response = Response.json(ranked);
         else {
           const retryAfterSeconds = busyRetrySeconds(nodes, b.payments?.state.agentSessions, b.now());
-          response = Response.json({ error: { code: "FLEET_BUSY", message: `busy, retry in ${retryAfterSeconds} seconds`, retryAfterSeconds } },
+          const code = currentFleet.some(mac => mac.online) ? "FLEET_BUSY" : "FLEET_EMPTY";
+          response = Response.json({ error: { code, message: `${code === "FLEET_BUSY" ? "All Macs are busy" : "No Macs are connected"}, retry in ${retryAfterSeconds} seconds`, retryAfterSeconds } },
             { status: 503, headers: { "retry-after": String(retryAfterSeconds) } });
         }
       }

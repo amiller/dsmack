@@ -13,12 +13,12 @@ import (
 	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
+func TestBuyerAndReceiptInteroperability(t *testing.T) {
 	coordinator, _ := secp.GeneratePrivateKey()
 	buyer, _, _ := lc.GenerateEd25519Key(rand.Reader)
 	id, _ := peer.IDFromPrivateKey(buyer)
 	pub, _ := buyer.GetPublic().Raw()
-	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), EnrollmentKeyID: hexed(make([]byte, 32)), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 3600})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: address(coordinator.PubKey()), BuildID: hexed(make([]byte, 32)), DestinationPolicyHash: hexed(make([]byte, 32)), RunSeconds: 3600}, make([]byte, 32))
 	if e != nil {
 		t.Fatal(e)
 	}
@@ -61,8 +61,7 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 		t.Fatal("duplicate finalization")
 	}
 	if out := os.Getenv("PAYMENTS_EVIDENCE"); out != "" {
-		binding, _ := m.Binding(id.String(), hexed(make([]byte, 32)), hexed(make([]byte, 32)))
-		evidence := map[string]any{"escrow": m.Escrow, "registration": m.Registration, "peer": id.String(), "grant": env, "receipt": last, "receiptDigest": hexed(digest), "binding": hexed(binding)}
+		evidence := map[string]any{"escrow": m.Escrow, "registration": m.Registration, "peer": id.String(), "grant": env, "receipt": last, "receiptDigest": hexed(digest)}
 		b, _ := json.Marshal(evidence)
 		if e = os.WriteFile(filepath.Join(out, "guest-interop.json"), b, 0600); e != nil {
 			t.Fatal(e)
@@ -73,7 +72,7 @@ func TestBuyerBindingAndReceiptInteroperability(t *testing.T) {
 func TestOnlyOperatorCanStopAdmittedRun(t *testing.T) {
 	operator, _ := secp.GeneratePrivateKey()
 	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
-	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), EnrollmentKeyID: zero, BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660})
+	m, e := New(Config{Node: "0x0101010101010101010101010101010101010101010101010101010101010101", Escrow: "0x1000000000000000000000000000000000000001", Operator: address(operator.PubKey()), GrantSigner: address(operator.PubKey()), BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 660}, make([]byte, 32))
 	if e != nil {
 		t.Fatal(e)
 	}

@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/ed25519"
 	"crypto/rand"
+	payments "dsmack-payments"
 	"encoding/hex"
 	"encoding/json"
 	"io"
@@ -25,6 +26,7 @@ import (
 func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	receiptPub, receiptKey, _ := ed25519.GenerateKey(rand.Reader)
+	meter := testReceiptMeter(t)
 	server, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))
 	if err != nil {
 		t.Fatal(err)
@@ -41,18 +43,17 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var body map[string]any
 		json.NewDecoder(r.Body).Decode(&body)
-		sig, _ := hex.DecodeString(body["sig"].(string))
-		delete(body, "sig")
-		if r.URL.Path != "/agent/receipt" || !ed25519.Verify(receiptPub, canon(body), sig) {
-			t.Error("guest receipt signature or route")
+		if r.URL.Path != "/agent/receipt" {
+			t.Error("receipt route")
 		}
+		body = checkAgentReceipt(t, body, meter)
 		mu.Lock()
 		receipts = append(receipts, body)
 		mu.Unlock()
 		io.WriteString(w, `{"stop":false,"activeBudgetSeconds":20}`)
 	}))
 	defer broker.Close()
-	n := &engine{broker: pub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(artifacts, "last-result")}
+	n := &engine{paid: meter, broker: pub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(artifacts, "last-result")}
 	retired := make(chan struct{}, 1)
 	server.SetStreamHandler(agentProtocol, func(s network.Stream) {
 		n.handleMCPIdle(s, broker.URL, broker.Client(), func() { retired <- struct{}{} }, 20*time.Millisecond)
@@ -139,10 +140,10 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if len(receipts) < 2 || receipts[len(receipts)-1]["final"] != true {
+	if len(receipts) < 2 || receipts[len(receipts)-1]["finalReceipt"] != true {
 		t.Fatal("missing final metering receipt", receipts)
 	}
-	if receipts[len(receipts)-1]["guestSeconds"].(float64) != 0 {
+	if receipts[len(receipts)-1]["used"] != "0" {
 		t.Fatal("resource polling and idle time must not be charged")
 	}
 	raw, err := os.ReadFile(filepath.Join(artifacts, "agent-receipts"))
@@ -157,6 +158,7 @@ func TestAgentMCPAdmissionIdentityIdleAndSignedMetering(t *testing.T) {
 func TestAgentCreditDeadlineCancelsActiveTool(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	_, receiptKey, _ := ed25519.GenerateKey(rand.Reader)
+	meter := testReceiptMeter(t)
 	server, err := libp2p.New(libp2p.ListenAddrStrings("/ip4/127.0.0.1/tcp/0"))
 	if err != nil {
 		t.Fatal(err)
@@ -202,13 +204,14 @@ func TestAgentCreditDeadlineCancelsActiveTool(t *testing.T) {
 	broker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		var receipt map[string]any
 		json.NewDecoder(r.Body).Decode(&receipt)
+		receipt = checkAgentReceipt(t, receipt, meter)
 		mu.Lock()
 		receipts = append(receipts, receipt)
 		mu.Unlock()
 		io.WriteString(w, `{"stop":false,"activeBudgetSeconds":1}`)
 	}))
 	defer broker.Close()
-	n := &engine{broker: pub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(directory, "last-result")}
+	n := &engine{paid: meter, broker: pub, signer: receiptKey, node: server.ID().String(), until: time.Now().Add(time.Minute), seen: map[string]bool{}, resultPath: filepath.Join(directory, "last-result")}
 	retired := make(chan struct{}, 1)
 	server.SetStreamHandler(agentProtocol, func(s network.Stream) {
 		n.handleMCPIdle(s, broker.URL, broker.Client(), func() { retired <- struct{}{} }, time.Minute)
@@ -250,10 +253,35 @@ func TestAgentCreditDeadlineCancelsActiveTool(t *testing.T) {
 	mu.Lock()
 	defer mu.Unlock()
 	final := receipts[len(receipts)-1]
-	if final["final"] != true || final["guestSeconds"].(float64) != 1 {
+	if final["finalReceipt"] != true || final["used"] != "1" {
 		t.Fatal("usage exceeded authenticated budget", receipts)
 	}
 	if n.telemetry()["closed_reason"] != "credit" {
 		t.Fatal(n.telemetry())
 	}
+}
+
+func testReceiptMeter(t *testing.T) *payments.Meter {
+	t.Helper()
+	const zero = "0x0000000000000000000000000000000000000000000000000000000000000000"
+	m, err := payments.New(payments.Config{Node: zero, Escrow: "0x1000000000000000000000000000000000000001", Operator: "0x2000000000000000000000000000000000000002", GrantSigner: "0x3000000000000000000000000000000000000003", BuildID: zero, DestinationPolicyHash: zero, RunSeconds: 3600}, make([]byte, 32))
+	if err != nil {
+		t.Fatal(err)
+	}
+	return m
+}
+func checkAgentReceipt(t *testing.T, body map[string]any, meter *payments.Meter) map[string]any {
+	t.Helper()
+	raw, _ := json.Marshal(body)
+	var envelope payments.SignedReceipt
+	if err := json.Unmarshal(raw, &envelope); err != nil {
+		t.Error(err)
+	}
+	if err := payments.VerifyReceipt(meter.Escrow, envelope, meter.ReceiptSigner); err != nil {
+		t.Error(err)
+	}
+	if envelope.Receipt.Unit != 1 {
+		t.Error("guest receipt unit")
+	}
+	return body["receipt"].(map[string]any)
 }

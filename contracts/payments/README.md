@@ -1,36 +1,46 @@
-# Usage escrow
+# Prepaid USDC rail
 
-`../src/UsageEscrow.sol` sells bounded byte or second allowances on Base Sepolia.
-The owner registers a broker once and immutable node classes with payout,
-measurements, floor price and epoch capacity target. Purchases finalize before
-a VM starts. The broker verifies fresh guest attestation and signs each run
-binding; settlement verifies it after the VM exits. Cumulative
-EIP-712 guest receipts credit operators at the floor; congestion premiums stay
-locked. A final receipt refunds unused funds immediately; timeout refunds open
-one hour after purchase expiry. Payees pull credits with `withdraw()`.
+`../src/UsageEscrow.sol` holds user deposits and pays broker-signed cumulative
+weekly claims. Each user's deposits cap its payouts; the EIP-712 domain salt
+isolates users. Users can close their account and withdraw after a 14 day claim
+window without any further broker signature. Node measurements and operator
+addresses are immutable; posted prices live in broker configuration.
 
-Run the contract tests from the repository root:
+Run from the repository root:
 
 ```sh
-forge test --root contracts --match-contract UsageEscrowTest --offline -vv
+forge test --root contracts
 python3 -m unittest discover -s contracts/payments -p 'test_*.py' -v
 ```
 
-Deployment uses Python 3, Foundry and `requirements.txt`. Prepare a payments
-directory with `funding-wallet.address` containing the testnet funding wallet
-address, then run:
+Deployment uses Python 3, Foundry and `requirements.txt`. The coordinator uses the
+agent testnet funding wallet (0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b) and the
+Base Sepolia USDC token. Prepare `PAYMENTS_DIR/funding-wallet.address` with that
+wallet's public address, set `PAYMENTS_USDC` to the token address, then run:
 
 ```sh
-bash contracts/payments/deploy-and-fund.sh /path/to/payments/funding-wallet.key /path/to/payments-dir
-bash contracts/payments/verify.sh 0xDEPLOYED_CONTRACT
+export PAYMENTS_USDC=0xBASE_SEPOLIA_USDC_ADDRESS
+bash contracts/payments/deploy-and-fund.sh AGENT_WALLET_KEY PAYMENTS_DIR
+bash contracts/payments/verify.sh 0xNEW_ESCROW
 ```
 
-The signing process checks the owner address before network access, requires a
-finalized Base Sepolia RPC quorum, deploys, compares the deployed runtime against
-the compiled artifact. The funding wallet is the owner. Deployment requires
-0.02 testnet ETH and preserves a 0.02 ETH reserve.
-Transaction hashes and receipts go under `payments-dir/contract/`. Source
-verification reads the existing API key at `~/.config/basescan/api-key`.
-`PAYMENTS_RPC_URLS` can name three comma-separated independently operated HTTPS
-RPCs. Defaults are Base, PublicNode and dRPC. Reads must agree at a common
-finalized block hash no older than 30 minutes.
+The constructor is `(address usdc, address owner)`. Deployment checks the wallet
+identity before network access, pins a finalized Base Sepolia block, deploys,
+and checks the compiled runtime plus immutable owner/token. It requires 0.02
+Sepolia ETH plus gas and preserves a 0.02 ETH reserve. Transaction records and
+`deployment.json` go under `PAYMENTS_DIR/contract/`.
+
+Use a fresh output directory for this deployment. Generate broker payment config
+from `deployment.json` with `applications/payments/configure.mjs`; configure
+`inferenceOperator`, S1 prices and registered classes. The first
+`register-class.mjs` invocation pins the attested broker's secp256k1 address with
+`registerBroker`. Rebuild and repack Linux compute guests with the new escrow and
+register their new compose/image measurements before the Mac pool offers them.
+Broker and guest deployment commands are in
+[applications/payments](../../applications/payments/README.md#run).
+
+`PAYMENTS_RPC_URLS` selects an ordered, comma-separated list of Base Sepolia RPCs.
+One healthy provider is enough; rate-limited providers back off for 1–60 seconds
+(or longer with `Retry-After`). State reads retain the finalized block hash.
+Defaults are Base, PublicNode and dRPC. Source verification uses the coordinator's
+existing Basescan API key.

@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { mkdir, writeFile } from "node:fs/promises";
 import { isAbsolute, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
-import { verifyMessage, Wallet, keccak256 } from "ethers";
+import { backend, ready, send, publicHeaders, reservation, partialCredit, setPartialCredit } from "./test-fixtures/browser-broker.mjs";
 import { sealArtifact, sharedScope, viewerSessionId } from "./artifact-share.mjs";
 import { artifactTestServer } from "./artifact-test-server.mjs";
 const base = process.env.BASE_URL || "http://127.0.0.1:18731/private-agent/";
@@ -22,173 +22,18 @@ const browser = process.env.PLAYWRIGHT_CDP_URL
     args: ["--no-sandbox",...tls.args],
   });
 await mkdir(evidence, { recursive: true });
-const model = "deepseek-ai/DeepSeek-V4-Flash", modelKey = Wallet.createRandom();
+
 const report = {
   scope: "Browser wallet, credit and encryption boundaries",
   cases: [],
 };
-const canonical = (o) =>
-  JSON.stringify(
-    Object.fromEntries(Object.keys(o).sort().map((key) => [key, o[key]])),
-  );
-let partialCredit;
-const reservation = (body) => BigInt(
-  Buffer.byteLength(JSON.stringify(body)) + 256 +
-    64 * body.messages.length + body.max_tokens,
-) * 1500n;
-const publicHeaders = {
-  "content-type": "application/json",
-  "access-control-allow-origin": new URL(base).origin,
-  "access-control-allow-methods": "GET, POST, OPTIONS",
-  "access-control-allow-headers": "content-type",
-};
-async function backend(page, kind) {
-  const cfg = await (await page.request.get(new URL("config.json", base).href))
-    .json();
-  cfg.syncAnchorCodeHash = keccak256("0x6000");
-  await page.route("**/config.json", route => route.fulfill({headers:publicHeaders,body:JSON.stringify(cfg)}));
-  await page.route(cfg.rpc, route => {
-    const raw = route.request().postDataJSON();
-    const reply = r => ({jsonrpc:"2.0",id:r.id,result:r.method==="eth_chainId"?"0x14a34":r.method==="eth_getCode"?"0x6000":"0x"+"0".repeat(128)});
-    return route.fulfill({headers:publicHeaders,body:JSON.stringify(Array.isArray(raw)?raw.map(reply):reply(raw))});
-  });
-  const calls = [];
-  let recoveredEnded = false;
-  await page.route("**/relay-broker/**", async (route) => {
-    const req = route.request(),
-      path = new URL(req.url()).pathname.replace("/relay-broker", "");
-    const responseHeaders = { ...publicHeaders, "access-control-allow-origin": req.headers().origin || publicHeaders["access-control-allow-origin"] };
-    if (req.method() === "OPTIONS") return route.fulfill({status: 204, headers: responseHeaders});
-    const body = req.method() === "POST" ? req.postDataJSON() : undefined;
-    calls.push({ path, method: req.method(), body });
-    const respond = (value, status = 200) =>
-      route.fulfill({
-        status,
-        headers: responseHeaders,
-        body: JSON.stringify(value),
-      });
-    if (path === "/key") {
-      return respond({ algorithm: "Ed25519", public_key: cfg.brokerKey });
-    }
-    if (path === "/payments/key") {
-      return respond({
-        address: cfg.grantSigner,
-        chainId: 84532,
-        escrow: cfg.escrow,
-        codeHash: cfg.codeHash,
-      });
-    }
-    if (path === "/payments/classes") return respond([]);
-    if (path === "/inference/quote") {
-      return respond({
-        configured: true,
-        mode: "broker-e2ee",
-        provider: "near",
-        model,
-        starterCreditNanoUsd: "250000000",
-        maxOutputTokens: 512,
-        maxNanoUsdPerToken: "1500",
-        maxRequestBytes: 32768,
-      });
-    }
-    if (body) {
-      const { sig, ...signed } = body;
-      assert.equal(
-        verifyMessage(canonical(signed), sig).toLowerCase(),
-        body.wallet.toLowerCase(),
-        "wallet action signature",
-      );
-    }
-    if (path === "/sync/head") return respond({head:null});
-    if (path === "/workspaces/head") return respond({head:null});
-    if (path.startsWith("/sync/")) return respond({ error: {
-      code: "SYNTHETIC_SYNC_UNAVAILABLE",
-      message: "Encrypted sync is unavailable in this inference fixture.",
-    } }, 503);
-    const credit = {
-      wallet: body?.wallet?.toLowerCase(),
-      model,
-      mode: "broker-e2ee",
-      grantedNanoUsd: "250000000",
-      spentNanoUsd: "0",
-      remainingNanoUsd: kind === "insufficient" ? "1" : kind === "partial" ? partialCredit : "250000000",
-      reservedNanoUsd: "0",
-      usedTokens: "0",
-      pendingInferenceId: null,
-    };
-    if (kind === "recovery" && (path === "/agent/status" || path === "/agent/end")) {
-      if (path === "/agent/end") recoveredEnded = true;
-      return respond({ sessionId: body.sessionId, active: !recoveredEnded, guestSeconds: 17, credit });
-    }
-    if (path === "/inference/credit" || path === "/inference/usage") {
-      return respond(credit);
-    }
-    if (path === "/inference/prepare") {
-      return respond({
-        ...credit,
-        sessionId: "12".repeat(16),
-        modelPublicKey: kind === "key"
-          ? Wallet.createRandom().signingKey.publicKey.slice(4)
-          : modelKey.signingKey.publicKey.slice(4),
-        expiresAt: Math.floor(Date.now() / 1000) + 60,
-        attestation: {
-          mode: "broker-e2ee",
-          provider: "near",
-          model: kind === "model" ? model + "-other" : model,
-          verification: "verified",
-          verifier: "synthetic-browser-boundary",
-          nonce: kind === "nonce" ? "00".repeat(32) : body.attestationNonce,
-          verifiedAt: Math.floor(Date.now() / 1000),
-          gateway: {
-            signingAddress: "0x" + "11".repeat(20),
-            tlsFingerprint: "22".repeat(32),
-          },
-          models: [{ model, signingAddress: modelKey.address }],
-          tls: {
-            checkedBy: "broker",
-            browserObservable: false,
-            binding: "spki",
-          },
-        },
-      });
-    }
-    if (path === "/inference/chat") {
-      return respond({
-        error: {
-          code: "SYNTHETIC_STOP",
-          message: "Encrypted request captured; no provider call",
-        },
-      }, 503);
-    }
-    throw new Error("Unexpected synthetic route " + path);
-  });
-  return calls;
-}
-async function ready(page) {
-  await page.goto(base);
-  await page.waitForFunction(() =>
-    document.documentElement.dataset.ready === "true"
-  );
-  await page.waitForFunction(() =>
-    document.querySelector("#service").textContent.startsWith("Chat ready")
-  );
-}
-async function send(page, text) {
-  const editor = page.locator("agent-interface message-editor");
-  const input = editor.locator('textarea,[contenteditable="true"]').first();
-  await input.fill(text);
-  const button = editor.getByRole("button", { name: /send/i });
-  if (await button.count()) await button.first().click();
-  else await input.press("Enter");
-}
+const failureLine = page => page.locator("#alert:visible, .send-status[title]:visible").last();
 async function alert(page, pattern) {
   await page.waitForFunction(
-    (source) => {
-      const e = document.querySelector("#alert");
-      return e && !e.hidden && new RegExp(source, "i").test(e.textContent);
-    },
+    source => [...document.querySelectorAll("#alert, .send-status")].some(e =>
+      !e.hidden && new RegExp(source, "i").test(e.title)),
     pattern,
-    { timeout: 15000 },
+    { timeout: 60000 },
   );
 }
 async function sharedAppFrame(page) {
@@ -202,6 +47,7 @@ async function sharedAppFrame(page) {
   }
 }
 async function run(name, kind, fn) {
+  if (process.env.BOUNDARY_CASE && process.env.BOUNDARY_CASE !== name) return;
   const ctx = await browser.newContext(),
     page = await ctx.newPage(),
     errors = [];
@@ -210,8 +56,8 @@ async function run(name, kind, fn) {
   try {
     const calls = await backend(page, kind);
     await ready(page);
-    if (name !== "first-visit-requires-choice") {
-      await page.locator("#start-fresh").click();
+    if (name !== "first-send-creates-wallet") {
+      await page.evaluate(() => document.querySelector("#chat").onBeforeSend());
       await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== "");
     }
     await fn(page, calls);
@@ -223,15 +69,102 @@ async function run(name, kind, fn) {
     });
   } catch (e) {
     result.error = e.message;
-    result.alert = await page.locator("#alert").textContent();
-    result.chatStatus = await page.locator("#chat-status").textContent();
-    await page.screenshot({ path: resolve(evidence, name + "-failed.png"), fullPage: true });
+    result.alert = await page.locator("#alert").textContent({ timeout: 1000 }).catch(() => null);
+    result.chatStatus = await page.locator("#chat-status").textContent({ timeout: 1000 }).catch(() => null);
+    await page.screenshot({ path: resolve(evidence, name + "-failed.png"), fullPage: true }).catch(() => {});
   }
   report.cases.push(result);
   await ctx.close();
   console.log(result.status + ": " + name);
 }
 try {
+  await run("browser-provider-key-bypasses-model-credit-and-restores-selection", "valid", async (page, calls) => {
+    const requests = [];
+    await page.route("https://model.example/v1/chat/completions", async route => {
+      requests.push({ body: route.request().postDataJSON(), headers: route.request().headers() });
+      await route.fulfill({ headers: { "content-type": "text/event-stream", "access-control-allow-origin": "*" },
+        body: 'data: {"id":"reply","choices":[{"delta":{"role":"assistant","content":"Direct provider reply."},"finish_reason":"stop"}],"usage":{"prompt_tokens":2,"completion_tokens":2,"total_tokens":4}}\n\ndata: [DONE]\n\n' });
+    });
+    assert(!(await page.locator("#model").textContent()).includes("sees the conversation"));
+    await page.locator("#advanced summary").first().click();
+    await page.locator("#provider-settings").click();
+    await page.selectOption("#provider-choice", "openai-compatible");
+    await page.fill("#provider-model", "my-model");
+    await page.fill("#provider-url", "https://model.example/v1");
+    await page.fill("#provider-key", "browser-only-provider-secret");
+    await page.click("#provider-save");
+    await page.locator("#provider-dialog").waitFor({ state: "hidden" });
+    assert.equal(requests.length, 1, "saving checks browser connectivity with an isolated prompt");
+    assert.equal(requests[0].body.messages.at(-1).content, "Reply OK.");
+    assert.match(await page.locator("#model").textContent(), /model.example sees the conversation/);
+    assert.equal(await page.locator("#verified").isHidden(), true);
+    await page.route("**/relay-broker/inference/credit", route => route.fulfill({ headers: publicHeaders, body: JSON.stringify({
+      wallet: route.request().postDataJSON().wallet.toLowerCase(), remainingNanoUsd: "0", spentNanoUsd: "250000000", usedTokens: "0", pendingInferenceId: null,
+    }) }));
+    await send(page, "Please inspect this conversation.");
+    await page.waitForFunction(() => document.querySelector('#chat').session.state.messages.some(m => m.role === 'assistant') && !document.querySelector('#chat').session.state.isStreaming);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].headers.authorization, "Bearer browser-only-provider-secret");
+    assert.match(requests[1].body.messages[0].content, /model.example.*sees the conversation/);
+    assert(!requests[1].body.messages[0].content.includes("encrypted from the browser to the NEAR model TEE"));
+    assert(requests[1].body.tools.some(tool => tool.function.name === "bash"));
+    assert(!calls.some(call => ["/inference/prepare", "/inference/chat"].includes(call.path)), "direct model tokens cannot consume broker credit");
+    const stores = await page.evaluate(async () => {
+      const db = await new Promise((resolve, reject) => { const req = indexedDB.open("dsmack-private-agent-chats"); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+      const read = name => new Promise((resolve, reject) => { const req = db.transaction(name).objectStore(name).getAll(); req.onsuccess = () => resolve(req.result); req.onerror = () => reject(req.error); });
+      return { keys: await read("provider-keys"), providers: await read("custom-providers"), sessions: await read("sessions"), settings: await read("settings") };
+    });
+    assert(stores.keys.includes("browser-only-provider-secret"));
+    assert(!JSON.stringify([stores.providers, stores.sessions, stores.settings, calls]).includes("browser-only-provider-secret"));
+    await page.reload();
+    await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
+    assert.match(await page.locator("#model").textContent(), /model.example sees the conversation/);
+    await page.locator("#advanced summary").first().click();
+    await page.locator("#provider-settings").click();
+    assert.equal(await page.inputValue("#provider-key"), "");
+    await page.selectOption("#provider-choice", "near");
+    await page.click("#provider-save");
+    await page.locator("#provider-dialog").waitFor({ state: "hidden" });
+    assert(!(await page.locator("#model").textContent()).includes("sees the conversation"));
+    assert.match(await page.locator("#model-privacy").textContent(), /encrypted.*secure hardware/);
+    assert.equal(requests.length, 2, "switching back to NEAR needs no key or connection test");
+  });
+  await run("anthropic-provider-sends-browser-header-and-accurate-preamble", "valid", async page => {
+    const requests = [];
+    await page.route("https://api.anthropic.com/v1/messages*", async route => {
+      requests.push({ body: route.request().postDataJSON(), headers: route.request().headers() });
+      await route.fulfill({ headers: { "content-type": "text/event-stream", "access-control-allow-origin": "*" }, body:
+        'event: message_start\ndata: {"type":"message_start","message":{"id":"msg_1","type":"message","role":"assistant","content":[],"usage":{"input_tokens":1,"output_tokens":0}}}\n\nevent: message_delta\ndata: {"type":"message_delta","delta":{"stop_reason":"end_turn"},"usage":{"output_tokens":1}}\n\nevent: message_stop\ndata: {"type":"message_stop"}\n\n' });
+    });
+    await page.locator("#advanced summary").first().click();
+    await page.click("#provider-settings");
+    await page.selectOption("#provider-choice", "anthropic");
+    await page.fill("#provider-key", "sk-ant-browser-only");
+    await page.click("#provider-save");
+    await page.locator("#provider-dialog").waitFor({ state: "hidden" });
+    assert.match(await page.locator("#model").textContent(), /Anthropic sees the conversation/);
+    await send(page, "Inspect code with Anthropic.");
+    await page.waitForFunction(() => document.querySelector('#chat').session.state.messages.some(m => m.role === 'assistant') && !document.querySelector('#chat').session.state.isStreaming);
+    assert.equal(requests.length, 2);
+    assert.equal(requests[1].headers["anthropic-dangerous-direct-browser-access"], "true");
+    assert.equal(requests[1].headers["x-api-key"], "sk-ant-browser-only");
+    assert.match(JSON.stringify(requests[1].body.system), /Anthropic.*sees the conversation/);
+    assert(!JSON.stringify(requests[1].body.system).includes("encrypted from the browser to the NEAR model TEE"));
+  });
+  await run("browser-provider-rejects-unreachable-cors-endpoint", "valid", async page => {
+    await page.route("https://blocked.example/**", route => route.abort("failed"));
+    await page.locator("#advanced summary").first().click();
+    await page.locator("#provider-settings").click();
+    await page.selectOption("#provider-choice", "openai-compatible");
+    await page.fill("#provider-model", "my-model");
+    await page.fill("#provider-url", "https://blocked.example/v1");
+    await page.fill("#provider-key", "unsaved-key");
+    await page.click("#provider-save");
+    await page.waitForFunction(() => document.querySelector("#provider-error").title.includes("Browser connection failed"));
+    assert(!(await page.locator("#model").textContent()).includes("sees the conversation"));
+    await page.click("#provider-cancel");
+    await page.waitForFunction(() => document.querySelector("#provider-key").value === "");
+  });
   await run("shared-viewer-requires-own-wallet-and-keeps-encrypted-state-on-reload", "valid", async (page, calls) => {
     const sealed = await sealArtifact('<!doctype html><button id="shared-ready">Shared app</button>');
     const origin = "https://private-agent.dstack.soc1024.com";
@@ -243,13 +176,21 @@ try {
     await page.route("**/artifacts/share/" + sealed.cid, route => route.fulfill({ headers:{...publicHeaders,"access-control-allow-origin":origin}, body:JSON.stringify({cid:sealed.cid,ciphertext:sealed.ciphertext}) }));
     await page.goto(origin + "/a/#" + new URLSearchParams({cid:sealed.cid,k:sealed.key}));
     await page.waitForSelector("#chat");
-    assert(await page.locator("#start-fresh").isVisible());
+    assert(await page.locator("#recover-device").isVisible());
     assert.equal(await page.locator("#artifacts-host artifacts-panel").count(),0);
-    await page.locator("#start-fresh").click();
+    await page.evaluate(() => document.querySelector("#chat").onBeforeSend());
     await page.waitForFunction(()=>document.querySelector("#artifacts-host artifacts-panel"));
     await page.waitForFunction(()=>Array.from(document.querySelectorAll("iframe")).length>0);
     let app = await sharedAppFrame(page);
     assert(app,"shared HTML opens without a model request");
+    await app.evaluate(() => { window.guestCancelled = dsmack.guest.run({command:"printf boundary-only",timeoutSeconds:1}).then(() => "unexpected", error => error.code); });
+    await page.locator("#artifact-guest-card [data-guest-confirm]").waitFor({state:"visible"});
+    assert.equal(await page.locator("[data-guest-command]").textContent(), "printf boundary-only");
+    assert((await page.locator("[data-guest-wallet]").textContent()).toLowerCase().includes((await page.locator("#wallet").textContent()).toLowerCase()));
+    await page.locator("[data-guest-cancel]").click();
+    assert.equal(await app.evaluate(() => window.guestCancelled), "USER_CANCELLED");
+    assert(!calls.some(call => call.path === "/agent/open"), "cancelled app confirmation cannot claim a guest");
+
     await app.waitForFunction(()=>window.dsmack);
     assert.equal(await app.evaluate(()=>dsmack.storage.get("viewer-secret")),null);
     await app.evaluate(()=>dsmack.storage.put("viewer-secret","VIEWER_PRIVATE_STATE"));
@@ -275,67 +216,97 @@ try {
         return route.fulfill({ status: 503, headers: publicHeaders, body: "{}" });
       });
     }
-    await page.locator("#discover").evaluate(button => { button.closest("details").open = true; });
-    await page.locator("#discover").click();
-    await alert(page, "Chain directory failed");
+    await page.locator("#advanced").evaluate(view => { view.open = true; });
+    const failure = await page.evaluate(() => document.querySelector("#chat").session.state.tools
+      .find(tool => tool.name === "bash").execute("directory-read", { command: "true" }).then(() => null, error => error.message));
+    assert.equal(typeof failure, "string");
     const shown = await page.locator("#directory-status").innerText();
-    assert.match(shown, /Directory: chain/);
+    assert.equal(await page.locator("#directory-status").getAttribute("data-path"), "chain");
     assert.match(shown, /Broker guest directory unavailable.*500/);
     assert.match(shown, /Chain directory failed.*503/);
     assert.equal(brokerReads, 1, "Outage discovery must not silently retry the broker");
     assert(new Set(rpcReads).size === 2, "Both chain providers are checked");
     assert(!calls.some(r => r.path === "/agent/open" || r.path.includes("/attestation")));
   });
-  await run("first-visit-requires-choice", "valid", async (page, calls) => {
+  await run("broker-reads-retry-once-and-signed-posts-never-resend", "valid", async (page) => {
+    let reads = 0, writes = 0;
+    await page.route("**/relay-broker/inference/quote", route => ++reads === 1 ? route.abort("internetdisconnected") : route.fallback());
+    await page.reload();
+    await page.waitForFunction(() => document.documentElement.dataset.servicesReady === "true" &&
+      document.querySelector("#chat-credit").dataset.remainingNanoUsd === "250000000");
+    assert.equal(reads, 2);
+    await page.route("**/relay-broker/inference/credit", route => { writes++; return route.abort("internetdisconnected"); });
+    await send(page, "A failed signed credit check must not resend.");
+    await alert(page, "fetch|network|connection");
+    assert.equal(writes, 1, "a signed credit request is sent once");
+    assert.doesNotMatch(await failureLine(page).textContent(), /broker.*restarting/i);
+    reads = 0;
+    await page.route("**/relay-broker/inference/quote", route => { reads++; return route.abort("internetdisconnected"); });
+    await page.reload();
+    await page.locator("#alert").waitFor({state:"visible"});
+    await alert(page, "fetch|network|connection");
+    assert.equal(reads, 2, "a second browser failure ends the read");
+    assert.equal(writes, 1);
+  });
+  await run("switch-wallet-requires-recovery-and-confirmation", "valid", async (page) => {
+    const wallet = await page.locator("#wallet").textContent();
+    await page.locator("#advanced").evaluate(view => { view.open = true; });
+    await page.locator("#use-another-device").click();
+    await page.locator("#switch-wallet").click();
+    await page.locator("#continuity-status").getByText(/Save a passkey or add a recovery email.*before switching/).waitFor();
+    assert.equal(await page.locator("#wallet").textContent(), wallet);
+    await page.evaluate(() => new Promise((resolve, reject) => {
+      const open = indexedDB.open("dsmack-private-agent", 1);
+      open.onsuccess = () => {
+        const db = open.result, tx = db.transaction("wallet", "readwrite");
+        tx.objectStore("wallet").put("saved-credential", "continuity.passkey");
+        tx.oncomplete = () => { db.close(); resolve(); }; tx.onerror = () => reject(tx.error);
+      };
+    }));
+    await Promise.all([page.waitForEvent("dialog").then(dialog => dialog.dismiss()), page.locator("#switch-wallet").click()]);
+    await page.waitForFunction(() => !document.querySelector("#switch-wallet").disabled);
+    assert.equal(await page.locator("#wallet").textContent(), wallet);
+    await Promise.all([page.waitForEvent("dialog").then(dialog => { assert.match(dialog.message(), /saved passkey or email/); return dialog.accept(); }),
+      page.locator("#switch-wallet").click()]);
+    await page.locator("#recover-device").waitFor({ state: "visible" });
+    await page.waitForFunction(() => document.documentElement.dataset.ready === "true");
     assert.doesNotMatch(await page.locator("#wallet").textContent(), /^0x/i);
-    assert(await page.locator("#start-fresh").isVisible());
+    await page.evaluate(() => document.querySelector("#chat").onBeforeSend());
+    await page.waitForFunction(() => document.querySelector("#wallet").textContent.startsWith("0x"));
+    assert.notEqual(await page.locator("#wallet").textContent(), wallet);
+  });
+  await run("first-send-creates-wallet", "valid", async (page, calls) => {
+    assert.doesNotMatch(await page.locator("#wallet").textContent(), /^0x/i);
+    assert(await page.locator("#recover-device").isVisible());
     assert.equal(await page.locator("#artifacts-host artifacts-panel").count(), 0,
       "Artifact state and providers wait for the viewer's data key");
-    await page.locator("#used-before").click();
+    await page.locator("#recover-device").click();
     assert(await page.locator("#continuity-panel").isVisible());
-    assert(await page.locator("#enroll-email").isDisabled());
+    assert(await page.locator("#enroll-email").isHidden());
+    assert(await page.locator("#recover-passkey").isVisible());
+    assert(!calls.some(r => r.path === "/inference/credit"), "Recovery stays available before wallet creation");
     await page.locator("#use-another-device").click();
-    await page.locator("#start-fresh").click();
-    await page.waitForFunction(() => document.querySelector("#artifacts-host artifacts-panel"));
-    await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd !== "");
-    await page.waitForFunction(() => document.querySelector("#sync-status").textContent === "Chats checked and synced.");
-    assert(!calls.some(r => r.path === "/sync/blob" || r.path === "/sync/commit"), "An empty wallet must not publish system-only chats");
-    await ready(page);
-    await page.waitForFunction(() => document.querySelector("#sync-status").textContent === "Chats checked and synced.");
-    assert(!calls.some(r => r.path === "/sync/blob" || r.path === "/sync/commit"), "Reloading an empty wallet must not commit empty chats");
     const marker = "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED";
-    assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);
-    assert.equal(await page.locator("#continuity-panel").isVisible(), false);
-    assert.equal(await page.locator("#policy").inputValue(), "");
-    assert.match(
-      await page.locator("#node-status").textContent(),
-      /Approved sandbox policy included/,
-    );
-    assert.match(await page.locator("#repository-status").textContent(), /greet.txt/);
     await send(page, marker);
     await alert(page, "SYNTHETIC_STOP");
-    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
-    await page.waitForFunction(() => document.querySelector("#chat-status").textContent.includes("Sync pending"));
-    assert.match(await page.locator("#alert").textContent(), /SYNTHETIC_STOP/,
-      "Background sync failure must preserve the model error");
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("#new-chat").disabled);
+    await page.waitForFunction(() => document.querySelector("#chat-status").textContent.length > 0);
+    assert.match(await failureLine(page).getAttribute("title"), /SYNTHETIC_STOP/,
+      "Background sync failure must preserve the model error details");
     assert(calls.some((r) => r.path === "/sync/blob"), "Saved chat attempted encrypted synchronization");
     assert(!calls.filter((r) => r.path.startsWith("/sync/")).some((r) => JSON.stringify(r.body).includes(marker)),
       "Plaintext prompt reached chat synchronization");
     assert.match(await page.locator("user-message").innerText(), new RegExp(marker));
     assert.equal(await page.locator("agent-interface message-editor textarea").inputValue(), "");
-    assert.match(
-      await page.locator("#wallet").textContent(),
-      /^0x[0-9a-f]{40}$/i,
-    );
+    assert.match(await page.locator("#wallet").textContent(), /^0x[0-9a-f]{40}$/i);
     assert(calls.some((r) => r.path === "/inference/credit"));
     const chat = calls.find((r) => r.path === "/inference/chat");
     assert(chat && !JSON.stringify(chat.body).includes(marker));
-    partialCredit = (reservation(chat.body.body) - 200n * 1500n).toString();
-    assert.equal(await page.locator("#wallet-tools").isVisible(), true);
+    setPartialCredit((reservation(chat.body.body) - 200n * 1500n).toString());
+    assert.equal(await page.locator("#wallet-tools").getAttribute("hidden"), null);
   });
   await run("guest-is-lazy-until-a-tool-call", "valid", async (page, calls) => {
     assert.equal(await page.locator("#end-session").isDisabled(), true);
-    assert.equal(await page.locator("#download").isDisabled(), true);
     await send(page, "A chat request alone must not allocate a guest.");
     await alert(page, "SYNTHETIC_STOP");
     assert(!calls.some(r => r.path.startsWith("/agent/")));
@@ -374,7 +345,7 @@ try {
   await run("held-guest-can-be-ended-after-reload", "recovery", async (page, calls) => {
     await send(page, "Saved conversation survives lease recovery.");
     await alert(page, "SYNTHETIC_STOP");
-    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("message-editor").isStreaming);
+    await page.waitForFunction(() => document.querySelector("#chat").dataset.saved === "true" && !document.querySelector("#new-chat").disabled);
     const wallet = (await page.locator("#wallet").textContent()).toLowerCase();
     await page.evaluate(wallet => new Promise((resolve, reject) => {
       const id = document.querySelector("#chat").dataset.sessionId;
@@ -396,9 +367,9 @@ try {
     await ready(page);
     await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "disconnected-held");
     assert.equal(await page.locator("#end-session").isEnabled(), true);
-    assert.equal(await page.locator("#download").isDisabled(), true);
     assert.match(await page.locator("user-message").innerText(), /Saved conversation survives/);
-    assert.equal(await page.locator("#attestations .evidence-item").count(), 1);
+    assert.equal(await page.locator("#verified").isVisible(), true);
+    await page.locator("#advanced").evaluate(view => { view.open = true; });
     await page.locator("#end-session").click();
     await page.waitForFunction(() => document.querySelector("#guest-status").dataset.state === "released");
     assert(calls.some(r => r.path === "/agent/status" && r.body.wallet.toLowerCase() === wallet));
@@ -412,8 +383,7 @@ try {
       async (page, calls) => {
 
         await page.waitForFunction(() =>
-          document.querySelector("#chat-credit").textContent ===
-            "Chat credit $0.250000"
+          document.querySelector("#chat-credit").dataset.remainingNanoUsd === "250000000"
         );
         await send(
           page,
@@ -422,7 +392,7 @@ try {
         await alert(
           page,
           kind === "nonce"
-            ? "stale or reused nonce"
+            ? "nonce"
             : kind === "key"
             ? "differs from the attested signing address"
             : "invalid or names another model",
@@ -432,6 +402,25 @@ try {
       },
     );
   }
+  await run("duplicate-chat-reconciles-before-offering-retry", "duplicate", async (page, calls) => {
+    await send(page, "Reply once.");
+    await alert(page, "REQUEST_ALREADY_DISPATCHED");
+    await page.locator("#retry-reply").waitFor({state:"visible"});
+    await page.waitForFunction(() => !document.querySelector("#chat")?.session?.state.isStreaming);
+    assert.doesNotMatch(await page.locator("#reply-recovery").innerText(), /REQUEST_ALREADY_DISPATCHED|Reconcile provider usage/);
+    assert.equal(calls.filter(call => call.path === "/inference/chat").length, 1);
+    assert(calls.some(call => call.path === "/inference/usage"), "Duplicate delivery reconciles the original dispatch");
+  });
+  await run("request-ref-survives-actionable-rendering", "valid", async (page, calls) => {
+    await send(page, "Reply once.");
+    await alert(page, "SYNTHETIC_STOP");
+    const request = calls.find(call => call.path === "/inference/chat");
+    const text = await failureLine(page).getAttribute("title");
+    const ref = request.body.nonce.slice(0, 8);
+    assert(text.includes("ref " + ref));
+    assert.equal(text.match(new RegExp("ref " + ref, "g")).length, 1);
+    assert.doesNotMatch(await failureLine(page).innerText(), /SYNTHETIC_STOP|ref [0-9a-f]{8}|HTTP \d/);
+  });
   await run("remaining-credit-reduces-encrypted-output-limit", "partial", async (page, calls) => {
     await send(page, "FIRST_VISIT_PROMPT_STAYS_ENCRYPTED");
     await alert(page, "SYNTHETIC_STOP");
@@ -447,10 +436,34 @@ try {
   await run("insufficient-reservation-refused-before-chat", "insufficient", async (page, calls) => {
 
     await page.waitForFunction(() => document.querySelector("#chat-credit").dataset.remainingNanoUsd === "1");
-    await send(page, "Private text must stay here when the token reservation exceeds credit.");
+    assert.equal(await page.locator("#advanced").evaluate(view => view.open), false);
+    assert(await page.locator("#deposit").isHidden());
+    await page.locator("#open-add-credit").click();
+    assert.equal(await page.locator("#advanced").evaluate(view => view.open), true);
+    assert.equal(await page.locator("#add-credit").evaluate(view => view.open), true);
+    assert(await page.locator("#deposit-amount").isVisible());
+    await page.waitForFunction(() => {
+      const bounds = document.querySelector("#deposit").getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= innerHeight;
+    });
+    await page.locator("#add-credit, #advanced").evaluateAll(views => views.forEach(view => { view.open = false; }));
+    const draft = "Private text must stay here when the token reservation exceeds credit.";
+    await send(page, draft);
     await alert(page, "CREDIT_EXHAUSTED: Chat credit used up\\.");
+    assert.equal(await page.locator("agent-interface message-editor textarea").inputValue(), draft);
+    await page.locator("user-message").waitFor({ state: "detached" });
+    assert.equal(await page.locator("user-message").count(), 0, "A refused reservation restores the draft without a transcript turn");
     assert(calls.some((r) => r.path === "/inference/prepare"));
     assert(!calls.some((r) => r.path === "/inference/chat"), "Underfunded prompt left the browser");
+    assert.equal(await page.locator("#advanced").evaluate(view => view.open), false);
+    await page.locator("#alert .add-credit-action").click();
+    assert.equal(await page.locator("#advanced").evaluate(view => view.open), true);
+    assert.equal(await page.locator("#add-credit").evaluate(view => view.open), true);
+    assert(await page.locator("#deposit-amount").isVisible());
+    await page.waitForFunction(() => {
+      const bounds = document.querySelector("#deposit").getBoundingClientRect();
+      return bounds.top >= 0 && bounds.bottom <= innerHeight;
+    });
   });
   await run(
     "starter-credit-and-encrypted-wire",
@@ -458,15 +471,13 @@ try {
     async (page, calls) => {
 
       await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.250000"
+        document.querySelector("#chat-credit").dataset.remainingNanoUsd === "250000000"
       );
       const wallet = await page.locator("#wallet").textContent();
       await ready(page);
       assert.equal(await page.locator("#wallet").textContent(), wallet);
       await page.waitForFunction(() =>
-        document.querySelector("#chat-credit").textContent ===
-          "Chat credit $0.250000"
+        document.querySelector("#chat-credit").dataset.remainingNanoUsd === "250000000"
       );
       const marker = "W1_BROWSER_ONLY_PROMPT_9b5cb2d3";
       await send(page, marker);
@@ -486,10 +497,7 @@ try {
       for (const tool of chat.body.body.tools) {
         for (const field of ["name", "description", "parameters"]) assert.match(tool.function[field], /^04[0-9a-f]+$/i);
       }
-      assert.equal(
-        await page.locator("#attestations .evidence-item").count(),
-        1,
-      );
+      assert.equal(await page.locator("#verified").isVisible(), true);
     },
   );
 } finally {

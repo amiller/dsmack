@@ -20,10 +20,9 @@ app-attest/circuit/install.sh
 `install.sh` downloads nargo, bb, Foundry and solc into `$ATTEST_TOOLS`, which
 can be shared across checkouts. It needs curl, tar and dpkg-deb; the circuit
 scripts need flock.
-`test.sh` runs Python, Node, Deno and Go tests, then sources
-`app-attest/circuit/env.sh` for the Foundry projects, leaf circuit proofs and
-real-proof enrollment tests. Browser checks run separately as documented in
-`applications/private-agent-web/README.md`.
+`test.sh` runs Python, Node, Deno, Go and the private-agent-web browser tests,
+then sources `app-attest/circuit/env.sh` for the Foundry projects, leaf circuit
+proofs and real-proof enrollment tests.
 
 Documentation changes need link checks and `git diff --check`.
 

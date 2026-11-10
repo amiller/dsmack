@@ -20,6 +20,11 @@ class PoolTests(unittest.TestCase):
             host = {'mem_bytes': 64 << 30, 'cores': 14}
             path.write_text(json.dumps(config))
             self.assertEqual(pool.operator_config(path, host), config)
+            self.assertEqual(pool.operator_config(path, host, 1)['max_guests'], 1)
+            self.assertEqual(pool.operator_config(path, host, 8)['max_guests'], 4)
+            self.assertEqual(json.loads(path.read_bytes()), config)
+            with self.assertRaisesRegex(ValueError, 'positive integer'):
+                pool.operator_config(path, host, 0)
             config['max_guests'] = 20
             path.write_text(json.dumps(config))
             with self.assertRaisesRegex(ValueError, '81920 MiB.*physical 65536 MiB.*reserve 16384 MiB.*49152 MiB available.*20.*14 cores.*4.*10 available'):
@@ -29,6 +34,21 @@ class PoolTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, '12.*14 cores.*4.*10 available'):
                 pool.operator_config(path, host)
 
+    def test_operator_browse_policy_is_validated_and_passed_to_the_heartbeat(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp)/'operator.json'
+            host = {'mem_bytes': 64 << 30, 'cores': 14}
+            base = {'max_guests': 1, 'guest': {'mem_mib': 4096, 'vcpus': 1}, 'reserve': {'mem_gb': 16, 'cores': 4}}
+            browse = {'default': 'named', 'max': 'open', 'price': {'open_nano_usd_per_second': '5000', 'named_host_nano_usd_per_second': '100'}}
+            path.write_text(json.dumps(dict(base, browse=browse)))
+            self.assertEqual(pool.operator_config(path, host)['browse'], browse)
+            for bad in ({'default': 'open', 'max': 'named'}, {'default': 'wide', 'max': 'open'},
+                        {'default': 'none', 'max': 'open', 'price': {'open_nano_usd_per_second': 5000}},
+                        {'default': 'none', 'max': 'open', 'hosts': ['x.example']}):
+                path.write_text(json.dumps(dict(base, browse=bad)))
+                with self.assertRaisesRegex(ValueError, 'operator browse'):
+                    pool.operator_config(path, host)
+
     def test_operator_size_must_match_attested_resource_profile(self):
         config = {'guest': {'mem_mib': 8192, 'vcpus': 2}}
         manifest = {'base_vm': {'memory_mb': 8192, 'vcpus': 2},
@@ -37,6 +57,18 @@ class PoolTests(unittest.TestCase):
         manifest['base_vm']['memory_mb'] = 4096
         with self.assertRaisesRegex(ValueError, 'differs from measured resource profile'):
             pool.measured_size(manifest, config)
+
+    def test_workload_image_is_read_from_the_workload_root(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            workload = Path(tmp)
+            (workload/'compose-manifest.json').write_text(json.dumps({'base_vm': {'memory_mb': 4096, 'vcpus': 1}}))
+            (workload/'disk').mkdir()
+            (workload/'disk/workload.img').write_bytes(b'')
+            config = {'guest': {'mem_mib': 4096, 'vcpus': 1}}
+            with self.assertRaisesRegex(FileNotFoundError, 'workload.img'):
+                pool.validate_workload(workload, config)
+            (workload/'disk/workload.img').rename(workload/'workload.img')
+            self.assertEqual(pool.validate_workload(workload, config)['base_vm']['vcpus'], 1)
 
     def test_restart_preserves_full_broker_429_error(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -62,8 +94,8 @@ class PoolTests(unittest.TestCase):
     def test_failed_slot_does_not_stop_other_slot_rotation(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
-            instance.slots[0]['stopped'] = True
-            instance.slots.append(dict(instance.slots[0], slot_id=1, stopped=False))
+            instance.slots[0]['retry_at'] = float('inf')
+            instance.slots.append(dict(instance.slots[0], slot_id=1, retry_at=0))
             instance.tick()
             instance.launch.assert_called_once_with(instance.slots[1])
             self.assertFalse(instance.stopping)
@@ -75,6 +107,51 @@ class PoolTests(unittest.TestCase):
         new = {'node': {'relay_peer': 'new'}, 'started': 450, 'admit_seconds': 570}
         self.assertFalse(pool.should_replace([old, new], 570, 450))
         self.assertTrue(pool.should_replace([new], 900, 450))
+
+    def test_registered_replacement_takes_the_slot_unless_predecessor_holds_a_stay(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            instance.payments = {'node': '0xclass'}; instance.config = {}; instance.hardware = {}
+            now = pool.time.monotonic()
+            old = {'slot_id': 0, 'started': now - 1900, 'started_at': 1, 'admit_seconds': 3120, 'path': root,
+                   'node': {'relay_peer': 'old', 'expires_at': pool.time.time() + 3600, 'telemetry': {'busy': False}}}
+            new = dict(old, started=now - 60, started_at=2, node=None)
+            instance.active = [old, new]
+            states = lambda: [s['state'] for s in instance.snapshot()['slots']]
+            self.assertEqual(states(), ['ready', 'launching'])
+            new['node'] = {'relay_peer': 'new', 'expires_at': pool.time.time() + 3600, 'telemetry': {'busy': False}}
+            self.assertEqual(states(), ['draining', 'ready'])
+            old['node']['telemetry']['busy'] = True
+            self.assertEqual(states(), ['busy', 'ready'])
+
+    def test_expired_cached_broker_admission_is_not_advertised_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            instance.payments = {'node': 'class'}; instance.config = {}; instance.hardware = {}
+            registered = {'relay_peer': 'guest', 'expires_at': 1120, 'telemetry': {'busy': False}}
+            node = {'slot_id': 0, 'started': 500, 'started_at': 1000, 'admit_seconds': 570, 'path': root,
+                    'process': Mock(poll=Mock(return_value=None)), 'node': registered}
+            instance.active = [node]; instance.last_status_poll = 0
+            state = lambda: instance.snapshot()['slots'][0]['state']
+            with patch.object(pool.time, 'monotonic', return_value=500), patch.object(pool.time, 'time', return_value=1119):
+                self.assertEqual(state(), 'ready')
+            # The existing broker-index poll loses the peer, while its VM remains owned and running.
+            with patch.object(pool.time, 'monotonic', return_value=500), patch.object(pool.time, 'time', return_value=1120), \
+                    patch.object(instance, 'nodes', return_value=[]):
+                instance.tick()
+                self.assertEqual(state(), 'attesting')
+                self.assertIs(node['node'], registered)
+                instance.launch.assert_not_called()
+                registered['telemetry']['busy'] = True
+                self.assertEqual(state(), 'busy')
+                node['admit_seconds'] = 0
+                self.assertEqual(state(), 'draining')
+            node['admit_seconds'] = 570
+            renewed = dict(registered, expires_at=1241, telemetry={'busy': False})
+            with patch.object(pool.time, 'monotonic', return_value=516), patch.object(pool.time, 'time', return_value=1121), \
+                    patch.object(instance, 'nodes', return_value=[renewed]):
+                instance.tick()
+                self.assertEqual(state(), 'ready')
 
     def test_only_new_verified_matching_registration_is_ready(self):
         base = {'kind': 'compute', 'relay_peer': 'old', 'manifest_sha256': 'compose', 'os_image_hash': 'image',
@@ -96,6 +173,68 @@ class PoolTests(unittest.TestCase):
             result = pool.preflight(Path('/state'), [{'path': Path('/owned')}])
             self.assertEqual(result['owned_runner_sessions'], ['/owned/session.json'])
 
+    def test_below_disk_floor_offers_no_slot_starts_one_gc_and_reports_free_disk(self):
+        low = SimpleNamespace(free=pool.DISK_FLOOR - 1)
+        running, failed = Mock(poll=Mock(return_value=None)), Mock(poll=Mock(return_value=2))
+        with tempfile.TemporaryDirectory() as tmp, patch.object(pool.shutil, 'disk_usage', return_value=low), \
+                patch.object(pool, 'GC_LOG', Path(tmp)/'gc.log'), patch.object(pool, 'gc_started', None), \
+                patch.object(pool.subprocess, 'Popen', side_effect=[running, failed]) as popen:
+            with self.assertRaisesRegex(pool.DiskLow, 'floor; gc started, log'):
+                pool.preflight(Path('/state'), [])
+            with self.assertRaisesRegex(pool.DiskLow, 'gc running'):
+                pool.preflight(Path('/state'), [])
+            running.poll.return_value = 0
+            with self.assertRaisesRegex(pool.DiskLow, 'gc started'):
+                pool.preflight(Path('/state'), [])
+            for _ in range(2):
+                with self.assertRaisesRegex(pool.DiskLow, 'gc exited 2; not retried, see .*gc.log'):
+                    pool.preflight(Path('/state'), [])
+            self.assertEqual(popen.call_count, 2)
+            self.assertEqual(popen.call_args.args[0][1:], [str(pool.HERE/'dsmack_gc.py'), 'gc'])
+            self.assertEqual(popen.call_args.kwargs['stderr'], pool.subprocess.STDOUT)
+            self.assertEqual(popen.call_args.kwargs['stdout'].name, str(Path(tmp)/'gc.log'))
+        self.assertTrue(issubclass(pool.DiskLow, pool.MacOccupied))
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp))
+            instance.launch.side_effect = pool.DiskLow('below floor')
+            instance.tick()
+            self.assertEqual(instance.event.call_args.args[0], 'disk_low')
+            self.assertGreater(instance.slots[0]['retry_at'], pool.time.monotonic() + 200)
+            instance.config = {'max_guests': 1}; instance.hardware = {}; instance.payments = {'node': '0x'+'0'*64}
+            with patch.object(pool.shutil, 'disk_usage', return_value=low):
+                self.assertEqual(instance.snapshot()['disk'], {'free_bytes': pool.DISK_FLOOR - 1, 'floor_bytes': pool.DISK_FLOOR})
+
+    def test_shared_boot_lock_serializes_registration_across_pool_processes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root=Path(tmp)
+            first, second=self.instance(root), self.instance(root)
+            first.args.pool_root=second.args.pool_root=root
+            try:
+                first.tick()
+                second.tick()
+                first.launch.assert_called_once()
+                second.launch.assert_not_called()
+                first.boot_lock.close(); first.boot_lock=None
+                second.tick()
+                second.launch.assert_called_once()
+            finally:
+                for instance in (first,second):
+                    if instance.boot_lock:instance.boot_lock.close()
+
+    def test_coexisting_pool_allows_guest_sessions_of_rotated_generations_beneath_it(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            session = root/'pool-2/guests-1/run-1/session.json'
+            session.parent.mkdir(parents=True)
+            session.touch()
+            process = SimpleNamespace(returncode=0, stdout='1 dsmack-runner\n')
+            with patch.object(pool.shutil, 'disk_usage', return_value=SimpleNamespace(free=20<<30)), \
+                    patch.object(pool.subprocess, 'run', return_value=process), \
+                    patch.object(pool.subprocess, 'check_output', return_value=f'runner hvf-v3 {session}'):
+                pool.preflight(root, [], coexist_pools=[root])
+                with self.assertRaises(pool.MacOccupied):
+                    pool.preflight(root, [], coexist_pools=[root/'other'])
+
     def test_host_exit_without_guest_closure_is_not_success(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); (root/'out').mkdir(); console = root/'out/console-v3.log'
@@ -109,10 +248,11 @@ class PoolTests(unittest.TestCase):
     def instance(self, root):
         instance = object.__new__(pool.Pool)
         instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
-                                        debugfs=Path('/debugfs'))
+                                        debugfs=Path('/debugfs'), pool_root=None, state=root)
+        instance.boot_lock = None
         instance.active = []; instance.stopping = False; instance.failure = None
         instance.errors_file = root/'operator-errors.json'
-        instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'stopped': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
+        instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
         instance.measurement = 'compose'; instance.image = 'image'; instance.last_status_poll = pool.time.monotonic()
         instance.event = Mock(); instance.launch = Mock()
         return instance
@@ -120,6 +260,72 @@ class PoolTests(unittest.TestCase):
     def failed_node(self, root):
         root.mkdir(exist_ok=True); (root/'evidence').mkdir(exist_ok=True)
         return {'slot_id': 0, 'process': Mock(poll=Mock(return_value=0), returncode=0), 'path': root, 'node': None}
+
+    def test_two_signing_failures_make_the_key_suspect_rotate_once_and_stop_launches(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            (root/'rotation.json').write_text(json.dumps({'state': str(root/'keys')}))
+            instance.keys = pool.KeyWatch(root/'rotation.json')
+            failure = {'stage': 'POST /v1/Attest', 'error': 'App Attest: Error Domain=com.apple.devicecheck.error Code=0 "(null)"'}
+            with patch.object(pool.KeyWatch, 'rotate', return_value=root/'rotation.log') as rotate, \
+                    patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                for number in range(3):
+                    instance.active = [dict(self.failed_node(root/str(number)), kid='0xdead')]
+                    instance.tick()
+            rotate.assert_called_once_with('0xdead')
+            instance.event.assert_any_call('key_suspect', kid='0xdead', rotation_log=str(root/'rotation.log'))
+            with self.assertRaisesRegex(pool.KeyUnusable, 'suspect'):
+                instance.keys.require_live('0xdead')
+            instance.launch = Mock(side_effect=pool.KeyUnusable('0xdead is suspect'))
+            instance.slots[0]['retry_at'] = 0
+            instance.tick()
+            self.assertGreater(instance.slots[0]['retry_at'], pool.time.monotonic())
+            instance.event.assert_called_with('key_unusable_no_launch', slot_id=0, error='0xdead is suspect', retry_seconds=300)
+
+    def test_launch_refuses_a_key_the_manifest_does_not_pin_before_any_boot(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            (root/'enrollment').mkdir()
+            (root/'enrollment/keyId.txt').write_text('AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=')
+            instance.args.runner = root
+            instance.payments = {'enrollmentKeyId': '0x' + '11'*32}
+            with patch.object(pool, 'preflight') as preflight, self.assertRaisesRegex(pool.KeyUnusable, 'pins enrollmentKeyId 0x1111'):
+                pool.Pool.launch(instance, instance.slots[0])
+            preflight.assert_not_called()
+
+    def test_adopted_guests_carry_their_launch_kid_and_legacy_ones_are_not_counted(self):
+        import pool_handoff
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            runs = [root/'run-1', root/'run-2']
+            for run in runs:
+                run.mkdir()
+                (run/'compose-manifest.json').write_text(json.dumps({'docker_compose_file': json.dumps(
+                    {'services': {'node': {'environment': {'ADMIT_SECONDS': '3120'}}}})}))
+            events = [{'event': 'launch', 'slot_id': 0, 'run': str(runs[0]), 'driver_pid': 11, 'kid': '0xdead'},
+                      {'event': 'launch', 'slot_id': 1, 'run': str(runs[1]), 'driver_pid': 12},
+                      {'event': 'ready', 'run': str(runs[0]), 'relay_peer': 'a'}, {'event': 'ready', 'run': str(runs[1]), 'relay_peer': 'b'}]
+            (root/'pool.jsonl').write_text(''.join(json.dumps(e)+'\n' for e in events))
+            (root/'directory.json').write_text(json.dumps({'slots': [
+                {'slot_id': i, 'relay_peer': p, 'attestation': {'relay_peer': p}, 'started_at': 1} for i, p in enumerate('ab')]}))
+            commands = {'11': 'python pool_mac_run.py /r %s' % runs[0], '12': 'python pool_mac_run.py /r %s' % runs[1]}
+            with patch.object(pool_handoff.subprocess, 'check_output', side_effect=lambda cmd, text: commands[cmd[3]]):
+                adopted = pool_handoff.inherited_guests(root)
+            self.assertEqual([n['kid'] for n in adopted], ['0xdead', None])
+            instance = self.instance(root)
+            instance.slots.append(dict(instance.slots[0], slot_id=1))
+            (root/'rotation.json').write_text(json.dumps({'state': str(root/'keys')}))
+            instance.keys = pool.KeyWatch(root/'rotation.json')
+            for node in adopted:
+                node['process'] = Mock(poll=Mock(return_value=0), returncode=0)
+                (node['path']/'evidence').mkdir()
+            instance.active = adopted
+            failure = {'stage': 'POST /v1/Attest', 'error': 'App Attest: Error Domain=com.apple.devicecheck.error Code=0'}
+            with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                instance.tick()
+            self.assertEqual(instance.keys.keys(), {'0xdead': {'failures': 1}})
 
     def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -151,20 +357,105 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
             self.assertFalse(instance.stopping); instance.launch.assert_called_once()
 
-    def test_three_consecutive_failures_stop_only_that_slot(self):
+    def test_idle_guest_end_without_agent_receipts_is_not_a_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
-            for number in range(1, 4):
+            instance.slots[0].update(consecutive_failures=6, retry_at=float('inf'), last_error={'stage': 'old_failure'})
+            node = self.failed_node(root/'idle'); node['node'] = {'relay_peer': 'was-ready'}
+            instance.active = [node]
+            result = {'outputs': {'status': 'failed', 'exit_code': 0, 'missing': ['agent-receipts']}}
+            with patch.object(pool, 'guest_result', return_value=result), patch.object(pool, 'guest_closed', return_value=True), \
+                    patch.object(pool, 'preserve_and_retire', return_value={}):
+                instance.tick()
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+            self.assertEqual(instance.slots[0]['retry_at'], 0)
+            self.assertIsNone(instance.slots[0]['last_error'])
+            self.assertFalse(instance.stopping)
+
+    def test_repeated_guest_failures_back_off_to_thirty_minutes_and_keep_retrying(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            clock = 1000
+            for number, delay in enumerate([0, 0, 60, 120, 240, 480, 960, 1800, 1800], 1):
                 node = self.failed_node(root/str(number)); instance.active = [node]
-                failure = {'stage': 'broker registration', 'status': 403, 'body': 'refused-'+str(number), 'error': 'HTTP 403'}
+                failure = {'stage': 'broker_registration', 'status': 403, 'body': 'refused-'+str(number), 'error': 'HTTP 403'}
                 with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}), \
+                        patch.object(pool.time, 'monotonic', return_value=clock):
+                    instance.tick()
+                self.assertEqual(instance.slots[0]['consecutive_failures'], number)
+                if delay:
+                    self.assertEqual(instance.slots[0]['retry_at'], clock+delay)
+                    with patch.object(pool.time, 'monotonic', return_value=clock+delay-1):
+                        instance.tick()
+                    calls = instance.launch.call_count
+                    with patch.object(pool.time, 'monotonic', return_value=clock+delay):
+                        instance.tick()
+                    self.assertEqual(instance.launch.call_count, calls+1)
+                clock += delay+1
+            self.assertFalse(instance.stopping)
+            instance.config = dict(max_guests=1); instance.hardware = {}; instance.payments = dict(node='class')
+            # No guest remains to explain the failure; keep its code in the next heartbeat.
+            with patch.object(pool.time, 'monotonic', return_value=clock-2):
+                slot = instance.snapshot()['slots'][0]
+            self.assertEqual(slot['state'], 'failed')
+            self.assertEqual(slot['last_error_code'], 'HTTP_403')
+            self.assertIn('refused-9', slot['last_error'])
+
+    def test_rpc_refusals_back_off_without_consuming_guest_strikes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            failure = {'stage': 'broker_registration', 'status': 403,
+                       'body': 'refused: RPC unavailable (Base Sepolia): tenderly: RPC HTTP 429', 'error': 'HTTP 403'}
+            for attempt, delay in enumerate([60, 120, 240, 480, 900, 900, 900]):
+                node = self.failed_node(root/str(attempt)); instance.active = [node]
+                with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'guest_closed', return_value=True), \
                         patch.object(pool, 'preserve_and_retire', return_value={}):
                     instance.tick()
-            self.assertFalse(instance.stopping); self.assertTrue(instance.slots[0]['stopped'])
+                self.assertEqual(instance.slots[0]['broker_backoff'], delay)
+                self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+                self.assertFalse(instance.stopping)
+            instance.launch.assert_not_called()
+            with patch.object(pool.time, 'monotonic', return_value=instance.slots[0]['retry_at']+1):
+                instance.tick()
+            instance.launch.assert_called_once()
+
+    def test_broker_outage_cannot_hide_a_missing_guest_result_closure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp); instance = self.instance(root)
+            failure = {'stage': 'broker_registration', 'error': 'stale/future finalized head'}
+            for number in range(3):
+                instance.active = [self.failed_node(root/str(number))]
+                with patch.object(pool, 'guest_result', return_value={'error': failure}), \
+                        patch.object(pool, 'guest_closed', return_value=False), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
             self.assertEqual(instance.slots[0]['consecutive_failures'], 3)
-            self.assertIn('refused-3', instance.slots[0]['last_error']['body'])
-            self.assertEqual(instance.launch.call_count, 2)
-            self.assertEqual(instance.event.call_args.kwargs['last_error'], failure)
+            self.assertGreater(instance.slots[0]['retry_at'], pool.time.monotonic())
+
+    def test_unreachable_broker_delays_boot_and_does_not_consume_a_strike(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp)); instance.launch.side_effect = pool.BrokerUnavailable
+            instance.last_broker_error = {'stage': 'broker_readiness', 'error': 'connection refused'}
+            instance.tick(); instance.tick()
+            instance.launch.assert_called_once()
+            self.assertEqual(instance.slots[0]['broker_backoff'], 60)
+            self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+
+    def test_broker_challenge_transport_error_retries_without_a_guest_strike(self):
+        for message in ['Get "https://broker.example/payments/challenge": dial tcp: connection refused',
+                        'payment challenge: HTTP 503']:
+            with tempfile.TemporaryDirectory() as tmp:
+                root = Path(tmp); instance = self.instance(root)
+                instance.active = [self.failed_node(root/'failed')]
+                error = pool.error_details(message, 'guest_stderr')
+                with patch.object(pool, 'guest_result', return_value={'error': error}), \
+                        patch.object(pool, 'guest_closed', return_value=True), \
+                        patch.object(pool, 'preserve_and_retire', return_value={}):
+                    instance.tick()
+                self.assertEqual(instance.slots[0]['consecutive_failures'], 0)
+                self.assertEqual(instance.slots[0]['broker_backoff'], 60)
 
     def test_readiness_does_not_erase_failed_guest_history(self):
         with tempfile.TemporaryDirectory() as tmp:

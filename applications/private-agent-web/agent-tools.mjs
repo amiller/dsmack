@@ -1,3 +1,5 @@
+import { replyFailure } from "./reply-recovery.mjs";
+import { readWithRetry } from "./network-read.mjs";
 import { Client, parseJSONRPCMessage, serializeMessage } from "@modelcontextprotocol/client";
 import { createLibp2p } from "libp2p";
 import { webSockets } from "@libp2p/websockets";
@@ -73,8 +75,8 @@ export class Libp2pMcpTransport {
     this.onclose?.();
   }
 }
-async function admission(stream, session) {
-  const payload = encoder.encode(JSON.stringify({ job_id: session.sessionId, grant: session.grant }));
+async function admission(stream, session, resume = false) {
+  const payload = encoder.encode(JSON.stringify({ job_id: session.sessionId, grant: session.grant, ...(resume ? { resume: true } : {}) }));
   const frame = new Uint8Array(payload.length + 4);
   new DataView(frame.buffer).setUint32(0, payload.length);
   frame.set(payload, 4);
@@ -88,6 +90,7 @@ async function admission(stream, session) {
       if (pending.length >= size + 4) {
         const result = JSON.parse(new TextDecoder().decode(pending.subarray(4, size + 4)));
         require(result.status === "ready", "Guest refused session: " + (result.error || result.status));
+        require(!resume || result.resumed === true, "Guest did not resume the existing stay.");
         return { iterator, initial: pending.slice(size + 4) };
       }
     }
@@ -104,28 +107,61 @@ export function createGuestPeer() {
   });
 }
 export class GuestSession {
-  constructor({ api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace }) {
-    Object.assign(this, { api, cfg, credit, conversationId, discover, changed, repository, catalog, savedLease, workspace });
+  constructor({ api, cfg, credit, conversationId, discover, reverify, changed, repository, catalog, savedLease, workspace, macInfo, connectionStatus }) {
+    Object.assign(this, { api, cfg, credit, conversationId, discover, reverify, changed, repository, catalog, savedLease, workspace, macInfo, connectionStatus });
   }
   tools() {
     return this.catalog.map(tool => ({
       name: tool.name, label: tool.name, description: tool.description,
       parameters: tool.inputSchema,
       execute: async (_id, args, signal, onUpdate) => {
-        const client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
-        performance.mark("dsmack:tool:start", { detail: tool.name });
-        const result = await client.callTool({ name: tool.name, arguments: args }, {
-          signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
-          onprogress: p => {
-            if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress } });
-          },
-        });
-        performance.mark("dsmack:tool:end", { detail: tool.name });
-        this.lastActivity = Date.now();
-        await this.status();
-        return { content: result.content, isError: !!result.isError, details: result._meta?.["dsmack/piDetails"] || result.structuredContent || {} };
+        try {
+          const client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
+          // A handover can select a fresh guest after the model request began.
+          if (this.firstPrompt !== undefined && this.node.policy.monitor?.name === "baseline-pg2") await this.checkPreflight(client, signal);
+          const dsmackMac = this.macInfo?.(this.node);
+          performance.mark("dsmack:tool:start", { detail: tool.name });
+          const messages = this.record?.agent.state.messages || [];
+          const assistant = messages.findLast(message => message.role === "assistant");
+          let result;
+          try { result = await client.callTool({ name: tool.name, arguments: args,
+            ...(this.node.policy.monitor?.name === "baseline-pg2" ? { _meta: { "dsmack/monitorResponse": JSON.stringify(assistant?.content) } } : {}),
+          }, {
+            signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
+            onprogress: p => {
+              if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress, ...(dsmackMac ? { dsmackMac } : {}) } });
+            },
+          });
+          } catch (error) {
+            if (!signal?.aborted && (!this.client || /closed|disconnect|transport/i.test(error.message))) {
+              throw Object.assign(new Error("Mac guest disconnected. The command may have run; check the workspace before running it again.", { cause: error }), { code: "GUEST_DISCONNECTED" });
+            }
+            throw error;
+          }
+          performance.mark("dsmack:tool:end", { detail: tool.name });
+          this.lastActivity = Date.now();
+          // A lost billing/status read must not discard a command's received result.
+          await this.status().catch(error => this.changed({ state: "error", error: replyFailure(error).message }));
+          return { content: result.content, isError: !!result.isError, details: { ...(result._meta?.["dsmack/piDetails"] || result.structuredContent || {}), ...(dsmackMac ? { dsmackMac } : {}) } };
+        } catch (error) {
+          const failure = replyFailure(error);
+          if (!["browser", "offline", "broker", "guest", "capacity"].includes(failure.category)) throw error;
+          throw Object.assign(new Error(failure.message, { cause: error }), { code: error.code, status: error.status, ref: error.ref });
+        }
       },
     }));
+  }
+  async preflight(context, signal, manifestBytes = this.node?.policy.manifest) {
+    const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
+    const environment = JSON.parse(manifest.docker_compose_file).services.node.environment;
+    if (JSON.parse(environment.DSMACK_MONITOR_POLICY || '{"name":"none"}').name !== "baseline-pg2") return;
+    const first = context.messages.find(message => message.role === "user");
+    this.firstPrompt = typeof first?.content === "string" ? first.content : first?.content?.filter(part => part.type === "text").map(part => part.text).join("\n");
+    const client = await this.ensure(signal);
+    await this.checkPreflight(client, signal);
+  }
+  async checkPreflight(client, signal) {
+    await client.callTool({ name: "dsmack_monitor", arguments: { prompt: this.firstPrompt } }, { signal, timeout: 130000 });
   }
   async restore() {
     const saved = this.savedLease;
@@ -133,35 +169,62 @@ export class GuestSession {
     require(saved.wallet === this.credit.address.toLowerCase(), "This conversation’s held guest belongs to another wallet. Connect its owner to end the session.");
     require(saved.conversationId === this.conversationId, "Saved guest belongs to another conversation.");
     this.lease = { sessionId: saved.sessionId };
-    this.node = { registration: saved.node };
+    this.node = { registration: saved.node, networkMac: saved.mac };
     this.environment = saved.environment;
     await this.status();
     if (this.lease) this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "disconnected-held", lease: this.lease, node: this.node?.registration, active: true, error: e.message })), 10000);
   }
   async ensure(signal, commandSeconds = 120) {
-    if (!this.opening) this.opening = (async () => {
-      let moved = false;
-      await this.restore();
-      if (this.lease) await this.status();
-      const cutoff = Number(this.lease?.handoverAt || this.node?.registration.admit_until || 0) * 1000;
-      if (this.lease && (!this.client || (cutoff && cutoff <= Date.now() + (Math.min(120, commandSeconds) + 5) * 1000))) {
-        performance.mark("dsmack:handover:start");
-        moved = true;
-        this.changed({ state: "handover", lease: this.lease, node: this.node?.registration });
-        await this.end();
-        await this.waitForRelease(signal);
-      }
-      if (this.client) return this.client;
-      const client = await this.open(signal);
-      if (moved) performance.mark("dsmack:handover:ready");
-      return client;
-    })().catch(async e => {
-      // Admission failures can leave an unused claim. Never retry a tool whose
-      // result was lost: its edits may already be present in the saved version.
-      await this.end().catch(() => {});
-      throw e;
-    }).finally(() => { this.opening = null; });
+    if (!this.opening) {
+      let resuming = false;
+      this.opening = (async () => {
+        let moved = false;
+        await this.restore();
+        if (this.lease) await this.status();
+        const cutoff = Number(this.lease?.handoverAt || this.node?.registration.admit_until || 0) * 1000;
+        if (this.lease && !this.client && this.peer && this.workspaceReady &&
+            cutoff > Date.now() + (Math.min(120, commandSeconds) + 5) * 1000) {
+          resuming = true;
+          return this.reconnect(signal);
+        }
+        if (this.lease && (!this.client || (cutoff && cutoff <= Date.now() + (Math.min(120, commandSeconds) + 5) * 1000))) {
+          performance.mark("dsmack:handover:start");
+          moved = true;
+          this.changed({ state: "handover", lease: this.lease, node: this.node?.registration });
+          await this.end();
+          await this.waitForRelease(signal);
+        }
+        if (this.client) return this.client;
+        const client = await this.open(signal);
+        if (moved) performance.mark("dsmack:handover:ready");
+        return client;
+      })().catch(async e => {
+        // Admission failures can leave an unused claim. Never retry a tool whose
+        // result was lost: its edits may already be present in the saved version.
+        if (!resuming) await this.end().catch(() => {});
+        throw e;
+      }).finally(() => { this.opening = null; });
+    }
     return this.opening;
+  }
+  async reconnect(signal) {
+    performance.mark("dsmack:reconnect:start");
+    this.changed({ state: "reconnecting", lease: this.lease, node: this.node.registration });
+    const prior = this.node.registration;
+    const verified = await this.reverify({ registration: prior, signal, directory: this.node.directory, browserPeer: this.peer });
+    const fresh = verified.registration;
+    require(fresh.relay_peer === prior.relay_peer && fresh.attestation.run === prior.attestation.run &&
+      fresh.payments.runId === prior.payments.runId && fresh.receipt_key === prior.receipt_key &&
+      fresh.secret_key === prior.secret_key, "Reconnected guest differs from the existing attested stay.");
+    verified.networkMac ||= this.node.networkMac;
+    this.node = verified;
+    // Preserve the guest's live filesystem and controller. A reconnect must
+    // never restore an older checkpoint or replay the interrupted tool call.
+    const client = await this.connect(verified, signal, true);
+    await this.status();
+    require(this.lease && this.client === client, "Guest stay ended while reconnecting.");
+    performance.mark("dsmack:reconnect:ready");
+    return client;
   }
   async waitForRelease(signal) {
     const deadline = Date.now() + 150000;
@@ -199,12 +262,42 @@ export class GuestSession {
     });
     this.node = verified;
     this.changed({ state: "connecting", lease: this.lease, node: verified.registration });
+    const client = await this.connect(verified, signal);
+    // A prior stay can finish sealing while this browser waits for admission.
+    // Read its final head before releasing a workspace key to the next guest.
+    await this.workspace.latest();
+    performance.mark("dsmack:workspace:bind");
+    const restored = await this.workspace.bind(client, verified.registration, this.lease);
+    if (!restored) {
+      performance.mark("dsmack:repository:import");
+      for (const [path, content] of this.repository()) {
+        const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
+        require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
+      }
+      const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
+      require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
+    }
+    this.workspaceReady = true;
+    this.lastActivity = Date.now();
+    await this.status();
+    this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 10000);
+    return client;
+  }
+  async connect(verified, signal, resume = false) {
+    try { return await this.connectGuest(verified, signal, resume); }
+    catch (error) { verified.invalidateDirectory?.(); throw error; }
+  }
+  async connectGuest(verified, signal, resume) {
+    this.connectionStatus?.("connecting", verified);
+    const peer = this.peer;
     performance.mark("dsmack:tunnels:start");
     let tunnelEntries = verified.chainTunnels;
     if (!tunnelEntries) {
-      const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
-      require(response.ok, "Guest relay discovery through the broker failed (HTTP " + response.status + "). Directory: broker.");
-      tunnelEntries = await response.json();
+      tunnelEntries = await readWithRetry(async () => {
+        const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
+        if (!response.ok) throw Object.assign(new Error("Guest relay discovery through the broker failed (HTTP " + response.status + "). Directory: broker."), { status: response.status });
+        return await response.json();
+      }, signal);
     }
     const measured = JSON.parse(new TextDecoder().decode(verified.policy.manifest));
     const relayPeer = JSON.parse(measured.docker_compose_file).services.node.command[1].split("/").at(-1);
@@ -222,13 +315,15 @@ export class GuestSession {
     }
     if (!connection) throw failure;
     require(connection.remotePeer.toString() === verified.registration.relay_peer, "Noise peer differs from attested guest.");
+    this.connectionStatus?.("verified", verified);
     performance.mark("dsmack:dial:end");
     performance.mark("dsmack:mcp:start");
     const stream = await connecting(30000, signal, scoped => connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: scoped }));
     stream.inactivityTimeout = Math.max(330000, this.lease.seconds * 1000 + 15000);
     const admissionTimer = setTimeout(() => stream.abort(new Error("Guest session admission timed out.")), 30000);
     let framed;
-    try { framed = await admission(stream, this.lease); }
+    try { framed = await admission(stream, this.lease, resume); }
+    catch (error) { stream.abort(error); throw error; }
     finally { clearTimeout(admissionTimer); }
     const transport = new Libp2pMcpTransport(stream, framed.iterator, framed.initial);
     const client = new Client({ name: "dsmack-private-agent", version: "1" }, {
@@ -236,34 +331,22 @@ export class GuestSession {
       supportedProtocolVersions: ["2026-07-28"],
     });
     transport.onclose = () => {
+      if (this.client !== client) return;
       this.client = null;
       if (this.lease && this.statusSnapshot?.active !== false) this.changed({ state: "disconnected-held", active: true, lease: this.lease, node: this.node?.registration });
     };
-    await client.connect(transport);
-    const { tools } = await client.listTools();
-    const expected = new Map(this.catalog.map(t => [t.name, t]));
-    require(tools.length === expected.size && tools.every(t => expected.has(t.name) && t.description === expected.get(t.name).description && JSON.stringify(t.inputSchema) === JSON.stringify(expected.get(t.name).inputSchema)), "Guest tools differ from the page's Pi tool definitions.");
-    const env = await client.readResource({ uri: "dsmack://environment" });
-    this.environment = JSON.parse(env.contents[0].text);
-    this.client = client;
-    performance.mark("dsmack:mcp:ready");
-    // A prior stay can finish sealing while this browser waits for admission.
-    // Read its final head before releasing a workspace key to the next guest.
-    await this.workspace.latest();
-    const restored = await this.workspace.bind(client, verified.registration, this.lease);
-    if (!restored) {
-      for (const [path, content] of this.repository()) {
-        const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
-        require(!written.isError, "Repository import failed: " + JSON.stringify(written.content));
-      }
-      const baseline = await client.callTool({ name: "bash", arguments: { command: "git add --all && git -c user.name=Dsmack -c user.email=agent@dsmack.invalid commit -qm 'Imported repository' --allow-empty" } }, { signal });
-      require(!baseline.isError, "Repository baseline failed: " + JSON.stringify(baseline.content));
-    }
-    this.workspaceReady = true;
-    this.lastActivity = Date.now();
-    await this.status();
-    this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 10000);
-    return client;
+    try {
+      await client.connect(transport);
+      const { tools } = await client.listTools();
+      const expected = new Map(this.catalog.map(t => [t.name, t]));
+      require(tools.length === expected.size && tools.every(t => expected.has(t.name) && t.description === expected.get(t.name).description && JSON.stringify(t.inputSchema) === JSON.stringify(expected.get(t.name).inputSchema)), "Guest tools differ from the page's Pi tool definitions.");
+      const env = await client.readResource({ uri: "dsmack://environment" });
+      this.environment = JSON.parse(env.contents[0].text);
+      require(!transport.closed, "Guest connection closed during setup.");
+      this.client = client;
+      performance.mark("dsmack:mcp:ready");
+      return client;
+    } catch (error) { stream.abort(error); throw error; }
   }
   async status() {
     if (!this.lease) return;
@@ -299,8 +382,6 @@ export class GuestSession {
   async end() {
     if (this.client && this.workspaceReady) await this.save();
     clearInterval(this.poll);
-    await this.client?.close(); this.client = null;
-    await this.peer?.stop(); this.peer = null;
     if (this.lease) {
       let result = await this.api("/agent/end", await walletBody(this.credit, "agent-end", { sessionId: this.lease.sessionId }));
       for (let attempt = 0; result.active && attempt < 10; attempt++) {
@@ -316,5 +397,7 @@ export class GuestSession {
       }
       else this.poll = setInterval(() => this.status().catch(e => this.changed({ state: "error", error: e.message })), 5000);
     }
+    await this.client?.close(); this.client = null;
+    await this.peer?.stop(); this.peer = null;
   }
 }

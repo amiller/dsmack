@@ -2,30 +2,44 @@ package main
 
 import (
 	"encoding/hex"
-	"encoding/json"
+	"fmt"
 	"io"
 	"os"
 
 	payments "dsmack-payments"
+	"dsmack-peer/p2p"
+	"github.com/libp2p/go-libp2p/core/peer"
 )
 
-func paidMeter() *payments.Meter {
+// PAYMENTS_CONFIG names no App Attest key; the run binds to the key that signs this guest's attestation.
+func paidConfig() *payments.Config {
 	raw := os.Getenv("PAYMENTS_CONFIG")
 	if raw == "" {
 		return nil
 	}
-	var cfg payments.Config
-	must(json.Unmarshal([]byte(raw), &cfg))
-	m, e := payments.New(cfg)
+	cfg, e := payments.ParseConfig(raw)
 	must(e)
-	return m
+	return &cfg
 }
 
-func paidReport(m *payments.Meter, registration map[string]any, legacy []byte, challenge string) ([]byte, error) {
-	if _, e := hex.DecodeString(challenge); e != nil {
+func paidMeter(cfg *payments.Config, attestation []byte) (*payments.Meter, error) {
+	if cfg == nil {
+		return nil, nil
+	}
+	kid, e := payments.AttestedKeyID(attestation)
+	if e != nil {
 		return nil, e
 	}
-	return m.Report(registration["relay_peer"].(string), registration["manifest_sha256"].(string), registration["os_image_hash"].(string), legacy, challenge)
+	return payments.New(*cfg, kid)
+}
+
+func paidReport(m *payments.Meter, id peer.ID, seal, receipt []byte, challenge string) ([]byte, error) {
+	c, e := hex.DecodeString(challenge)
+	if e != nil || len(c) != 32 {
+		return nil, fmt.Errorf("payment challenge must be 32 bytes")
+	}
+	keys := append(append([]byte{}, receipt...), m.ReceiptPublicKey()...)
+	return p2p.ReportData(id, seal, keys, c), nil
 }
 
 // Let the peer receive the acknowledgement before closing the libp2p host.

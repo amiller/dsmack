@@ -34,13 +34,23 @@ export class Workspaces {
     need(url, "WORKSPACE_STORE_UNAVAILABLE", "snapshot Mac is not configured", 503);
     const unsigned = { action, issuedAt: this.now(), nonce: random(), ...body };
     const sig = await this.broker.payments.key.signMessage("dsmack-workspace-store/1\n" + canonicalFleet(unsigned));
-    const response = await fetch(url.replace(/\/$/, "") + "/" + action, { method: "POST", redirect: "error",
-      headers: { "content-type": "application/json" }, body: JSON.stringify({ ...unsigned, sig }), signal: AbortSignal.timeout(120000) });
-    const chunks = []; let length = 0;
-    for await (const chunk of response.body) {
-      length += chunk.byteLength;
-      need(length <= 1024 * 1024, "WORKSPACE_STORE_RESPONSE", "snapshot store response exceeds limit", 502);
-      chunks.push(chunk);
+    // fetch and the body stream reject (TypeError, or the timeout's DOMException) when the store cannot be
+    // reached, drops the connection or stalls past the deadline: that is 503. The size limit's 502 passes through.
+    let response; const chunks = []; let length = 0;
+    try {
+      response = await fetch(url.replace(/\/$/, "") + "/" + action, { method: "POST", redirect: "error",
+        headers: { "content-type": "application/json" }, body: JSON.stringify({ ...unsigned, sig }), signal: AbortSignal.timeout(120000) });
+      for await (const chunk of response.body ?? []) {
+        length += chunk.byteLength;
+        need(length <= 1024 * 1024, "WORKSPACE_STORE_RESPONSE", "snapshot store response exceeds limit", 502);
+        chunks.push(chunk);
+      }
+    } catch (error) {
+      if (error instanceof InferenceError) throw error;
+      // The client sees only the fixed message. The operator's log gets a closed record naming the store and why.
+      console.error(JSON.stringify({ event: "workspace_store_unavailable", time: new Date().toISOString(), mac, action,
+        error: String(error?.name ?? "Error").slice(0, 64), message: String(error?.message ?? error).slice(0, 512) }));
+      throw Object.assign(new InferenceError("WORKSPACE_STORE_UNAVAILABLE", "snapshot store is unreachable", 503), { cause: error });
     }
     const raw = new Uint8Array(length); let offset = 0;
     for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }

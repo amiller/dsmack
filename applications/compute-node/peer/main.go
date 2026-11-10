@@ -7,7 +7,6 @@ import (
 	"crypto/ecdh"
 	"crypto/ed25519"
 	"crypto/rand"
-	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -27,6 +26,7 @@ import (
 	"syscall"
 	"time"
 
+	payments "dsmack-payments"
 	"dsmack-peer/p2p"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -121,7 +121,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if !ok || owner.Uid != 0 || private.Mode().Perm()&0077 != 0 {
 		return fmt.Errorf("attestation socket parent must be root-private")
 	}
-	for _, path := range []string{"/workspace/artifacts", "/workspace/state"} {
+	for _, path := range []string{"/workspace/artifacts"} {
 		if err := os.MkdirAll(path, 0700); err != nil {
 			return err
 		}
@@ -132,7 +132,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return err
 		}
 	}
-	paid := paidMeter()
+	paidCfg := paidConfig()
 	operatorStop := make(chan struct{})
 	var stopOnce sync.Once
 	key, e := hex.DecodeString(brokerHex)
@@ -235,11 +235,11 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if err := post(guestClient(), "http://localhost/v1/Info", map[string]any{}, &info); err != nil {
 		return err
 	}
-	rd := append([]byte("dsmack-compute-node/1"), []byte(h.ID())...)
-	rd = append(rd, public(secret)...)
-	rd = append(rd, receipt...)
-	hash := sha256.Sum256(rd)
-	att, e := attest(append(hash[:], make([]byte, 32)...))
+	att, e := attest(p2p.ReportData(h.ID(), public(secret), receipt, nil))
+	if e != nil {
+		return e
+	}
+	paid, e := paidMeter(paidCfg, att)
 	if e != nil {
 		return e
 	}
@@ -263,7 +263,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	if remaining <= 480*time.Second {
 		return fmt.Errorf("insufficient measured guest lifetime")
 	}
-	n := &engine{secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
+	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
 	if paid != nil && paid.RunExpires > n.until.Unix() {
 		paid.RunExpires = n.until.Unix()
 	}
@@ -343,6 +343,19 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return err
 	}
 	if paid != nil {
+		// GuestEscrow reconstructs report_data as abi.encode(key, operator).
+		// Keep this proof separate from the challenge-bound node proof.
+		keyAttestation, err := attest(paid.GuestKeyReport())
+		if err != nil {
+			return fmt.Errorf("guest claim key attestation: %w", err)
+		}
+		guestKey := map[string]string{"address": paid.Registration.ReceiptSigner,
+			"operator": paid.Operator, "escrow": payments.GuestEscrow,
+			"attestation": hex.EncodeToString(keyAttestation)}
+		registration["guest_key"] = guestKey
+		if err := os.WriteFile("/workspace/artifacts/guest-key", canon(guestKey), 0644); err != nil {
+			return err
+		}
 		h.SetStreamHandler("/dsmack/payments-stop/1", func(s network.Stream) {
 			defer s.Close()
 			s.SetDeadline(time.Now().Add(20 * time.Second))
@@ -365,11 +378,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		if err := os.WriteFile("/workspace/artifacts/payment-receipts", []byte(""), 0644); err != nil {
 			return err
 		}
-		legacy := append(hash[:], make([]byte, 32)...)
-		baseRegistration := map[string]any{}
-		for k, v := range registration {
-			baseRegistration[k] = v
-		}
 		h.SetStreamHandler("/dsmack/payments-attest/1", func(s network.Stream) {
 			defer s.Close()
 			s.SetDeadline(time.Now().Add(20 * time.Second))
@@ -379,7 +387,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			if readFrame(s, 4096, &request) != nil {
 				return
 			}
-			rd, err := paidReport(paid, baseRegistration, legacy, request.Challenge)
+			rd, err := paidReport(paid, h.ID(), public(secret), receipt, request.Challenge)
 			if err != nil {
 				return
 			}
@@ -395,6 +403,14 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			registrationMu.Unlock()
 			payment := paid.Registration
 			payment.Challenge = request.Challenge
+			freshKeyAttestation, err := attest(paid.GuestKeyReport())
+			if err != nil {
+				return
+			}
+			freshGuestKey := map[string]string{"address": paid.Registration.ReceiptSigner,
+				"operator": paid.Operator, "escrow": payments.GuestEscrow,
+				"attestation": hex.EncodeToString(freshKeyAttestation)}
+			copy["guest_key"] = freshGuestKey
 			copy["payments"] = payment
 			copy["attestation"] = hex.EncodeToString(att)
 			s.Write(canon(copy))
@@ -414,7 +430,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			if err = json.NewDecoder(io.LimitReader(response.Body, 4096)).Decode(&challenge); err != nil {
 				return err
 			}
-			rd, err := paidReport(paid, baseRegistration, legacy, challenge.Challenge)
+			rd, err := paidReport(paid, h.ID(), public(secret), receipt, challenge.Challenge)
 			if err != nil {
 				return err
 			}
@@ -449,11 +465,13 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return err
 		}
 	} else if err := renew(); err != nil {
-		fmt.Fprintln(os.Stderr, "awaiting paid admission:", err)
+		reportRenewal("awaiting paid admission", err)
 	}
 	fmt.Println("compute node registered", h.ID())
-	tick := time.NewTicker(90 * time.Second)
-	defer tick.Stop()
+	reservationTick := time.NewTicker(90 * time.Second)
+	defer reservationTick.Stop()
+	registrationTick := time.NewTicker(25 * time.Second)
+	defer registrationTick.Stop()
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGTERM, os.Interrupt)
 	defer signal.Stop(stop)
@@ -466,10 +484,11 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return fmt.Errorf("tool server exited: %v", err)
 		case err := <-gatewayErrors:
 			return err
-		case <-tick.C:
+		case <-reservationTick.C:
 			if err := reserve(); err != nil {
 				return err
 			}
+		case <-registrationTick.C:
 			if paid == nil {
 				if err := renew(); err != nil {
 					renewalFailures++
@@ -481,7 +500,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 					renewalFailures = 0
 				}
 			} else if err := renew(); err != nil {
-				fmt.Fprintln(os.Stderr, "paid registration:", err)
+				reportRenewal("paid registration", err)
 			}
 		case <-timer.C:
 			return nil

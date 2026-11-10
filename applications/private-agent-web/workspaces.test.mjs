@@ -84,3 +84,54 @@ test("a different selected Mac fetches the snapshot instead of reusing the prior
   assert.equal(reads, 1);
   assert.equal(controller.lastDownload.ipfsFetched, true);
 });
+
+test("failed synced head persistence keeps the pinned pending seal retryable until guest commit", { timeout: 5000 }, async () => {
+  const item = await snapshot(1), states = [], floors = new Map(), seals = [];
+  let pinned, pending, guestHead, uploads = 0, persistenceAttempts = 0;
+  let finishCommit, commitRequested;
+  const committing = new Promise(resolve => { commitRequested = resolve; });
+  const commitReady = new Promise(resolve => { finishCommit = resolve; });
+  const controller = new SavedWorkspace({ workspaceId: id, credit: { address: "0xabc" }, dataKey: () => dataKey,
+    floorStore: async (key, value) => value === undefined ? floors.get(key) : floors.set(key, value),
+    persist: async head => {
+      assert.equal(head, pinned);
+      if (++persistenceAttempts === 1) throw Error("Synced head RPC unavailable");
+    },
+    changed: state => states.push(state),
+    request: async (operation, args) => {
+      if (operation === "begin") return pinned ? { committed: true, head: pinned } : { uploadId: "upload-one", offset: 0 };
+      if (operation === "chunk") { uploads++; return { offset: Buffer.from(args.data, "base64").length }; }
+      if (operation === "commit") { pinned = { ...item.head, mac: "mac-a", cid: "pinned-ciphertext" }; return { head: pinned }; }
+      throw Error(operation);
+    },
+  });
+  await controller.init(); controller.bound = true;
+  const key = controller.key;
+  const client = { callTool: async ({ arguments: args }) => {
+    if (args.operation === "seal") { pending ??= item.head; seals.push(pending); return { structuredContent: pending }; }
+    if (args.operation === "read") return { structuredContent: { offset: args.offset, data: Buffer.from(item.bytes).toString("base64") } };
+    if (args.operation === "commit") {
+      commitRequested(); await commitReady; guestHead = args.head; pending = null;
+      return { structuredContent: { head: guestHead } };
+    }
+    throw Error(args.operation);
+  } };
+  const lease = { placement: { publisher: "mac-a" } };
+  await assert.rejects(controller.save(client, lease), /Synced head RPC unavailable/);
+  assert.equal(states.at(-1).state, "save-error");
+  assert.match(states.at(-1).error, /RPC unavailable/);
+  assert.equal(states.at(-1).head, pinned);
+  assert.equal(controller.head, pinned); assert.equal(controller.key, key); assert.equal(controller.bound, true);
+  assert.equal(pending, item.head); assert.equal(guestHead, undefined); assert.equal(uploads, 1);
+  assert(!states.some(state => state.state === "saved"));
+  const retried = controller.save(client, lease);
+  await committing;
+  assert.equal(states.at(-1).state, "saving");
+  assert(!states.some(state => state.state === "saved"), "guest has not acknowledged the committed head yet");
+  finishCommit();
+  assert.equal(await retried, pinned);
+  assert.equal(guestHead, pinned); assert.equal(pending, null);
+  assert.deepEqual(seals, [item.head, item.head]);
+  assert.equal(uploads, 1); assert.equal(persistenceAttempts, 2);
+  assert.equal(states.at(-1).state, "saved"); assert.equal(states.at(-1).head.version, 1);
+});

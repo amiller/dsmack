@@ -73,11 +73,17 @@ export class DeviceKeys {
     await store("burner", wallet.privateKey);
     return this.bundle;
   }
+  async disconnect() {
+    for (const key of ["burner", "continuity.keys", "continuity.passkey", "continuity.email", "continuity.imported", "purchases"])
+      await store(key, null);
+    this.bundle = undefined;
+    this.address = undefined;
+  }
   async addPasskey({ credit, api }) {
     require(this.bundle, "Choose Start fresh or recover your wallet before adding a passkey.");
     checkOrigin();
     const credential = await navigator.credentials.create({ publicKey: {
-      challenge: random(), rp: { id: RP_ID, name: "Dsmack private agent" },
+      challenge: random(), rp: { id: RP_ID, name: "Abalone private agent" },
       user: { id: random(), name: credit.address, displayName: "Private agent" },
       pubKeyCredParams: [{ type: "public-key", alg: -7 }, { type: "public-key", alg: -257 }],
       authenticatorSelection: { residentKey: "required", userVerification: "required" },

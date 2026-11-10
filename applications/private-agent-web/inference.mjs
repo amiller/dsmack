@@ -53,7 +53,7 @@ export function withInferenceWallet(credit, operation) {
 }
 
 export function brokerStream(
-  { credit, api, cfg, quote, evidence, usage, error, startedAt, systemPrompt },
+  { credit, api, cfg, quote, evidence, usage, error, startedAt, systemPrompt, preflight, billingUpdated, status },
 ) {
   const conversationStarted = new Date(startedAt);
   return (model, context, options = {}) => {
@@ -75,8 +75,21 @@ export function brokerStream(
       stopReason: "stop",
       timestamp: Date.now(),
     };
+    const finish = () => {
+      if (stream.done) return;
+      stream.push(answer.stopReason === "error" || answer.stopReason === "aborted"
+        ? { type: "error", reason: answer.stopReason, error: answer }
+        : { type: "done", reason: answer.stopReason, message: answer });
+      stream.end(answer);
+    };
+    const cancelled = () => {
+      answer.stopReason = "aborted";
+      answer.failure = replyFailure(new DOMException("Request aborted", "AbortError"));
+      answer.errorMessage = answer.failure.message;
+      finish();
+    };
     withInferenceWallet(credit, async () => {
-      let session;
+      let session, requestRef;
       const billing = answer.billing = { dispatched: false, settled: false, reservedNanoUsd: "0" };
       const reportError = error || (() => {});
       const reconcile = async () => {
@@ -110,11 +123,13 @@ export function brokerStream(
       };
       try {
         require(!options.signal?.aborted, "Inference request was aborted.");
+        await preflight?.(context, options.signal);
         const q = quote();
         require(
           q?.configured,
           "Private inference is not configured on this broker.",
         );
+        status?.("Checking credit…", "", "credit");
         await credit.checkBroker(api);
         await options.beforePrepare?.();
         require(
@@ -123,7 +138,7 @@ export function brokerStream(
         );
         require(
           !credit.chatCredit.pendingInferenceId,
-          "Usage is unresolved. Reconcile provider usage before sending another message.",
+          "USAGE_PENDING: The last charge is still being confirmed. Try again in a minute.",
         );
         require(
           BigInt(credit.chatCredit.remainingNanoUsd) > 0n,
@@ -135,13 +150,14 @@ export function brokerStream(
           crypto.getRandomValues(new Uint8Array(32)),
           (b) => b.toString(16).padStart(2, "0"),
         ).join("");
+        status?.("Verifying the model…", "", "verify");
         session = await api(
           "/inference/prepare",
           await walletBody(credit, "prepare", { attestationNonce,
             ...(options.artifactId ? { artifactId: options.artifactId } : {}) }),
           { signal: options.signal },
         );
-        const checked = checkEvidence(
+        const checked = await checkEvidence(
           session.attestation,
           model.id,
           started,
@@ -234,17 +250,24 @@ export function brokerStream(
           body,
           headers,
         });
+        requestRef = signed.nonce.slice(0, 8);
         Object.assign(billing, { reservedNanoUsd: String(reservation(body)),
           baselineModelSpentNanoUsd: session.modelSpentNanoUsd, wallet: credit.address.toLowerCase(),
           sessionId: session.sessionId });
         await options.onReserve?.({ ...billing });
         require(!options.signal?.aborted, "Inference request was aborted.");
         billing.dispatched = true;
+        options.signal?.addEventListener("abort", cancelled, { once: true });
         credit.chatCredit.pendingInferenceId = "awaiting-provider-response";
+        status?.("Waiting for reply…", "", "reply");
         const response = await api("/inference/chat", signed, {
           stream: true,
           signal: options.signal,
         });
+        if (response.status === 202) {
+          const dispatched = await response.json();
+          throw Object.assign(new Error(dispatched.code + ": " + dispatched.message), { code: dispatched.code });
+        }
         const decrypted = await prepared.decryptResponse(response);
         let done = false, finishReason;
         const toolCalls = new Map();
@@ -314,6 +337,7 @@ export function brokerStream(
         answer.stopReason = toolCalls.size ? "toolUse" : finishReason === "length" ? "length" : "stop";
         try { await reconcile(); } catch (e) { billing.pendingReason = e.message; reportError(e); }
       } catch (e) {
+        if (requestRef && !e.ref) e.ref = requestRef;
         // Publish the interruption immediately. Ledger reconciliation can take
         // time after a broker restart, but it must not hide the partial answer.
         if (!options.signal?.aborted) {
@@ -329,27 +353,28 @@ export function brokerStream(
           }
         }
         answer.stopReason = options.signal?.aborted ? "aborted" : "error";
+        if (options.signal?.aborted) answer.failure = replyFailure(new DOMException("Request aborted", "AbortError"));
         answer.errorMessage = answer.failure
           ? (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message : e.message;
         answer.errorCode = e.code;
       }
       try { await options.onBilling?.({ ...billing }); } catch (e) {
+        if (requestRef && !e.ref) e.ref = requestRef;
         answer.stopReason = "error";
         answer.failure ||= replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
         answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
         answer.errorCode ||= e.code;
         reportError(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
       }
+      if (stream.done) await billingUpdated?.(answer);
     }).catch(e => {
       answer.stopReason = options.signal?.aborted ? "aborted" : "error";
       answer.failure = replyFailure(e, { partial: answer.content.some(part => part.type === "text" && part.text) });
       answer.errorMessage = (answer.failure.interrupted ? "Interrupted · " : "") + answer.failure.message;
       error?.(Object.assign(new Error(answer.failure.message), { replyFailure: answer.failure }));
     }).finally(() => {
-      stream.push(answer.stopReason === "error" || answer.stopReason === "aborted"
-        ? { type: "error", reason: answer.stopReason, error: answer }
-        : { type: "done", reason: answer.stopReason, message: answer });
-      stream.end(answer);
+      options.signal?.removeEventListener("abort", cancelled);
+      finish();
     });
     return stream;
   };
@@ -369,9 +394,10 @@ export function modelTranscript(context) {
     } else if (message.role === "assistant") {
       // Keep failed attempts in the page, but never replay a partial answer as
       // completed model output when the user retries or sends another turn.
-      if (message.stopReason === "error" || message.stopReason === "aborted") continue;
+      const failed = message.stopReason === "error" || message.stopReason === "aborted";
       const calls = message.content.filter(c => c.type === "toolCall");
-      messages.push({ role: "assistant", content: contentText(message.content) || null,
+      if (failed && !calls.length) continue;
+      messages.push({ role: "assistant", content: failed ? null : contentText(message.content) || null,
         ...(calls.length ? { tool_calls: calls.map(c => ({ id: c.id, type: "function", function: { name: c.name, arguments: JSON.stringify(c.arguments) } })) } : {}) });
     } else if (message.role === "user") messages.push({ role: "user", content: contentText(message.content) });
   }

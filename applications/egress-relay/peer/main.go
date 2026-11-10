@@ -102,8 +102,7 @@ func serve(relay string, seconds int, task, url, brokerHex string) {
 	must(h.Connect(ctx, *info))
 	_, err = client.Reserve(ctx, h, *info)
 	must(err)
-	rd := p2p.ReportData(h.ID())
-	copy(rd[32:], receiptKey)
+	rd := p2p.ReportData(h.ID(), nil, receiptKey, nil)
 	att := p2p.Attest(rd)
 	var infoResponse struct {
 		Run string `json:"instance_id"`

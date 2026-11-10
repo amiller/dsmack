@@ -4,6 +4,7 @@ import { HeaderReceiver } from "./email-receiver/receiver.mjs";
 const emailHeaders = new HeaderReceiver();
 const root = new URL("./dist/", import.meta.url);
 const types: Record<string, string> = {
+  tar: "application/x-tar",
   html: "text/html; charset=utf-8",
   js: "text/javascript; charset=utf-8",
   mjs: "text/javascript; charset=utf-8",
@@ -17,7 +18,7 @@ const types: Record<string, string> = {
 };
 const security = {
   "content-security-policy":
-    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https://mainnet.base.org https://base-rpc.publicnode.com https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org https://base-sepolia.gateway.tenderly.co wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+    "default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; frame-src https://artifacts.private-agent.dstack.soc1024.com; connect-src 'self' https: https://cloud.near.ai https://nras.attestation.nvidia.com https://mainnet.base.org https://base-rpc.publicnode.com https://pod.dstack.soc1024.com https://sepolia.base.org https://base-sepolia-rpc.publicnode.com https://base-sepolia.drpc.org https://base-sepolia.gateway.tenderly.co wss://*.trycloudflare.com; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
   "x-content-type-options": "nosniff",
   "referrer-policy": "no-referrer",
   "cache-control": "no-store",
@@ -55,10 +56,18 @@ export default async function handler(req: Request,ctx?: {env:Record<string,stri
     const bytes = await Deno.readFile(
       new URL(file.split("/").map(encodeURIComponent).join("/"), root),
     );
-    const headers = { ...security };
+    const headers: Record<string, string> = { ...security };
+    headers["cache-control"] = /\.[0-9a-f]{16}\.(js|css)$/.test(file)
+      ? "public, max-age=31536000, immutable" : "no-cache";
+    const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
+    headers["etag"] = '"' + Array.from(digest, b => b.toString(16).padStart(2, "0")).join("") + '"';
     if (file === "network/index.html") {
       const hash = new TextDecoder().decode(bytes).match(/script-src 'sha256-([A-Za-z0-9+/]{43}=)'/)?.[1];
       if (hash) headers["content-security-policy"] = security["content-security-policy"].replace("script-src 'self'", `script-src 'sha256-${hash}'`);
+    }
+    if (req.headers.get("if-none-match")?.split(",").some(value =>
+      value.trim() === "*" || value.trim().replace(/^W\//, "") === headers["etag"])) {
+      return new Response(null, { status: 304, headers });
     }
     return new Response(req.method === "HEAD" ? null : bytes, {
       headers: {

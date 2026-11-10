@@ -2,6 +2,7 @@
 """Deploy from the sprint test funding wallet on Base Sepolia."""
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -9,7 +10,7 @@ import time
 
 from eth_account import Account
 from eth_utils import keccak, to_checksum_address
-from rpc import CHAIN_ID, Quorum, call
+from rpc import CHAIN_ID, ChainReader
 
 OWNER = "0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b"
 MIN_RESERVE_WEI = 20_000_000_000_000_000
@@ -46,8 +47,9 @@ def wait_receipt(quorum, tx_hash):
     raise RuntimeError(f"receipt timeout; inspect transaction before rerunning: {tx_hash}")
 
 
-def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_reserve_wei=MIN_RESERVE_WEI, balance_block="finalized"):
-    # Pending nonce must agree too; a chainId=84532 signature cannot replay on mainnet.
+def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_reserve_wei=MIN_RESERVE_WEI, balance_block="finalized", rpc_call=None):
+    # Read the pending nonce before signing; a chainId=84532 signature cannot replay on mainnet.
+    rpc_call = rpc_call or quorum.request
     tx = {"chainId": CHAIN_ID, "nonce": int(quorum.read("eth_getTransactionCount", [account.address, "pending"]), 16),
           "value": value, "data": data}
     if to:
@@ -57,7 +59,7 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_res
     if gas_price > 100_000_000_000:
         raise RuntimeError("gas price exceeds 100 gwei testnet cap")
     tx["gasPrice"] = gas_price
-    estimate = call(url, "eth_estimateGas", [{"from": account.address, "data": data,
+    estimate = rpc_call(url, "eth_estimateGas", [{"from": account.address, "data": data,
                         "value": hex(value), **({"to": tx["to"]} if to else {})}])
     tx["gas"] = int(estimate, 16) * 12 // 10
     if tx["gas"] > 5_000_000:
@@ -71,7 +73,7 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_res
     # Save the intended hash BEFORE sending so a timeout never encourages a blind resend.
     persist(output / f"{label}-transaction.json", {"hash": tx_hash, "chainId": CHAIN_ID,
                 "from": account.address, "to": to, "nonce": tx["nonce"], "value": value})
-    submitted = call(url, "eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
+    submitted = rpc_call(url, "eth_sendRawTransaction", ["0x" + signed.raw_transaction.hex()])
     if submitted.lower() != tx_hash.lower():
         raise RuntimeError("RPC returned a different transaction hash")
     print(f"{label}: {tx_hash}", flush=True)
@@ -94,7 +96,10 @@ def main():
     # No auto retry/resume after any partially submitted deployment.
     if any((output / f"{label}-transaction.json").exists() for label in ("deploy", "funding")):
         raise RuntimeError("existing submitted transaction record; inspect receipts before any new deployment")
-    quorum = Quorum(tuple(os.environ.get("PAYMENTS_RPC_URLS", "").split(","))) if os.environ.get("PAYMENTS_RPC_URLS") else Quorum()
+    usdc = os.environ.get("PAYMENTS_USDC", "")
+    if not re.fullmatch(r"0x[0-9a-fA-F]{40}", usdc) or int(usdc, 16) == 0:
+        raise ValueError("PAYMENTS_USDC must name the Base Sepolia USDC token")
+    quorum = ChainReader(tuple(os.environ.get("PAYMENTS_RPC_URLS", "").split(","))) if os.environ.get("PAYMENTS_RPC_URLS") else ChainReader()
     header = quorum.finalized()
     if int(quorum.at("eth_getBalance",[account.address],header),16)<20_000_000_000_000_000:
         raise RuntimeError("funding wallet has not reached 0.02 ETH")
@@ -105,18 +110,25 @@ def main():
     bytecode = artifact["bytecode"]["object"]
     if not bytecode.startswith("0x"):
         bytecode = "0x" + bytecode
-    deploy = send(account, quorum, output, "deploy", data=bytecode + OWNER[2:].lower().zfill(64))
+    deploy = send(account, quorum, output, "deploy", data=bytecode + usdc[2:].lower().zfill(64) + OWNER[2:].lower().zfill(64))
     address = to_checksum_address(deploy["contractAddress"])
-    # Check exact compiled runtime, including the immutable owner, at the receipt's block hash.
+    # Check runtime with immutable slots masked, then check both immutable values.
     expected = bytearray.fromhex(artifact["deployedBytecode"]["object"].removeprefix("0x"))
+    code = quorum.at("eth_getCode", [address], {"hash": deploy["blockHash"]})
+    actual = bytearray.fromhex(code.removeprefix("0x"))
     for offsets in artifact["deployedBytecode"]["immutableReferences"].values():
         for offset in offsets:
-            expected[offset["start"]:offset["start"] + offset["length"]] = int(OWNER, 16).to_bytes(offset["length"], "big")
-    code = quorum.at("eth_getCode", [address], {"hash": deploy["blockHash"]})
-    if bytes.fromhex(code.removeprefix("0x")) != expected:
-        raise RuntimeError("deployed runtime/owner differs from compiled artifact; funding stopped")
+            start, length = offset["start"], offset["length"]
+            expected[start:start + length] = bytes(length)
+            actual[start:start + length] = bytes(length)
+    if actual != expected:
+        raise RuntimeError("deployed runtime differs from compiled artifact")
+    for selector, wanted in (("0x8da5cb5b", OWNER), ("0xfc0c546a", usdc)):
+        value = quorum.at("eth_call", [{"to": address, "data": selector}], {"hash": deploy["blockHash"]})
+        if value[-40:].lower() != wanted[2:].lower():
+            raise RuntimeError("deployed owner/token differs")
     persist(output / "deployment.json", {"chainId": CHAIN_ID, "address": address, "owner": OWNER,
-                "transactionHash": deploy["transactionHash"], "runtimeKeccak": "0x" + keccak(expected).hex(),
+                "transactionHash": deploy["transactionHash"], "runtimeKeccak": "0x" + keccak(bytes.fromhex(code[2:])).hex(), "usdc": usdc,
                 "fundingWallet": funding})
     persist(output / "deployed.json", json.loads((output / "deployment.json").read_text()))
     print(f"Contract: {address}\nFunding wallet / owner: {funding}", flush=True)

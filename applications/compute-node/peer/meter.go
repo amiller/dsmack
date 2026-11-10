@@ -98,8 +98,10 @@ func (m *agentMeter) freeze(now time.Time) []json.RawMessage {
 	}
 	m.elapsed = m.duration(now)
 	m.running = time.Time{}
+	if len(m.active) > 0 {
+		m.lastActivity = now
+	}
 	m.active = map[string]json.RawMessage{}
-	m.lastActivity = now
 	m.wake()
 	return ids
 }

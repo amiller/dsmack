@@ -1,14 +1,17 @@
 import { Wallet } from "../payments/schema.mjs";
 import { signingKey } from "./grants.mjs";
 
-// Shared webhost handlers use the project-scoped broker socket. The proxy
-// constructs the GetKey path from this project's identity and the safe name.
-export async function getSigningKey(
-  socket = "/run/broker/relay-broker/dstack.sock",
-  paid = false,
-) {
+// The webhost serves one GetKey proxy per project and derives the key path from
+// the socket's project, not the request. A default socket here once gave
+// relay-broker-staging production's keys, so the deploy manifest must name it.
+const projectSocket = (socket?: string) => {
+  if (!socket) throw new Error("DSTACK_SOCKET is not set; the deploy manifest must name this project's socket");
+  return socket;
+};
+
+export async function getSigningKey(socket: string | undefined, paid = false) {
   using client = Deno.createHttpClient({
-    proxy: { transport: "unix", path: socket },
+    proxy: { transport: "unix", path: projectSocket(socket) },
   });
   const name = paid ? "payments-grants-v1" : "egress-grants-v1";
   const response = await fetch("http://localhost/GetKey", {
@@ -32,11 +35,9 @@ export async function getSigningKey(
 
 // A distinct project-scoped key decrypts provider env; signing identities retain
 // their existing derivation names and paths across this addition.
-export async function getProviderEnvKey(
-  socket = "/run/broker/relay-broker/dstack.sock",
-) {
+export async function getProviderEnvKey(socket: string | undefined) {
   using client = Deno.createHttpClient({
-    proxy: { transport: "unix", path: socket },
+    proxy: { transport: "unix", path: projectSocket(socket) },
   });
   const response = await fetch("http://localhost/GetKey", {
     client,

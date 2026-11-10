@@ -33,13 +33,14 @@ abstract contract AppleAttest {
         require(address(endorsements_).code.length!=0,"empty endorsements");endorsements=endorsements_;
         registry=registry_;aaguid=aaguid_;validationCategory=category_;keyACL=ios_?IOS_ACL:MAC_ACL;
     }
+    function alternativeValidationCategory() public view virtual returns(uint32){return validationCategory;}
     function admit(bytes32 cdhash,bytes32 rp) internal view virtual;
     function enroll(bytes calldata cert,bytes calldata auth,bytes calldata clientData,bytes32 id) external returns(bytes32 kid){
         require(clientData.length<=2048 && block.timestamp<=ROOT_NOT_AFTER,"anchor expiry/client data");
         AppleEndorsements.Intermediate memory ca=endorsements.get(id);
         require(ca.notAfter!=0 && block.timestamp>=ca.notBefore && block.timestamp<=ca.notAfter,"intermediate validity");
         AppleLeaf.Parsed memory leaf=AppleLeaf.parse(cert,ca.subject,sha256(abi.encodePacked(auth,sha256(clientData))),keyACL);
-        bytes32 cdhash;bytes32 rp;(,kid,cdhash,rp)=AppleAuthData.check(auth,aaguid,true,leaf.x,leaf.y,validationCategory);admit(cdhash,rp);
+        bytes32 cdhash;bytes32 rp;(,kid,cdhash,rp)=AppleAuthData.check(auth,aaguid,true,leaf.x,leaf.y,validationCategory,alternativeValidationCategory());admit(cdhash,rp);
         _checkNewKey(kid);
         require(P384.verify(
             ca.key.xhi,ca.key.xlo,ca.key.yhi,ca.key.ylo,
@@ -56,7 +57,7 @@ abstract contract AppleAttest {
         require(msg.sender==registry,"registry only");
         bytes memory auth;uint256 r;uint256 s;(kid,auth,r,s)=abi.decode(proof,(bytes32,bytes,uint256,uint256));
         Key storage k=keys[kid];require(k.enrolled && block.timestamp<=k.expires && block.timestamp<=ROOT_NOT_AFTER,"key validity");
-        (uint32 count,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory);admit(cdhash,rp);
+        (uint32 count,,bytes32 cdhash,bytes32 rp)=AppleAuthData.check(auth,aaguid,false,0,0,validationCategory,alternativeValidationCategory());admit(cdhash,rp);
         require(count>k.counter,"assertion replay");
         bytes32 digest=sha256(abi.encodePacked(sha256(abi.encodePacked(auth,context))));
         (bool ok,bytes memory result)=address(0x100).staticcall(abi.encode(digest,r,s,k.x,k.y));

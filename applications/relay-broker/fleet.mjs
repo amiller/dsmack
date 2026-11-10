@@ -15,14 +15,14 @@ export function fleet(req, escrow, path, now = () => Math.floor(Date.now() / 100
   return result;
 }
 
-async function readState(path) {
+export async function readOwnership(path) {
   if (!path) return memory;
   try { return ownershipState(JSON.parse(await Deno.readTextFile(path))); }
   catch (error) { if (!(error instanceof Deno.errors.NotFound)) throw error; return ownershipState(); }
 }
 
 export async function readFleet(path, now = Math.floor(Date.now() / 1000)) {
-  const state = await readState(path);
+  const state = await readOwnership(path);
   return Object.values(state.heartbeats).filter(mac => state.links[mac.publisher])
     .map(mac => visibleMac(state, mac, now));
 }
@@ -40,7 +40,7 @@ async function handle(req, escrow, path, now) {
   const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers });
   if (req.method === "OPTIONS") return new Response(null, { status: 204, headers });
   if (!["GET", "POST"].includes(req.method)) return reply({ error: "method" }, 405);
-  const state = await readState(path);
+  const state = await readOwnership(path);
   const domain = ownershipDomain(escrow);
   const save = async () => {
     if (path) {
@@ -90,6 +90,9 @@ async function handle(req, escrow, path, now) {
     }
     need(body.config && Number.isSafeInteger(body.config.max_guests) && body.config.max_guests > 0,
       "capacity config");
+    need(body.config.rate_layc_per_second === undefined ||
+      (Number.isSafeInteger(body.config.rate_layc_per_second) && body.config.rate_layc_per_second > 0),
+      "couch LAYC rate must be a positive integer");
     need(body.hardware && typeof body.hardware.name === "string" && body.hardware.name.length <= 256, "Mac hardware");
     need(typeof body.version === "string" && body.version.length <= 128, "pool version");
     need(Array.isArray(body.slots) && body.slots.length <= 64, "at most 64 guest states");

@@ -1,18 +1,15 @@
 import {
-  binding,
   domain,
-  Grant,
-  json,
+  claimDomain,
+  Claim,
   NodeBinding,
-  receiptSigner,
   require,
   runNode,
 } from "../payments/schema.mjs";
-import { Quorum } from "../payments/quorum.mjs";
 import { admissionChain } from "../payments/admission.mjs";
-import { peerBytes, verifyRelay, withEnrollment } from "./attestation.mjs";
-import { grantBytes } from "./grants.mjs";
-import { hex, unhex } from "../../dstack-compat/secret-release/policy.mjs";
+import { verifyRelay } from "./attestation.mjs";
+import { operatorsOf, ownershipDomain } from "./ownership.mjs";
+import { hex } from "../../dstack-compat/secret-release/policy.mjs";
 
 export class Payments {
   constructor(
@@ -22,7 +19,8 @@ export class Payments {
       state = { grants: {}, receipts: {} },
       save,
       now = () => Math.floor(Date.now() / 1000),
-      quorum = undefined,
+      chain,
+      ownership,
     },
   ) {
     this.cfg = cfg;
@@ -30,7 +28,9 @@ export class Payments {
     this.state = state;
     this.save = save;
     this.now = now;
-    this.chain = quorum ?? new Quorum(cfg);
+    // Every chain read (guest admission, classes, deposit credit) is Helios-verified: a HeliosReader in production.
+    this.chain = chain;
+    this.ownership = ownership;
     this.pending = Promise.resolve();
     this.challenges = new Map();
   }
@@ -55,10 +55,7 @@ export class Payments {
     const checked = await verifyRelay(
       r,
       cfg,
-      withEnrollment(
-        await admissionChain(s, { ...cfg, ...this.cfg }),
-        cfg.enrollments,
-      ),
+      await admissionChain(s, { ...cfg, ...this.cfg }),
       this.now(),
     );
     const p = r.payments;
@@ -75,10 +72,10 @@ export class Payments {
       (this.challenges.get(p.challenge) ?? 0) > this.now(),
       "fresh broker admission challenge required",
     );
+    // The class pins code, not a Mac key: the run binds to the App Attest key that signed this attestation.
     require(
-      p.enrollmentKeyId.toLowerCase() === "0x" + checked.key_id &&
-        runNode(p.enrollmentKeyId, p.runNonce) === p.runId,
-      "payment node/enrollment/run binding",
+      runNode("0x" + checked.key_id, p.runNonce) === p.runId,
+      "payment run is not bound to the attesting key",
     );
     // buildId is compared with CDRegistry at the same finalized block by verifyRelay.
     require(
@@ -90,6 +87,14 @@ export class Payments {
       n.operator.toLowerCase() === p.operator.toLowerCase() &&
         Number(n.unit) === (r.kind === "compute" ? 1 : 0),
       "class operator/unit mismatch",
+    );
+    require(
+      operatorsOf(
+        await this.ownership(),
+        ownershipDomain(this.cfg.escrow),
+        "0x" + checked.key_id,
+      ).includes(n.operator.toLowerCase()),
+      "attested key " + checked.key_id + " has no MacLink to the class operator",
     );
     require(
       n.composeHash === "0x" + r.manifest_sha256 &&
@@ -144,196 +149,64 @@ export class Payments {
   }
   async classes() {
     const s = await this.chain.snapshot();
-    return await Promise.all(
-      this.cfg.classes.map(async (node) => ({
-        node,
-        ...(await s.call("getNode", [node])).toObject(),
-        price: (await s.call("quote", [node])).toString(),
-        finalizedBlock: s.block.hash,
-      })),
-    );
+    return await Promise.all(this.cfg.classes.map(async node => ({ node,
+      ...(await s.call("getNode", [node])).toObject(),
+      priceNanoUsdPerSecond: this.cfg.prices?.S1?.nanoUsdPerSecond ?? "15000",
+      minimumSeconds: 60,
+      finalizedBlock: s.block.hash,
+    })));
   }
   async list(relays) {
-    return relays.filter((r) =>
-      r.payments && r.attestation.nodeBinding?.binding.expires > this.now()
-    );
+    return relays.filter(r => r.payments && r.attestation.nodeBinding?.binding.expires > this.now());
   }
-  async authorize(r, forRun) {
-    const pub = peerBytes(r.client_peer);
-    require(pub.length === 38, "inline Ed25519 buyer key required");
-    const key = await crypto.subtle.importKey(
-      "raw",
-      pub.slice(6),
-      "Ed25519",
-      false,
-      ["verify"],
-    );
-    const fields = {
-      client_peer: r.client_peer,
-      purchaseId: r.purchaseId,
-      txHash: r.txHash,
-    };
-    if (forRun) fields.runId = r.runId;
-    require(
-      typeof r.sig === "string" && /^[0-9a-f]{128}$/.test(r.sig) &&
-        await crypto.subtle.verify(
-          "Ed25519",
-          key,
-          unhex(r.sig),
-          grantBytes(fields),
-        ),
-      "buyer grant request signature",
-    );
-    return "0x" + hex(pub.slice(6));
-  }
-  confirm(r) {
-    return this.serial(async () => {
-      const buyer = await this.authorize(r, false),
-        s = await this.chain.snapshot();
-      const p = await this.chain.purchase(s, r.purchaseId, r.txHash);
-      require(
-        p.buyerKey === buyer,
-        "purchase buyerKey does not control this PeerId",
-      );
-      require(
-        Number(p.expires) > this.now(),
-        "purchase expired before activation",
-      );
-      const purchase = Object.fromEntries(
-        ["node", "buyerKey", "unit", "amount", "boughtAt", "expires"].map(
-          (k) => [k, String(p[k])],
-        ),
-      );
-      const old = this.state.confirmed?.[r.purchaseId];
-      require(!old || old.txHash === r.txHash, "purchase transaction changed");
-      const next = {
-        ...this.state,
-        confirmed: {
-          ...this.state.confirmed,
-          [r.purchaseId]: { purchase, txHash: r.txHash, block: s.block.hash },
-        },
-      };
-      await this.save(next);
-      this.state = next;
-      return { purchaseId: r.purchaseId, finalizedBlock: s.block.hash };
+  // Called after wallet authentication. A lifetime deposit counter prevents replayed top-ups.
+  async syncBalance(wallet) {
+    if (!this.cfg.escrow) return;
+    const snapshot = await this.chain.snapshot();
+    const deposited = BigInt(await snapshot.call("deposits", [wallet])) * 1000n;
+    const exiting = Number(await snapshot.call("exitRequestedAt", [wallet]));
+    await this.serial(async () => {
+      const state = this.state, old = state.inferenceCredit?.[wallet];
+      const previous = BigInt(old?.depositedNanoUsd ?? "0");
+      require(deposited >= previous, "deposit counter regressed");
+      if (!old && deposited === 0n) return;
+      const account = old ?? { grantedNanoUsd: "0", spentNanoUsd: "0", usedTokens: "0", pending: null, nonces: {} };
+      require(!account.exitRequestedAt || exiting === account.exitRequestedAt, "exit counter regressed");
+      const next = { ...state, inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...account,
+        depositedNanoUsd: String(deposited), exitRequestedAt: exiting,
+        grantedNanoUsd: String(BigInt(account.grantedNanoUsd) + deposited - previous),
+      } } };
+      await this.save(next); this.state = next;
     });
   }
-  grant(r, relays) {
+  async weeklyClaim(wallet, operator, period = Math.floor(this.now() / 604800) - 1) {
+    require(/^0x[0-9a-fA-F]{40}$/.test(wallet) && /^0x[0-9a-fA-F]{40}$/.test(operator), "claim addresses");
+    require(Number.isSafeInteger(period) && period >= 0 && period < Math.floor(this.now() / 604800), "completed week required");
+    wallet = wallet.toLowerCase(); operator = operator.toLowerCase();
     return this.serial(async () => {
-      const buyer = await this.authorize(r, true);
-      const confirmed = this.state.confirmed?.[r.purchaseId];
-      require(
-        confirmed && confirmed.txHash === r.txHash,
-        "purchase must be confirmed by broker before launching the VM",
-      );
-      const p = confirmed.purchase;
-      require(
-        p.buyerKey === buyer,
-        "purchase buyerKey does not control this PeerId",
-      );
-      const node = relays.find((n) =>
-        n.payments?.node === p.node && n.payments.runId === r.runId
-      );
-      require(node, "payment node is not live");
-      const nodeBinding = node.attestation.nodeBinding;
-      require(nodeBinding?.binding.expires > this.now(), "run binding expired");
-      const existing = this.state.grants[r.purchaseId];
-      if (existing) {
-        require(
-          existing.txHash === r.txHash &&
-            existing.envelope.grant.buyerKey === p.buyerKey &&
-            existing.envelope.grant.runId === r.runId,
-          "purchase terms changed",
-        );
-        require(
-          existing.envelope.grant.serviceUntil > this.now(),
-          "grant expired",
-        );
-        return existing.envelope;
-      }
-      const issuedAt = Math.max(this.now(), Number(p.boughtAt));
-      const serviceUntil = Math.min(
-        issuedAt + 600,
-        Number(p.expires),
-        nodeBinding.binding.expires,
-      );
-      require(issuedAt < serviceUntil, "purchase expired before activation");
-      const grant = {
-        purchaseId: r.purchaseId,
-        node: p.node,
-        runId: node.payments.runId,
-        buyerKey: p.buyerKey,
-        unit: Number(p.unit),
-        amount: p.amount.toString(),
-        issuedAt,
-        serviceUntil,
-        destinationPolicyHash: this.cfg.destinationPolicyHash,
-      };
-      const envelope = {
-        grant,
-        nodeBinding,
-        signature: await this.key.signTypedData(domain(this.cfg.escrow), {
-          Grant,
-        }, grant),
-      };
-      const purchase = Object.fromEntries(
-        ["amount", "boughtAt", "expires"].map(
-          (k) => [k, String(p[k])],
-        ),
-      );
-      purchase.receiptSigner = nodeBinding.binding.receiptSigner;
-      purchase.nodeBinding = nodeBinding;
-      const next = {
-        ...this.state,
-        grants: {
-          ...this.state.grants,
-          [r.purchaseId]: { envelope, txHash: r.txHash, purchase },
-        },
-      };
-      await this.save(next);
-      this.state = next;
-      return envelope;
+      const cumulative = Object.entries(this.state.operatorAccruals?.[wallet]?.[operator] ?? {})
+        .filter(([week]) => Number(week) <= period).reduce((n, [, amount]) => n + BigInt(amount), 0n);
+      const claim = { operator, cumulativeOwed: String(cumulative / 1000n), period };
+      require(BigInt(claim.cumulativeOwed) > 0n, "no funded usage");
+      const signature = await this.key.signTypedData(claimDomain(this.cfg.escrow, wallet), { Claim }, claim);
+      return { user: wallet, claim, signature };
     });
   }
-  collect(envelope) {
-    return this.serial(async () => {
-      const signer = receiptSigner(this.cfg.escrow, envelope),
-        r = envelope.receipt;
-      // These terms were obtained with the finalized purchase and never mutate.
-      // Reusing them keeps one-second receipt checkpoints off the RPC hot path.
-      const cached = this.state.grants[r.purchaseId]?.purchase;
-      require(cached, "confirmed grant required before receipt");
-      const p = cached;
-      require(
-        signer.toLowerCase() === p.receiptSigner.toLowerCase(),
-        "registered guest receipt signer required",
-      );
-      require(
-        BigInt(r.used) <= BigInt(p.amount) && r.endedAt >= Number(p.boughtAt) &&
-          r.endedAt <= Number(p.expires) && r.endedAt <= this.now(),
-        "receipt bounds",
-      );
-      const old = this.state.receipts[r.purchaseId];
-      if (old && Object.keys(r).every((k) => r[k] === old.receipt[k])) {
-        return { stored: true };
-      }
-      require(
-        !old ||
-          (!old.receipt.finalReceipt && r.sequence > old.receipt.sequence &&
-            BigInt(r.used) >= BigInt(old.receipt.used) &&
-            r.endedAt >= old.receipt.endedAt),
-        "receipt regressed or already final",
-      );
-      const next = {
-        ...this.state,
-        receipts: {
-          ...this.state.receipts,
-          [r.purchaseId]: { ...envelope, nodeBinding: p.nodeBinding },
-        },
-      };
-      await this.save(next);
-      this.state = next;
-      return { stored: true };
-    });
-  }
+}
+
+// Pure ledger update used in the same durable transaction as the debit. Gifted credit
+// remains sponsor credit; only deposited USDC can fund this user's operator claims.
+export function accrue(state, wallet, operator, charge, now) {
+  const account = state.inferenceCredit[wallet];
+  const funded = BigInt(account.depositedNanoUsd ?? "0") - BigInt(account.prepaidSpentNanoUsd ?? "0");
+  const amount = charge < funded ? charge : funded;
+  if (amount === 0n) return {};
+  require(/^0x[0-9a-fA-F]{40}$/.test(operator ?? ""), "funded debit requires an operator");
+  operator = operator.toLowerCase();
+  const week = Math.floor(now / 604800), totals = state.operatorAccruals?.[wallet]?.[operator] ?? {};
+  return {
+    prepaidSpentNanoUsd: String(BigInt(account.prepaidSpentNanoUsd ?? "0") + amount),
+    operatorAccruals: { ...state.operatorAccruals, [wallet]: { ...state.operatorAccruals?.[wallet],
+      [operator]: { ...totals, [week]: String(BigInt(totals[week] ?? "0") + amount) } } },
+  };
 }

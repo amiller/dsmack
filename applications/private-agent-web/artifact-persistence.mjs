@@ -7,6 +7,9 @@ export function createSessionPersistence({ storage, save, locks = globalThis.nav
   return (session, agent, artifact) => {
     const persist = async () => {
       const stored = await storage.sessions.get(session.id);
+      if (stored?.feedback?.length) session.feedback = [...new Map(
+        [...stored.feedback, ...(session.feedback || [])].map(record => [record.id, record]),
+      ).values()];
       const head = newestWorkspace(session.dsmack.workspace, stored?.dsmack?.workspace);
       if (head) session.dsmack.workspace = head;
       const previous = session.dsmack.artifactState;

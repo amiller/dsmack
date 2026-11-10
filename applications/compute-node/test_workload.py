@@ -14,7 +14,7 @@ class MacWorkloadTests(unittest.TestCase):
         return workload.manifest(ROOT/'applications/compute-node/testdata/compose-manifest.json',
             'sha256:'+'01'*32, Path(workload.__file__), RELAY,
             'https://pod.dstack.soc1024.com/relay-broker', '02'*32, '03'*32, seconds,
-            'http://192.168.127.254:18484', **kwargs)
+            kwargs.pop('proxy', 'http://192.168.127.254:18484'), **kwargs)
 
     def test_mac_mode_has_no_dns_pin_or_direct_network_route(self):
         measured = json.loads(self.generate(tunnel_index=INDEX))
@@ -29,6 +29,14 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(env['ADMIT_SECONDS'], '360')
         self.assertTrue({'egress-checks','gateway-log'}.issubset({a['name'] for a in measured['outputs']['artifacts']}))
 
+    def test_second_pool_uses_its_own_measured_proxy_port(self):
+        measured = json.loads(self.generate(tunnel_index=INDEX, proxy='http://192.168.127.254:18485'))
+        node = json.loads(measured['docker_compose_file'])['services']['node']
+        self.assertEqual(node['environment']['HTTPS_PROXY'], 'http://192.168.127.254:18485')
+        self.assertEqual(measured['network']['egress'][0]['port'], 18485)
+        with self.assertRaisesRegex(ValueError, 'host-loopback CONNECT proxy'):
+            self.generate(tunnel_index=INDEX, proxy='http://other.example:18485')
+
     def test_hour_guest_binds_lifetime_and_paid_run_to_its_measured_compose(self):
         payments = {'runSeconds': 3600}
         measured = json.loads(self.generate(seconds=3600, tunnel_index=INDEX, payments=payments))
@@ -37,6 +45,8 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(node['environment']['ADMIT_SECONDS'], '3120')
         self.assertEqual(json.loads(node['environment']['PAYMENTS_CONFIG'])['runSeconds'], 3600)
         self.assertEqual(measured['limits']['timeout_s'], 3600)
+        with self.assertRaisesRegex(ValueError, 'must not name an App Attest key'):
+            self.generate(seconds=3600, tunnel_index=INDEX, payments={**payments, 'enrollmentKeyId': '0x' + '00' * 32})
         with self.assertRaisesRegex(ValueError, '1..3600'):
             self.generate(seconds=3601, tunnel_index=INDEX)
 
@@ -47,6 +57,17 @@ class MacWorkloadTests(unittest.TestCase):
         manifest = json.loads(large)
         self.assertEqual(manifest['base_vm']['memory_mb'], 8192)
         self.assertEqual(manifest['base_vm']['vcpus'], 2)
+
+    def test_operator_selects_a_registered_measured_monitor(self):
+        none = json.loads(json.loads(self.generate(tunnel_index=INDEX, monitor='none'))['docker_compose_file'])['services']['node']['environment']
+        self.assertNotIn('DSMACK_MONITOR_POLICY', none)
+        measured = json.loads(self.generate(tunnel_index=INDEX, monitor='baseline-pg2'))
+        policy = json.loads(json.loads(measured['docker_compose_file'])['services']['node']['environment']['DSMACK_MONITOR_POLICY'])
+        self.assertEqual(policy['name'], 'baseline-pg2')
+        self.assertEqual(policy['hooks'], ['first-user-prompt', 'model-response-with-tool-calls'])
+        self.assertEqual(policy['device'], 'cpu')
+        with self.assertRaises(KeyError):
+            self.generate(tunnel_index=INDEX, monitor='operator-spy')
 
     def test_mac_mode_requires_its_explicit_https_index(self):
         with self.assertRaisesRegex(ValueError, 'HTTPS broker and tunnel index'):

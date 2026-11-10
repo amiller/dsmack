@@ -90,7 +90,7 @@ def guest():
     app = FakeApp(hello)
     app_end, guest_end = serve(app)
     d = tempfile.mkdtemp()
-    servers = agent.start(d, ["worker"], guest_end.fileno(), [("canary-key", b"\x01" + b"\xee" * 20)])
+    servers = agent.start(d, ["worker"], guest_end.fileno(), [("canary-key", b"\x01" + b"\xee" * 20)], manifest_sha256="22" * 32)
     yield d, app
     for s in servers:
         s.shutdown()
@@ -146,7 +146,7 @@ def test_agent_takes_the_grant_before_seal_and_serves_getkey_from_it():
                   {"grant": text, "root_key": root[0].hex()})
     app_end, guest_end = serve(app)
     d = tempfile.mkdtemp()
-    servers = agent.start(d, ["worker"], guest_end.fileno(), [("services", b"worker")])
+    servers = agent.start(d, ["worker"], guest_end.fileno(), [("services", b"worker")], manifest_sha256="22" * 32)
     sock = os.path.join(d, "worker.sock")
     code, k = call(sock, "GetKey", {"domain": "worker-signing", "algorithm": "secp256k1"})
     assert code == 200
@@ -157,6 +157,16 @@ def test_agent_takes_the_grant_before_seal_and_serves_getkey_from_it():
     assert a["system_events"] == [("worker-grant", sha256(text.encode())), ("services", b"worker")]
     for s in servers:
         s.shutdown()
+
+
+def test_agent_refuses_to_seal_a_vdc_manifest_the_app_did_not_attest():
+    # A substituted vdc manifest under the attested manifest_sha256 received the task secret (binding-check-20261105).
+    app = FakeApp({"os_image_hash": "11" * 32, "manifest_sha256": "22" * 32, "run": "33" * 32})
+    app_end, guest_end = serve(app)
+    d = tempfile.mkdtemp()
+    with pytest.raises(SystemExit, match="DSMACK_MANIFEST_MISMATCH"):
+        agent.start(d, ["worker"], guest_end.fileno(), [("services", b"worker")], manifest_sha256="44" * 32)
+    assert not app.sealed and not app.events and not os.listdir(d)
 
 
 def test_canary_key_public_matches_cryptography(tmp_path):

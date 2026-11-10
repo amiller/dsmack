@@ -92,7 +92,7 @@ export function authData(auth, category) {
     "apple_validation_category_01", "apple_bundle_version_01"].includes(k)), "unknown extension");
   const cdhash = ext.get("apple_cd_hash_hash_01"), type = ext.get("apple_cd_hash_type_01"), cat_ = ext.get("apple_validation_category_01");
   must(cdhash?.length === 32 && type?.length === 1 && type[0] === 2, "CDHash");
-  must(cat_?.length === 4 && le(cat_) === category, "validation category");
+  must(cat_?.length === 4 && (le(cat_) === category || [3, 6].includes(category) && [3, 6].includes(le(cat_))), "validation category");
   return { rp: auth.slice(0, 32), counter: new DataView(auth.buffer, auth.byteOffset).getUint32(33), cdhash };
 }
 
@@ -105,8 +105,9 @@ function derToRaw(d) {
 }
 
 // Reads through eth_call. attest is an AppleAttestRegistryV1 (keys, cds, validationCategory); canary a Canary.
-export function rpcChain(rpc, attest, canary) {
+export function rpcChain(rpc, attest, canary, read) {
   const call = async (to, data) => {
+    if (read) return unhex((await read("eth_call", [{ to, data }, "latest"])).slice(2));
     const r = await (await fetch(rpc, { method: "POST", headers: { "content-type": "application/json" }, redirect: "error",
       body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "eth_call", params: [{ to, data }, "latest"] }) })).json();
     if (r.error) throw new Error("eth_call: " + JSON.stringify(r.error));

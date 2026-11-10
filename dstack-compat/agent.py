@@ -1,12 +1,13 @@
 """dstack guest-api-v1 shim for a dsmack guest.
 
-python3 agent.py --dir <socket dir> [--ctl <port>] [--event NAME=HEX]... [--canary-key PATH] [--secret-key] [--grant grant.json] SERVICE...
+python3 agent.py --dir <socket dir> [--ctl <port> --manifest-sha256 HEX] [--event NAME=HEX]... [--canary-key PATH] [--secret-key] [--grant grant.json] SERVICE...
 
 --canary-key writes a fresh P-256 scalar to PATH (0600; the supervisor puts it in
 guest-root tmpfs) and adds its public key as the canary-guest-key event. --secret-key makes a
 P-256 key kept only in the agent's memory, adds its public key as the secret-key event and serves
 /v1/GetSecret, which opens a task secret sealed to that key (secret_box.py) for the calling service.
-With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello,
+With --ctl (the dsmack-ctl virtio console port) the agent asks the app for hello, exits unless its
+manifest_sha256 is --manifest-sha256 (the vdc manifest the guest runs),
 takes the run's worker grant if the app offers one (the app logs its digest as the
 worker-grant event), sends the supervisor's system events and the seal, writes
 <dir>/sealed and then serves /v1/Attest. With a grant, from the app or from
@@ -129,7 +130,7 @@ class Server(socketserver.ThreadingMixIn, socketserver.UnixStreamServer):
     daemon_threads = True
 
 
-def start(sockdir, services, ctl_fd=None, events=(), grant=None, secret=None):
+def start(sockdir, services, ctl_fd=None, events=(), grant=None, secret=None, manifest_sha256=None):
     """Seal (with a port), then serve one socket per service on background threads."""
     for s in services:
         if not SERVICE_RE.fullmatch(s):
@@ -138,6 +139,8 @@ def start(sockdir, services, ctl_fd=None, events=(), grant=None, secret=None):
     if ctl_fd is not None:
         ctl = Ctl(ctl_fd)
         hello = ctl.call({"op": "hello"})
+        if hello["manifest_sha256"] != manifest_sha256:
+            raise SystemExit("DSMACK_MANIFEST_MISMATCH attested=%s vdc=%s" % (hello["manifest_sha256"], manifest_sha256))
         if hello.get("grant"):
             grant = ctl.call({"op": "grant"})
         for name, payload in events:
@@ -169,6 +172,7 @@ if __name__ == "__main__":
     p.add_argument("--dir", required=True)
     p.add_argument("--ctl")
     p.add_argument("--event", action="append", default=[], type=lambda e: (e.split("=")[0], bytes.fromhex(e.split("=")[1])))
+    p.add_argument("--manifest-sha256")
     p.add_argument("--canary-key")
     p.add_argument("--secret-key", action="store_true")
     p.add_argument("--grant", type=lambda f: json.load(open(f)))
@@ -179,5 +183,5 @@ if __name__ == "__main__":
     secret = int.from_bytes(os.urandom(32), "big") % (guest_attest.P256_N - 1) + 1 if a.secret_key else None
     if secret:
         a.event.append(("secret-key", guest_attest.p256_public(secret)))
-    start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant, secret)
+    start(a.dir, a.services, a.ctl and os.open(a.ctl, os.O_RDWR), a.event, a.grant, secret, a.manifest_sha256)
     threading.Event().wait()

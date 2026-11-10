@@ -1,3 +1,4 @@
+import { nonceRef, requestLog } from "./request-log.mjs";
 import { verifyNearAttestation } from "./near-attestation.mjs";
 
 export class NearError extends Error {
@@ -6,6 +7,42 @@ export class NearError extends Error {
     this.code = code;
     this.status = status;
   }
+}
+// Only structured, bounded identifiers may cross the provider boundary. Never
+// include upstream messages, request content, credentials or response bodies.
+async function upstreamError(response, observed = () => {}) {
+  let shortCode = "";
+  try {
+    const reader = response.body?.getReader();
+    if (reader) {
+      const chunks = []; let size = 0;
+      try {
+        for (;;) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          size += value.byteLength;
+          observed(size);
+          if (size > 8192) break;
+          chunks.push(value);
+        }
+        if (size <= 8192) {
+          const bytes = new Uint8Array(size); let offset = 0;
+          for (const chunk of chunks) { bytes.set(chunk, offset); offset += chunk.length; }
+          const body = JSON.parse(new TextDecoder().decode(bytes));
+          const code = body?.error?.code ?? body?.code;
+          if (typeof code === "string" && /^[a-zA-Z][a-zA-Z0-9_]{0,31}$/.test(code)) shortCode = "_" + code.toUpperCase();
+        }
+      } finally { await reader.cancel(); reader.releaseLock(); }
+    }
+  } catch { /* A malformed error body must not hide its HTTP status. */ }
+  const error = new NearError(`PROVIDER_HTTP_${response.status}${shortCode}`, response.status === 429 ? 429 : 502);
+  // Authentication refusal is definitive: the provider did not accept inference.
+  error.dispatchRejected = response.status === 401 || response.status === 403;
+  return error;
+}
+function transportError(error, signal, fallback = "PROVIDER_TRANSPORT") {
+  return new NearError(signal?.aborted || error?.name === "AbortError" ? "PROVIDER_ABORTED"
+    : error?.name === "TimeoutError" ? "PROVIDER_TIMEOUT" : fallback);
 }
 const need = (ok, code = "USAGE_MISMATCH") => {
   if (!ok) throw new NearError(code);
@@ -28,7 +65,6 @@ export class NearProvider {
       apiKey,
       fetcher = fetch,
       verifyAttestation = verifyNearAttestation,
-      attestationPolicy,
       baseUrl = "https://cloud-api.near.ai",
     } = {},
   ) {
@@ -36,7 +72,6 @@ export class NearProvider {
       apiKey,
       fetcher,
       verifyAttestation,
-      attestationPolicy,
       baseUrl: baseUrl.replace(/\/$/, ""),
     });
   }
@@ -59,19 +94,11 @@ export class NearProvider {
           : AbortSignal.timeout(30000),
         redirect: "error",
       });
-    } catch {
-      throw new NearError("PROVIDER_UNAVAILABLE");
+    } catch (error) {
+      throw transportError(error, signal);
     }
     if (!r.ok) {
-      await r.body?.cancel();
-      throw new NearError(
-        r.status === 401 || r.status === 403
-          ? "PROVIDER_AUTH"
-          : r.status === 429
-          ? "PROVIDER_RATE_LIMIT"
-          : "PROVIDER_UNAVAILABLE",
-        r.status === 429 ? 429 : 502,
-      );
+      throw await upstreamError(r);
     }
     return r;
   }
@@ -137,7 +164,6 @@ export class NearProvider {
         nonce,
         model,
         baseUrl: this.baseUrl,
-        policy: this.attestationPolicy,
         fetcher: this.fetcher,
       });
       need(
@@ -150,7 +176,7 @@ export class NearProvider {
       throw new NearError("ATTESTATION_INVALID", 502);
     }
   }
-  async chatEncrypted({ key, model, body, headers, attestation, signal }) {
+  async chatEncrypted({ key, model, body, headers, attestation, signal, nonce }) {
     need(
       attestation?.transport?.fetchEncrypted &&
         attestation.evidence?.model === model &&
@@ -158,7 +184,15 @@ export class NearProvider {
         attestation.evidence.expires_at > Date.now() / 1000,
       "ATTESTATION_INVALID",
     );
-    let response;
+    const payload = JSON.stringify(body), started = performance.now();
+    const requestBytes = new TextEncoder().encode(payload).byteLength;
+    let response, responseBytes = 0, logged = false;
+    const complete = code => {
+      if (logged) return;
+      logged = true;
+      requestLog("near_chat", { ref: nonceRef(nonce), code, status: response?.status ?? null,
+        started, requestBytes, responseBytes });
+    };
     try {
       response = await attestation.transport.fetchEncrypted(
         this.baseUrl + "/v1/chat/completions",
@@ -171,22 +205,40 @@ export class NearProvider {
             "content-type": "application/json",
             "accept-encoding": "identity",
           },
-          body: JSON.stringify(body),
+          body: payload,
         },
       );
-    } catch {
-      throw new NearError("ATTESTATION_INVALID");
+    } catch (cause) {
+      const error = transportError(cause, signal, "NEAR_ATTESTATION_TRANSPORT");
+      complete(error.code);
+      throw error;
     }
     if (!response.ok) {
-      await response.body?.cancel();
-      throw new NearError(
-        response.status === 429
-          ? "PROVIDER_RATE_LIMIT"
-          : "PROVIDER_UNAVAILABLE",
-        response.status === 429 ? 429 : 502,
-      );
+      const error = await upstreamError(response, size => { responseBytes = size; });
+      complete(error.code);
+      throw error;
     }
-    need(response.headers.get("content-type")?.startsWith("text/event-stream"));
-    return response;
+    if (!response.body || !response.headers.get("content-type")?.startsWith("text/event-stream")) {
+      try { await response.body?.cancel(); }
+      finally { complete("USAGE_MISMATCH"); }
+      throw new NearError("USAGE_MISMATCH");
+    }
+    const reader = response.body.getReader();
+    let cancelled = false;
+    return new Response(new ReadableStream({
+      async pull(controller) {
+        try {
+          const { value, done } = await reader.read();
+          if (cancelled) return;
+          if (done) { complete("OK"); reader.releaseLock(); controller.close(); }
+          else { responseBytes += value.byteLength; controller.enqueue(value); }
+        } catch (error) { if (!cancelled) { const failure = transportError(error, signal); complete(failure.code); reader.releaseLock(); controller.error(failure); } }
+      },
+      async cancel(reason) {
+        cancelled = true;
+        try { await reader.cancel(reason); }
+        finally { complete("REQUEST_CANCELLED"); reader.releaseLock(); }
+      },
+    }), { status: response.status, statusText: response.statusText, headers: response.headers });
   }
 }

@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Deploy the built private-agent page to dstack-webhost's shared Deno runtime."""
+"""Deploy the built private-agent page to its own dstack-webhost container."""
 import argparse
-import fcntl
 import io
 import json
 import os
@@ -18,8 +17,10 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 
 APP = Path(__file__).resolve().parent
 PROJECT = "private-agent"
+sys.path.insert(0, str(APP))
 sys.path.insert(0, str(APP.parents[1] / "tools"))
-from deploy_idle import wait_for_idle
+from deploy_target import WEBHOST, STAGING_HOST, project_name, source_ref, staging_page_url
+from bundle import check as check_bundle
 
 
 class NoRedirect(HTTPRedirectHandler):
@@ -48,7 +49,14 @@ def write(path, value):
     path.write_text(json.dumps(value, indent=2) + "\n")
 
 
-def package(dist):
+def package(dist, target="production", config_path=None, staging_origin=STAGING_HOST):
+    config = json.loads((config_path or dist / "config.json").read_bytes())
+    if target == "staging":
+        config["broker"] = WEBHOST + "/relay-broker-staging"
+        config["tunnels"] = staging_page_url(staging_origin) + "tunnels"
+    if config != json.loads((dist / "config.json").read_bytes()):
+        raise ValueError("Build with PAGE_CONFIG and PAGE_TARGET before packaging target config")
+    check_bundle(dist)
     if not (dist / "index.html").is_file():
         raise ValueError("Build the page first: dist/index.html is missing")
     data = io.BytesIO()
@@ -70,24 +78,41 @@ def package(dist):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--wait-idle-minutes", type=float, default=10)
+    parser.add_argument("--target", choices=("staging", "production"), required=True)
+    parser.add_argument("--registry-account", help="Existing cast keystore account authorized as PageBundleRegistry publisher")
+    parser.add_argument("--skip-registry-publication", action="store_true", help="Staging only: deploy without a configured bundle registry or on-chain publication")
+    parser.add_argument("--staging-origin", choices=(STAGING_HOST, WEBHOST), default=STAGING_HOST)
+    parser.add_argument("--config", type=Path, help="Public page config for this target, including broker signing identities")
     parser.add_argument("--dist", type=Path, default=APP / "dist")
     parser.add_argument("--evidence", type=Path, required=True)
-    parser.add_argument("--url", default="https://pod.dstack.soc1024.com")
+    parser.add_argument("--url", default=WEBHOST)
     parser.add_argument("--operator-token-sha256", required=True)
-    parser.add_argument("--smtp-env", type=Path, required=True, help="Existing private page environment JSON, including email receiver configuration")
+    parser.add_argument("--page-env", type=Path, required=True, help="Existing private page environment JSON, including email receiver configuration")
     args = parser.parse_args()
+    ref = source_ref(APP.parents[1], args.target)
+    if args.target != "staging" and (args.skip_registry_publication or args.staging_origin != STAGING_HOST):
+        raise ValueError("staging deployment options require --target staging")
+    if not args.skip_registry_publication and not args.registry_account:
+        raise ValueError("--registry-account is required for bundle publication")
+    project_name_value = project_name(PROJECT, args.target)
     if args.operator_token_sha256 and not re.fullmatch(r"[0-9a-f]{64}",args.operator_token_sha256):
         raise ValueError("operator token SHA256 must be lowercase hex")
-    smtp_env = json.loads(args.smtp_env.read_text())
-    if not isinstance(smtp_env, dict) or set(smtp_env) - {"SMTP_HOST", "SMTP_PORT", "SMTP_TLS", "SMTP_FROM", "SMTP_USER", "SMTP_PASSWORD", "EMAIL_RECOVERY_ADDRESS"}:
-        raise ValueError("SMTP configuration contains unsupported keys")
-    if not smtp_env.get("EMAIL_RECOVERY_ADDRESS"):
+    page_env = json.loads(args.page_env.read_text())
+    if not isinstance(page_env, dict) or set(page_env) - {"EMAIL_RECOVERY_ADDRESS"}:
+        raise ValueError("Page environment contains unsupported keys")
+    if not page_env.get("EMAIL_RECOVERY_ADDRESS"):
         raise ValueError("The existing page environment must include EMAIL_RECOVERY_ADDRESS")
-    if any(not isinstance(value, str) for value in smtp_env.values()):
-        raise ValueError("SMTP configuration values must be strings")
-    archive = package(args.dist.resolve())
-    ref = subprocess.check_output(["git", "-C", str(APP), "rev-parse", "HEAD"], text=True).strip()
+    if any(not isinstance(value, str) for value in page_env.values()):
+        raise ValueError("Page environment values must be strings")
+    own_cid = check_bundle(args.dist.resolve())
+    config = json.loads((args.dist / "config.json").read_text())
+    registry = config.get("pageBundleRegistry")
+    if args.skip_registry_publication:
+        if "pageBundleRegistry" in config:
+            raise ValueError("Remove pageBundleRegistry when skipping staging publication")
+    elif not registry or len(registry["rpcs"]) != 2 or registry["rpcs"][0] == registry["rpcs"][1]:
+        raise ValueError("Page bundle registry requires two independent RPCs")
+    archive = package(args.dist.resolve(), args.target, args.config, args.staging_origin)
     args.evidence.mkdir(parents=True, exist_ok=True)
     admin = token()
     base = args.url.rstrip("/")
@@ -108,17 +133,21 @@ def main():
             raise RuntimeError(f"{method} {path}: HTTP {error.code}") from None
 
     substrate = json.loads(api("/_api/substrate"))
-    if "shared" not in substrate["isolation_modes"]:
-        raise ValueError("Webhost does not support shared Deno")
+    if "container" not in substrate["isolation_modes"]:
+        raise ValueError("Webhost does not support container isolation")
     manifest = {
-        "name": PROJECT,
-        "source": "tarball://" + PROJECT,
+        "name": project_name_value,
+        "source": "tarball://" + project_name_value,
         "ref": ref,
         "runtime": "deno",
         "mode": "attested",
         "entry": "server.ts",
-        "isolation": "shared",
-        "env": {**smtp_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256},
+        "isolation": "container",
+        # Path-routed on the shared ingress port; a container otherwise claims its own port (3000 is taken).
+        "listen": {"port": 8080, "protocol": "http"},
+        # gVisor (the pod default) has --host-uds=none, so the dstack socket refuses connect (webhost #126).
+        "oci_runtime": "runc",
+        "env": {**page_env, "OPERATOR_TOKEN_SHA256":args.operator_token_sha256, "DSTACK_SOCKET":"/run/broker/dstack.sock"},
     }
     boundary = "private-agent-" + secrets.token_hex(16)
     body = (
@@ -128,19 +157,17 @@ def main():
         + archive
         + f"\r\n--{boundary}--\r\n".encode()
     )
-    wait_for_idle(base, args.wait_idle_minutes)
     project = json.loads(api("/_api/projects", method="POST", body=body,
                              kind="multipart/form-data; boundary=" + boundary, auth=True))
-    if project["runtime"] != "deno" or project["isolation"] != "shared":
-        raise ValueError("Deployment did not select shared Deno")
+    if project["runtime"] != "deno" or project["isolation"] != "container":
+        raise ValueError("Deployment did not select container isolation")
     if project.get("mode") != "attested":
-        wait_for_idle(base, args.wait_idle_minutes)
-        project = json.loads(api("/_api/projects/private-agent/promote", method="POST", auth=True))
+        project = json.loads(api("/_api/projects/" + project_name_value + "/promote", method="POST", auth=True))
     if project.get("mode") != "attested":
         raise ValueError("Deployment did not enter attested mode")
     for attempt in range(30):
         try:
-            page = api("/private-agent/")
+            page = api("/" + project_name_value + "/")
             if page != (args.dist / "index.html").read_bytes():
                 raise RuntimeError("Deployed page has not loaded the built index.html")
             break
@@ -148,7 +175,18 @@ def main():
             if attempt == 29:
                 raise
             time.sleep(2)
-    summary = {"url": base + "/private-agent/", "runtime": project["runtime"],
+    if not args.skip_registry_publication:
+        # Publish only after the new page is served; failed transactions propagate.
+        subprocess.run(["cast", "send", "--rpc-url", registry["rpcs"][0], "--chain", "84532",
+                        "--account", args.registry_account, registry["registry"], "publish(string)", own_cid], check=True)
+        read_env = {key: value for key, value in os.environ.items()
+                    if key not in {"ETH_PASSWORD", "ETH_KEYSTORE", "ETH_KEYSTORE_ACCOUNT"}}
+        for rpc in registry["rpcs"]:
+            published = subprocess.check_output(["cast", "call", "--rpc-url", rpc, "--chain", "84532",
+                                               registry["registry"], "latestCID()(string)"], text=True, env=read_env).strip().strip('"')
+            if published != own_cid:
+                raise ValueError("Published bundle CID differs from deployed page")
+    summary = {"bundleCID": own_cid, "registry": registry["registry"] if registry else None, "url": (staging_page_url(args.staging_origin) if args.target == "staging" else base + "/private-agent/"), "runtime": project["runtime"],
                "isolation": project["isolation"], "mode": project["mode"],
                "ref": ref}
     write(args.evidence / "result.json", summary)
@@ -157,12 +195,6 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # Shared Deno reloads affect both projects. Hold one upload/promote
-        # transaction at a time so another project cannot remove its key socket.
-        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a") as deployment_lock:
-            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
-            main()
+        main()
     except (OSError, ValueError, RuntimeError, URLError) as error:
         raise SystemExit(str(error)) from None

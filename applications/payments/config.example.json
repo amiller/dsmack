@@ -14,5 +14,12 @@
   "admissionCode": [],
   "classes": [
     "0x0101010101010101010101010101010101010101010101010101010101010101"
-  ]
+  ],
+  "prices": {
+    "S1": {
+      "nanoUsdPerSecond": "15000",
+      "minimumSeconds": 60
+    }
+  },
+  "inferenceOperator": "0x1FBe7a7b3f7a37A967F3d927Abd6f04DB2766c5b"
 }

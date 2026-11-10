@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
-"""Prepare and explicitly apply a relay-broker update to shared Deno."""
+"""Prepare and explicitly apply a relay-broker update to its own dstack-webhost container."""
 import argparse
-import fcntl
 import io
 import json
 import os
@@ -20,7 +19,8 @@ from urllib.request import HTTPRedirectHandler, Request, build_opener
 APP = Path(__file__).resolve().parent
 REPO = APP.parents[1]
 sys.path.insert(0, str(REPO / "tools"))
-from deploy_idle import wait_for_idle
+from broker_drain import drained
+from deploy_target import WEBHOST, STAGING_HOST, project_name, source_ref
 SECRET_FIELDS = {"near_api_key", "api_key", "apikey", "password", "secret", "credential"}
 
 
@@ -47,22 +47,51 @@ def envelope(value):
     return value
 
 
+TESTNETS, MAINNETS = {84532}, {1, 8453}
+
+
+def payments_chain():
+    found = re.search(r"^export const CHAIN = (\d+);$", (REPO / "applications/payments/schema.mjs").read_text(), re.M)
+    if not found:
+        raise ValueError("applications/payments/schema.mjs declares no CHAIN")
+    return int(found.group(1))
+
+
 def write_json(path, value):
     with path.open("x") as out:
         out.write(json.dumps(value, indent=2) + "\n")
 
 
 def prepare(args):
+    ref = source_ref(REPO, args.target)
+    project = project_name("relay-broker", args.target)
     config = json.loads(args.config.read_text())
+    if args.target != "staging" and args.staging_origin != STAGING_HOST:
+        raise ValueError("--staging-origin requires --target staging")
+    if args.target == "staging":
+        config["browser_origins"] = [args.staging_origin]
+        if config.get("inference"):
+            config["inference"]["origins"] = [args.staging_origin]
     public_config(config)
     if not config.get("payments") or not config.get("inference"):
         raise ValueError("configuration needs payments and inference blocks")
+    # "safe" makes new registrations visible in ~2 minutes, not ~18; production may use it only on testnet.
+    chain = payments_chain()
+    if chain not in TESTNETS | MAINNETS:
+        raise ValueError(f"unknown payments chain {chain}")
+    if args.target == "production" and config["payments"].get("blockTag", "finalized") != "finalized" and chain not in TESTNETS:
+        raise ValueError(f"production reads chain {chain} at finalized only")
+    if args.target == "staging":
+        config["payments"]["blockTag"] = "safe"
     if not re.fullmatch(r"[0-9a-f]{64}", args.operator_token_sha256):
         raise ValueError("operator token SHA256 must be 64 lowercase hex characters")
-    manifest = {"name": "relay-broker", "source": "tarball://relay-broker",
-                "ref": subprocess.check_output(["git", "-C", str(REPO), "rev-parse", "HEAD"], text=True).strip(),
-                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "shared", "mode": "attested",
-                "env": {"OPERATOR_TOKEN_SHA256": args.operator_token_sha256}}
+    manifest = {"name": project, "source": "tarball://" + project,
+                "ref": ref,
+                "runtime": "deno", "entry": "applications/relay-broker/server.ts", "isolation": "container", "mode": "attested",
+                "listen": {"port": 8080, "protocol": "http"},
+                # gVisor (the pod default) has --host-uds=none, so the dstack socket refuses connect (webhost #126).
+                "oci_runtime": "runc",
+                "env": {"OPERATOR_TOKEN_SHA256": args.operator_token_sha256, "DSTACK_SOCKET": "/run/broker/dstack.sock"}}
     if args.encrypted_env:
         manifest["env"]["NEAR_ENCRYPTED_ENV"] = json.dumps(envelope(json.loads(args.encrypted_env.read_text())))
     args.out.mkdir(parents=True, exist_ok=True)
@@ -79,7 +108,7 @@ def prepare(args):
             for source in sorted(APP.iterdir()):
                 if source.suffix in (".mjs", ".ts") and source.name not in ("near-attestation.mjs", "deno-forwarder.mjs", "encrypt-provider-env.mjs") and not source.name.endswith((".test.mjs", ".test.ts", "_test.ts")):
                     archive.add(source, arcname="applications/relay-broker/" + source.name)
-            for name in ("quorum.mjs", "admission.mjs"):
+            for name in ("chain-reader.mjs", "rpc.mjs", "admission.mjs", "helios-reader.mjs"):
                 archive.add(REPO / "applications/payments" / name, arcname="applications/payments/" + name)
             archive.add(bundled, arcname="applications/payments/schema.mjs")
             attestation = Path(temporary) / "near-attestation.mjs"
@@ -92,6 +121,7 @@ def prepare(args):
             archive.add(REPO / "applications/browser-p2p/tunnels.mjs", arcname="applications/browser-p2p/tunnels.mjs")
             archive.add(APP / "project.json", arcname="project.json")
             archive.add(REPO / "dstack-compat/secret-release/policy.mjs", arcname="dstack-compat/secret-release/policy.mjs")
+            archive.add(REPO / "dstack-compat/binding.mjs", arcname="dstack-compat/binding.mjs")
             body = json.dumps(config).encode()
             info = tarfile.TarInfo("applications/relay-broker/config.json")
             info.size = len(body)
@@ -143,12 +173,19 @@ def client(url, admin=None):
 
 
 def deploy(args):
+    ref = source_ref(REPO, args.target)
+    project_name_value = project_name("relay-broker", args.target)
     manifest = json.loads((args.prepared / "relay-broker.manifest.json").read_text())
-    required = {"name": "relay-broker", "runtime": "deno", "entry": "applications/relay-broker/server.ts",
-                "isolation": "shared", "source": "tarball://relay-broker", "mode": "attested"}
+    required = {"name": project_name_value, "runtime": "deno", "entry": "applications/relay-broker/server.ts",
+                "isolation": "container", "source": "tarball://" + project_name_value, "mode": "attested"}
     if any(manifest.get(key) != value for key, value in required.items()):
-        raise ValueError("prepared project must be attested relay-broker shared Deno")
-    if set(manifest.get("env", {})) - {"OPERATOR_TOKEN_SHA256", "NEAR_ENCRYPTED_ENV"}:
+        raise ValueError("prepared project must be an attested relay-broker container")
+    if args.target == "production" and manifest["ref"] != ref:
+        raise ValueError("prepared source ref differs from HEAD; prepare again")
+    # A container mounts only its own broker dir, at /run/broker.
+    if manifest.get("env", {}).get("DSTACK_SOCKET") != "/run/broker/dstack.sock":
+        raise ValueError("prepared manifest must name the container's dstack socket")
+    if set(manifest.get("env", {})) - {"OPERATOR_TOKEN_SHA256", "NEAR_ENCRYPTED_ENV", "DSTACK_SOCKET"}:
         raise ValueError("prepared environment contains unsupported fields")
     if "NEAR_ENCRYPTED_ENV" in manifest["env"]:
         envelope(json.loads(manifest["env"]["NEAR_ENCRYPTED_ENV"]))
@@ -160,20 +197,28 @@ def deploy(args):
         return
     args.evidence.mkdir(parents=True, exist_ok=True)
     api = client(args.url, token())
+    if getattr(args, "retain_environment", False):
+        current = api("/_api/projects/" + project_name_value, auth=True)
+        if not {"OPERATOR_TOKEN_SHA256", "DSTACK_SOCKET"} <= set(current.get("env", {})):
+            raise ValueError("existing broker environment is missing its operator token or dstack socket")
+        # Webhost carries stored env forward when the upload omits env. Its read API
+        # masks values, so a code/config release must not round-trip those masks.
+        manifest = {key: value for key, value in manifest.items() if key != "env"}
     boundary = "relay-broker-" + secrets.token_hex(16)
     body = (f'--{boundary}\r\nContent-Disposition: form-data; name="manifest"\r\nContent-Type: application/json\r\n\r\n'.encode()
             + json.dumps(manifest).encode()
             + f'\r\n--{boundary}\r\nContent-Disposition: form-data; name="files"; filename="relay-broker.tgz"\r\nContent-Type: application/gzip\r\n\r\n'.encode()
             + archive + f"\r\n--{boundary}--\r\n".encode())
-    wait_for_idle(args.url, args.wait_idle_minutes)
-    project = api("/_api/projects", method="POST", body=body,
-                  kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
-    if project.get("runtime") != "deno" or project.get("isolation") != "shared":
-        raise ValueError("deployed broker did not select shared Deno")
+    # Once the upload succeeds the old process is gone and the new one starts undrained.
+    with drained(args.url, project_name_value, args.operator_token.read_text().strip()):
+        project = api("/_api/projects", method="POST", body=body,
+                      kind="multipart/form-data; boundary=" + boundary, auth=True, timeout=120)
+    if project.get("runtime") != "deno" or project.get("isolation") != "container":
+        raise ValueError("deployed broker did not select container isolation")
     if project.get("mode") != "attested":
         # A dev-mode fallback cannot load the CVM-only key or activity report.
-        # The pre-upload idle check and shared lock cover its promotion.
-        project = api("/_api/projects/relay-broker/promote", method="POST", auth=True, timeout=120)
+        # The broker was drained before upload.
+        project = api("/_api/projects/" + project_name_value + "/promote", method="POST", auth=True, timeout=120)
     if project.get("mode") != "attested":
         raise ValueError("deployed broker did not enter attested mode")
     deadline = time.monotonic() + 30
@@ -182,32 +227,36 @@ def deploy(args):
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RuntimeError("broker did not become ready within 30 seconds")
-            api("/relay-broker/key", timeout=min(5, remaining))
+            api("/" + project_name_value + "/key", timeout=min(5, remaining))
             break
         except RuntimeError:
             remaining = deadline - time.monotonic()
             if remaining <= 0:
                 raise RuntimeError("broker did not become ready within 30 seconds") from None
             time.sleep(min(1, remaining))
-    write_json(args.evidence / "result.json", {"project": "relay-broker", "ref": manifest["ref"]})
-    print("Updated relay-broker shared Deno")
+    write_json(args.evidence / "result.json", {"project": project_name_value, "ref": manifest["ref"]})
+    print("Updated " + project_name_value + " container")
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     sub = parser.add_subparsers(required=True)
     p = sub.add_parser("prepare", help="local packaging only")
+    p.add_argument("--target", choices=("staging", "production"), required=True)
+    p.add_argument("--staging-origin", choices=(STAGING_HOST, WEBHOST), default=STAGING_HOST)
     p.add_argument("--config", type=Path, required=True)
     p.add_argument("--operator-token-sha256", required=True)
     p.add_argument("--encrypted-env", type=Path)
     p.add_argument("--out", type=Path, required=True)
     p.set_defaults(run=prepare)
     p = sub.add_parser("deploy", help="upload and promote only with --apply")
-    p.add_argument("--wait-idle-minutes", type=float, default=10)
+    p.add_argument("--target", choices=("staging", "production"), required=True)
+    p.add_argument("--operator-token", type=Path, required=True, help="File holding the operator token whose SHA256 the broker was deployed with")
     p.add_argument("--prepared", type=Path, required=True)
-    p.add_argument("--url", required=True)
+    p.add_argument("--url", default=WEBHOST)
     p.add_argument("--evidence", type=Path, required=True)
     p.add_argument("--apply", action="store_true")
+    p.add_argument("--retain-environment", action="store_true", help="Keep the existing broker's complete stored environment, including the encrypted provider envelope")
     p.set_defaults(run=deploy)
     args = parser.parse_args()
     args.run(args)
@@ -215,13 +264,7 @@ def main():
 
 if __name__ == "__main__":
     try:
-        # Shared Deno reloads affect both projects. Hold one upload/promote
-        # transaction at a time so another project cannot remove its key socket.
-        lock_path = Path.home() / ".cache/dsmack-webhost-deploy.lock"
-        lock_path.parent.mkdir(parents=True, exist_ok=True)
-        with lock_path.open("a") as deployment_lock:
-            fcntl.flock(deployment_lock, fcntl.LOCK_EX)
-            main()
+        main()
     except (ValueError, RuntimeError) as error:
         raise SystemExit(str(error)) from None
     except (OSError, subprocess.CalledProcessError, tarfile.TarError):

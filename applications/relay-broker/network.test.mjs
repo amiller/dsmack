@@ -41,3 +41,11 @@ test("network public CORS reads do not accept writes", async () => {
     assert.equal((await monitor.response(new Request("https://broker.test" + path, { method: "POST" }))).status, 405);
   }
 });
+
+test("a Mac with no ready guests exposes slot error codes without diagnostic bodies", () => {
+  const value = networkSnapshot([{ ...mac, slots: [{ slot_id: 0, state: "failed",
+    last_error_code: "HTTP_403", last_error: "private broker refusal", attestation: "private proof" }] }], 140);
+  assert.equal(value.macs[0].ready, 0);
+  assert.deepEqual(value.macs[0].slot_errors, [{ slot_id: 0, code: "HTTP_403" }]);
+  assert(!JSON.stringify(value).includes("private"));
+});

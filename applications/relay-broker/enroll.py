@@ -10,15 +10,16 @@ import time
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 from cryptography import x509
-from verifier.core import decode, unb64, verify_key
-from verifier.macos_policy import policy, root
+from verifier.core import Policy, decode, unb64, verify_key
+from verifier.macos_policy import APP_ID, root
 
 
 def enrollment(folder, cdhash):
     raw = (folder / 'attestation.cbor').read_bytes()
     kid = (folder / 'keyId.txt').read_text().strip()
     result = verify_key(raw, kid, (folder / 'clientData.bin').read_bytes(),
-                        policy(bytes.fromhex(cdhash)), root(), time.time())
+                        Policy(APP_ID, environment="production", cdhashes=(bytes.fromhex(cdhash),),
+                               categories=(3, 6), require_macos_acl=True), root(), time.time())
     pub = unb64(result['public_key'])
     intermediate = x509.load_der_x509_certificate(decode(raw)['attStmt']['x5c'][1])
     return dict(kid=unb64(kid).hex(), x=pub[1:33].hex(), y=pub[33:].hex(),

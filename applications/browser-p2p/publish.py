@@ -12,7 +12,7 @@ from eth_account.messages import encode_defunct
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'contracts/payments'))
 from deploy import load_owner,send,wait_receipt
-from rpc import Quorum,CHAIN_ID,call
+from rpc import ChainReader,CHAIN_ID
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('action',choices=['deploy','publish','chain','broker'])
 p.add_argument('--key',type=Path)
@@ -23,13 +23,21 @@ p.add_argument('--entries',type=Path)
 p.add_argument('--broker')
 p.add_argument('--operator-token',type=Path)
 p.add_argument('--publisher-address',help='Mac-local publisher address, checked before signing')
-p.add_argument('--rpc',help='explicit single RPC for Mac-local zero-value locator publications')
+p.add_argument('--rpc',action='append',help='ordered RPC for Mac-local zero-value locator publications; repeat for several hosts')
+p.add_argument('--expiry-state',type=Path,help='shared publication expiry across launcher generations')
 p.add_argument('--registry-owner',help='Initial publisher when deploying a registry')
 a=p.parse_args();a.evidence.mkdir(parents=True,exist_ok=True)
 def signed_publication(entries, signer):
  now=int(time.time())
  expiry=max((entry['expiresAt'] for entry in entries),default=now+3300)
  if not now<expiry<=now+3600:raise ValueError('tunnel publication expiry must be within one hour')
+ if a.expiry_state and a.expiry_state.exists():expiry=max(expiry,int(a.expiry_state.read_text())+1)
+ if expiry>now+3600:
+  time.sleep(expiry-now-3600)
+  now=int(time.time())
+ if not now<expiry<=now+3600:raise ValueError('tunnel publication expiry must be within one hour')
+ if a.expiry_state:
+  temporary=a.expiry_state.with_suffix('.tmp');temporary.write_text(str(expiry));temporary.replace(a.expiry_state)
  body={'entries':entries,'publisher':signer.address.lower(),'expiresAt':expiry}
  canonical=json.dumps(body,sort_keys=True,separators=(',',':'))
  body['signature']='0x'+signer.sign_message(encode_defunct(text='dsmack-tunnels/1\n'+canonical)).signature.hex()
@@ -57,6 +65,13 @@ def publish_broker():
      body=error.read(4097);record['body']=body[:4096].decode(errors='replace');record['body_truncated']=len(body)>4096
     except (OSError,HTTPException) as body_error:record['body_read_error']=str(body_error)
     finally:error.close()
+   if a.expiry_state and record['status']==400:
+    try:refusal=json.loads(record['body'])
+    except ValueError:refusal={}
+    if (isinstance(refusal,dict) and refusal.get('error')=='stale publisher update'
+        and type(refusal.get('expiresAt')) is int and int(time.time())<refusal['expiresAt']<=int(time.time())+3600):
+     expiry=max(int(a.expiry_state.read_text()) if a.expiry_state.exists() else 0,refusal['expiresAt'])
+     temporary=a.expiry_state.with_suffix('.tmp');temporary.write_text(str(expiry));temporary.replace(a.expiry_state)
    record['retrying']=transient and attempt<3
    (a.evidence/('broker-error-'+str(attempt)+'.json')).write_text(json.dumps(record,indent=2)+'\n')
    print(json.dumps(record),flush=True)
@@ -72,34 +87,9 @@ def publisher():
 if a.action=='broker':publish_broker();sys.exit()
 if not a.key:raise ValueError('--key required for Base Sepolia writes')
 account=publisher()
-if a.rpc and (a.action not in ('publish','chain') or not a.publisher_address or not a.rpc.startswith('https://')):
+if a.rpc and (a.action not in ('publish','chain') or not a.publisher_address or not all(url.startswith('https://') for url in a.rpc)):
  raise ValueError('--rpc requires a Mac-local locator publication and an HTTPS RPC')
-class PublicationRPC(Quorum):
- def __init__(self):
-  if a.rpc:
-   self.urls=(a.rpc,)
-   (a.evidence/'publication-rpc.json').write_text(json.dumps({'url':a.rpc,'chainId':CHAIN_ID}))
-  else:super().__init__()
- def finalized(self):
-  if not a.rpc:return super().finalized()
-  if self.read('eth_chainId',[])!=hex(CHAIN_ID):raise ValueError('publisher RPC is not Base Sepolia')
-  header=self.read('eth_getBlockByNumber',['finalized',False])
-  return {k:header[k] for k in ('number','hash','timestamp')}
- def read(self,method,params):
-  if a.rpc:return call(a.rpc,method,params)
-  if method!='eth_gasPrice':return super().read(method,params)
-  # Fee suggestions are volatile estimates, not consensus state. Use the largest
-  # successful public quote; send() still enforces its fee/reserve caps.
-  quotes={};values=[]
-  for url in self.urls:
-   try:
-    value=call(url,method,params);values.append(int(value,16));quotes[url]=value
-   except Exception as error:quotes[url]={'error':str(error)}
-  (a.evidence/'fee-quotes.json').write_text(json.dumps(quotes,indent=2)+'\n')
-  if not values:raise RuntimeError('all fee quote requests failed; see fee-quotes.json')
-  print('Fee suggestions recorded; using maximum '+str(max(values))+' wei',flush=True)
-  return hex(max(values))
-quorum=PublicationRPC()
+quorum=ChainReader(tuple(a.rpc)) if a.rpc else ChainReader()
 if CHAIN_ID!=84532:raise ValueError('Base Sepolia required')
 if a.action=='deploy':
  if not a.bytecode:raise ValueError('--bytecode required')

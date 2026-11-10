@@ -111,7 +111,7 @@ test("a runner re-signed under the host's own Apple team verifies once CDRegistr
   assert.equal((await verifyNode(g.r, g.policy)).cdhash, node.command[5], "the approved team's own copy still verifies");
 });
 
-// 2026-11-10: verifyNode made ~13 serial unpinned chain-read reads, repeating key, category and rpIdHash. Helios took
+// 2026-11-10: verifyNode made ~13 serial unpinned chain-read calls, repeating key, category and rpIdHash. Helios took
 // 5-25 s per cold read, so a stay opened before verification passed the broker's 90 s unused-stay window and was freed.
 test("a Helios snapshot pins every read to one block, reads each once, and leaves only the guest's key for after the claim", async () => {
   const { enroll, link, guest, chain } = await setup(), key = await deviceKey();

@@ -9,8 +9,6 @@ import {
 export {
   Contract,
   Interface,
-  toUtf8Bytes,
-  zeroPadValue,
   computeAddress,
   FetchRequest,
   formatEther,

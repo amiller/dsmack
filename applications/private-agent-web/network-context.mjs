@@ -5,10 +5,20 @@ export function macFor(network, node) {
   return network?.macs.find(mac => mac.publisher.toLowerCase() === publisher?.toLowerCase());
 }
 
+const adjectives = ["amber", "brisk", "calm", "dusky", "eager", "fern", "gilded", "hazel", "ivory", "jolly", "keen", "lunar", "misty", "noble", "olive", "plucky", "quiet", "russet", "sunny", "tawny", "umber", "velvet", "windy", "zesty", "coral", "dapper", "frosty", "golden", "mossy", "rosy", "sable", "tidal"];
+const animals = ["otter", "heron", "lynx", "badger", "finch", "gecko", "ibis", "koala", "lemur", "marten", "newt", "ocelot", "puffin", "quail", "raven", "stoat", "tapir", "urchin", "vole", "walrus", "yak", "zebra", "bison", "crane", "dingo", "egret", "ferret", "gopher", "hare", "jackal", "magpie", "panda"];
+
+// A name people can tell apart, from the key the Mac signs its heartbeats with.
+export function macName(publisher) {
+  const n = BigInt(publisher);
+  return `${adjectives[Number(n % 32n)]}-${animals[Number((n >> 5n) % 32n)]}`;
+}
+
 export function sandboxLabel(mac) {
   const chip = mac?.chip === "Unknown" ? "" : mac?.chip?.replace(/^Apple\s+/i, "");
   const region = mac?.region?.name;
-  const description = chip && region ? `${chip} in ${region}` : chip || region;
+  const hardware = [mac && macName(mac.publisher), chip].filter(Boolean).join(", ");
+  const description = hardware && region ? `${hardware} in ${region}` : hardware || region;
   return "Dsmack sandbox" + (description ? " · " + description : "");
 }
 

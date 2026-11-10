@@ -1,4 +1,5 @@
 import { NetworkChain } from "./chain.mjs";
+import { macName } from "../private-agent-web/network-context.mjs";
 import publicConfig from "./config.json" with { type: "json" };
 
 const $ = id => document.getElementById(id);
@@ -57,7 +58,7 @@ function drawNetwork() {
     const row = node("tr"), region = node("td"), link = node("a", mac.region?.name || "Region not shared");
     link.href = `${config.fleet}?operator=${encodeURIComponent(mac.operator)}`; link.title = `View operator ${mac.operator}`;
     region.append(link, node("span", `${mac.operator.slice(0, 8)}…${mac.operator.slice(-6)} ↗`, "sub"));
-    const hardware = node("td", mac.chip || "Not reported"); hardware.append(node("span", mac.ram_bytes ? `${Math.round(mac.ram_bytes / 2 ** 30)} GiB RAM` : "Memory not reported", "sub"));
+    const hardware = node("td", `${macName(mac.publisher)} · ${mac.chip || "chip not reported"}`); hardware.append(node("span", mac.ram_bytes ? `${Math.round(mac.ram_bytes / 2 ** 30)} GiB RAM` : "Memory not reported", "sub"));
     const status = node("td"); status.append(node("span", mac.online ? "Online" : "Offline", `pill${mac.online ? "" : " offline"}`));
     const elapsed = Math.max(0, Math.floor(Date.now() / 1000 - mac.last_heartbeat)), last = node("td", elapsed < 60 ? `${elapsed}s ago` : elapsed < 3600 ? `${Math.floor(elapsed / 60)}m ago` : `${Math.floor(elapsed / 3600)}h ago`);
     last.title = new Date(mac.last_heartbeat * 1000).toLocaleString();

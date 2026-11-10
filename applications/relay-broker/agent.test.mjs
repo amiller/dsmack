@@ -533,3 +533,9 @@ test("a slightly slow guest clock can submit its start receipt", async () => {
  f.advance(1);
  assert.equal((await f.sessions.receipt(start)).stop, false);
 });
+
+test("a stalled chain read cannot stall the guest's start receipt",async()=>{
+ const f=await fixture(),session=await f.open();
+ f.payments.chain={snapshot:()=>new Promise(()=>{})};
+ assert.equal((await f.sessions.receipt(await f.receipt(session.sessionId,0))).stop,false);
+});

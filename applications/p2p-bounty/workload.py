@@ -103,7 +103,8 @@ def manifest(files, node_sha256, pinned):
                    "runtime_name": "runc", "runtime_version": "1.1.15+ds1"},
         "runtime_inputs": {"env": {"mode": "inject"}, "stdin": {"max_bytes": 0, "mode": "none"},
                            "user_config": {"max_bytes": 0, "mode": "none"}},
-        "network": {"mode": "nat", "listen_ports": [], "egress": [{"destination": HOST + "/32", "protocol": "tcp", "port": PORT}]},
+        "network": {"mode": "nat", "listen_ports": [], "egress": [],
+                    "service_egress": {"checker": [{"destination": HOST + "/32", "protocol": "tcp", "port": PORT}]}},
         "outputs": {"artifacts": [{"name": "result", "path": "/workspace/artifacts/result.json"}], "capture": ["stdout", "stderr"],
                     "completion_service": "checker"}})
 

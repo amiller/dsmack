@@ -20,7 +20,7 @@ from pathlib import Path
 d, t, req = Path(sys.argv[1]).resolve(), Path(sys.argv[2]).resolve(), Path(sys.argv[3]).read_bytes()
 b, rt = d / "base", d / "runtime"
 compose = json.loads((t / "compose-manifest.json").read_bytes())
-port = compose["network"]["egress"][0]["port"]
+port = compose["network"]["service_egress"]["checker"][0]["port"]
 
 
 def canon(v):

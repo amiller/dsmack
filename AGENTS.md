@@ -15,5 +15,4 @@ This is a prototype. Velocity matters more than ritual.
   or "this does not prove" disclaimers. If something must not be run, delete it.
 - Prefer deleting code to adding layers. Remove dead modes, superseded versions
   and concluded experiments.
-- Layover-specific code (couch stays, LAYC, GuestEscrow, layover terms) belongs in
-  souk-co/layover, not here.
+- Code for a product built on dsmack lives in that product's own repository.

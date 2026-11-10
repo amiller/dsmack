@@ -988,7 +988,7 @@ function loadPolicy(raw) {
     manifest: sandbox.unhex(raw.manifest),
     operatorsOf: brokerOwners(cfg.broker + "/fleet/ownership", cfg.escrow),
   };
-  if (onChain) p.chain = heliosChain(raw);
+  if (onChain) p.chain = heliosChain({ ...raw, image: JSON.parse(decode.decode(p.manifest)).base_vm.os_image_hash });
   else {
     p.enrollment = {
       attestation: sandbox.unhex(raw.enrollment.attestation),
@@ -1036,6 +1036,7 @@ function directoryLookup() {
 async function reverify({ registration: prior, signal, directory, browserPeer }) {
   const peer = prior.relay_peer;
   const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
+  const pinned = await policy.chain?.snapshot();
   performance.mark("dsmack:attestation:start", { detail: { peer } });
   let chain, direct;
   if (directory === "chain") {
@@ -1050,7 +1051,7 @@ async function reverify({ registration: prior, signal, directory, browserPeer })
     performance.mark("dsmack:attestation:response", { detail: { peer } });
     require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
     if (chain) await chain.verifyRegistration(registration, signal);
-    const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
+    const checked = await sandbox.verifyNode(registration, { ...policy, chain: pinned, challenge });
     require(registration.payments?.challenge === challenge, "Node challenge mismatch. Stale attestation refused.");
     require(Number(registration.admit_until) * 1000 >= Date.now() + 30000 &&
       registration.payments.runExpires * 1000 >= Date.now() + 30000,
@@ -1118,9 +1119,12 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       Number(entry.admit_until) * 1000 >= Date.now() + setupSeconds * 1000)));
     for (const selected of candidates) {
       signal?.throwIfAborted();
-      $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
       const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
       const peer = selected.relay_peer;
+      // Chain reads that name no guest happen before the stay opens: the broker frees a stay unused for 90 s.
+      $("node-status").textContent = "Reading the approved build and canary from Base Sepolia…";
+      const pinned = await policy.chain?.snapshot();
+      $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
       let release;
       if (claim) {
         try { release = await claim(selected); }
@@ -1166,7 +1170,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
         mark("attestation:response", { peer });
         require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
         if (chainDirectory) await chainDirectory.verifyRegistration(registration, signal);
-        const checked = await sandbox.verifyNode(registration, { ...policy, challenge });
+        const checked = await sandbox.verifyNode(registration, { ...policy, chain: pinned, challenge });
         require(!registration.payments || registration.payments.challenge === challenge,
           "Node challenge mismatch. Stale attestation refused.");
         require(Number(registration.admit_until) * 1000 >= Date.now() + setupSeconds * 1000 &&

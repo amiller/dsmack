@@ -11,6 +11,7 @@ import { attest, deviceKey } from "../../relay-broker/fixtures/synthetic-guest.m
 import { APP_ID } from "./enrollment.mjs";
 import { paymentRunId } from "./payments.mjs";
 import { peerBytes, verifyNode } from "./sandbox.mjs";
+import { heliosChain } from "./helios-chain.mjs";
 
 const f = JSON.parse(readFileSync(new URL("../../relay-broker/fixtures/bind.json", import.meta.url)));
 const manifest = readFileSync(new URL("../testdata/key-free-manifest.json", import.meta.url));
@@ -45,7 +46,7 @@ async function setup() {
       caller: await sha256(new TextEncoder().encode("node")), report_data, ...signed, category: 3 });
     return { r, policy: { ...policy, challenge } };
   };
-  return { enroll, link: (k, op) => links.set("0x" + hex(k.kid), [...(links.get("0x" + hex(k.kid)) ?? []), op]), guest, copies };
+  return { enroll, link: (k, op) => links.set("0x" + hex(k.kid), [...(links.get("0x" + hex(k.kid)) ?? []), op]), guest, copies, chain };
 }
 
 test("the key-free manifest names no App Attest key", () => {
@@ -108,4 +109,48 @@ test("a runner re-signed under the host's own Apple team verifies once CDRegistr
   copies.set(node.command[5], approved);
   g = await guest(key);
   assert.equal((await verifyNode(g.r, g.policy)).cdhash, node.command[5], "the approved team's own copy still verifies");
+});
+
+// 2026-11-10: verifyNode made ~13 serial unpinned layover-chain reads, repeating key, category and rpIdHash. Helios took
+// 5-25 s per cold read, so a stay opened before verification passed the broker's 90 s unused-stay window and was freed.
+test("a Helios snapshot pins every read to one block, reads each once, and leaves only the guest's key for after the claim", async () => {
+  const { enroll, link, guest, chain } = await setup(), key = await deviceKey();
+  enroll(key); link(key, operator);
+  const attestAddr = "0x" + "a1".repeat(20), canary = "0x" + "ca".repeat(20), registry = "0x" + "4e".repeat(20);
+  const blocks = ["0x" + "b1".repeat(32), "0x" + "b2".repeat(32)], calls = [];
+  let heads = 0, fail = "0xe62b7cbd";
+  const word = (n) => BigInt(n).toString(16).padStart(64, "0");
+  const answer = async (to, data) => {
+    const sel = data.slice(0, 10), arg = unhex(data.slice(10));
+    if (to === attestAddr && sel === "0xb4eb10ce") return word(registry);
+    if (to === attestAddr && sel === "0xdde5b7a1") { const k = await chain.key(arg); return hex(k.x) + hex(k.y) + word(k.expires) + word(k.counter) + word(k.enrolled ? 1 : 0); }
+    if (to === attestAddr && sel === "0x5523509a") return word(await chain.category());
+    if (to === registry && sel === "0x65f4df9c") return hex(await chain.rpIdHash(arg));
+    if (to === registry && sel === "0xb7b014b6") return hex(await chain.buildId());
+    if (to === canary) return word(0);
+    throw new Error("unexpected read " + to + data);
+  };
+  const realFetch = globalThis.fetch;
+  globalThis.fetch = async (url) => {
+    const u = new URL(url), reply = (status, body) => ({ ok: status === 200, status, json: async () => ({ ...body, verified_by: "helios-opstack" }) });
+    if (u.pathname === "/layover-chain/head") return reply(200, { block_hash: blocks[heads++] });
+    const [to, data, block] = ["to", "data", "block"].map((k) => u.searchParams.get(k));
+    calls.push({ to, data, block, failed: data.startsWith(fail) });
+    if (data.startsWith(fail)) { fail = undefined; return { ok: false, status: 502, json: async () => ({ error: "helios eth_call: timeout" }) }; }
+    return reply(200, { block_hash: block, result: "0x" + await answer(to, data) });
+  };
+  try {
+    const helios = heliosChain({ attest: attestAddr, canary, registry, cdhash: node.command[5], image: m.base_vm.os_image_hash },
+      "https://chain.invalid/layover-chain");
+    await assert.rejects(helios.snapshot(), /layover-chain call 0x(ca)+ 0xe62b7cbd: HTTP 502/);
+    const pinned = await helios.snapshot();
+    assert.equal(heads, 1, "a failed read does not discard the snapshot");
+    const before = calls.length, g = await guest(key);
+    await verifyNode(g.r, { ...g.policy, chain: pinned });
+    await verifyNode(g.r, { ...g.policy, chain: await helios.snapshot() });
+    assert.deepEqual(calls.slice(before).map((c) => c.data.slice(0, 10)), ["0xdde5b7a1"], "after the claim only the guest's key is read");
+    assert.ok(calls.every((c) => c.block === blocks[0]), "every read names the snapshot's block");
+    const ok = calls.filter((c) => !c.failed).map((c) => c.to + c.data);
+    assert.equal(new Set(ok).size, ok.length, "no read is fetched twice; the failed one is fetched again");
+  } finally { globalThis.fetch = realFetch; }
 });

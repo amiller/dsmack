@@ -24,6 +24,8 @@ test('authenticates recorded NEAR CPU, gateway SPKI, compose manager, model key 
     const checked = await checkEvidence({ ...envelope, verification: 'untrusted' }, model, recording.now, nonce, key);
     assert.equal(checked.browser.fullQuoteVerifiedBy, 'browser');
     assert.equal(checked.models[0].gpuEvidence, 'verified');
+    assert.equal(checked.gateway.instanceId, '3d54f35174ba0a06695f68af499fe77188d627af');
+    assert.match(checked.models[0].instanceId, /^[0-9a-f]{40}$/);
     assert.equal(checked.tls.livePeerSpki, 'not-observable-in-browser');
 
   } finally { globalThis.fetch=originalFetch; Date.now=originalNow; }

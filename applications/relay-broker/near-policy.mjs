@@ -225,21 +225,24 @@ async function rekor(fetcher, path, body) {
   need(r.ok, `Rekor ${path} HTTP ${r.status}`);
   return await r.json();
 }
-const proven = new Map();
+// Image digests whose Rekor provenance verified under the policy in this file.
+// Entries are immutable, so a page may keep this set across reloads.
+export const provenImages = new Set();
 async function checkProvenance(digest, repo, policy, fetcher) {
-  const id = digest + " " + repo;
-  if (proven.has(id)) return;
+  const id = digest + " " + repo + " " + JSON.stringify(policy);
+  if (provenImages.has(id)) return;
   const uuids = await rekor(fetcher, "/api/v1/index/retrieve", { hash: "sha256:" + digest });
   need(uuids.length > 0, `no Rekor entry for ${repo}@sha256:${digest}`);
-  for (let i = 0; i < uuids.length; i += 10) {
-    for (const item of await rekor(fetcher, "/api/v1/log/entries/retrieve", { entryUUIDs: uuids.slice(i, i + 10) })) {
-      const entry = Object.values(item)[0], s = await signer(entry);
-      if (s && accepts(policy, s)) {
-        await verifySet(entry);
-        await verifyInclusion(entry);
-        proven.set(id, true);
-        return;
-      }
+  // alpine has ~500 entries in random order; fetching batches serially took up to 17 s.
+  const batches = [];
+  for (let i = 0; i < uuids.length; i += 10) batches.push(uuids.slice(i, i + 10));
+  for (const item of (await Promise.all(batches.map(b => rekor(fetcher, "/api/v1/log/entries/retrieve", { entryUUIDs: b })))).flat()) {
+    const entry = Object.values(item)[0], s = await signer(entry);
+    if (s && accepts(policy, s)) {
+      await verifySet(entry);
+      await verifyInclusion(entry);
+      provenImages.add(id);
+      return;
     }
   }
   need(false, `no Rekor entry for ${repo}@sha256:${digest} matches its signer policy`);

@@ -53,3 +53,19 @@ Deno.test("a Rekor entry with a forged timestamp or proof is rejected", async ()
     await assert.rejects(() => fresh.checkImages("gateway", appCompose, forging), pattern);
   }
 });
+
+Deno.test("a verified image is not looked up again, and every Rekor batch is requested at once", async () => {
+  const fresh = await import("./near-policy.mjs?batches");
+  const appCompose = compose(reports.c579aade.gateway_attestation);
+  let inFlight = 0, peak = 0, calls = 0;
+  const counting = async (url, init) => {
+    calls++; inFlight++; peak = Math.max(peak, inFlight);
+    try { return await fetch(url, init); } finally { inFlight--; }
+  };
+  await fresh.checkImages("gateway", appCompose, counting);
+  assert.ok(fresh.provenImages.size > 0);
+  assert.ok(peak > 1, "Rekor batches were fetched one at a time");
+  calls = 0;
+  await fresh.checkImages("gateway", appCompose, counting);
+  assert.equal(calls, 0);
+});

@@ -24,15 +24,22 @@ async function tdxQuote(quote) {
   return { tcbStatus: result.status, advisoryIds: result.advisory_ids, debugEnabled: !!(td.tdAttributes[0] & 1),
     reportData: td.reportData, mrConfigId: td.mrConfigId, rtMr3: td.rtMr3 };
 }
-const summary = v => ({ signingAddress: v.signer.signingAddress, tcbStatus: v.tcbStatus,
-  advisoryIds: v.advisoryIds, composeHash: v.deployment.runtimeMeasurements.composeHash });
+// app-id and instance-id are RTMR3 events the SDK replays against the verified quote.
+// The model key is shared across instances, so instance-id names the attesting one.
+function identity(raw) {
+  const log = normalized(raw).eventLog, events = typeof log === "string" ? JSON.parse(log) : log;
+  const value = name => events.find(e => e.imr === 3 && e.event === name)?.event_payload;
+  return { appId: value("app-id"), instanceId: value("instance-id") };
+}
+const summary = (v, raw) => ({ signingAddress: v.signer.signingAddress, tcbStatus: v.tcbStatus,
+  advisoryIds: v.advisoryIds, composeHash: v.deployment.runtimeMeasurements.composeHash, ...identity(raw) });
 
 export async function checkEvidence(e, model, started, expectedNonce, modelPublicKey) {
   require(e?.provider === "near" && e.model === model && e.mode === "broker-e2ee", "Provider attestation is invalid or names another model.");
   require(/^[0-9a-f]{64}$/.test(expectedNonce), "Provider attestation needs a 32-byte client challenge.");
   const report = e.report, rawGateway = report?.gateway_attestation;
   require(/^[0-9a-f]{64}$/.test(rawGateway?.tls_cert_fingerprint), "NEAR gateway TLS key binding is missing.");
-  const gateway = await verifyGatewayAttestation({
+  const gatewayCheck = verifyGatewayAttestation({
     attestation: { ...normalized(rawGateway), spkiFingerprint: rawGateway.tls_cert_fingerprint },
     // This compares the quoted fingerprint binding only. Browser Fetch cannot
     // observe the live peer SPKI (NEAR's /cloud/verification/cloud-api/tls).
@@ -41,7 +48,7 @@ export async function checkEvidence(e, model, started, expectedNonce, modelPubli
     verifiers: nearVerifiers("gateway", rawGateway.intel_quote, tdxQuote),
   });
   require(report.model_attestations?.length > 0, "NEAR model quotes are missing.");
-  const models = await Promise.all(report.model_attestations.map(async raw => {
+  const modelChecks = Promise.all(report.model_attestations.map(async raw => {
     require(raw.model_name === model, "NEAR quote names another model.");
     const manager = raw.compose_manager_attestation;
     // include_tls_fingerprint=true also binds SPKI in current model reports.
@@ -62,12 +69,13 @@ export async function checkEvidence(e, model, started, expectedNonce, modelPubli
     if (key.length === 128) key = "04" + key;
     require(computeAddress("0x" + key).toLowerCase() === v.signer.signingAddress.toLowerCase(),
       "Model encryption key differs from the attested signing address. No prompt sent.");
-    return { ...summary(v), model, gpuEvidence: v.gpuEvidence };
+    return { ...summary(v, raw), model, gpuEvidence: v.gpuEvidence };
   }));
+  const [gateway, models] = await Promise.all([gatewayCheck, modelChecks]);
   require(Date.now() - started < 60000, "NEAR attestation took too long. No prompt sent.");
   return { provider: "near", model, nonce: expectedNonce, mode: "broker-e2ee", verifiedAt: Math.floor(Date.now() / 1000),
     verification: "verified", verifier: "browser: @phala/dcap-qvl + @nearai/inference-sdk",
-    gateway: { ...summary(gateway), tlsFingerprint: rawGateway.tls_cert_fingerprint }, models,
+    gateway: { ...summary(gateway, rawGateway), tlsFingerprint: rawGateway.tls_cert_fingerprint }, models,
     tls: { quotedSpkiBinding: "verified-in-browser", livePeerSpki: "not-observable-in-browser" },
     browser: { nonceMatched: true, modelKeyMatched: true, fullQuoteVerifiedBy: "browser",
       gpuEvidence: "NVIDIA NRAS ES384 signature, issuer, expiry, nonce and overall result verified in browser",

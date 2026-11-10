@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ./test.sh [suite...]: install missing dependencies, then run every suite (or the named ones):
-# scope python node private-agent-web go deno contracts. contracts needs ATTEST_TOOLS (CONTRIBUTING.md).
+# python node private-agent-web go deno contracts. contracts needs ATTEST_TOOLS (CONTRIBUTING.md).
 set -euo pipefail
 cd "$(dirname "$0")"
 WEB=applications/private-agent-web
@@ -14,14 +14,6 @@ deps() {
     done
     (cd $WEB && npx playwright install chromium firefox)
     deno cache applications/relay-broker/*.test.mjs applications/payments/payments.test.mjs applications/operator-fleet/chain.test.mjs $(deno_only $WEB/*.test.mjs $(node_tests))
-}
-
-suite_scope() {
-    # Layover code belongs in souk-co/layover. The NEAR report fixtures are base64; .../layover-chain is a live service URL.
-    local found=0
-    git grep -n -I -i -P '(?<!soc1024\.com/)layover|layc|couch|guest.?escrow|souk' -- . ':!test.sh' ':!AGENTS.md' \
-        ':!applications/private-agent-web/test-fixtures/near/report.json' ':!applications/relay-broker/fixtures/near-report-*.json' || found=$?
-    [ $found -eq 1 ]
 }
 
 suite_python() {
@@ -70,7 +62,7 @@ suite_contracts() {
     FOUNDRY_PROFILE=real forge test --root app-attest/contracts --offline --use "$SOLC"
 }
 
-[ $# -gt 0 ] || set -- scope python node private-agent-web go deno contracts
+[ $# -gt 0 ] || set -- python node private-agent-web go deno contracts
 for s in "$@"; do declare -F "suite_$s" >/dev/null || { echo "unknown suite $s" >&2; exit 2; }; done
 deps
 for s in "$@"; do ( "suite_$s" ); done

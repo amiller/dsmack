@@ -477,13 +477,44 @@ def local_image_ref(image):
     return LOCAL_REGISTRY + "/" + image
 
 
+SERVICE_BRIDGE = "dsmack0"
+SERVICE_SUBNET = ipaddress.ip_network("10.213.0.0/24")
+
+
+def service_networks(manifest):
+    """With network.service_egress, every service joins an internal bridge (dsmack0) at a fixed
+    address, and a service whose egress (its service_egress entry, else network.egress) is non-empty
+    also gets its own bridge dsme<i>, its only default route. None without service_egress."""
+    per_service = manifest["network"].get("service_egress")
+    if per_service is None:
+        return None
+    services = sorted(_compose_doc(manifest)["services"])
+    out = {}
+    for i, name in enumerate(services):
+        egress = per_service.get(name, manifest["network"].get("egress", []))
+        out[name] = {"address": str(SERVICE_SUBNET[10 + i]), "bridge": "dsme%d" % i if egress else None, "egress": egress}
+    return out
+
+
+def _accept_rules(egress, match=""):
+    rules = []
+    for entry in egress:
+        net = ipaddress.ip_network(entry["destination"], strict=True)
+        rules.append("  %s%s daddr %s %s dport %d counter accept" % (
+            match, "ip" if net.version == 4 else "ip6", net, entry["protocol"], entry["port"]))
+    return rules
+
+
 def render_egress_rules(manifest):
     """Guest-wide policy, installed atomically before any workload starts.
 
-    Both forwarded container packets and guest processes (including brokers)
-    must match the measured destination tuples. Only loopback and replies to
-    inbound connections bypass those tuples. An inet table also denies IPv6.
+    Guest processes (including brokers) match network.egress. Forwarded container
+    packets match network.egress too, or, with network.service_egress, only the
+    tuples of the service whose bridge they enter on, plus service-to-service
+    traffic on the internal bridge. Only loopback and replies to inbound
+    connections bypass those tuples. An inet table also denies IPv6.
     """
+    services = service_networks(manifest)
     rules = [
         "add table inet dsmack_egress",
         "delete table inet dsmack_egress",
@@ -497,10 +528,13 @@ def render_egress_rules(manifest):
         if hook == "output":
             rules.append('  oifname "lo" accept')
         rules.append("  ct direction reply ct state established,related accept")
-        for entry in manifest["network"].get("egress", []):
-            net = ipaddress.ip_network(entry["destination"], strict=True)
-            rules.append("  %s daddr %s %s dport %d counter accept" % (
-                "ip" if net.version == 4 else "ip6", net, entry["protocol"], entry["port"]))
+        if hook == "output" or services is None:
+            rules += _accept_rules(manifest["network"].get("egress", []))
+        else:
+            rules.append('  iifname "%s" oifname "%s" accept' % (SERVICE_BRIDGE, SERVICE_BRIDGE))
+            for s in services.values():
+                if s["bridge"]:
+                    rules += _accept_rules(s["egress"], 'iifname "%s" ' % s["bridge"])
         rules += ["  counter drop", " }"]
     return "\n".join(rules + ["}", ""])
 
@@ -734,6 +768,17 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
         gen_services[service_name] = gen_service
 
     generated = {"services": gen_services}
+    networks = service_networks(manifest)
+    if networks is not None:
+        generated["networks"] = {"default": {"internal": True, "driver_opts": {"com.docker.network.bridge.name": SERVICE_BRIDGE},
+                                             "ipam": {"config": [{"subnet": str(SERVICE_SUBNET)}]}}}
+        hosts = ["%s:%s" % (name, s["address"]) for name, s in networks.items()]
+        for name, s in networks.items():
+            gen_services[name]["extra_hosts"] = hosts
+            gen_services[name]["networks"] = {"default": {"ipv4_address": s["address"]}}
+            if s["bridge"]:
+                gen_services[name]["networks"][s["bridge"]] = {}
+                generated["networks"][s["bridge"]] = {"driver_opts": {"com.docker.network.bridge.name": s["bridge"]}}
     text_bytes = canonical_bytes(generated)
     if b"$" in text_bytes.replace(b"$$", b""):
         raise LoweringError(

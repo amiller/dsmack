@@ -29,6 +29,25 @@ The supervisor applies nftables to guest output and container forwarding before
 starting brokers or compose. Missing or empty `egress` denies external traffic;
 loopback and replies to inbound connections remain available. DNS requires an
 explicit resolver IP and port entry, which permits queries for any name.
+
+`network.service_egress` (mode `nat`, no `listen_ports`) gives compose services
+their own tuples, so a gateway service can have broad egress that the other
+services cannot use:
+
+```json
+{"mode":"nat","listen_ports":[],"egress":[],
+ "service_egress":{"gateway":[{"destination":"8.0.0.0/7","protocol":"tcp","port":443},
+                              {"destination":"192.168.127.1/32","protocol":"udp","port":53}]}}
+```
+
+A service missing from `service_egress` gets `network.egress`, which also
+remains the policy for guest processes. Every service joins an internal bridge,
+`dsmack0` (10.213.0.0/24), at 10.213.0.(10+i) for the i-th service in sorted
+order, and each service's `/etc/hosts` maps every service name to that address.
+A service with non-empty egress also joins its own bridge `dsme<i>`, which
+carries its only default route; the forward chain accepts its tuples only for
+packets entering on that bridge. Packets between services on `dsmack0` are
+accepted; anything else from a container is dropped.
 `source/smoke/launch_vm_dstack_arm64.py` supplies the workload-disk packer used
 by `applications/pilot-client/workload/transport_loader.py`.
 

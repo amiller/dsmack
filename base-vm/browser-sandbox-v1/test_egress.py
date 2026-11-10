@@ -10,18 +10,35 @@ from unittest.mock import patch
 sys.path.insert(0, str(Path(__file__).parent / "source/runner-content/lib"))
 from dsmack_compose_contract.egress import apply
 from dsmack_compose_contract.errors import MultiError
-from dsmack_compose_contract.lowering import lower, render_egress_rules
+from dsmack_compose_contract.lowering import lower, render_compose_file, render_egress_rules
 from dsmack_compose_contract.manifest import validate_manifest_bytes
 from test_dstack_app_compose import COMPOSE, DSMACK
 
 
-def raw(egress=(), mode="nat"):
+GW = {"destination": "203.0.113.0/24", "protocol": "tcp", "port": 443}
+DNS = {"destination": "192.0.2.1", "protocol": "udp", "port": 53}
+
+
+def raw(egress=(), mode="nat", service_egress=None, compose=COMPOSE, listen_ports=()):
     manifest = copy.deepcopy(DSMACK)
-    manifest.update(manifest_version=4, name="worker", docker_compose_file=COMPOSE, allowed_envs=[])
-    manifest["network"] = {"mode": mode, "listen_ports": []}
+    manifest.update(manifest_version=4, name="worker", docker_compose_file=compose, allowed_envs=[])
+    manifest["network"] = {"mode": mode, "listen_ports": list(listen_ports)}
     if egress != ():
         manifest["network"]["egress"] = egress
+    if service_egress is not None:
+        manifest["network"]["service_egress"] = service_egress
+        manifest["outputs"]["completion_service"] = "worker"
     return json.dumps(manifest).encode()
+
+
+def two_services():
+    doc = json.loads(COMPOSE)
+    doc["services"]["gateway"] = dict(doc["services"]["worker"])
+    return json.dumps(doc)
+
+
+def chain(rules, hook):
+    return rules.split(" chain " + hook + " {", 1)[1].split(" }", 1)[0]
 
 
 class Egress(unittest.TestCase):
@@ -80,6 +97,49 @@ class Egress(unittest.TestCase):
         manifest, summary = validate_manifest_bytes(encoded)
         self.assertEqual(summary["manifest_sha256"], hashlib.sha256(encoded).hexdigest())
         self.assertIn("ip daddr 192.0.2.0/24 udp dport 53 counter accept", render_egress_rules(manifest))
+
+    def test_manifest_without_service_egress_keeps_the_default_compose_network(self):
+        manifest, summary = validate_manifest_bytes(raw([GW]))
+        lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/docker.sock", run_id="test")
+        self.assertEqual(set(json.loads(render_compose_file(manifest, lowered))), {"services"})
+        self.assertNotIn("iifname", lowered["egress_nftables"])
+
+    def test_service_egress_reaches_only_the_named_service(self):
+        manifest, summary = validate_manifest_bytes(raw([DNS], service_egress={"gateway": [GW, DNS], "worker": []}, compose=two_services()))
+        lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/docker.sock", run_id="test")
+        rules = lowered["egress_nftables"]
+        self.assertEqual(chain(rules, "output").count("counter accept"), 1)
+        self.assertIn("ip daddr 192.0.2.1/32 udp dport 53 counter accept", chain(rules, "output"))
+        forward = chain(rules, "forward")
+        self.assertEqual([line.strip() for line in forward.splitlines() if "accept" in line], [
+            "ct direction reply ct state established,related accept",
+            'iifname "dsmack0" oifname "dsmack0" accept',
+            'iifname "dsme0" ip daddr 203.0.113.0/24 tcp dport 443 counter accept',
+            'iifname "dsme0" ip daddr 192.0.2.1/32 udp dport 53 counter accept'])
+        compose = json.loads(render_compose_file(manifest, lowered))
+        self.assertEqual(compose["networks"], {
+            "default": {"internal": True, "driver_opts": {"com.docker.network.bridge.name": "dsmack0"},
+                        "ipam": {"config": [{"subnet": "10.213.0.0/24"}]}},
+            "dsme0": {"driver_opts": {"com.docker.network.bridge.name": "dsme0"}}})
+        self.assertEqual(compose["services"]["gateway"]["networks"], {"default": {"ipv4_address": "10.213.0.10"}, "dsme0": {}})
+        self.assertEqual(compose["services"]["worker"]["networks"], {"default": {"ipv4_address": "10.213.0.11"}})
+        for service in compose["services"].values():
+            self.assertEqual(service["extra_hosts"], ["gateway:10.213.0.10", "worker:10.213.0.11"])
+
+    def test_unlisted_services_inherit_network_egress(self):
+        manifest, _ = validate_manifest_bytes(raw([DNS], service_egress={"gateway": [GW]}, compose=two_services()))
+        forward = chain(render_egress_rules(manifest), "forward")
+        self.assertIn('iifname "dsme0" ip daddr 203.0.113.0/24 tcp dport 443 counter accept', forward)
+        self.assertIn('iifname "dsme1" ip daddr 192.0.2.1/32 udp dport 53 counter accept', forward)
+        self.assertEqual(forward.count("dport"), 2)
+
+    def test_bad_service_egress_is_refused(self):
+        compose = two_services()
+        for kwargs in ({"service_egress": {"browser": [GW]}}, {"service_egress": [GW]}, {"service_egress": {"gateway": [{**GW, "port": 0}]}},
+                       {"service_egress": {"gateway": GW}}, {"service_egress": {"gateway": [GW]}, "listen_ports": [8080]},
+                       {"service_egress": {"gateway": [GW]}, "mode": "none"}):
+            with self.subTest(kwargs=kwargs), self.assertRaises(MultiError):
+                validate_manifest_bytes(raw(compose=compose, **kwargs))
 
 
 if __name__ == "__main__":

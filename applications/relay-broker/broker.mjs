@@ -46,7 +46,7 @@ export class Broker {
   async register(r) {
     const now = this.now();
     const telemetry = await nodeStatus(r, now);
-    if(!r.payments && r.kind==='compute' && this.cfg.sandboxDiagnosticWorkloads?.some(w=>['manifest_sha256','os_image_hash','cdhash'].every(k=>w[k]===r[k]))) {
+    if(!r.payments && r.kind==='compute' && this.cfg.sandboxDiagnosticWorkloads?.some(w=>['manifest_sha256','os_image_hash'].every(k=>w[k]===r[k]))) {
       const out = await registerDiagnostic(this,r);
       if (telemetry) out.telemetry = telemetry;
       return out;

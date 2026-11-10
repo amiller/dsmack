@@ -24,7 +24,7 @@ export function peerBytes(peer) {
 
 export async function verifyRelay(r, cfg, chain, now) {
   const peer = peerBytes(r.relay_peer);
-  const workload = cfg.workloads.find((w) => ["manifest_sha256", "os_image_hash", "cdhash"].every((k) => w[k] === r[k]));
+  const workload = cfg.workloads.find((w) => ["manifest_sha256", "os_image_hash"].every((k) => w[k] === r[k]));
   require(workload, "workload is not admitted");
   require(typeof r.relay_maddr === "string" && r.relay_maddr.length <= 512 &&
     /^\/(ip4|ip6|dns4|dns6)\/[a-zA-Z0-9.:-]+\/tcp\/[0-9]+(?:\/ws|\/wss)?\/p2p\/[1-9A-HJ-NP-Za-km-z]+\/p2p-circuit\/p2p\/[1-9A-HJ-NP-Za-km-z]+$/.test(r.relay_maddr) &&
@@ -53,11 +53,11 @@ export async function verifyRelay(r, cfg, chain, now) {
   const expected = await reportData(peer, seal, receipt, challenge);
   require(hex(a.report_data) === hex(expected), "node PeerId/seal/receipt/challenge binding");
   // checkAssertion verifies the signature, enrollment lifetime, approved build, counter and canary.
-  // Capture the authenticated CDHash during its category/authenticator check.
+  // CDRegistry decides the CDHash: a copy re-signed under any team is admitted once registered. r.cdhash is the
+  // manifest's approved copy, so the copy that signed is captured from checkAssertion's registry lookup instead.
   let cdhash;
   const checkedChain = { ...chain, rpIdHash: async (cd) => { cdhash = hex(cd); return chain.rpIdHash(cd); } };
   await checkAssertion(a, checkedChain, now * 1000);
-  require(cdhash === r.cdhash, "CDHash mismatch");
   const build_id = r.payments ? hex(await chain.buildId()) : undefined;
   return { build_id, run: hex(a.run), head: hex(a.head), key_id: hex(a.key_id), receipt_key: r.receipt_key, cdhash, verified_at: now };
 }

@@ -123,10 +123,6 @@ class BrowsePolicyTests(unittest.TestCase):
                     with self.assertRaisesRegex(PermissionError,message):server.policy(token)
             finally:broker.shutdown();t.join()
 
-
-if __name__=='__main__':unittest.main()
-
-
 class BrowseUpstreamTests(unittest.TestCase):
     def test_browse_traffic_goes_through_the_upstream_and_operator_hosts_do_not(self):
         with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
@@ -143,7 +139,9 @@ class BrowseUpstreamTests(unittest.TestCase):
                         client.sendall(f'CONNECT {host}:443 HTTP/1.1\r\n{auth}\r\n'.encode())
                         if token:
                             self.assertTrue(peer.recv(1024).startswith(b'CONNECT 93.184.215.14:443 '))
-                            peer.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n')
+                            peer.sendall(b'HTTP/1.1 200 Connection established\r\n');peer.sendall(b'\r\n')
                         self.assertIn(b'200',client.recv(1024))
                         self.assertEqual(dial.call_args[0][0],expect)
             finally:server.shutdown();t.join()
+
+if __name__=='__main__':unittest.main()

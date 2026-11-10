@@ -77,7 +77,12 @@ class Handler(socketserver.StreamRequestHandler):
             if via:
                 # Browse traffic leaves through the operator's upstream (a VPN), not the Mac's own line.
                 upstream.sendall(f'CONNECT {address}:443 HTTP/1.1\r\nHost: {address}:443\r\n\r\n'.encode())
-                reply = upstream.recv(4096)
+                reply = b''
+                while b'\r\n\r\n' not in reply:
+                    chunk = upstream.recv(1)
+                    if not chunk or len(reply) > 8192:
+                        raise ConnectionError(f'upstream CONNECT reply incomplete: {reply[:80]!r}')
+                    reply += chunk
                 if not re.match(rb'HTTP/1\.[01] 200', reply):
                     raise ConnectionError(f'upstream refused CONNECT: {reply[:80]!r}')
             self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n'); self.wfile.flush()
@@ -135,6 +140,8 @@ if __name__ == '__main__':
     a = p.parse_args()
     if not 1 <= a.connection_seconds <= 3600:
         p.error('connection lifetime must be 1..3600 seconds')
+    if bool(a.browse_url) != bool(a.upstream):
+        p.error('--browse-url needs --upstream, so browse traffic never leaves from this host\'s own line')
     if bool(a.browse_url) != bool(a.publisher) or (a.publisher and not re.fullmatch(r'0x[0-9a-fA-F]{40}', a.publisher)):
         p.error('--browse-url and --publisher (an 0x address) go together')
     if any(not re.fullmatch(HOST_RE, host) for host in a.allow_host):

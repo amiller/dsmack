@@ -60,7 +60,6 @@ type admission struct {
 type terms struct {
 	id               string
 	seconds, expires int64
-	escrow           *payments.CouchTerms
 }
 
 func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, now int64) (terms, error) {
@@ -79,7 +78,7 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 			body[k] = v
 		}
 	}
-	if (len(body) != 7 && !(len(body) == 8 && body["escrow"] != nil)) || !ed25519.Verify(key, canon(body), signature) {
+	if len(body) != 7 || !ed25519.Verify(key, canon(body), signature) {
 		return fail()
 	}
 	id, _ := body["grant_id"].(string)
@@ -88,18 +87,7 @@ func checkGrant(g map[string]any, key ed25519.PublicKey, node, client string, no
 	if body["v"] != float64(1) || body["unit"] != "seconds" || body["relay_peer"] != node || body["client_peer"] != client || !validID(id) || !sok || !eok || seconds < 1 || seconds > 3600 || math.Trunc(seconds) != seconds || math.Trunc(expiry) != expiry || expiry <= float64(now) {
 		return fail()
 	}
-	var escrow *payments.CouchTerms
-	if value, ok := body["escrow"]; ok {
-		encoded, err := json.Marshal(value)
-		if err != nil {
-			return fail()
-		}
-		escrow = &payments.CouchTerms{}
-		if json.Unmarshal(encoded, escrow) != nil {
-			return fail()
-		}
-	}
-	return terms{id: id, seconds: int64(seconds), expires: int64(expiry), escrow: escrow}, nil
+	return terms{id: id, seconds: int64(seconds), expires: int64(expiry)}, nil
 }
 
 type engine struct {

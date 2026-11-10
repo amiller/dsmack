@@ -20,10 +20,10 @@ const ATTEST = "0x" + "a1".repeat(20), REGISTRY = "0x" + "a2".repeat(20), CANARY
 const manifest = bytes32(0x99), image = bytes32(0x7c), cdhash = bytes32(0x0c), rp = bytes32(0x5e), build = bytes32(0xdf);
 const node = "0x" + "3a".repeat(32), code = "0x6000";
 
-// layover-chain over AppleAttestRegistry, CDRegistry, Canary and UsageEscrow; registry.keys is what enroll() would have
+// chain-read over AppleAttestRegistry, CDRegistry, Canary and UsageEscrow; registry.keys is what enroll() would have
 // stored. tamper(reply) lets a test corrupt what the service answers.
-const CHAIN_READ = "https://chain.invalid/layover-chain", BLOCK = "0x" + "b1".repeat(32);
-function layoverChain(registry, broker, operator, tamper = (j) => j) {
+const CHAIN_READ = "https://chain.invalid/chain-read", BLOCK = "0x" + "b1".repeat(32);
+function chainRead(registry, broker, operator, tamper = (j) => j) {
   const keys = (kid) => registry.get(kid) ?? { x: new Uint8Array(32), y: new Uint8Array(32), expires: 0, enrolled: false };
   const call = (to, data) => {
     const sel = data.slice(0, 10), arg = data.slice(10);
@@ -88,8 +88,8 @@ async function setup() {
   const brokerCfg = { workloads: [{ manifest_sha256: hex(manifest), os_image_hash: hex(image), cdhash: hex(cdhash), service: "node" }] };
   const broker = new Payments({ cfg, key: brokerKey, now: () => NOW, save: async () => {},
     chain: new HeliosReader({ escrow, codeHash: keccak256(code), chainRead: CHAIN_READ }), ownership: async () => state });
-  globalThis.fetch = layoverChain(registry, brokerKey, operator.address);
-  const tamper = (f) => { globalThis.fetch = layoverChain(registry, brokerKey, operator.address, f); };
+  globalThis.fetch = chainRead(registry, brokerKey, operator.address);
+  const tamper = (f) => { globalThis.fetch = chainRead(registry, brokerKey, operator.address, f); };
   const admit = (r) => broker.register(r, brokerCfg);
   return { broker, operator, domain, state, link, enroll, admit, tamper };
 }
@@ -144,13 +144,13 @@ test("the run binds to the attesting key, and a link to another operator or by a
   await assert.rejects(admit(await guest(broker, other, operator.address)), /signature/);
 });
 
-test("admission reads only Helios-verified layover-chain answers for one pinned block, and fails closed", async () => {
+test("admission reads only Helios-verified chain-read answers for one pinned block, and fails closed", async () => {
   const { broker, operator, link, enroll, admit, tamper } = await setup();
   const key = await deviceKey();
   enroll(key); await link(key, 1);
   await admit(await guest(broker, key, operator.address));
   tamper((j) => j.result ? { ...j, verified_by: undefined } : j);
-  await assert.rejects(admit(await guest(broker, key, operator.address)), /layover-chain \/call: HTTP 200/);
+  await assert.rejects(admit(await guest(broker, key, operator.address)), /chain-read \/call: HTTP 200/);
   tamper((j) => j.result ? { ...j, block_hash: "0x" + "b2".repeat(32) } : j);
   await assert.rejects(admit(await guest(broker, key, operator.address)), /answered for another block/);
   tamper((j) => j.depth === undefined ? j : { ...j, depth: 0, block: 1000 });
@@ -167,7 +167,7 @@ test("deposit credit is minted only from a Helios-verified deposits() read", asy
   const { broker, tamper } = await setup();
   const wallet = Wallet.createRandom().address.toLowerCase();
   tamper((j) => j.result ? { ...j, verified_by: undefined } : j);
-  await assert.rejects(broker.syncBalance(wallet), /layover-chain \/call: HTTP 200/);
+  await assert.rejects(broker.syncBalance(wallet), /chain-read \/call: HTTP 200/);
   assert.equal(broker.state.inferenceCredit?.[wallet], undefined);
   tamper((j) => j);
   await broker.syncBalance(wallet);

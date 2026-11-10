@@ -980,7 +980,7 @@ async function initChat() {
 }
 
 // On-chain mode (the default) pins code only: the guest's App Attest key is read from AppleAttestRegistry through
-// layover-chain (Helios) and must have a MacLink to the payee, so a Mac's key rotation needs no new policy.
+// chain-read (Helios) and must have a MacLink to the payee, so a Mac's key rotation needs no new policy.
 function loadPolicy(raw) {
   const onChain = (raw?.enrollmentMode ?? "on-chain") === "on-chain";
   require(

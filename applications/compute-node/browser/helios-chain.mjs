@@ -1,9 +1,8 @@
-// Base Sepolia reads through layover-chain, which answers only what its Helios light client verified. snapshot() pins one
+// Base Sepolia reads through chain-read, which answers only what its Helios light client verified. snapshot() pins one
 // verified block 30 blocks behind the head and returns the rpcChain interface (dstack-compat/secret-release/policy.mjs)
 // over it. Helios spends seconds on each new (contract, calldata, block) and queues concurrent ones behind each other,
 // so a snapshot fetches each read once, one at a time, and is reused for `maxAge` seconds. A failed read is not kept.
 // snapshot() also reads everything verifyNode needs that names no guest, so a caller can do it before opening a stay.
-// The same file is vendored in the layover couch kit as chain.mjs.
 import { hex, unhex } from "../../../dstack-compat/secret-release/policy.mjs";
 
 export const CHAIN_READ = "https://pod.dstack.soc1024.com/layover-chain";
@@ -13,14 +12,14 @@ export const CHAIN_READ = "https://pod.dstack.soc1024.com/layover-chain";
 export function heliosChain({ attest, canary, registry, cdhash, image }, base = CHAIN_READ, maxAge = 30) {
   const get = async (path, what) => {
     const r = await fetch(base + path), j = await r.json();
-    if (!r.ok || j.verified_by !== "helios-opstack") throw new Error(`layover-chain ${what}: HTTP ${r.status} ${j.error ?? ""}`);
+    if (!r.ok || j.verified_by !== "helios-opstack") throw new Error(`chain-read ${what}: HTTP ${r.status} ${j.error ?? ""}`);
     return j;
   };
   const pin = async () => {
     const block = (await get("/head?depth=30", "head")).block_hash, reads = new Map();
     const fetchCall = async (to, data) => {
       const j = await get(`/call?to=${to}&data=${data}&block=${block}`, `call ${to} ${data.slice(0, 10)}`);
-      if (j.block_hash !== block) throw new Error(`layover-chain answered for block ${j.block_hash}, not ${block}`);
+      if (j.block_hash !== block) throw new Error(`chain-read answered for block ${j.block_hash}, not ${block}`);
       return unhex(j.result.slice(2));
     };
     const call = (to, data) => {

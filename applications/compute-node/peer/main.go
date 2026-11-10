@@ -26,7 +26,6 @@ import (
 	"syscall"
 	"time"
 
-	payments "dsmack-payments"
 	"dsmack-peer/p2p"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p/core/network"
@@ -343,19 +342,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return err
 	}
 	if paid != nil {
-		// GuestEscrow reconstructs report_data as abi.encode(key, operator).
-		// Keep this proof separate from the challenge-bound node proof.
-		keyAttestation, err := attest(paid.GuestKeyReport())
-		if err != nil {
-			return fmt.Errorf("guest claim key attestation: %w", err)
-		}
-		guestKey := map[string]string{"address": paid.Registration.ReceiptSigner,
-			"operator": paid.Operator, "escrow": payments.GuestEscrow,
-			"attestation": hex.EncodeToString(keyAttestation)}
-		registration["guest_key"] = guestKey
-		if err := os.WriteFile("/workspace/artifacts/guest-key", canon(guestKey), 0644); err != nil {
-			return err
-		}
 		h.SetStreamHandler("/dsmack/payments-stop/1", func(s network.Stream) {
 			defer s.Close()
 			s.SetDeadline(time.Now().Add(20 * time.Second))
@@ -403,14 +389,6 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			registrationMu.Unlock()
 			payment := paid.Registration
 			payment.Challenge = request.Challenge
-			freshKeyAttestation, err := attest(paid.GuestKeyReport())
-			if err != nil {
-				return
-			}
-			freshGuestKey := map[string]string{"address": paid.Registration.ReceiptSigner,
-				"operator": paid.Operator, "escrow": payments.GuestEscrow,
-				"attestation": hex.EncodeToString(freshKeyAttestation)}
-			copy["guest_key"] = freshGuestKey
 			copy["payments"] = payment
 			copy["attestation"] = hex.EncodeToString(att)
 			s.Write(canon(copy))

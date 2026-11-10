@@ -90,9 +90,6 @@ async function handle(req, escrow, path, now) {
     }
     need(body.config && Number.isSafeInteger(body.config.max_guests) && body.config.max_guests > 0,
       "capacity config");
-    need(body.config.rate_layc_per_second === undefined ||
-      (Number.isSafeInteger(body.config.rate_layc_per_second) && body.config.rate_layc_per_second > 0),
-      "couch LAYC rate must be a positive integer");
     need(body.hardware && typeof body.hardware.name === "string" && body.hardware.name.length <= 256, "Mac hardware");
     need(typeof body.version === "string" && body.version.length <= 128, "pool version");
     need(Array.isArray(body.slots) && body.slots.length <= 64, "at most 64 guest states");

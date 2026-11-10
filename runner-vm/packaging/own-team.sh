@@ -13,15 +13,18 @@ send() { cast send --rpc-url "$RPC" --account "${ACCOUNT:?cast keystore account}
 measure() { "$py" "$root/contracts/cd_args.py" --measure "$1" | grep -v entitlements_der; }
 
 mkdir -p "${OUT:?output directory}"
-out="$(cd "$OUT" && pwd)"
+out="$(cd "$OUT" && pwd -P)"
 app="$out/DsmackRunner.app"
 bin="$app/Contents/MacOS/dsmack-runner"
-src="${APP:?approved DsmackRunner.app}/Contents/MacOS/dsmack-runner"
+[ -d "${APP:?approved DsmackRunner.app}" ] || die "APP $APP is not a directory"
+# The copy replaces OUT/DsmackRunner.app, so APP must live somewhere else.
+[ "$(cd "$APP" && pwd -P)" != "$app" ] || die "APP is OUT/DsmackRunner.app; unpack the release outside OUT"
+src="$APP/Contents/MacOS/dsmack-runner"
 
 # Re-sign. The entitlements are the approved app's own with the three values AMFI checks against the
 # profile replaced; CDRegistry compares every other entitlement byte for byte.
 security cms -D -i "${PROFILE:?provisioning profile}" > "$out/profile.plist"
-codesign -d --entitlements - --xml "$APP" 2>/dev/null > "$out/approved-entitlements.plist"
+codesign -d --entitlements - --xml "$APP" > "$out/approved-entitlements.plist"
 app_id="$("$py" - "$out" <<'PY'
 import plistlib, sys
 out = sys.argv[1]

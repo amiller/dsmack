@@ -51,7 +51,8 @@ entry ID of Apple's App Attest intermediate in `AppleEndorsements`
 ([app-attest/DEPLOY.md](../app-attest/DEPLOY.md)).
 
 `OUT` has the layout of a runner directory. To launch workloads from it, add the release's
-`base/` and `runtime/` as its `HOST-START-HERE.txt` describes.
+`base/` and `runtime/` as its `HOST-START-HERE.txt` describes. The script replaces
+`OUT/DsmackRunner.app`, so keep `APP` outside `OUT`; it refuses when they are the same app.
 
 ## Link the key to an operator
 

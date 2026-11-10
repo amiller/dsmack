@@ -73,7 +73,8 @@ class Handler(socketserver.StreamRequestHandler):
                 return
         print(json.dumps({'host': host, 'rule': rule}), flush=True)
         via = server.upstream if rule in ('named', 'open') else None
-        with socket.create_connection(via or (address, 443), timeout=10) as upstream:
+        # A VPN upstream may need a fresh tunnel handshake before it answers CONNECT (10 s timed out on 2026-11-10).
+        with socket.create_connection(via or (address, 443), timeout=30 if via else 10) as upstream:
             if via:
                 # Browse traffic leaves through the operator's upstream (a VPN), not the Mac's own line.
                 upstream.sendall(f'CONNECT {address}:443 HTTP/1.1\r\nHost: {address}:443\r\n\r\n'.encode())

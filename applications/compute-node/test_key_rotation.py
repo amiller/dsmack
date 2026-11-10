@@ -67,7 +67,7 @@ class KeyWatchTests(unittest.TestCase):
 
 
 class Fake(http.server.BaseHTTPRequestHandler):
-    """layover-chain, a JSON-RPC node and the broker's ownership routes, in one server."""
+    """chain-read, a JSON-RPC node and the broker's ownership routes, in one server."""
     def log_message(self, *_):
         pass
 

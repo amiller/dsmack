@@ -7,7 +7,7 @@ date: 2026-11-03
 
 > **Superseded for the relay-broker (dsmack#101).** The broker's chain reads, meaning guest admission (App Attest keys,
 > CDRegistry, canary, code pins, UsageEscrow class and broker signer), `/payments/classes` and deposit credit
-> (`syncBalance`), now go through layover-chain (`chainRead`, https://pod.dstack.soc1024.com/layover-chain). That
+> (`syncBalance`), now go through chain-read (`chainRead`, https://pod.dstack.soc1024.com/layover-chain). That
 > service answers only what its Helios OP-stack light client verified. `payments/helios-reader.mjs` pins every read
 > to one verified block hash at least 30 blocks behind the verified head. It refuses a reply that is not marked
 > `helios-opstack`, that is pinned to another block, that ignored the requested depth, or that comes from a head older

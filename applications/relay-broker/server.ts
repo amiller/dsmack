@@ -42,9 +42,9 @@ async function load(ctx: Context) {
   if (cfg.enrollments || cfg.payments?.enrollments) {
     throw new Error("broker config must not pin enrollments; enroll the key on AppleAttestRegistry");
   }
-  // Guest admission reads only Helios-verified state through layover-chain, never a public RPC.
+  // Guest admission reads only Helios-verified state through chain-read, never a public RPC.
   if (!cfg.payments || !/^https:\/\//.test(cfg.chainRead)) {
-    throw new Error("broker config needs payments and chainRead (the layover-chain URL)");
+    throw new Error("broker config needs payments and chainRead (the chain-read URL)");
   }
   // Without it, every model charge to a wallet with deposited USDC fails to settle (Nov 9-10 outage).
   if (!/^0x[0-9a-fA-F]{40}$/.test(cfg.payments.inferenceOperator ?? "")) {

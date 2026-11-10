@@ -8,7 +8,7 @@ key it marks the key suspect, stops launching with it and starts `rotate` once. 
            cleared and the pool launches with it again
   enroll   runs the runner's own `enroll` command into a new dir with a fresh challenge
   sign/send/confirm  submits AppleAttestRegistry enroll(leaf, authData, clientData, intermediateId) from the
-           Mac's gas wallet and checks keys(kid) through layover-chain (Helios-verified)
+           Mac's gas wallet and checks keys(kid) through chain-read (Helios-verified)
   link     has the provisioner sign MacLink(kid, publisher, operator, nonce+1) and posts it (dsmack link)
   switch   moves runner/enrollment aside (kept as enrollment.dead-*) and puts the new one in its place;
            follower runners (the line loops) link to runner/enrollment and pick it up at their next launch
@@ -175,10 +175,10 @@ def get_json(url, body=None):
 
 
 def chain(config, path, **query):
-    """A Helios-verified read through layover-chain; anything unverified, including a revert, raises."""
+    """A Helios-verified read through chain-read; anything unverified, including a revert, raises."""
     answer = get_json(config['chain_read'].rstrip('/') + path + '?' + urlencode(query))
     if answer.get('verified_by') != 'helios-opstack':
-        raise RuntimeError('layover-chain %s: %s' % (path, answer.get('error', answer)))
+        raise RuntimeError('chain-read %s: %s' % (path, answer.get('error', answer)))
     return answer
 
 

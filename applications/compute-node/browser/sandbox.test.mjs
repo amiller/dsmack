@@ -111,7 +111,7 @@ test("a runner re-signed under the host's own Apple team verifies once CDRegistr
   assert.equal((await verifyNode(g.r, g.policy)).cdhash, node.command[5], "the approved team's own copy still verifies");
 });
 
-// 2026-11-10: verifyNode made ~13 serial unpinned layover-chain reads, repeating key, category and rpIdHash. Helios took
+// 2026-11-10: verifyNode made ~13 serial unpinned chain-read reads, repeating key, category and rpIdHash. Helios took
 // 5-25 s per cold read, so a stay opened before verification passed the broker's 90 s unused-stay window and was freed.
 test("a Helios snapshot pins every read to one block, reads each once, and leaves only the guest's key for after the claim", async () => {
   const { enroll, link, guest, chain } = await setup(), key = await deviceKey();
@@ -133,7 +133,7 @@ test("a Helios snapshot pins every read to one block, reads each once, and leave
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url) => {
     const u = new URL(url), reply = (status, body) => ({ ok: status === 200, status, json: async () => ({ ...body, verified_by: "helios-opstack" }) });
-    if (u.pathname === "/layover-chain/head") return reply(200, { block_hash: blocks[heads++] });
+    if (u.pathname === "/chain-read/head") return reply(200, { block_hash: blocks[heads++] });
     const [to, data, block] = ["to", "data", "block"].map((k) => u.searchParams.get(k));
     calls.push({ to, data, block, failed: data.startsWith(fail) });
     if (data.startsWith(fail)) { fail = undefined; return { ok: false, status: 502, json: async () => ({ error: "helios eth_call: timeout" }) }; }
@@ -141,8 +141,8 @@ test("a Helios snapshot pins every read to one block, reads each once, and leave
   };
   try {
     const helios = heliosChain({ attest: attestAddr, canary, registry, cdhash: node.command[5], image: m.base_vm.os_image_hash },
-      "https://chain.invalid/layover-chain");
-    await assert.rejects(helios.snapshot(), /layover-chain call 0x(ca)+ 0xe62b7cbd: HTTP 502/);
+      "https://chain.invalid/chain-read");
+    await assert.rejects(helios.snapshot(), /chain-read call 0x(ca)+ 0xe62b7cbd: HTTP 502/);
     const pinned = await helios.snapshot();
     assert.equal(heads, 1, "a failed read does not discard the snapshot");
     const before = calls.length, g = await guest(key);

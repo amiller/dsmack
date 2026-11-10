@@ -35,7 +35,7 @@ broker change. A paid guest is admitted only if the key that signed its
 attestation has a verified MacLink (`/fleet/link`) to its class operator.
 Guest admission (paid and unpaid), `/payments/classes` and deposit credit read App Attest
 keys, CDRegistry, Canary, deployed code, the UsageEscrow class and `deposits` only
-through `chainRead`, the layover-chain service
+through `chainRead`, the chain-read service
 (Helios OP-stack light client): every read is pinned to one verified block hash and a
 reply not marked `helios-opstack` is refused (`payments/helios-reader.mjs`). The
 continuity anchor still uses its own RPC provider.

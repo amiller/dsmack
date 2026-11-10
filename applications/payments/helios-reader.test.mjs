@@ -3,8 +3,8 @@ import { test } from "node:test";
 import { keccak256 } from "./schema.mjs";
 import { HeliosReader, sharedSnapshots } from "./helios-reader.mjs";
 
-const escrow = "0x" + "35".repeat(20), code = "0x6000", CHAIN_READ = "https://chain.invalid/layover-chain";
-// layover-chain whose head advances one block per /head; `fail` makes the next /head refuse. Counts fetches per path.
+const escrow = "0x" + "35".repeat(20), code = "0x6000", CHAIN_READ = "https://chain.invalid/chain-read";
+// chain-read whose head advances one block per /head; `fail` makes the next /head refuse. Counts fetches per path.
 function chain() {
   const c = { head: 1000, fetches: [], fail: false };
   globalThis.fetch = async (url) => {
@@ -63,7 +63,7 @@ test("a snapshot is never served past 2 * seconds: callers wait for the next and
   assert.equal(await shared.snapshot(), a);
   await new Promise((r) => setTimeout(r, 10));
   t = 60;
-  await assert.rejects(shared.snapshot(), /layover-chain \/head: HTTP 502 helios down/);
+  await assert.rejects(shared.snapshot(), /chain-read \/head: HTTP 502 helios down/);
   c.fail = false;
   assert.ok((await shared.snapshot()).block.number > a.block.number);
 });

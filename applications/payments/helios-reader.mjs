@@ -1,4 +1,4 @@
-// Guest admission reads through layover-chain, which answers only what its Helios OP-stack light client verified. A
+// Guest admission reads through chain-read, which answers only what its Helios OP-stack light client verified. A
 // snapshot pins one verified block hash `depth` blocks behind the head; every read names that hash. Same snapshot
 // interface as ChainReader (block, tag, read, call), so admissionChain runs unchanged. Reads fail closed: a reply not
 // marked helios-opstack, or pinned to another block, is an error.
@@ -8,23 +8,23 @@ import { admissionChain } from "./admission.mjs";
 export class HeliosReader {
   constructor({ escrow, codeHash, chainRead, depth = 30, maxHeadAge = 120 }) {
     require(/^0x[0-9a-fA-F]{40}$/.test(escrow) && /^0x[0-9a-fA-F]{64}$/.test(codeHash) && /^https:\/\//.test(chainRead),
-      "escrow, deployed code hash and layover-chain URL required");
+      "escrow, deployed code hash and chain-read URL required");
     Object.assign(this, { escrow, codeHash, base: chainRead.replace(/\/$/, ""), depth, maxHeadAge });
   }
   async get(path, params) {
     const r = await fetch(`${this.base}${path}?${new URLSearchParams(params)}`), j = await r.json();
-    require(r.ok && j.verified_by === "helios-opstack", `layover-chain ${path}: HTTP ${r.status} ${j.error ?? ""}`);
+    require(r.ok && j.verified_by === "helios-opstack", `chain-read ${path}: HTTP ${r.status} ${j.error ?? ""}`);
     return j;
   }
   async snapshot() {
     const head = await this.get("/head", { depth: this.depth });
     require(head.head_age_s <= this.maxHeadAge, `Helios head is ${head.head_age_s} s old`);
     require(Number.isInteger(head.depth) && head.depth >= this.depth && Number.isInteger(head.block) && Number.isInteger(head.head) &&
-      head.block <= head.head - this.depth, `layover-chain /head ignored depth ${this.depth}: ${JSON.stringify(head)}`);
+      head.block <= head.head - this.depth, `chain-read /head ignored depth ${this.depth}: ${JSON.stringify(head)}`);
     const block = { hash: head.block_hash, number: head.block }, tag = { blockHash: block.hash };
     const pinned = async (path, params) => {
       const j = await this.get(path, { ...params, block: block.hash });
-      require(j.block_hash === block.hash, "layover-chain answered for another block");
+      require(j.block_hash === block.hash, "chain-read answered for another block");
       return j;
     };
     const fetchRead = async (method, arg) => {
@@ -57,7 +57,7 @@ export class HeliosReader {
   }
 }
 
-// Each caller used to pin its own block (Base Sepolia makes one every 200 ms), so layover-chain's per-block answers never
+// Each caller used to pin its own block (Base Sepolia makes one every 200 ms), so chain-read's per-block answers never
 // hit and every eth_call paid ~5 s of Helios verification: one guest registration made ~14 reads, 30 s and more, past the
 // guest egress timeout (15 s). Callers now share one snapshot for `seconds`. The next is built in the background and
 // replays the reads of the one it replaces before it is served, so a steady caller never waits on a cold read. A snapshot
@@ -67,7 +67,7 @@ export function sharedSnapshots(reader, seconds = 30, now = () => Date.now() / 1
   const refresh = () => next ??= (async () => {
     const at = now(), s = await reader.snapshot();
     if (current) {
-      require(s.block.number >= current.s.block.number, "layover-chain pinned an older block than the served snapshot");
+      require(s.block.number >= current.s.block.number, "chain-read pinned an older block than the served snapshot");
       await Promise.allSettled([...current.s.used].map(s.warm));
     }
     return current = { s, at };

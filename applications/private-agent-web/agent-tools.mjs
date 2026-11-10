@@ -124,9 +124,12 @@ export class GuestSession {
           const messages = this.record?.agent.state.messages || [];
           const assistant = messages.findLast(message => message.role === "assistant");
           let result;
-          try { result = await client.callTool({ name: tool.name, arguments: args,
-            ...(this.node.policy.monitor?.name === "baseline-pg2" ? { _meta: { "dsmack/monitorResponse": JSON.stringify(assistant?.content) } } : {}),
-          }, {
+          // The stay's browse token lets the Mac's proxy admit this stay's public HTTPS egress.
+          const _meta = {
+            ...(this.lease?.browse?.token ? { "dsmack/browse": this.lease.browse.token } : {}),
+            ...(this.node.policy.monitor?.name === "baseline-pg2" ? { "dsmack/monitorResponse": JSON.stringify(assistant?.content) } : {}),
+          };
+          try { result = await client.callTool({ name: tool.name, arguments: args, ...(Object.keys(_meta).length ? { _meta } : {}) }, {
             signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
             onprogress: p => {
               if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress, ...(dsmackMac ? { dsmackMac } : {}) } });

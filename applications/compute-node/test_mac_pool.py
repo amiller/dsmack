@@ -314,7 +314,7 @@ class OwnedTransportCleanupTests(unittest.TestCase):
             relay.chmod(0o755)
             args = ['mac-pool.py', '--state', str(root/'pool-one'), '--runner', str(root), '--workload', str(workload),
                     '--relay', str(relay), '--relay-key', str(relay), '--cloudflared', str(relay),
-                    '--publisher-key', str(relay), '--publisher-address', 'publisher', '--registry', 'registry',
+                    '--publisher-key', str(relay), '--publisher-address', 'publisher', '--registry', 'registry', '--browse-upstream', '127.0.0.1:18889',
                     '--broker', 'https://broker.test', '--index', 'https://broker.test/tunnels', '--pool-version', 'test']
             with mock.patch.object(sys, 'argv', args), mock.patch.object(mac_pool, 'operator_config'), \
                     mock.patch.object(mac_pool, 'hardware'), mock.patch.object(mac_pool, 'measured_size'), \

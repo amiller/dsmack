@@ -138,7 +138,10 @@ the latest status; the fleet page reads job and earnings events from the escrow.
 
 `mac-pool.py` starts the loopback libp2p relay, its broker backhaul, a Cloudflare
 quick tunnel, the allowlisted CONNECT proxy, and the guest pool. It publishes
-signed, expiring relay hints to the HTTP index and Base Sepolia.
+signed, expiring relay hints to the HTTP index and Base Sepolia. Guest browse
+traffic (a stay's `named` or `open` policy) goes through `--browse-upstream`, an
+HTTP CONNECT proxy such as a ProtonVPN wireproxy, so it never leaves from the
+Mac's own line; operator and package hosts are dialed directly.
 
 ```sh
 VENV/bin/python applications/compute-node/mac-pool.py \
@@ -146,6 +149,7 @@ VENV/bin/python applications/compute-node/mac-pool.py \
   --relay MAC_RELAY_BINARY --relay-key MAC_RELAY_KEY \
   --cloudflared CLOUDFLARED --publisher-key MAC_PUBLISHER_KEY \
   --publisher-address PUBLISHER_ADDRESS --registry TUNNEL_REGISTRY \
+  --browse-upstream 127.0.0.1:18889 \
   --pool-version SOURCE_COMMIT --restart-config SHORT_FRESH_STATE/restart.json \
   --broker https://pod.dstack.soc1024.com/relay-broker \
   --index https://pod.dstack.soc1024.com/private-agent/tunnels
@@ -275,6 +279,7 @@ nohup "$PYTHON" applications/compute-node/mac-pool.py \
   --cloudflared "$CLOUDFLARED" --publisher-key "$PUBLISHER_KEY" \
   --publisher-address "$PUBLISHER_ADDRESS" --registry "$REGISTRY" \
   --broker "$BROKER" --index "$INDEX" --pool-version "$(git rev-parse HEAD)" \
+  --browse-upstream "$BROWSE_UPSTREAM" \
   --adopt-launcher "$OLD_LAUNCHER_PID" --restart-config "$STATE/restart.json" \
   > "$STATE/launcher-mbb.log" 2>&1 &
 ```

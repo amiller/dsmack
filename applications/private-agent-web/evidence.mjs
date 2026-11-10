@@ -28,7 +28,8 @@ async function tdxQuote(quote) {
 // The model key is shared across instances, so instance-id names the attesting one.
 function identity(raw) {
   const log = normalized(raw).eventLog, events = typeof log === "string" ? JSON.parse(log) : log;
-  const value = name => events.find(e => e.imr === 3 && e.event === name)?.event_payload;
+  // Only this event type binds name and payload to the replayed digest.
+  const value = name => events.find(e => e.imr === 3 && e.event_type === 0x08000001 && e.event === name)?.event_payload;
   return { appId: value("app-id"), instanceId: value("instance-id") };
 }
 const summary = (v, raw) => ({ signingAddress: v.signer.signingAddress, tcbStatus: v.tcbStatus,
@@ -39,6 +40,7 @@ export async function checkEvidence(e, model, started, expectedNonce, modelPubli
   require(/^[0-9a-f]{64}$/.test(expectedNonce), "Provider attestation needs a 32-byte client challenge.");
   const report = e.report, rawGateway = report?.gateway_attestation;
   require(/^[0-9a-f]{64}$/.test(rawGateway?.tls_cert_fingerprint), "NEAR gateway TLS key binding is missing.");
+  require(report.model_attestations?.length > 0, "NEAR model quotes are missing.");
   const gatewayCheck = verifyGatewayAttestation({
     attestation: { ...normalized(rawGateway), spkiFingerprint: rawGateway.tls_cert_fingerprint },
     // This compares the quoted fingerprint binding only. Browser Fetch cannot
@@ -47,7 +49,6 @@ export async function checkEvidence(e, model, started, expectedNonce, modelPubli
     policy: { acceptedTcbStatuses: ["UpToDate"] },
     verifiers: nearVerifiers("gateway", rawGateway.intel_quote, tdxQuote),
   });
-  require(report.model_attestations?.length > 0, "NEAR model quotes are missing.");
   const modelChecks = Promise.all(report.model_attestations.map(async raw => {
     require(raw.model_name === model, "NEAR quote names another model.");
     const manager = raw.compose_manager_attestation;

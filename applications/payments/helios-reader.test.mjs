@@ -76,3 +76,23 @@ test("a failed read is not kept", async () => {
   assert.equal(await s.read("eth_call", [{ to: escrow, data: "0x03" }]), "0x" + "03".padStart(64, "0"));
   assert.equal(calls(c), 1);
 });
+
+test("the next snapshot replays the previous reads one at a time", async () => {
+  chain();
+  const ok = globalThis.fetch;
+  let inFlight = 0, peak = 0;
+  globalThis.fetch = async (url) => {
+    inFlight++; peak = Math.max(peak, inFlight);
+    try { await new Promise((r) => setTimeout(r, 2)); return await ok(url); } finally { inFlight--; }
+  };
+  let t = 0;
+  const shared = sharedSnapshots(reader(), 30, () => t);
+  const a = await shared.snapshot();
+  for (const d of ["0x01", "0x02", "0x03", "0x04"]) await a.read("eth_call", [{ to: escrow, data: d }]);
+  peak = 0;
+  t = 31;
+  await shared.snapshot();
+  await new Promise((r) => setTimeout(r, 100));
+  assert.notEqual(await shared.snapshot(), a);
+  assert.equal(peak, 1);
+});

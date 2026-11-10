@@ -2,6 +2,9 @@ import { checkPageVersion } from "./page-version.mjs";
 import "@mariozechner/mini-lit/dist/MarkdownBlock.js";
 import { renderToolProgress, configureSandboxMac } from "./tool-renderers.mjs";
 import { macFor, sandboxLabel, networkSummary } from "./network-context.mjs";
+import { provenImages } from "../relay-broker/near-policy.mjs";
+// Rekor provenance verified on an earlier visit; the quote, nonce and GPU checks still run every time.
+for (const id of JSON.parse(localStorage.getItem("near-proven-images") ?? "[]")) provenImages.add(id);
 import { AgentInterface } from "@pi-components/components/AgentInterface.js";
 import { SessionListDialog } from "@pi-components/dialogs/SessionListDialog.js";
 import { UserMessage, AssistantMessage } from "@pi-components/components/Messages.js";
@@ -346,6 +349,7 @@ async function usage() {
   }
 }
 function renderEvidence(e) {
+  if (e.browser?.fullQuoteVerifiedBy === "browser") localStorage.setItem("near-proven-images", JSON.stringify([...provenImages]));
   if (e.type !== "guest-run") $("verified").hidden = !!selectedModel || e.browser?.fullQuoteVerifiedBy !== "browser";
   $("attestations").replaceChildren();
   details($("attestations"), "Latest verification details", e);

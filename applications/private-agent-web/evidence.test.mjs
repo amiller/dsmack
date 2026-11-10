@@ -24,6 +24,15 @@ test('authenticates recorded NEAR CPU, gateway SPKI, compose manager, model key 
     const checked = await checkEvidence({ ...envelope, verification: 'untrusted' }, model, recording.now, nonce, key);
     assert.equal(checked.browser.fullQuoteVerifiedBy, 'browser');
     assert.equal(checked.models[0].gpuEvidence, 'verified');
+    assert.equal(checked.gateway.instanceId, '3d54f35174ba0a06695f68af499fe77188d627af');
+    assert.match(checked.models[0].instanceId, /^[0-9a-f]{40}$/);
+    // An event type the SDK replays without binding its name and payload must not supply an identity.
+    const forged = structuredClone(report), log = forged.gateway_attestation.info.tcb_info;
+    const tcb = typeof log === 'string' ? JSON.parse(log) : log;
+    for (const e of tcb.event_log) if (e.event === 'instance-id') { e.event_type = 0; e.event_payload = 'f0'.repeat(20); }
+    forged.gateway_attestation.info.tcb_info = typeof log === 'string' ? JSON.stringify(tcb) : tcb;
+    const forgedCheck = await checkEvidence({ ...envelope, report: forged }, model, recording.now, nonce, key);
+    assert.equal(forgedCheck.gateway.instanceId, undefined);
     assert.equal(checked.tls.livePeerSpki, 'not-observable-in-browser');
 
   } finally { globalThis.fetch=originalFetch; Date.now=originalNow; }

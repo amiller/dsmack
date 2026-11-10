@@ -70,7 +70,11 @@ export function sharedSnapshots(reader, seconds = 30, now = () => Date.now() / 1
       require(s.block.number >= current.s.block.number, "chain-read pinned an older block than the served snapshot");
       // One read at a time: Helios queues concurrent new-block reads, and a burst of ~11 every 30 s held
       // every other layover-chain client (browser guest checks) past its 25 s timeout.
-      for (const k of current.s.used) await Promise.allSettled([s.warm(k)]);
+      // Stop at the served snapshot's limit; reads not warmed by then are fetched on demand.
+      for (const k of [...current.s.used]) {
+        if (now() - current.at >= 2 * seconds) break;
+        await Promise.allSettled([s.warm(k)]);
+      }
     }
     return current = { s, at };
   })().finally(() => { next = undefined; });

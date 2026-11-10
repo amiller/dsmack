@@ -16,7 +16,7 @@ passing through its refusal code and status unchanged.
 
 | | |
 |---|---|
-| Workload | `bounty-98-v1`, node:24.15.0-bookworm-slim (arm64), manifest `bee4f6b0d35c701291a9b0e8715425be1d06385902202e1cdb3589b3fd7e5946` |
+| Workload | `bounty-98-v1`, node:24.15.0-bookworm-slim (arm64), manifest `c214f4f3d97364869ca5041eab9670c045c8e7411b11a0f7c21d4b019111720b` |
 | Guest image | `8783a3bea61a43f48b5b625667ca49784975b0e8d908d4d3b0890d0867bf6030` (runner alpha.3) |
 | Runner build | CDRegistry build of `0c3d3c90`; the Developer ID alpha.3 copy `b98b6aba` is registered |
 | Base commit | `260ac93fb247d057829e033bac24d33ecf9dd2c7` |
@@ -29,7 +29,7 @@ passing through its refusal code and status unchanged.
 - `harness.mjs`: the `candidate` service. Imports the candidate `workspaces.mjs` and runs
   `remote()` for each case.
 - `inputs.py`: builds the request (git objects for the candidate, base files, ethers.js).
-- `workload.py`: builds the compose manifest and `workload.img` (Linux).
+- `workload.py`: builds the compose manifest and `workload.img` (Linux), run from a checkout of `work/per-service-egress-76`, the source of guest image `8783a3be`, whose validator knows `network.service_egress`.
 - `run.py`: runs the checker on your Mac and saves `result.json`.
 - `claim.py`: turns a passing `result.json` into `Bounty.claim` calldata.
 - `contracts/script/bounty-launch.sh`: deploys the stack and posts an entry.

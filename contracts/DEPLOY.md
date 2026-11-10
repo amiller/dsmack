@@ -255,3 +255,23 @@ app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
 `contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
 A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]`.
 
+
+## Badge
+
+`Badge` is a non-transferable ERC721 with one badge per App Attest key; the token id is
+the key id. Any workload in a dsmack guest on an enrolled Mac claims it by calling
+`/v1/Attest` with
+
+```
+report_data = sha256("dsmack.badge.claim/1" ‖ chainid ‖ badge ‖ to) ‖ 0^32
+```
+
+(`reportData(to)` on the contract). Anyone then submits
+`claim(to, (image, manifest, run, head, caller, report_data), proof)` from that attestation;
+the contract rebuilds the guest Attest context, verifies it through `attest`, requires
+`cds.buildOf(cdhash) == build` and mints to `to`. No key or service other than the
+Mac's App Attest key signs anything.
+
+Deploy an `AppleAttestAnyBuildV1` with `registry` = the badge's predicted address, then
+`Badge(attest, buildId)` with the runner's CDRegistry `buildId`. Each Mac enrolls its key
+in that verifier before claiming.

@@ -9,6 +9,7 @@ verify the app behind a signed message.
 [Architecture](docs/architecture.md) ·
 [Protocol](docs/protocol.md) ·
 [Run a task](docs/running.md) ·
+[Host from your own team](docs/own-team.md) ·
 [Claim a bounty](docs/participate.md) ·
 [App Attest verifiers](app-attest/README.md) ·
 [Development](docs/development.md)

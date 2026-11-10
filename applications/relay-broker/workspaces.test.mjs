@@ -125,7 +125,9 @@ test("broker-to-Mac calls use the payment signer and recursively canonical EIP-1
 test("a store that cannot be reached, drops the connection or stalls is WORKSPACE_STORE_UNAVAILABLE / 503",async()=>{
   const f=await fixture(), timeout=AbortSignal.timeout;let release;const held=new Promise(r=>release=r);
   const remote=(url,action)=>new Workspaces({...f.options,cfg:{stores:{[mac]:url}},store:undefined}).remote(mac,action,{});
-  const unavailable=e=>e.code==="WORKSPACE_STORE_UNAVAILABLE"&&e.status===503;
+  const logged=[], log=console.error;console.error=line=>logged.push(JSON.parse(line));
+  const unavailable=e=>e.code==="WORKSPACE_STORE_UNAVAILABLE"&&e.status===503&&e.cause instanceof Error&&
+    logged.at(-1).event==="workspace_store_unavailable"&&logged.at(-1).mac===mac&&logged.at(-1).error===e.cause.name;
   const closed=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},()=>new Response());
   const port=closed.addr.port;await closed.shutdown();
   const drop=Deno.listen({hostname:"127.0.0.1",port:0});
@@ -147,5 +149,6 @@ test("a store that cannot be reached, drops the connection or stalls is WORKSPAC
     await assert.rejects(remote(url,"stall-body"),unavailable);
     await assert.rejects(remote(url,"refuse"),e=>e.code==="E_STORE"&&e.status===409);
     assert.deepEqual(await remote(url,"begin"),{offset:0});
-  } finally {AbortSignal.timeout=timeout;release();drop.close();await server.shutdown();}
+    assert.equal(logged.length,4,"refusals and answers are not logged as unreachable");
+  } finally {AbortSignal.timeout=timeout;console.error=log;release();drop.close();await server.shutdown();}
 });

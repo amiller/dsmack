@@ -47,7 +47,10 @@ export class Workspaces {
       }
     } catch (error) {
       if (error instanceof InferenceError) throw error;
-      throw new InferenceError("WORKSPACE_STORE_UNAVAILABLE", "snapshot store is unreachable", 503);
+      // The client sees only the fixed message. The operator's log gets a closed record naming the store and why.
+      console.error(JSON.stringify({ event: "workspace_store_unavailable", time: new Date().toISOString(), mac, action,
+        error: String(error?.name ?? "Error").slice(0, 64), message: String(error?.message ?? error).slice(0, 512) }));
+      throw Object.assign(new InferenceError("WORKSPACE_STORE_UNAVAILABLE", "snapshot store is unreachable", 503), { cause: error });
     }
     const raw = new Uint8Array(length); let offset = 0;
     for (const chunk of chunks) { raw.set(chunk, offset); offset += chunk.byteLength; }

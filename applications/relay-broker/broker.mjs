@@ -58,7 +58,6 @@ export class Broker {
     Object.assign(out, { attestation: { status: "verified", ...attestation }, expires_at: this.now() + (r.kind === "compute" ? limits.compute_lease_seconds : limits.relay_lease_seconds) });
     Object.assign(out, { kind: r.kind ?? "relay", receipt_key: r.receipt_key, proof: r.attestation });
     if (r.payments) out.payments = r.payments;
-    if (r.guest_key) out.guest_key = r.guest_key;
     if (telemetry) out.telemetry = telemetry;
     if (r.kind === "compute") {
       out.secret_key = r.secret_key;

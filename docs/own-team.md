@@ -50,8 +50,8 @@ entitlements, so your team and application identifier are public. `INTERMEDIATE`
 entry ID of Apple's App Attest intermediate in `AppleEndorsements`
 ([app-attest/DEPLOY.md](../app-attest/DEPLOY.md)).
 
-`OUT` has the layout of a runner directory: add the release's `base/` and `runtime/` to
-launch workloads from it.
+`OUT` has the layout of a runner directory. To launch workloads from it, add the release's
+`base/` and `runtime/` as its `HOST-START-HERE.txt` describes.
 
 ## Link the key to an operator
 

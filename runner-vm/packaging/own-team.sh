@@ -43,7 +43,8 @@ plutil -replace CFBundleIdentifier -string "${app_id#*.}" "$app/Contents/Info.pl
 codesign --force --options runtime --sign "${SIGN_IDENTITY:?codesigning identity}" ${KEYCHAIN:+--keychain "$KEYCHAIN"} \
   --entitlements "$out/entitlements.plist" --generate-entitlement-der --timestamp=none "$app"
 codesign --verify --strict "$app"
-# registerBuild's only refusal is "not an approved build"; this names the pinned field codesign changed.
+# registerBuild refuses a well-formed copy only with "not an approved build"; this names the pinned
+# field codesign changed.
 approved_measure="$(measure "$src")"
 diff <(echo "$approved_measure") <(measure "$bin") || die "the re-signed copy differs from APP in a field CDRegistry pins"
 "$py" "$root/contracts/cd_args.py" "$bin" > "$out/build.json"

@@ -151,7 +151,7 @@ def mac(request, inputs, out):
     run_id = uuid.uuid4().hex[:12]
     op = f'{OPERATOR_DIR}/attempts/{run_id}'
     ssh(OPERATOR, f'mkdir -p {op} && tar -x -C {op}', input=bundle(request, inputs))
-    admitted = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
+    admitted = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./operator.env && python3 -B source/applications/agent-turns/mac.py admit --release {RELEASE} '
                         f'--oci {IMAGE}/oci-layout --authority authority --request {op}/request.json '
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
     admission = json.loads(admitted.splitlines()[-1])
@@ -169,7 +169,7 @@ def mac(request, inputs, out):
         ssh(MAC, f'rm -rf {MAC_DIR}/t/{run_id}/private {MAC_DIR}/t/{run_id}/tmp {MAC_DIR}/t/{run_id}/workload.img; '
                  f'[ ! -d {evidence} ] || {{ cd {evidence} && ! /usr/sbin/lsof -- scratch.img scratch-template.img.staged '
                  f'&& rm -f scratch.img *.staged; }}')
-    result = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./coordinator.env && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
+    result = ssh(OPERATOR, f'cd {OPERATOR_DIR} && . ./operator.env && python3 -B source/applications/agent-turns/mac.py verify --authority authority '
                       f'--attempt {op}/admit --evidence {op}/evidence --job {op}/verify', capture_output=True).stdout
     (out/'verification.json').write_bytes(result.splitlines()[-1])
     pulled = ssh(OPERATOR, f'tar -c -C {op}/verify/retained receipt.json report.json -C outputs artifacts', capture_output=True).stdout
@@ -183,7 +183,7 @@ def mac_v02(request, inputs, out):
     run_id = uuid.uuid4().hex[:12]
     op, mac_t = f'{V02_OPERATOR_DIR}/attempts/{run_id}', f'{V02_MAC_DIR}/t/{run_id}'
     ssh(OPERATOR, f'mkdir -p {op} && tar -x -C {op}', input=bundle(request, inputs))
-    admitted = ssh(OPERATOR, f'cd {V02_OPERATOR_DIR} && . {OPERATOR_DIR}/coordinator.env && python3 -B source/applications/agent-turns/mac.py admit-v02 '
+    admitted = ssh(OPERATOR, f'cd {V02_OPERATOR_DIR} && . {OPERATOR_DIR}/operator.env && python3 -B source/applications/agent-turns/mac.py admit-v02 '
                         f'--release {OPERATOR_DIR}/{RELEASE} --base base --oci {V02_IMAGE}/oci-layout --request {op}/request.json '
                         f'--inputs-tar {op}/tree.tar --out {op}/admit', capture_output=True).stdout
     admission = json.loads(admitted.splitlines()[-1])

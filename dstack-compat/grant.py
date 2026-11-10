@@ -1,13 +1,13 @@
-"""Coordinator side, run inside the dstack app: mint a worker grant.
+"""Run inside a dstack app: mint a worker grant.
 
 python3 grant.py mint <dstack.sock> <task_id> <worker_id> <worker_compose_hash> <ttl_s>
 
-The scoped root is GetKey on the coordinator's own socket under a per-(task, worker)
-domain, so the coordinator can reissue it and the Mac never sees the app root key.
+The scoped root is GetKey on the app's own socket under a per-(task, worker)
+domain, so the app can reissue it and the Mac never sees the app root key.
 A grant is {"grant": <public grant JSON text>, "root_key": hex}; the runner app logs
 sha256(grant text) as the guest's worker-grant event.
 
-The coordinator app (applications/coordinator) serves the release policy at POST /grant and
+An app that serves the runner's POST /grant checks grant_request_client_data and
 seals root_key to the runner app's seal_pub with `seal` (P-256 ECDH, HKDF-SHA256, AES-GCM with
 sha256(grant text) as associated data). Only ciphertext of the root key crosses the network.
 The grant is signed with libsecp256k1 (coincurve); the guest's stdlib secp256k1 is not constant-time.

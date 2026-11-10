@@ -1,56 +1,72 @@
-# Agent turns with a head-keeping coordinator
+# Personal agent turns
 
-A personal agent's state carried across VM runs. Each turn is one boot of the
-mac-compose runner (installed on the Mac at `~/vz-runner/runner/build/Runner.app`),
-not the V3 runner. The turn decrypts the
-agent's state, increments a counter, encrypts the new state for the next turn,
-and has the runner assert `{state_in, state_out, turn}` with App Attest.
+A personal agent's state carried across VM runs. Each turn is one `hvf-v3` boot of the
+runner on the Mac. The turn decrypts the agent's state, increments a counter, encrypts
+the new state for the next turn and signs the transition for the on-chain head.
 
-The dstack app in [applications/coordinator](../../coordinator/README.md) keeps
-the head: the hash of the current state blob. It speaks the runner's KMS
-protocol under `/turn`. The turn's `STATE_IN` is in the compose environment, so
-`compose_hash` commits to it. The coordinator releases the agent's `app_key`
-only to an attested boot of a CDRegistry-admitted runner build whose
-`compose_hash` is the one for the current head. The guest gets its state keys
-from `/key` (`agent-state/<turn>`), so a turn started from any older state never
-gets a key. `POST /turn/commit` checks the guest's `/attest` evidence and
-advances the head.
+The agent is one [secret-release](../../../dstack-compat/README.md) task: the turn's
+compose manifest is the same for every turn, and the policy gives the task's secret only
+to a guest that attests that manifest and image from the approved runner build. From the
+secret the guest derives the state key for each turn (`agent-state/<turn>`) and a
+secp256k1 key whose address is the agent.
+
+The head is in [TurnHeads](../../../contracts/src/TurnHeads.sol): `heads(agent)` is
+`(turn, state)`, the sha256 of the current state blob. A turn signs `(turn, state_in,
+state_out)` and the commit moves the head only from `(turn, state_in)`, so a second turn
+from the same parent, or one started from an older state, cannot land. The head and the
+blobs come from the laptop, which is not trusted: a wrong head or blob makes the turn fail
+its own check or the commit revert.
 
 Files:
-- `guest/turn.py`, `guest/Dockerfile`: the turn workload (alpine, python3, cryptography).
-- `run_turn.sh`: boots one turn on the Mac from the laptop and fetches its outputs.
+- `guest/agent_turn.py`, `guest/Dockerfile`: the turn (alpine, python3, cryptography, `dsmack_dstack.py`).
+- `workload.py`: the compose manifest and the workload disk.
+- `run_turn.py`: one turn from the laptop: reads the head, boots the turn on the Mac, sends the commit.
 
 ## Run
 
-On a docker host, from a copy of this repository, build the turn image:
+Deploy TurnHeads once (`forge create --root contracts src/TurnHeads.sol:TurnHeads`).
+Build the turn image as an OCI layout and the workload, with the policy and state servers
+at the Mac's loopback as the guest sees it through gvproxy:
 
 ```sh
-SOURCE_DATE_EPOCH=0 docker buildx build --builder abalone-oci --platform linux/arm64 \
-  --provenance=false --sbom=false --output type=oci,dest=turn.oci.tar,rewrite-timestamp=true \
-  applications/agent-turns/personal-agent/guest
+SOURCE_DATE_EPOCH=0 docker buildx build --builder <oci builder> --platform linux/arm64 --provenance=false --sbom=false \
+  --output type=oci,dest=turn.oci.tar,rewrite-timestamp=true -f applications/agent-turns/personal-agent/guest/Dockerfile .
+mkdir -p image/oci-layout && tar -xf turn.oci.tar -C image/oci-layout
+python3 applications/agent-turns/personal-agent/workload.py . <base image files> <canary-v1.app-compose.json> image \
+  personal-agent/<name> http://192.168.127.254:8787 http://192.168.127.254:8788 <TurnHeads> <chain id> wl
 ```
 
-Run the coordinator (see its README) and create the agent with an operator call:
-`POST /agent {"agent": "personal-agent-turns-20261025", "image":
-"docker.io/dsmack/personal-agent-turn@sha256:<manifest digest>", "port": 19471,
-"ciphertext": <genesis state blob, base64>}`.
-
-From the laptop, forward the coordinator to the laptop's and the Mac's loopback
-through the existing control masters:
+`<base image files>` is a derived image whose supervisor starts the guest agent with
+`--secret-key`. Provision the task once on Lit with a fresh secret that is not kept, and
+record the agent's address:
 
 ```sh
-ssh -O forward -L 127.0.0.1:19471:<coordinator host:port> <coordinator ssh host>
-ssh -O forward -R 127.0.0.1:19471:127.0.0.1:19471 $DSMACK_MAC_HOST
+deno run -A dstack-compat/secret-release/lit.mjs exec policy.json <(echo '{"op":"publicKey"}')   # -> pub
+S=$(openssl rand -hex 32); mkdir agent
+echo $S | PYTHONPATH=dstack-compat python3 applications/agent-turns/personal-agent/guest/agent_turn.py address > agent/agent
+echo $S | deno run -A dstack-compat/secret-release/lit.mjs wrap <pub> personal-agent/<name> <manifest_sha256> <os_image_hash>
+unset S
 ```
 
-On the Mac, make `~/personal-agent-turns-20261025/` holding `turn.oci.tar` and a `base/`
-with `vmlinux-arm64` linked to `~/vz-runner/vmlinux-arm64` and `store/` cloned
-(`cp -c`) from `~/vz-runner/store/{content,state.json}`. Then:
+`tasks.json` is `{"personal-agent/<name>": {"manifest", "images": [<os_image_hash>], "wrapped"}}`.
+On the laptop, with `LIT_STATE` the directory `lit.mjs setup` wrote, serve the policy
+forwarder and the agent directory, and forward both to the Mac:
 
 ```sh
-run_turn.sh turn1 OUT     # head moves to turn 2
-run_turn.sh turn2 OUT     # head moves to turn 3
+deno run -A dstack-compat/secret-release/lit.mjs serve policy.json tasks.json 127.0.0.1 8787
+python3 -m http.server -d agent -b 127.0.0.1 8788
+ssh -O forward -R 127.0.0.1:8787:127.0.0.1:8787 -R 127.0.0.1:8788:127.0.0.1:8788 $DSMACK_MAC_HOST
 ```
 
-Booting the runner again with `compose-turn2.json` is refused:
-`KMS /release -> 403 stale_head`.
+`~/$DSMACK_MAC_RUNNER` on the Mac holds `DsmackRunner.app`, `base/` (the image files) and
+`enrollment/keyId.txt`. With `HEADS`, `ETH_RPC_URL` and a cast wallet (`ETH_KEYSTORE`) set:
+
+```sh
+python3 applications/agent-turns/personal-agent/run_turn.py wl agent   # turn 0 -> head (1, s1)
+python3 applications/agent-turns/personal-agent/run_turn.py wl agent   # turn 1 -> head (2, s2)
+```
+
+```sh
+python3 -m pytest -q applications/agent-turns/test_personal_agent.py
+forge test --root contracts --match-contract TurnHeads
+```

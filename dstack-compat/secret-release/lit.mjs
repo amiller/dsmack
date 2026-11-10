@@ -2,9 +2,16 @@
 //   deno run -A lit.mjs cid <policy.json>                 print the action's CID and size
 //   deno run -A lit.mjs setup <policy.json>               group + action + execute-only usage key (account key)
 //   deno run -A lit.mjs exec <policy.json> <params.json>  POST /lit_action with the usage key, print the response
+//   deno run -A lit.mjs serve <policy.json> <tasks.json> <host> <port>
+//       POST /release {task_id, attestation} -> the action's release for that task, so a guest calls it as its policy URL
+//   deno run -A lit.mjs wrap <pub> <task id> <manifest> <image>...   secret hex on stdin -> wrapped, for tasks.json
 // policy.json is {rpc, attest, canary}; it is inlined, so it is part of the CID and of the action key.
+// tasks.json is {<task id>: {manifest, images, wrapped}}. serve holds only the execute-only usage key and the action
+// checks the request, so the forwarder is not trusted.
 // LIT_ACCOUNT_KEY is the account key file (read in place, never printed); LIT_STATE is the directory for state.json
 // and the usage key this script creates.
+import { seal, unhex } from "./policy.mjs";
+
 const API = "https://api.chipotle.litprotocol.com/core/v1";
 const here = (f) => new URL(f, import.meta.url);
 
@@ -35,7 +42,20 @@ async function api(method, p, key, body) {
   return JSON.parse(text);
 }
 
-if (import.meta.main) {
+// lit-action.js opens `wrapped` under this label, so a secret only releases under the task terms it was sealed for.
+export const litTaskLabel = (t) => "dsmack.secret-release/lit-task/1" + JSON.stringify([t.id, t.manifest, t.images]);
+export const wrap = (pub, secret, task) => seal(unhex(pub), secret, litTaskLabel(task));
+
+export function releaseParams(tasks, req) {
+  if (!Object.hasOwn(tasks, req.task_id)) throw new Error("unknown task " + req.task_id);
+  const { manifest, images, wrapped } = tasks[req.task_id];
+  return { op: "release", task: { id: req.task_id, manifest, images }, wrapped, task_id: req.task_id, attestation: req.attestation };
+}
+
+if (import.meta.main && Deno.args[0] === "wrap") {
+  const [, pub, id, manifest, ...images] = Deno.args;
+  console.log(JSON.stringify(await wrap(pub, unhex((await new Response(Deno.stdin.readable).text()).trim()), { id, manifest, images })));
+} else if (import.meta.main) {
   const [cmd, policyFile, paramsFile] = Deno.args;
   const code = await actionSource(JSON.parse(await Deno.readTextFile(policyFile))), cid = await cidV0(code);
   const state = Deno.env.get("LIT_STATE"), secret = (f) => Deno.readTextFileSync(f).trim();
@@ -57,5 +77,13 @@ if (import.meta.main) {
   if (cmd === "exec") {
     const js_params = JSON.parse(await Deno.readTextFile(paramsFile));
     console.log(JSON.stringify((await api("POST", "/lit_action", secret(`${state}/usage-key`), { code, js_params })).response));
+  }
+  if (cmd === "serve") {
+    const tasks = JSON.parse(await Deno.readTextFile(paramsFile)), [host, port] = Deno.args.slice(3);
+    Deno.serve({ hostname: host, port: Number(port) }, async (req) => {
+      if (req.method !== "POST" || new URL(req.url).pathname !== "/release") return new Response("not found", { status: 404 });
+      const js_params = releaseParams(tasks, await req.json());
+      return Response.json((await api("POST", "/lit_action", secret(`${state}/usage-key`), { code, js_params })).response);
+    });
   }
 }

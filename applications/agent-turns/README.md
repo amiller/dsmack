@@ -8,8 +8,8 @@ A turn is one VM run of a pinned agent:
 
 A one-off finding is a turn with no state and a question with fixed answers. A
 personal agent is a chain of turns: each starts from the state the previous one
-wrote, and a dstack app keeps the head and releases the turn's state key only to
-a run whose `state_in` is the head.
+wrote, and an on-chain head accepts one commit per parent
+([personal-agent/](personal-agent/README.md)).
 
 The turn has no evidence object of its own. The request is the run's one
 committed input, the results are its declared outputs, and the execution receipt
@@ -84,10 +84,10 @@ The commitment is `dsmack.task-commitment/3` with scope
 the request bytes alone. What is new: the request schema, the artifact names, and
 the rule that a chain's `state_in` equals the previous `state_out`.
 
-The mac-compose runner ([personal-agent/](personal-agent/README.md)) has no receipt v4.
-There `compose_hash` commits `STATE_IN` through the compose environment, and the
-guest's `/attest` assertion signs `{state_in, state_out, turn}`. `turn.py` reads
-both kinds into the same turn.
+The October 2026 personal-agent runs on the mac-compose runner (`testdata/personal-agent`)
+have no receipt v4. There `compose_hash` commits `STATE_IN` through the compose
+environment, and the guest's `/attest` assertion signs `{state_in, state_out, turn}`.
+`turn.py` reads both kinds into the same turn.
 
 ## Run
 
@@ -116,9 +116,8 @@ local agent how to use it. The run follows [docs/running.md](../../docs/running.
 
 1. The operator host (`mac.py admit`) puts the request in file slot `turn` and a tar of the
    snapshot in slot `tree` (at most 16 MiB), builds the measured workload disk
-   with the image and the commitment declaration, has the
-   [coordinator](../coordinator/README.md) sign a workload admission for a fresh
-   attempt (`POST /admit`), and writes a checker context and a replay challenge.
+   with the image and the commitment declaration, signs a workload admission for a
+   fresh attempt with the release key, and writes a checker context and a replay challenge.
 2. The Mac pipes its local Claude login through `export_subscription.py` into
    `stage_private.py`, then runs `alpha_coordinator.py` prepare, check-only and
    execute on the installed release (profile `agent-turns-edit-v1`).
@@ -129,18 +128,18 @@ The guest runs `find.py` as the compose workload with `--inputs` pointing at
 the tar; it checks the unpacked tree against the request's `inputs_sha256`.
 
 One-time operator setup in `$DSMACK_OPERATOR_DIR` on the operator host, with
-`source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
-(the coordinator's URL), `DSMACK_OPERATOR_TOKEN` and the paths `mac.py` reads
-(`DSMACK_BROKER_BUILD`, `DSMACK_OPERATOR_POLICY`).
+`source/` a copy of this checkout and `operator.env` exporting the release key
+(`DSMACK_RELEASE_KEY`, an Ed25519 PEM, and its key id `DSMACK_RELEASE_KEY_ID`) and the
+paths `mac.py` reads (`DSMACK_BROKER_BUILD`, `DSMACK_OPERATOR_POLICY`).
 `skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. The Mac fetches
 the attempt files over HTTP from `$DSMACK_OPERATOR_FETCH_ADDR:8765`, which the operator host serves for the
-transfer, and checks each file's sha256 before use. `release` has the coordinator
-sign the inventory under its key id:
+transfer, and checks each file's sha256 before use. `release` signs the inventory
+under that key id:
 
 ```sh
 M="python3 -B source/applications/agent-turns/mac.py"
 $M image --out image-1          # Dockerfile on the qualified 2.1.187 parent, as a gzip OCI layout
-. ./coordinator.env
+. ./operator.env
 $M release --base-inventory BASE.json --base-archive BASE.tar.gz --oci image-1/oci-layout \
   --base BASE-IMAGE --sequence 30 --out release-1  # a prior release with this profile; current pilot-client
 $M authorize --authority authority --registration DIR   # attestation.cbor, clientData.bin, keyId.txt of the Mac key
@@ -148,7 +147,7 @@ $M authorize --authority authority --registration DIR   # attestation.cbor, clie
 
 Then install `release-1` on the Mac with `alpha-bootstrap.mjs` and `alpha_stage.py`
 into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md, with the
-coordinator's `public_pem` from `GET /keys` as the bootstrap trust key.
+release key's public key as the bootstrap trust key.
 `--base` is the guest image the release ships in `base/`. The alpha app (CDHash
 `6b9baf8b…`) predates the guest Attest agent and does not answer on `dsmack-ctl`,
 so it boots the B44 base (`os_image_hash` `b44abf14…`); a derived image

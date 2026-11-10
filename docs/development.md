@@ -8,7 +8,7 @@ How the repository is divided, how work is tracked, and how each part is release
 |---|---|---|---|
 | **Platform** | What a third party checks: the Mac app, the Linux image it boots, the guest API, App Attest verification and the evidence formats | see below | `vX.Y.Z` ([versioning](versioning.md)) |
 | **Network** | Macs serving guests to browsers: pool, broker, payments, Mac ownership, egress, directory | `applications/{compute-node,relay-broker,payments,mac-ownership,egress-policy,egress-relay,libp2p-attest,browser-p2p}`, `contracts/payments`, `contracts/src/UsageEscrow.sol` | with the app that deploys it |
-| **Apps** | Products built on the platform and network | `applications/{private-agent-web,private-agent-artifacts,agent-turns,bounties,coordinator}`, `contracts/work-escrow` | own tags, e.g. `private-agent-v0.4.0` |
+| **Apps** | Products built on the platform and network | `applications/{private-agent-web,private-agent-artifacts,agent-turns,bounties}`, `contracts/work-escrow` | own tags, e.g. `private-agent-v0.4.0` |
 | **Ops** | Monitoring, dashboards, deploy tooling | `applications/{network-dashboard,operator-fleet,bounty-dashboard,pilot-client}`, `tools/` | not versioned |
 
 Apps pin the platform release they run on. Workloads (OCI containers) belong to

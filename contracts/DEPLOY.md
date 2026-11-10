@@ -223,7 +223,7 @@ current runner, and repoint the main verifier, so a new `AppleAttestRegistryV1` 
 a new `AppleAttestAnyBuildV1` with `registry` = the canary's predicted address, then
 the `Canary`, re-enrollment of each key in both verifiers, and `arm` (each entry's
 term is at least 90 days). Deploy from the current owner key: `owner` is the deployer.
-Off chain, repoint the coordinator's `CDREGISTRY`, the secret-release policy's `attest`
+Off chain, repoint the secret-release policy's `attest`
 and `canary`, the dashboard `registry.json` entry (`canary-read-codec/3`), and `$CDS`
 in docs/canary/RUNNER-README.md.
 

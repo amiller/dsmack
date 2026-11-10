@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # One compose file, two guests: a dind guest whose /var/run/dstack.sock is the
 # dstack simulator, and one whose socket is the dsmack shim fed a grant minted
-# by the simulator-hosted coordinator. Usage: e2e.sh <workdir with sim/ compat/ pylib/>
+# against the simulator. Usage: e2e.sh <workdir with sim/ compat/ pylib/>
 set -euo pipefail
 D=$1; PY=python@sha256:a0f57064cbdcd6285fa45f51237ab0b35ea8ebaed06a1f5973e89e19dfb86704
 py() { docker run --rm -v "$D:/w" -w /w/compat -e PYTHONPATH=/w/pylib "$PY" python3 "$@"; }

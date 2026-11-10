@@ -123,5 +123,25 @@ class BrowsePolicyTests(unittest.TestCase):
                     with self.assertRaisesRegex(PermissionError,message):server.policy(token)
             finally:broker.shutdown();t.join()
 
+class BrowseUpstreamTests(unittest.TestCase):
+    def test_browse_traffic_goes_through_the_upstream_and_operator_hosts_do_not(self):
+        with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
+            server.allowed_hosts={'pod.example.com'};server.upstream=('127.0.0.1',18889)
+            server.policy=lambda t:{'mode':'open','hosts':[],'expires_at':2**40}
+            t=threading.Thread(target=server.serve_forever);t.start()
+            try:
+                for host,token,expect in (('example.org','a'*32,('127.0.0.1',18889)),('pod.example.com',None,('pod.example.com',443))):
+                    upstream,peer=socket.socketpair()
+                    with peer,patch.object(proxy.socket,'getaddrinfo',return_value=[(2,1,6,'',('93.184.215.14',443))]),\
+                            patch.object(proxy.socket,'create_connection',return_value=upstream) as dial,socket.socket() as client:
+                        peer.settimeout(2);client.settimeout(2);client.connect(server.server_address)
+                        auth=f'Proxy-Authorization: Basic {base64.b64encode(("browse:"+token).encode()).decode()}\r\n' if token else ''
+                        client.sendall(f'CONNECT {host}:443 HTTP/1.1\r\n{auth}\r\n'.encode())
+                        if token:
+                            self.assertTrue(peer.recv(1024).startswith(b'CONNECT 93.184.215.14:443 '))
+                            peer.sendall(b'HTTP/1.1 200 Connection established\r\n');peer.sendall(b'\r\n')
+                        self.assertIn(b'200',client.recv(1024))
+                        self.assertEqual(dial.call_args[0][0],expect)
+            finally:server.shutdown();t.join()
 
 if __name__=='__main__':unittest.main()

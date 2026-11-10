@@ -668,7 +668,7 @@ async function useSession(data) {
     config: cfg, pageUrl: window.location.href,
     runtime: { preamble: "You are Abalone, a coding assistant in the Abalone private agent page. Use the provided tools to inspect and change the attested Mac-hosted Linux workspace. " + modelPrivacy(model) + "\n\n" + runtime + "\n\nThe application supplies these runtime facts. Your self-report is not proof; refer to the verified attestation shown by the page." },
     environment: guest.environment || measuredEnvironment(),
-    attestation: guest.node ? { verification: "Browser verified Apple enrollment, build, measured compose and bound Noise peer", guestPeer: guest.node.registration.relay_peer, manifestHash: guest.node.registration.manifest_sha256, imageHash: guest.node.registration.os_image_hash, cdhash: guest.node.registration.cdhash } : { status: "Guest attestation will be verified before the first tool call.", cdhash: policy.cdhash },
+    attestation: guest.node ? { verification: "Browser verified Apple enrollment, build, measured compose and bound Noise peer", guestPeer: guest.node.registration.relay_peer, manifestHash: guest.node.registration.manifest_sha256, imageHash: guest.node.registration.os_image_hash, cdhash: guest.node.cdhash ?? guest.node.registration.cdhash } : { status: "Guest attestation will be verified before the first tool call.", cdhash: policy.cdhash },
     repository: "Initial repository snapshot; use the read tool for current workspace contents.\n" + [...repoFiles].map(([name, text]) => `${name}\n${text.length < 4096 ? text : "Read this file with the read tool."}`).join("\n"),
   }) + "\n\n" + ARTIFACT_PROMPT;
   const preflight = (context, signal) => guest.preflight(context, signal, policy.manifest);
@@ -1110,10 +1110,11 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
     }
     mark("discovery:end", { candidates: nodes.length });
     $("capacity-status").textContent = "";
-    // Keep the broker's order. Placement hints never replace these local pins.
+    // Keep the broker's order. Placement hints never replace these local pins. The manifest names the approved
+    // build, so its hash pins it; verifyNode resolves the copy a host signed with through CDRegistry.
     const candidates = nodes.filter(entry => entry.kind === "compute" &&
       entry.available !== false && !exclude.has(entry.relay_peer) &&
-      (chainDirectory || (entry.manifest_sha256 === manifestHash && entry.cdhash === policy.cdhash &&
+      (chainDirectory || (entry.manifest_sha256 === manifestHash &&
       Number(entry.admit_until) * 1000 >= Date.now() + setupSeconds * 1000)));
     for (const selected of candidates) {
       signal?.throwIfAborted();

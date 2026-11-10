@@ -105,25 +105,38 @@ async function jsonRequest(url, body, signal, max = 48 << 20) {
   }
   return value;
 }
-async function assertion(proof, policy, enrollment, minCounter = 0) {
+// A host may run the approved runner re-signed under its own Apple team, so the assertion's CDHash and RP ID need not
+// be the policy's. CDRegistry.rpIdHash resolves only registered copies of its current build, each to the application
+// identifier it was registered with: the policy's CDHash and the assertion's must both resolve, and the assertion's
+// RP ID must be its own CDHash's. apple-root mode (`pinned`) keeps the exact CDHash and identifier of its enrollment.
+async function assertion(proof, policy, enrollment, pinned, minCounter = 0) {
   const a = await decodeAttestation(unhex(proof)),
     obj = decodeCbor(a.assertion),
     auth = obj.get("authenticatorData");
   require(eq(a.key_id, enrollment.kid), "node key is not enrolled Apple key");
+  const chain = policy.chain ??
+      rpcChain(policy.rpc, policy.attest ?? ATTEST, policy.canary ?? CANARY),
+    cdhash = decodeCbor(auth.slice(37)).get("apple_cd_hash_hash_01"),
+    none = new Uint8Array(32);
   require(
-    eq(auth.slice(0, 32), await sha256(enc.encode(APP_ID))),
-    "assertion app ID",
+    !eq(await chain.rpIdHash(unhex(policy.cdhash)), none),
+    "policy build " + policy.cdhash + " is not CDRegistry's current build",
   );
-  const ext = decodeCbor(auth.slice(37));
+  const rp = await chain.rpIdHash(cdhash);
   require(
-    hex(ext.get("apple_cd_hash_hash_01")) === policy.cdhash,
-    "assertion build",
+    !eq(rp, none),
+    "assertion build " + hex(cdhash) +
+      " is not a registered copy of CDRegistry's current build",
+  );
+  require(eq(auth.slice(0, 32), rp), "assertion app ID");
+  require(
+    !pinned ||
+      hex(cdhash) === policy.cdhash && eq(rp, await sha256(enc.encode(APP_ID))),
+    "assertion build is not the pinned enrollment's",
   );
   const counter = new DataView(auth.buffer, auth.byteOffset).getUint32(33);
   require(counter > minCounter, "assertion counter replay");
-  const chain = policy.chain ??
-      rpcChain(policy.rpc, policy.attest ?? ATTEST, policy.canary ?? CANARY),
-    key = await chain.key(a.key_id);
+  const key = await chain.key(a.key_id);
   require(
     eq(cat(key.x, key.y), enrollment.point.slice(1)),
     "chain enrollment key mismatch",
@@ -139,7 +152,7 @@ async function assertion(proof, policy, enrollment, minCounter = 0) {
       hex(a.os_image_hash) === policy.image,
     "node measurements",
   );
-  return { ...a, counter };
+  return { ...a, counter, cdhash: hex(cdhash) };
 }
 // On-chain mode: the key is the one the attestation names, read from AppleAttestRegistry, which admitted it only with
 // an Apple-rooted attestation of an approved CDRegistry build. No per-device enrollment is pinned.
@@ -192,7 +205,7 @@ export async function verifyNode(registration, policy) {
     monitor,
   };
   require(
-    registration.kind === "compute" && registration.cdhash === policy.cdhash &&
+    registration.kind === "compute" &&
       registration.manifest_sha256 === resolved.manifestHash &&
       registration.os_image_hash === resolved.image,
     "node registration measurements",
@@ -262,6 +275,7 @@ export async function verifyNode(registration, policy) {
     registration.proof ?? registration.attestation,
     resolved,
     enrollment,
+    enrollmentMode === "apple-root",
   );
   let receiptKeys = receipt, challenge = new Uint8Array(32);
   if (registration.payments) {
@@ -303,6 +317,8 @@ export async function verifyNode(registration, policy) {
     enrollment,
     enrollmentMode,
     attestation: a,
+    // The copy that signed. registration.cdhash is only the guest's copy of the manifest's.
+    cdhash: a.cdhash,
     run: hex(a.run),
     head: hex(a.head),
     counter: a.counter,

@@ -20,6 +20,10 @@ passing through its refusal code and status unchanged.
 | Guest image | `8783a3bea61a43f48b5b625667ca49784975b0e8d908d4d3b0890d0867bf6030` (runner alpha.3) |
 | Runner build | CDRegistry build of `0c3d3c90`; the Developer ID alpha.3 copy `b98b6aba` is registered |
 | Base commit | `260ac93fb247d057829e033bac24d33ecf9dd2c7` |
+| Bounty (Base) | [`0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8`](https://basescan.org/address/0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8), entry 0, 0.0015 ETH until 2026-12-10 |
+| Verifier | `0x3d309Bdf1ccFA4B7ccBaFc7034913D056086313e` |
+| CDRegistry | `0x0505b620b4557235dBD05ee2cc8D25C52d958fB1` |
+| AppleEndorsements | `0x212918f6A52ED2561bd140Ac63842a9D815ecAA9` |
 
 ## Files
 
@@ -41,7 +45,12 @@ You need an Apple-silicon Mac on macOS 27, the
 unpacked as `runner/` (gunzip its `runtime/base/*.ext4.gz`), gvisor-tap-vsock v0.8.9's
 `gvproxy-darwin` at `runner/runtime/helper/gvproxy-darwin` (sha256
 `c6f7b4bc7f21bf810b5cf54e04d979b014c5d96472a03a9e97fe62a00940067c`), this bounty's
-`workload.img`, `compose-manifest.json` and `ethers.js`, Foundry, and a little Base ETH for gas.
+`workload.img`, `compose-manifest.json` and `ethers.js` from the
+[bounty-98-v1 release](https://github.com/amiller/dsmack/releases/tag/bounty-98-v1), Foundry,
+`pycryptodome`, `cryptography` and `eth-abi`, and a little Base ETH for gas. The commands below
+run from `applications/p2p-bounty` with `DSMACK` set to your checkout,
+`RPC=https://mainnet.base.org`, `VERIFIER=0x3d309Bdf1ccFA4B7ccBaFc7034913D056086313e` and
+`BOUNTY=0x7d55E98058CaCF7579606eE4a5Ed865B81c5e8E8`.
 
 1. Fix #98 on a branch of this repository and commit, but don't push until you have claimed:
    anyone with an enrolled Mac can claim a fix that is already public.
@@ -71,4 +80,4 @@ unpacked as `runner/` (gunzip its `runtime/base/*.ext4.gz`), gvisor-tap-vsock v0
    cast send $BOUNTY $(python3 claim.py run/result.json 0) --rpc-url $RPC --account $ACCOUNT
    ```
 
-   `claim.py` needs `pycryptodome`, `cryptography` and `eth-abi`. Then push and open the PR.
+   Then push and open the PR.

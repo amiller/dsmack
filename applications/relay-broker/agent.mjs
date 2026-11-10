@@ -247,9 +247,8 @@ export class AgentSessions {
     need(!session.escrow, "GUEST_SIGNATURE", "GuestEscrow stay requires a guest claim", 403);
     need(signer.toLowerCase() === session.node.payments.receiptSigner.toLowerCase(),
       "GUEST_SIGNATURE", "receipt is not signed by the attested guest", 403);
-    // No chain read here: the guest's gateway gives the start receipt 15 s, and two
-    // serial escrow reads took 17 s on 2026-11-10. The wallet's authorized calls
-    // (open, status, chat) already sync deposits and exit requests.
+    // No chain read: the guest's gateway gives a receipt 15 s. The wallet's own
+    // calls (open, status, chat) sync deposits and exit requests.
     return await b.payments.serial(async () => {
       await this.releaseUnused();
       const s = b.payments.state.agentSessions?.[sessionId];

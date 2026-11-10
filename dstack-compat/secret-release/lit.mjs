@@ -54,6 +54,19 @@ if (import.meta.main) {
     Deno.writeTextFileSync(`${state}/state.json`, JSON.stringify({ cid, groupId: Number(group_id) }));
     console.log(JSON.stringify({ cid, groupId: Number(group_id), usageKey: `${state}/usage-key` }));
   }
+  // relay <policy.json> <tasks.json> <port>: the guest's POST /release {task_id, attestation} becomes a Lit release.
+  // tasks.json is {<task id>: {manifest, images, wrapped}}. The relay sees only the attestation and ciphertext.
+  if (cmd === "relay") {
+    const tasks = JSON.parse(await Deno.readTextFile(paramsFile)), usage = secret(`${state}/usage-key`);
+    Deno.serve({ hostname: "127.0.0.1", port: Number(Deno.args[3]) }, async (req) => {
+      if (req.method !== "POST" || new URL(req.url).pathname !== "/release") return new Response("not found", { status: 404 });
+      const { task_id, attestation } = await req.json(), t = tasks[task_id];
+      if (!t) return Response.json({ error: "unknown task" }, { status: 404 });
+      const js_params = { op: "release", task: { id: task_id, manifest: t.manifest, images: t.images }, wrapped: t.wrapped, task_id, attestation };
+      try { return Response.json((await api("POST", "/lit_action", usage, { code, js_params })).response); }
+      catch (e) { console.error(e.message); return Response.json({ error: e.message.slice(0, 2000) }, { status: 502 }); }
+    });
+  }
   if (cmd === "exec") {
     const js_params = JSON.parse(await Deno.readTextFile(paramsFile));
     console.log(JSON.stringify((await api("POST", "/lit_action", secret(`${state}/usage-key`), { code, js_params })).response));

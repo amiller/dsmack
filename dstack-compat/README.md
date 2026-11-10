@@ -57,6 +57,9 @@ unchanged.
   returns the task secret sealed to that `secret-key`. A replayed attestation only yields another
   ciphertext for the same run's in-memory key, so the policy keeps no state. Every service in the
   task's compose can fetch its secret; give a secret its own task to scope it to one service.
+  `secret-release/lit.mjs` builds the action with its `{rpc, attest, canary}` policy inlined, registers it on
+  Lit Chipotle (`setup`), runs it (`exec`), and serves `POST /release` for guests by forwarding to Lit (`relay`,
+  which holds only an execute-only usage key and sees only the attestation and the ciphertext).
 - `secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <policy url>` builds a
   workload that attests, asks the policy, and opens the secret through `/v1/GetSecret`.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary

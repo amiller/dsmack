@@ -46,7 +46,7 @@ const jsonResponse = (body, url) => {
 // sources: [{ url } | { provider }] tried in order per read; relays: base URLs serving GET /latest, tried in order per poll.
 // With no arguments a page uses the Worker at `worker` (a path on its own origin, or a URL), then the public RPCs, then an injected wallet on the right chain.
 export async function chainRead({ network = "base-sepolia", worker = "/chain-read", relays, sources, wallet = globalThis.ethereum,
-  lagSeconds = 6, timeoutMs = 10000, helios = createHeliosProvider } = {}) {
+  lagSeconds = 3, timeoutMs = 10000, helios = createHeliosProvider } = {}) {
   if (networks.has(network)) throw new Error(`chainRead for ${network} already running`);
   const origin = globalThis.location?.origin, consensus = `https://${network}.operationsolarstorm.org`;
   const base = worker && (origin || URL.canParse(worker)) ? new URL(worker, origin).href.replace(/\/$/, "") : undefined;
@@ -76,7 +76,8 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
     return jsonResponse(Array.isArray(req) ? await Promise.all(req.map(one)) : await one(req), "https://eip1193.invalid/");
   };
 
-  // Hand Helios the newest head that is at least lagSeconds old, so the execution RPCs already have its state.
+  // Hand Helios the newest head that is at least lagSeconds old, so the execution RPCs already have its state. Through
+  // Alchemy on 2026-11-11, eth_call at the head failed 4 of 25 with "no state found", 1 of 30 at 1 s, 0 of 85 at 2 s.
   const heads = [];
   const latest = async (path) => {
     let body;

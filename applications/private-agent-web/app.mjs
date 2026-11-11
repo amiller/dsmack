@@ -50,6 +50,7 @@ let keys, sync, continuity, cfg, sharedLink, sharedBundle, activeArtifactView,
   credit,
   quote,
   policy,
+  nearStream,
   node,
   repoFiles,
   guest,
@@ -685,7 +686,7 @@ async function useSession(data) {
     },
     toolExecution: "sequential",
     getApiKey: provider => provider === "near" ? undefined : storage.providerKeys.get(provider),
-    streamFn: providerStream({ preflight, systemPrompt, startedAt: currentSession.createdAt, near: brokerStream({
+    streamFn: providerStream({ preflight, systemPrompt, startedAt: currentSession.createdAt, near: nearStream = brokerStream({
       credit, api, cfg, quote: () => quote, evidence: addEvidence, usage, error: sendFailure, status: sendStatus,
       billingUpdated: async answer => {
         const reply = artifactAgent.state.messages.findLast(message => message.role === "assistant" &&
@@ -1441,6 +1442,8 @@ async function main() {
     if (!e.target.closest?.("message-editor")) return;
     if (Date.now() - typedAt > 20000) warmChain();
     typedAt = Date.now();
+    // The model's attested session takes ~6 s; prepare it while the person types (inference.mjs streamFn.prepare).
+    if (!chatBusy && agent?.state.model?.provider === "near") nearStream?.prepare(agent.state.model);
   }, true);
   emptyRepository();
   document.documentElement.dataset.ready = "true";

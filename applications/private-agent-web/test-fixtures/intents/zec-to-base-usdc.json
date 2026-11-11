@@ -1,0 +1,18 @@
+{
+ "request": {
+  "dry": false,
+  "swapType": "EXACT_OUTPUT",
+  "slippageTolerance": 100,
+  "originAsset": "nep141:zec.omft.near",
+  "depositType": "ORIGIN_CHAIN",
+  "destinationAsset": "nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near",
+  "amount": "5000000",
+  "refundTo": "t1KfwsnwJeNRVjQGBDZhwKskpQbih2qx5Ua",
+  "refundType": "ORIGIN_CHAIN",
+  "recipient": "0x1111111111111111111111111111111111111111",
+  "recipientType": "DESTINATION_CHAIN",
+  "deadline": "2026-11-11T21:04:20.000Z"
+ },
+ "sentAt": 1794427460760,
+ "raw": "{\"quote\":{\"amountIn\":\"506407\",\"amountInFormatted\":\"0.00506407\",\"amountInUsd\":\"5.079616694900\",\"minAmountIn\":\"501342\",\"amountOut\":\"5000000\",\"amountOutFormatted\":\"5.0\",\"amountOutUsd\":\"4.998040000000\",\"minAmountOut\":\"5000000\",\"timeEstimate\":457,\"refundFee\":\"32000\",\"withdrawFee\":\"2400\",\"deadline\":\"2026-11-14T21:04:20.000Z\",\"timeWhenInactive\":\"2026-11-14T21:04:20.000Z\",\"depositAddress\":\"t1MpisvUJbKcDvecL1WQFQqxijL3w63Nbr6\"},\"quoteRequest\":{\"dry\":false,\"depositMode\":\"SIMPLE\",\"swapType\":\"EXACT_OUTPUT\",\"slippageTolerance\":100,\"originAsset\":\"nep141:zec.omft.near\",\"depositType\":\"ORIGIN_CHAIN\",\"destinationAsset\":\"nep141:base-0x833589fcd6edb6e08f4c7c32d4f71b54bda02913.omft.near\",\"amount\":\"5000000\",\"refundTo\":\"t1KfwsnwJeNRVjQGBDZhwKskpQbih2qx5Ua\",\"refundType\":\"ORIGIN_CHAIN\",\"recipient\":\"0x1111111111111111111111111111111111111111\",\"recipientType\":\"DESTINATION_CHAIN\",\"deadline\":\"2026-11-11T21:04:20.000Z\",\"confidentiality\":\"public\",\"quoteWaitingTimeMs\":0,\"insured\":false,\"appFees\":[{\"recipient\":\"5880ad2b362620fadf759cbceb1cd5737ce8c6ed7fb8e9942881e6731f9247dd\",\"fee\":20,\"limitOrderId\":null}]},\"signature\":\"ed25519:5hdh66SbXGx2qB1hiVSecAhQr9fNScN5KJgawsvhXSdHH3aSCSyYX7PqWiX6wvrh5E55Z7zQbY6iSpZkkhxU43Cx\",\"timestamp\":\"2026-11-11T20:04:20.912Z\",\"correlationId\":\"b26faeda-ced9-41f1-a8eb-d2659cdbf5c7\"}"
+}

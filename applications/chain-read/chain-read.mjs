@@ -115,13 +115,16 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
   globalThis.fetch = wrapped;
   networks.add(network);
 
-  const p = await helios({ executionRpc: exec, network, dbType: "config" }, "opstack");
-  const close = async () => {
-    await p.shutdown();
+  const release = () => {
     if (globalThis.fetch === wrapped) globalThis.fetch = prev;
     networks.delete(network);
   };
-  await p.waitSynced();
+  let p;
+  try {
+    p = await helios({ executionRpc: exec, network, dbType: "config" }, "opstack");
+    await p.waitSynced();
+  } catch (e) { release(); throw e; }
+  const close = async () => { await p.shutdown(); release(); };
 
   // Reads run one at a time so the wrapper knows which source the current read uses.
   let queue = Promise.resolve();

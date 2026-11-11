@@ -72,3 +72,9 @@ rejects when no relay answers its first `/latest`.
 node --test chain-read.test.mjs worker/worker.test.mjs
 node check.mjs <relay URL> https://sepolia.base.org    # dsmack's 11 reads as one Multicall3, verified, with timings
 ```
+
+## In a browser
+
+- A page with a Content-Security-Policy needs `'wasm-unsafe-eval'` in `script-src`.
+- A relay used directly needs CORS headers; the Worker's `/latest` adds them.
+- The source must serve `eth_getProof` a few blocks behind head. sepolia.base.org does (rate-limited); publicnode refuses ("maximum proof window").

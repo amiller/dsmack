@@ -28,18 +28,16 @@ install -m0755 /w/source/guest/supervisor-dstack-trixie.sh "$TREE/usr/bin/dsmack
 install -m0755 /guest-egress/usr/sbin/mke2fs "$TREE/usr/sbin/mkfs.ext4"
 install -m0644 /guest-egress/etc/mke2fs.conf "$TREE/etc/mke2fs.conf"
 install -m0755 /guest-egress/usr/sbin/cryptsetup "$TREE/usr/sbin/cryptsetup"
-for file in /w/source/guest/sentinel/harness/*.py /w/source/guest/sentinel/harness/adapter/*.py /w/source/guest/sentinel/harness/sentinel/*.py; do
- install -D -m0644 "$file" "$TREE/usr/local/lib/dsmack/sentinel/${file#/w/source/guest/sentinel/}"
-done
+rm -r "$TREE/usr/local/lib/dsmack/sentinel"
 install -m0755 /guest-egress/usr/sbin/nft "$TREE/usr/sbin/nft"
 cp -a /guest-egress/usr/lib/aarch64-linux-gnu/*.so* "$TREE/usr/lib/aarch64-linux-gnu/"
 for file in public_inputs.py public_toc.py; do
  install -m0644 "/w/source/runner-content/dsmack_guest_io/$file" "$TREE/usr/local/lib/dsmack/guest-io/dsmack_guest_io/$file"
 done
-for file in manifest.py lowering.py egress.py security.py browser-sandbox-v1.json; do
+for file in __main__.py manifest.py lowering.py egress.py security.py browser-sandbox-v1.json; do
  install -m0644 "/w/source/runner-content/lib/dsmack_compose_contract/$file" "$RDEST/lib/dsmack_compose_contract/$file"
 done
-for file in lifecycle.py workspace.py; do
+for file in cli.py runner.py lifecycle.py workspace.py; do
  install -m0644 "/w/source/runner-content/dsmack_compose_runner/$file" "$RDEST/dsmack_compose_runner/$file"
 done
 for file in agent.py guest_attest.py dsmack_dstack.py secret_box.py; do

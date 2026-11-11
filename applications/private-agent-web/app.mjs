@@ -1431,6 +1431,17 @@ async function main() {
     }
   };
   loadPolicy(cfg.sandboxPolicy);
+  // The guest-independent chain reads take most of sandbox setup. Once the person types, keep their snapshot
+  // (reused 30 s) fresh every 20 s for three minutes and while a reply runs, so the first bash call finds it ready.
+  // A typed message, a pause and the model's turn outlast one snapshot. setup still reads and reports its own errors.
+  let typedAt = 0;
+  const warmChain = () => policy?.chain?.snapshot().catch(e => console.error("chain prefetch:", e.message));
+  setInterval(() => { if (Date.now() - typedAt < 180000 || chatBusy) warmChain(); }, 20000);
+  document.addEventListener("input", e => {
+    if (!e.target.closest?.("message-editor")) return;
+    if (Date.now() - typedAt > 20000) warmChain();
+    typedAt = Date.now();
+  }, true);
   emptyRepository();
   document.documentElement.dataset.ready = "true";
   // Network verification follows local rendering and never gates the wallet.

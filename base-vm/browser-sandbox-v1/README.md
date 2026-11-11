@@ -10,7 +10,7 @@ sandbox preset (`security.py` plus the Playwright seccomp policy
 application containers and external verifiers, not in the guest.
 
 A workload selects the preset with `security_profile: browser-sandbox-v1`. The
-guest then requires network none and no credential broker, and runs the service
+guest then requires network none and no credentials, and runs the service
 with the preset's capabilities, resource limits and seccomp policy. Public file values travel on the measured public disk as
 `public-inputs/<manifest-name>.envelope.json`; private inputs use the separate
 private disk.
@@ -25,10 +25,16 @@ protocol (`tcp` or `udp`) and destination port tuples, for example:
 {"mode":"nat","listen_ports":[],"egress":[{"destination":"203.0.113.8/32","protocol":"udp","port":51820}]}
 ```
 
-The supervisor applies nftables to guest output and container forwarding before
-starting brokers or compose. Missing or empty `egress` denies external traffic;
-loopback and replies to inbound connections remain available. DNS requires an
-explicit resolver IP and port entry, which permits queries for any name.
+The supervisor installs a loopback-only nftables table before the network card
+comes up, then replaces it with the manifest's filter on guest input, output and
+container forwarding before starting compose. Missing or empty `egress` denies
+external traffic; loopback and replies remain available, and nothing else
+reaches the guest inbound. DNS requires an explicit resolver IP and port entry,
+which permits queries for any name.
+
+The guest runs no credential broker: `dsmack-compose-runner validate` refuses a
+manifest with `credentials.required`. A workload that needs a credential runs
+its own proxy in its compose.
 
 `network.service_egress` (mode `nat`, no `listen_ports`) gives compose services
 their own tuples, so a gateway service can have broad egress that the other
@@ -90,11 +96,9 @@ Dstack adaptations keep their Apache-2.0 notices and the Playwright seccomp
 policy keeps its upstream Apache-2.0 license; see `licenses/`.
 
 Docker state lives on `/dev/mapper/dsmack-scratch`, a plain dm-crypt mapping
-of vdb with a fresh 512-bit key read from guest randomness at each boot. The
-sentinel reads `/run/dsmack/credential` on tmpfs: an in-guest writer creates it
-with mode 0400, owned by the sentinel uid. Compute workloads opt into the
-`/run/dsmack:/run/dsmack:rw` bind in the measured compose; the directory belongs
-to uid 1000, the workload user. `/run/dsmack/scratch-info` contains boot-time
+of vdb with a fresh 512-bit key read from guest randomness at each boot.
+Compute workloads opt into the `/run/dsmack:/run/dsmack:rw` bind in the measured
+compose; the directory belongs to uid 1000, the workload user. `/run/dsmack/scratch-info` contains boot-time
 `lsblk`, `cryptsetup status` and `dmsetup status` output. Runtime envelopes may
 still use vde.
 

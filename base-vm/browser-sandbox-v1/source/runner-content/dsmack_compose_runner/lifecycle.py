@@ -195,8 +195,8 @@ def _execute_inner(control, lowered, manifest, workspace, compose_text: bytes, *
         "missing": [],
         "artifacts": [],
         "compose_project": project_name,
-        # GIO03: the rendered compose bytes carry PRIVATE runtime env VALUES and
-        # the broker capability endpoint. A public digest of them is a
+        # GIO03: the rendered compose bytes carry PRIVATE runtime env VALUES.
+        # A public digest of them is a
         # private-input content hash (a cache id by any other name) and is NOT
         # computed or published. The committed-inputs evidence is the frozen v4
         # commitment (receipt.runtime_inputs_commitment), not a hash of the

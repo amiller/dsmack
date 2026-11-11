@@ -4,8 +4,10 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
 	"crypto/tls"
 	"encoding/binary"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -35,6 +37,14 @@ type Rule struct {
 	Requests          int      `json:"requests"`
 	RequestsPerMinute int      `json:"requests_per_minute"`
 	WebSocketSeconds  int      `json:"websocket_seconds,omitempty"`
+	// Optional, for fetch workloads: path prefixes and path.Match globs besides
+	// exact paths, query strings forwarded verbatim, fixed request headers that
+	// replace the default User-Agent, and no credential headers from the client.
+	PathPrefixes    []string          `json:"path_prefixes,omitempty"`
+	PathGlobs       []string          `json:"path_globs,omitempty"`
+	Query           bool              `json:"query,omitempty"`
+	Headers         map[string]string `json:"headers,omitempty"`
+	DropCredentials bool              `json:"drop_credentials,omitempty"`
 }
 type Policy struct {
 	Rules []Rule `json:"rules"`
@@ -71,7 +81,7 @@ func validName(s string) bool {
 	return true
 }
 func validPath(s string) bool {
-	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.ContainsAny(s, "%?#\\\r\n") && path.Clean(s) == s
+	return strings.HasPrefix(s, "/") && !strings.HasPrefix(s, "//") && !strings.ContainsAny(s, "%?#\\\r\n") && (path.Clean(s) == s || path.Clean(s)+"/" == s)
 }
 func loadPolicy(b []byte) (Policy, error) {
 	var p Policy
@@ -92,8 +102,23 @@ func loadPolicy(b []byte) (Policy, error) {
 			return p, errors.New("DNS name or one-label wildcard and TLS port 443 required")
 		}
 		seen[r.Name] = true
-		if len(r.Methods) == 0 || len(r.Paths) == 0 {
-			return p, errors.New("methods and exact paths required")
+		if len(r.Methods) == 0 || len(r.Paths)+len(r.PathPrefixes)+len(r.PathGlobs) == 0 {
+			return p, errors.New("methods and paths required")
+		}
+		for _, s := range r.PathPrefixes {
+			if !validPath(s) {
+				return p, errors.New("canonical path prefix required")
+			}
+		}
+		for _, s := range r.PathGlobs {
+			if _, err := path.Match(s, "/"); err != nil || !strings.HasPrefix(s, "/") || strings.ContainsAny(s, "%?#\\\r\n") {
+				return p, errors.New("valid path glob required")
+			}
+		}
+		for k, v := range r.Headers {
+			if !contains(settable, http.CanonicalHeaderKey(k)) || strings.ContainsAny(v, "\r\n") || len(v) > 512 {
+				return p, errors.New("only User-Agent, Accept and Accept-Language may be set, without line breaks")
+			}
 		}
 		for _, m := range r.Methods {
 			if !contains([]string{"GET", "HEAD", "POST", "PUT", "PATCH", "DELETE"}, m) {
@@ -133,14 +158,43 @@ func contains(ss []string, s string) bool {
 	return false
 }
 func (g *gateway) event(rule int, decision, reason string, up, down int64) {
-	b, _ := json.Marshal(struct {
-		Rule     int    `json:"rule"`
-		Decision string `json:"decision"`
-		Reason   string `json:"reason"`
-		Upload   int64  `json:"upload"`
-		Download int64  `json:"download"`
-	}{rule, decision, reason, up, down})
+	g.record(evidence{Rule: rule, Decision: decision, Reason: reason, Upload: up, Download: down})
+}
+
+// evidence is one audit line. Allowed responses also carry the status and the
+// hashes of what the gateway's own upstream connection saw, but no request data.
+type evidence struct {
+	Rule       int    `json:"rule"`
+	Decision   string `json:"decision"`
+	Reason     string `json:"reason"`
+	Upload     int64  `json:"upload"`
+	Download   int64  `json:"download"`
+	Status     int    `json:"status,omitempty"`
+	CertSHA256 string `json:"cert_sha256,omitempty"`
+	BodySHA256 string `json:"body_sha256,omitempty"`
+	BodyBytes  int    `json:"body_bytes,omitempty"`
+}
+
+func (g *gateway) record(e evidence) {
+	b, _ := json.Marshal(e)
 	g.audit.Print(string(b))
+}
+
+func pathAllowed(r Rule, p string) bool {
+	if contains(r.Paths, p) {
+		return true
+	}
+	for _, prefix := range r.PathPrefixes {
+		if p == prefix || strings.HasPrefix(p, strings.TrimSuffix(prefix, "/")+"/") {
+			return true
+		}
+	}
+	for _, glob := range r.PathGlobs {
+		if ok, _ := path.Match(glob, p); ok {
+			return true
+		}
+	}
+	return false
 }
 func (g *gateway) index(name string) int {
 	for i, r := range g.policy.Rules {
@@ -208,6 +262,8 @@ func headerBytes(h http.Header) int64 {
 }
 
 var forwarded = []string{"Accept", "Content-Type", "Authorization", "X-Api-Key", "Anthropic-Version", "Anthropic-Beta"}
+var credentials = []string{"Authorization", "X-Api-Key"}
+var settable = []string{"User-Agent", "Accept", "Accept-Language"}
 
 func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	i := -1
@@ -218,7 +274,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(403, "origin_form_required")
 		return
 	}
-	if len(r.TransferEncoding) > 0 || len(r.Trailer) > 0 || r.URL.RawQuery != "" || r.URL.ForceQuery || !validPath(r.URL.EscapedPath()) {
+	if len(r.TransferEncoding) > 0 || len(r.Trailer) > 0 || r.URL.ForceQuery || strings.ContainsAny(r.URL.RawQuery, "#\\\r\n ") || !validPath(r.URL.EscapedPath()) {
 		deny(403, "unsupported_request_form")
 		return
 	}
@@ -246,7 +302,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(403, "websocket_policy")
 		return
 	}
-	if !contains(rule.Methods, r.Method) || !contains(rule.Paths, r.URL.Path) {
+	if !contains(rule.Methods, r.Method) || !pathAllowed(rule, r.URL.Path) || (r.URL.RawQuery != "" && !rule.Query) {
 		deny(403, "method_path_policy")
 		return
 	}
@@ -265,7 +321,7 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	ctx, cancel := context.WithTimeout(r.Context(), duration)
 	defer cancel()
-	target := &url.URL{Scheme: "https", Host: net.JoinHostPort(name, strconv.Itoa(rule.Port)), Path: r.URL.Path}
+	target := &url.URL{Scheme: "https", Host: net.JoinHostPort(name, strconv.Itoa(rule.Port)), Path: r.URL.Path, RawQuery: r.URL.RawQuery}
 	out, err := http.NewRequestWithContext(ctx, r.Method, target.String(), bytes.NewReader(body))
 	if err != nil {
 		deny(400, "request_form")
@@ -276,18 +332,24 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	// Fresh request discards forwarding/routing/hop-by-hop headers, credentials
 	// for local proxies, trailers, and alternate authority inputs.
 	for _, k := range forwarded {
+		if rule.DropCredentials && contains(credentials, k) {
+			continue
+		}
 		for _, v := range r.Header.Values(k) {
 			out.Header.Add(k, v)
 		}
 	}
 	out.Header.Set("User-Agent", "dsmack-egress/1")
+	for k, v := range rule.Headers {
+		out.Header.Set(k, v)
+	}
 	if isWS {
 		for _, k := range []string{"Connection", "Upgrade", "Sec-WebSocket-Key", "Sec-WebSocket-Version", "Sec-WebSocket-Protocol"} {
 			out.Header.Set(k, r.Header.Get(k))
 		}
 	}
 
-	up := int64(len(body)+len(r.Method)+len(r.URL.Path)+len(name)) + headerBytes(out.Header)
+	up := int64(len(body)+len(r.Method)+len(r.URL.Path)+len(r.URL.RawQuery)+len(name)) + headerBytes(out.Header)
 	if up > rule.MaxRequestBytes {
 		deny(413, "request_bytes")
 		return
@@ -339,8 +401,18 @@ func (g *gateway) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Add(k, v)
 		}
 	}
+	// Evidence from this connection: the leaf certificate TLS verified and the body as received.
+	cert, sum := "", sha256.Sum256(response)
+	if resp.TLS != nil && len(resp.TLS.PeerCertificates) > 0 {
+		leaf := sha256.Sum256(resp.TLS.PeerCertificates[0].Raw)
+		cert = hex.EncodeToString(leaf[:])
+	}
 	w.Header().Set("Content-Length", strconv.Itoa(len(response)))
-	g.event(i, "allow", "validated_tls", up, down)
+	w.Header().Set("X-Dsmack-Cert-Sha256", cert)
+	w.Header().Set("X-Dsmack-Body-Sha256", hex.EncodeToString(sum[:]))
+	w.Header().Set("X-Dsmack-Body-Bytes", strconv.Itoa(len(response)))
+	g.record(evidence{Rule: i, Decision: "allow", Reason: "validated_tls", Upload: up, Download: down,
+		Status: resp.StatusCode, CertSHA256: cert, BodySHA256: hex.EncodeToString(sum[:]), BodyBytes: len(response)})
 	w.WriteHeader(resp.StatusCode)
 	_, _ = w.Write(response)
 }

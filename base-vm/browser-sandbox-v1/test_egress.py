@@ -1,8 +1,10 @@
 import copy
 import hashlib
+import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -76,22 +78,18 @@ class Egress(unittest.TestCase):
             'oifname "lo" accept', "ct direction reply ct state established,related accept",
             "ct direction reply ct state established,related accept"])
 
-    def test_only_the_broker_audience_reaches_the_sentinel(self):
-        # Without service_egress every service shares the compose bridge, so the port opens only when all are audience.
-        for kwargs, audience, want in (
-                ({"service_egress": {"gateway": [GW], "worker": [GW]}}, ["worker"], ['iifname "dsme1" tcp dport 5100 accept']),
-                ({"service_egress": {"gateway": [GW], "worker": []}}, ["worker"], []),
-                ({}, ["worker"], []),
-                ({}, ["gateway", "worker"], ['iifname "br-*" tcp dport 5100 accept'])):
-            with self.subTest(kwargs=kwargs, audience=audience):
-                m = json.loads(raw([GW], compose=two_services(), **kwargs))
-                m["outputs"]["completion_service"] = "worker"
-                m["credentials"] = {"required": True, "via": "runtime-input-broker", "adapter": {
-                    "accepted_fields": ["claudeAiOauth"], "profile": "claude-subscription/1",
-                    "provider_route": "https://api.anthropic.com", "source": "explicit-caller-stdin-or-file"}}
-                m["allowed_envs"] = [{"name": "CLAUDE_SUBSCRIPTION_OAUTH", "audience": "broker", "services": audience}]
-                manifest, _ = validate_manifest_bytes(json.dumps(m).encode())
-                self.assertEqual([line.strip() for line in chain(render_egress_rules(manifest), "input").splitlines() if "dport" in line], want)
+    def test_runner_refuses_credentialed_manifest_at_validate(self):
+        # This base runs no credential broker; credential handling belongs in the app's compose.
+        from dsmack_compose_runner.cli import main
+        m = json.loads(raw([GW]))
+        m["credentials"] = {"required": True, "via": "runtime-input-broker", "adapter": {
+            "accepted_fields": ["claudeAiOauth"], "profile": "claude-subscription/1",
+            "provider_route": "https://api.anthropic.com", "source": "explicit-caller-stdin-or-file"}}
+        m["allowed_envs"] = [{"name": "CLAUDE_SUBSCRIPTION_OAUTH", "audience": "broker"}]
+        with tempfile.NamedTemporaryFile() as f, patch("sys.stderr", new_callable=io.StringIO) as err:
+            f.write(json.dumps(m).encode()); f.flush()
+            self.assertEqual(main(["validate", f.name]), 2)
+        self.assertIn("runner-error credentials-unsupported", err.getvalue())
 
     def test_bad_destinations_cannot_widen_or_inject_firewall_rules(self):
         good = {"destination": "203.0.113.7", "protocol": "tcp", "port": 443}

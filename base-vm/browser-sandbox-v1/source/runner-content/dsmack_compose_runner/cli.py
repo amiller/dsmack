@@ -30,13 +30,13 @@ from dsmack_compose_contract import (
 from dsmack_compose_contract.errors import MultiError
 
 from .errors import RunnerError
-from .runner import run_manifest
+from .runner import run_manifest, validate_runnable
 
 
 def _cmd_validate(args) -> int:
     with open(args.manifest, "rb") as handle:
         raw = handle.read()
-    manifest, summary = validate_manifest_bytes(raw)
+    manifest, summary = validate_runnable(raw)
     print(
         json.dumps(
             {
@@ -81,18 +81,10 @@ def _cmd_hash(args) -> int:
 def _cmd_run(args) -> int:
     with open(args.manifest, "rb") as handle:
         manifest_raw = handle.read()
-    # Validate BEFORE anything operational (the exact bytes are the identity).
-    validate_manifest_bytes(manifest_raw)
     envelope_raw = None
     if args.envelope:
         with open(args.envelope, "rb") as handle:
             envelope_raw = handle.read()
-    broker = None
-    if getattr(args, "broker_endpoint", None):
-        # F02: the broker is supplied by the harness/pinned adapter (it launches
-        # the per-run sentinel holding the credential); the runner renders this
-        # workload-reachable endpoint and never sees the credential itself.
-        broker = {"endpoint": args.broker_endpoint}
     receipt, summary = run_manifest(
         manifest_raw,
         envelope_bytes=envelope_raw,
@@ -106,7 +98,6 @@ def _cmd_run(args) -> int:
         summary_out_path=args.summary_out,
         export_artifacts_dir=args.export_artifacts,
         export_outputs_dir=args.export_outputs,
-        broker=broker,
         environment=args.environment,
         boot_observations_path=args.boot_observations,
     )
@@ -153,10 +144,6 @@ def build_parser() -> argparse.ArgumentParser:
                         "where <selector> is the MANIFEST NAME (multi-selector: one subtree per manifest); "
                         "the per-selector outputs/EXPORT-COMPLETE marker is published LAST through a "
                         "fail-distinguishable protocol, written through the lifecycle before cleanup")
-    p.add_argument("--broker-endpoint", default=None,
-                   help="F02: workload-reachable per-run sentinel endpoint supplied by the harness/"
-                        "pinned adapter for credential profiles (http://<gw-ip>:<port>/<token>); the "
-                        "runner never sees the credential. Omit for credential-free runs.")
     p.add_argument("--environment", choices=("linux-test", "vm"), default="linux-test",
                    help="VM-OBSERVATIONS: receipt execution environment. 'linux-test' (default; "
                         "host-Docker reproduction) records boot=null. 'vm' records the frozen VM boot "

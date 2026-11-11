@@ -11,11 +11,8 @@
 #       survive poweroff. Fail-closed mount (fail 8).
 #   R2. Guest network is configured statically for the VERIFIED upstream
 #       gvproxy v0.8.9 unconfigured NAT (192.168.127.2/24, gw 192.168.127.1,
-#       DNS 192.168.127.1 -- gvproxy's resolver binds only to the gateway IP):
-#       the compose runner resolves the pinned child images against the LIVE
-#       daemon and pulls missing ones BY DIGEST (the dstack in-guest pull path;
-#       the smoke never needed outbound). Fail-closed (fail 9) — a runner pull
-#       cannot succeed without it.
+#       DNS 192.168.127.1 -- gvproxy's resolver binds only to the gateway IP)
+#       for the workload's declared egress. Fail-closed (fail 9).
 #   R3. RUNNER PHASE: instead of composing /run/appcompose/compose.yaml
 #       directly, the supervisor invokes the APPROVED runner CLI
 #       (/usr/local/bin/dsmack-compose-runner, measured-rootfs bytes) once per
@@ -49,8 +46,8 @@ export DOCKER_HOST=unix:///run/rootcontrol/docker.sock
 exec 2>/run/dsmack-supervisor.stderr
 # GIO02: fail() previously `exec poweroff -f` directly, bypassing the shell EXIT
 # trap, so ANY fail-closed exit AFTER the private-input disk was extracted left
-# the owned 0700/0600 private tree (envelope/broker values) behind. fail() now
-# invokes the owned-copy + sentinel + publisher teardown EXPLICITLY before
+# the owned 0700/0600 private tree (envelope values) behind. fail() now
+# invokes the owned-copy + publisher teardown EXPLICITLY before
 # poweroff (guarded by command -v so the early mount fails -- before any teardown
 # function or private tree exists -- stay silent and safe). The teardown
 # functions and the EXIT trap are installed BEFORE the extraction below, so a
@@ -59,7 +56,6 @@ fail() {
   echo "DSMACK_SUPERVISOR_FAIL $1"
   command -v stop_scratch_probe >/dev/null 2>&1 && stop_scratch_probe
   command -v stop_oci >/dev/null 2>&1 && stop_oci
-  command -v stop_broker >/dev/null 2>&1 && stop_broker
   command -v cleanup_private >/dev/null 2>&1 && cleanup_private
   dmesg 2>/dev/null | tail -5 | diag
   exec $B poweroff -f
@@ -247,8 +243,7 @@ sha256sum -c SHA256SUMS >/dev/null 2>&1 || fail 23
 # public workload must carry NO envelopes/ or broker/ channel; a vdc that
 # does (an alternate/forged image whose own SHA256SUMS self-verifies) is
 # refused as a WHOLE-channel violation, not merely one credential pathname.
-# Legacy private runtime envelopes arrive on vde; compute jobs arrive over the
-# in-guest network channel. The sentinel credential lives on tmpfs.
+# Legacy private runtime envelopes arrive on vde.
 if [ -d /run/appcompose/envelopes ] || [ -d /run/appcompose/broker ]; then
   echo "DSMACK_WORKLOAD_PRIVATE_ON_VDC a private channel (envelopes/ or broker/) is present on the measured vdc; refusing"
   fail 25
@@ -418,18 +413,12 @@ else
 fi
 
 # R3: RUNNER PHASE — the approved runner CLI over the delivered external
-# manifests (image pulls by exact digest happen inside the guest daemon).
+# manifests (images come from the vdc OCI layout over loopback).
 RUNNER=/usr/local/bin/dsmack-compose-runner
-# R02/S03: the per-run credential sentinel is guest-root/broker-side userland
-# (NOT the workload, NOT the signed app). It is MEASURED rootfs bytes installed
-# by the build (JOIN-4); there is NO ambient executable override — the prior
-# DSMACK_SENTINEL env override is removed so an attacker-controlled environment
-# cannot substitute the credential-holding process.
-SENTINEL=/usr/local/lib/dsmack/sentinel/harness/sentinel/sentinel.py
 # APP was assigned earlier (before the OCI block); re-affirm for readability.
 mkdir -p /run/dsmack-runs /run/dsmack-control
-# PRIVATE DIAGNOSTICS OFF THE RESULT DISK: the runner/sentinel verbose
-# stdout/stderr (status JSON, value-free error codes, sentinel errors) are
+# PRIVATE DIAGNOSTICS OFF THE RESULT DISK: the runner verbose
+# stdout/stderr (status JSON, value-free error codes) are
 # captured under tmpfs /run, NOT on the exported result disk vdd. Only the
 # AUTHORITATIVE results -- receipt.json, summary.json and the complete output
 # export tree (stdout/stderr + artifact bytes + EXPORT-COMPLETE) -- are written
@@ -438,8 +427,7 @@ DIAG=/run/dsmack-diag
 mkdir -p "$DIAG"; chmod 0700 "$DIAG"
 
 # I/O-CONTINUITY DELTA (guest-io-integration): the default-uncommitted runtime
-# envelopes (env/files/stdin/user_config) and the per-run broker channel
-# (broker-config + 0600 credential) travel on the OPTIONAL UNMEASURED
+# envelopes (env/files/stdin/user_config) travel on the OPTIONAL UNMEASURED
 # private-input disk vde -- NEVER on the measured vdc public workload. vde is a
 # bounded ustar image; a REAL safe parser (MEASURED guest bytes,
 # dsmack_guest_io.private_transport) admits the WHOLE transport before writing a
@@ -471,10 +459,9 @@ cleanup_private() {
     echo "DSMACK_PRIVATE_INPUT_CLEANED owned private-input copies removed (verified absent)"
   fi
 }
-# R02/GIO02: never leak a sentinel, an OCI publisher OR a private-input tree if
-# the supervisor dies mid-run. stop_oci is defined above; stop_broker is defined
-# with the broker helpers below (both resolved when the trap fires).
-trap 'stop_oci; stop_broker; cleanup_private' EXIT
+# GIO02: never leak an OCI publisher OR a private-input tree if the supervisor
+# dies mid-run.
+trap 'stop_oci; cleanup_private' EXIT
 if [ -b /dev/vde ]; then
   rm -rf "$PRIV"
   "$GUESTIO" extract-private /dev/vde "$PRIV" > /run/private-extract.out 2>&1 || fail 28
@@ -484,78 +471,6 @@ else
   echo "DSMACK_PRIVATE_INPUT_ABSENT no vde (credential-free/uncommitted runs only)"
 fi
 runner_rc_total=0; runner_n=0
-BROKER_PID=""; BROKER_ENDPOINT=""
-
-# R02: does this manifest REQUIRE a credential broker? (credentials.required)
-broker_required() {
-  python3 - "$1" <<'PY'
-import json,sys
-try:
-    m=json.load(open(sys.argv[1]))
-except Exception:
-    sys.exit(2)
-sys.exit(0 if (m.get("credentials") or {}).get("required") else 1)
-PY
-}
-
-# The compute node writes this tmpfs file as 0400, owned by the sentinel uid.
-# Legacy private-input disks still carry runtime envelopes, never the sentinel
-# credential. The validated manifest supplies the provider policy.
-start_broker() {  # $1=name $2=validated-manifest-path
-  BROKER_ENDPOINT=""; BROKER_PID=""
-  if [ ! -f /run/dsmack/credential ]; then
-    echo "DSMACK_BROKER_MISSING credential-not-ready"
-    return 1
-  fi
-  # S03: AUTHORIZATION TARGET is the VALIDATED manifest (the runner has already
-  # validated these bytes rc=0): bind the provider route and credential
-  # profile to those bytes and use the measured image CA bundle.
-  mroute=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["credentials"]["adapter"]["provider_route"])' "$2" 2>/dev/null) \
-    || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 manifest-route-unreadable"; return 1; }
-  mprofile=$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1]))["credentials"]["adapter"]["profile"])' "$2" 2>/dev/null) \
-    || { echo "DSMACK_BROKER_POLICY_MISMATCH $1 manifest-profile-unreadable"; return 1; }
-  case "$mprofile" in
-    claude-subscription/1) mmode=claude-subscription ;;
-    claude-api-key/1)      mmode=api-key ;;
-    *) echo "DSMACK_BROKER_POLICY_MISMATCH $1 unsupported-profile"; return 1 ;;
-  esac
-  port=5100; whost=172.17.0.1
-  route="$mroute"; mode="$mmode"; ca=/etc/ssl/certs/ca-certificates.crt
-  # S03: FRESH per-run capability token, generated here at run scope — never
-  # staged, never reused across runs, dies with the sentinel instance.
-  token=$(python3 -c 'import secrets;print(secrets.token_urlsafe(32))') || return 1
-  ready="/run/dsmack/broker-$1.ready"; rm -f "$ready"
-  # Credential read once from tmpfs; teardown on SIGTERM.
-  python3 -c 'import os,runpy,sys; os.setgroups([]); os.setgid(1000); os.setuid(1000); sys.argv=sys.argv[1:]; runpy.run_path(sys.argv[0],run_name="__main__")' "$SENTINEL" --run-id "guest-$1-$$" --token "$token" \
-    --listen-host 0.0.0.0 --listen-port "$port" \
-    --provider-route "$route" --ca-bundle "$ca" --auth-mode "$mode" \
-    --credential-file /run/dsmack/credential \
-    --ready-file "$ready" >"$DIAG/$1.sentinel.err" 2>&1 &
-  BROKER_PID=$!
-  i=0
-  until [ -f "$ready" ]; do
-    i=$((i+1)); [ $i -le 120 ] || { echo "DSMACK_BROKER_FAIL $1 sentinel-not-ready"; kill "$BROKER_PID" 2>/dev/null; BROKER_PID=""; return 1; }
-    kill -0 "$BROKER_PID" 2>/dev/null || { echo "DSMACK_BROKER_FAIL $1 sentinel-exited-early"; BROKER_PID=""; return 1; }
-    $B usleep 250000
-  done
-  BROKER_ENDPOINT="http://$whost:$port/$token"
-  echo "DSMACK_BROKER_READY $1 port=$port auth_mode=$mode"
-  return 0
-}
-
-# R02: teardown — credential + token die with the instance (SIGTERM, then KILL).
-stop_broker() {
-  [ -n "$BROKER_PID" ] || return 0
-  kill -TERM "$BROKER_PID" 2>/dev/null
-  i=0
-  while kill -0 "$BROKER_PID" 2>/dev/null; do
-    i=$((i+1)); [ $i -le 40 ] || { kill -KILL "$BROKER_PID" 2>/dev/null; break; }
-    $B usleep 250000
-  done
-  if kill -0 "$BROKER_PID" 2>/dev/null; then CLOSURE_FAILED=1; else wait "$BROKER_PID" 2>/dev/null; fi
-  echo "DSMACK_BROKER_TORNDOWN $BROKER_PID"
-  BROKER_PID=""; BROKER_ENDPOINT=""
-}
 # GIO02: cleanup_private + the EXIT trap are installed EARLIER (before the
 # private-input extraction) so a failure/cancellation anywhere after extraction
 # is covered on every path, including fail()'s exec-poweroff path.
@@ -596,7 +511,7 @@ for mf in $APP/manifests/*.app-compose.json; do
   vrc=$?
   echo "DSMACK_RUNNER_VALIDATE $name rc=$vrc"
   [ $vrc -eq 0 ] || { runner_rc_total=1; echo "DSMACK_RUNNER_EXIT $name rc=$vrc phase=validate"; continue; }
-  # Swap in the manifest's input/output/forward filter before brokers or compose start.
+  # Swap in the manifest's input/output/forward filter before compose starts.
   # A failed atomic nft transaction aborts the VM; never run with open NAT.
   python3 -m dsmack_compose_contract.egress "$mf" >>/run/dsmack-diagnostics 2>&1 || fail 34
   echo "DSMACK_EGRESS_APPLIED $name"
@@ -618,17 +533,6 @@ for mf in $APP/manifests/*.app-compose.json; do
     echo "DSMACK_RUNNER_VALIDATE_INPUTS $name rc=$irc"
     [ $irc -eq 0 ] || { runner_rc_total=1; echo "DSMACK_RUNNER_EXIT $name rc=$irc phase=validate-inputs"; continue; }
   fi
-  # R02: credential-required manifests get a per-run sentinel + --broker-endpoint.
-  BROKER_ARG=""
-  if broker_required "$mf"; then
-    if start_broker "$name" "$mf"; then
-      BROKER_ARG="--broker-endpoint $BROKER_ENDPOINT"
-    else
-      # Honest explicit dependency: let the runner fail closed (broker-unavailable)
-      # for THIS manifest; the credential-free manifests are unaffected.
-      echo "DSMACK_RUNNER_BROKER_UNAVAILABLE $name"
-    fi
-  fi
   RUNID="guest-$name-$$"
   # I/O-CONTINUITY (GIO04): --export-outputs is the SHARED result-image ROOT
   # ($EXPORT). The runner writes the CANONICAL guest layout the smoke consumer
@@ -640,7 +544,7 @@ for mf in $APP/manifests/*.app-compose.json; do
   # writer of the result disk; the receipt/summary/legacy-artifact copies go to
   # $DIAG (tmpfs, OFF the result disk) so they cannot collide with the
   # exporter's canonical tree or leak diagnostics onto vdd.
-  $RUNNER run "$mf" $ENVELOPE_ARG $BROKER_ARG $VM_OBS_ARG \
+  $RUNNER run "$mf" $ENVELOPE_ARG $VM_OBS_ARG \
     --run-id "$RUNID" \
     --daemon-endpoint unix:///run/rootcontrol/docker.sock \
     --workspace-root /run/dsmack-runs \
@@ -652,8 +556,6 @@ for mf in $APP/manifests/*.app-compose.json; do
     --export-artifacts "$DIAG/$name.artifacts" \
     --export-outputs "$EXPORT" >"$DIAG/$name.run.out" 2>"$DIAG/$name.run.err"
   rrc=$?
-  # R02: tear the per-run sentinel down immediately after the run (success OR fail).
-  stop_broker
   [ $rrc -eq 0 ] || runner_rc_total=1
   echo "DSMACK_RUNNER_EXIT $name rc=$rrc phase=run"
   nft list table inet dsmack_egress >>/run/dsmack-diagnostics || fail 34
@@ -744,7 +646,7 @@ echo 'DSMACK_BOUNDARY_PROBE_END'
 echo "DSMACK_SUPERVISOR_DONE runner_failures=$runner_rc_total"
 cd /
 # I/O-CONTINUITY DELTA: explicit cleanup of the private-input owned copies
-# (envelope/broker values). They are retained NOWHERE -- never copied to the
+# (envelope values). They are retained NOWHERE -- never copied to the
 # result disk vdd and never echoed to the console. The vde disk itself is
 # UNMEASURED and read-only; destroying the owned 0700 tree removes the only
 # writable copy inside the guest before poweroff.
@@ -760,7 +662,6 @@ if [ -d "$DIAG" ]; then
 fi
 [ "$PRIVATE_CLEAN_FAILED" -eq 0 ] || runner_rc_total=1
 stop_oci
-stop_broker
 stop_scratch_probe
 docker ps -a 2>/dev/null | diag
 # GIO03: the daemon console may embed private rendered values -- it is NEVER

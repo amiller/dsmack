@@ -369,7 +369,7 @@ function setModel() {
     maxTokens: quote?.maxOutputTokens || 512,
   };
   $("model").textContent = modelBadge(agent.state.model);
-  $("model-privacy").textContent = modelPrivacy(agent.state.model);
+  $("model-privacy").textContent = $("model").title = modelPrivacy(agent.state.model);
   $("verified").hidden = !!selectedModel || !currentSession.dsmack.evidence.some(e =>
     e.model === agent.state.model.id && e.browser?.fullQuoteVerifiedBy === "browser");
   chat?.requestUpdate();
@@ -382,7 +382,7 @@ async function saveCurrentChat(publish = false) {
   try {
     const data = await task;
     if (currentSession === session) {
-      $("session-title").textContent = data.messages.some(m => m.role === "user") ? data.title : "";
+      $("session-title").textContent = $("session-title").title = data.messages.some(m => m.role === "user") ? data.title : "";
       chat.dataset.saved = "true";
       continuity?.update().catch(error);
     }
@@ -730,7 +730,7 @@ async function useSession(data) {
   chat.querySelector("message-editor").prepend($("code-attachment"));
   let firstPartial = true;
   unsubscribeChat = agent.subscribe((event, signal) => {
-    renderToolProgress(chat, agent, event);
+    renderToolProgress(chat, agent, event).catch(error);
     if (event.type === "message_start") firstPartial = true;
     if (firstPartial && event.type === "message_update" && event.message.role === "assistant" &&
       event.message.content.some(part => part.type === "text" && part.text)) {
@@ -1037,23 +1037,27 @@ function directoryLookup() {
     return network.macs.some(mac => mac.online && mac.publisher.toLowerCase() === cfg.chainDirectory.publisher.toLowerCase());
   } });
 }
-async function reverify({ registration: prior, signal, directory, browserPeer }) {
+async function reverify({ registration: prior, signal, directory, browserPeer, step = () => {} }) {
   const peer = prior.relay_peer;
   const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
+  if (policy.chain) step("reading the approved build and canary on-chain via layover-chain");
   const pinned = await policy.chain?.snapshot();
   performance.mark("dsmack:attestation:start", { detail: { peer } });
   let chain, direct;
   if (directory === "chain") {
+    step("reading the guest directory on-chain via layover-chain");
     chain = await directoryLookup().read({ signal });
     const selected = chain.nodes.find(node => node.relay_peer === peer);
     require(selected, "Chain directory no longer lists this guest.");
+    step("fetching the guest's fresh Apple attestation directly from the guest");
     try { direct = await fetchDirectAttestation({ peer: browserPeer, selected, challenge, policy, signal }); }
     catch (error) { directoryLookup().invalidate(); throw error; }
-  }
+  } else step("fetching the guest's fresh Apple attestation through the broker");
   try {
     const registration = direct?.registration || await api("/sandbox/nodes/" + encodeURIComponent(peer) + "/attestation?challenge=" + challenge, undefined, { signal });
     performance.mark("dsmack:attestation:response", { detail: { peer } });
     require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
+    step("verifying the attestation and its on-chain enrollment");
     if (chain) await chain.verifyRegistration(registration, signal);
     const checked = await sandbox.verifyNode(registration, { ...policy, chain: pinned, challenge });
     require(registration.payments?.challenge === challenge, "Node challenge mismatch. Stale attestation refused.");
@@ -1061,6 +1065,7 @@ async function reverify({ registration: prior, signal, directory, browserPeer })
       registration.payments.runExpires * 1000 >= Date.now() + 30000,
       "Guest is too close to drain to reconnect.");
     performance.mark("dsmack:attestation:verified", { detail: { peer } });
+    step("attestation verified");
     if (direct) Object.assign(checked, { chainTunnels: direct.entries, connection: direct.connection, directory: "chain", invalidateDirectory: () => directoryLookup().invalidate() });
     return checked;
   } catch (error) {
@@ -1068,7 +1073,7 @@ async function reverify({ registration: prior, signal, directory, browserPeer })
     throw error;
   }
 }
-async function discover({ peer: browserPeer, wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim } = {}) {
+async function discover({ peer: browserPeer, wait = false, deadline = Date.now() + (wait ? 90000 : 0), exclude = new Set(), signal, workspace, claim, step = () => {} } = {}) {
   require(policy, "The bundled sandbox policy could not load. Refresh the page before sending a job.");
   const manifestHash = sandbox.hex(new Uint8Array(await crypto.subtle.digest("SHA-256", policy.manifest)));
   const query = workspace ? "?" + new URLSearchParams({ workspaceId: workspace.workspaceId,
@@ -1084,6 +1089,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
     $("capacity-status").textContent = "Finding a free Mac on the Dsmack network…";
     await refreshNetwork(signal);
     mark("discovery:start");
+    step("asking the broker for free Macs");
     let nodes;
     try {
       nodes = await api("/nodes" + query, undefined, { signal });
@@ -1098,6 +1104,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
         const message = capacityMessage(e.code === "FLEET_EMPTY", retry);
         $("capacity-status").dataset.stage = e.code === "FLEET_EMPTY" ? "empty" : "busy";
         $("capacity-status").textContent = message;
+        step(message);
         if (!wait || Date.now() + retry * 1000 > deadline) throw Object.assign(new Error(message), {
           code: e.code, status: e.status, ref: e.ref, retryAfterSeconds: e.retryAfterSeconds });
         await pause(retry * 1000);
@@ -1105,6 +1112,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       }
       brokerFailure = directoryFailure(e);
       showDirectory("chain", brokerFailure);
+      step(brokerFailure.replace(/\.$/, "") + "; reading the guest directory on-chain via layover-chain");
       try {
         chainDirectory = await directoryLookup().read({ signal });
         nodes = chainDirectory.nodes;
@@ -1127,6 +1135,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       const peer = selected.relay_peer;
       // Chain reads that name no guest happen before the stay opens: the broker frees a stay unused for 90 s.
       $("node-status").textContent = "Reading the approved build and canary from Base Sepolia…";
+      if (policy.chain) step("reading the approved build and canary on-chain via layover-chain");
       const pinned = await policy.chain?.snapshot();
       $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
       let release;
@@ -1136,6 +1145,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
           if (e.code === "SESSION_SAVING") {
             const retry = Math.max(1, Math.min(60, Number(e.retryAfterSeconds) || 5));
             $("node-status").textContent = `Saving workspace. Retry in ${retry} seconds.`;
+            step(`a previous stay is still saving the workspace; retrying in ${retry}s`);
             if (!wait || Date.now() + retry * 1000 > deadline) throw e;
             await pause(retry * 1000);
             continue discovery;
@@ -1146,6 +1156,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
               // Another chat (often one already closed) holds the wallet's guest. End it and claim again.
               endedOther = true;
               $("node-status").textContent = "Ending your other chat's guest session…";
+              step("ending your other chat's guest session");
               for (const sessionId of String(e.message).match(/[0-9a-f]{8}-[0-9a-f-]{27}|[0-9a-f]{32,64}/gi) || [])
                 await api("/agent/end", await walletBody(credit, "agent-end", { sessionId }));
               continue discovery;
@@ -1156,6 +1167,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
           }
           exclude.add(peer);
           mark("grant:unavailable", { peer, error: e.code });
+          step(`that slot was taken (${e.code}); trying another`);
           continue;
         }
       }
@@ -1166,13 +1178,16 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
           require(browserPeer, "Direct guest attestation needs a browser peer connection.");
           connectionStatus("connecting", selected);
           mark("attestation:direct", { peer, challenge });
+          step("fetching the guest's fresh Apple attestation directly from the guest");
           try { direct = await fetchDirectAttestation({ peer: browserPeer, selected, challenge, policy, signal }); }
           catch (error) { directoryLookup().invalidate(); throw error; }
         }
+        if (!direct) step("fetching the guest's fresh Apple attestation through the broker");
         const registration = direct ? direct.registration : await api("/sandbox/nodes/" + encodeURIComponent(peer) +
           "/attestation?challenge=" + challenge, undefined, { signal });
         mark("attestation:response", { peer });
         require(registration.relay_peer === peer, "Guest attestation identifies a different peer.");
+        step("verifying the attestation and its on-chain enrollment");
         if (chainDirectory) await chainDirectory.verifyRegistration(registration, signal);
         const checked = await sandbox.verifyNode(registration, { ...policy, chain: pinned, challenge });
         require(!registration.payments || registration.payments.challenge === challenge,
@@ -1181,6 +1196,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
           (!registration.payments || registration.payments.runExpires * 1000 >= Date.now() + setupSeconds * 1000),
           "Guest is too close to drain. Trying another approved guest.");
         mark("attestation:verified", { peer });
+        step("attestation verified");
         // The attestation endpoint omits scheduler hints; retain them for sealed
         // workspace placement without treating them as verified evidence.
         checked.placement = selected.scheduler;
@@ -1208,6 +1224,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
         lastRefusal = new Error((chainDirectory ? `${brokerFailure} Directory: chain. Direct guest verification failed: ` :
           "Guest verification through the broker failed: ") + e.message + ". No repository or task was sent.");
         if (chainDirectory) throw lastRefusal;
+        step(`that guest failed verification (${e.message}); trying another`);
       }
     }
     if (lastRefusal) throw lastRefusal;
@@ -1216,6 +1233,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       capacityMessage(!nodes.length, 2));
     $("capacity-status").dataset.stage = nodes.length ? "busy" : "empty";
     $("capacity-status").textContent = capacityMessage(!nodes.length, 2);
+    step(capacityMessage(!nodes.length, 2));
     await pause(2000);
   }
 }

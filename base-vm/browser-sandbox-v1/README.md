@@ -25,10 +25,14 @@ protocol (`tcp` or `udp`) and destination port tuples, for example:
 {"mode":"nat","listen_ports":[],"egress":[{"destination":"203.0.113.8/32","protocol":"udp","port":51820}]}
 ```
 
-The supervisor applies nftables to guest output and container forwarding before
-starting brokers or compose. Missing or empty `egress` denies external traffic;
-loopback and replies to inbound connections remain available. DNS requires an
-explicit resolver IP and port entry, which permits queries for any name.
+The supervisor installs a loopback-only nftables table before the network card
+comes up, then replaces it with the manifest's filter on guest input, output and
+container forwarding before starting brokers or compose. Missing or empty
+`egress` denies external traffic; loopback and replies remain available. Inbound,
+only the services that receive the sentinel endpoint reach the sentinel port:
+by their own `service_egress` bridge, or, without `service_egress`, when every
+service receives it. DNS requires an explicit resolver IP and port entry, which
+permits queries for any name.
 
 `network.service_egress` (mode `nat`, no `listen_ports`) gives compose services
 their own tuples, so a gateway service can have broad egress that the other

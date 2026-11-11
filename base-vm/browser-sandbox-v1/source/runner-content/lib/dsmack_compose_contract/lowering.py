@@ -59,6 +59,7 @@ CONTROL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WORKLOAD_UID = 1000
 WORKLOAD_GID = 1000
 SENTINEL_ENV_NAME = "DSMACK_SENTINEL_ENDPOINT"
+SENTINEL_PORT = 5100  # the supervisor's start_broker listens here
 AGENT_SOCKET_DIR = "/run/dsmack-agent"
 # The supervisor writes the guest resolver here. Docker's embedded DNS (127.0.0.11) needs xt DNAT/SNAT,
 # which the guest kernel lacks (CONFIG_NETFILTER_XT_NAT unset), so networked containers use it directly.
@@ -505,14 +506,29 @@ def _accept_rules(egress, match=""):
     return rules
 
 
+def _sentinel_rules(manifest, services):
+    """The bridges the broker audience enters on: each audience service's own egress bridge with
+    service_egress; without it all services share the compose bridge, so only when all are audience."""
+    if not manifest.get("credentials", {}).get("required"):
+        return []
+    names = sorted(_compose_doc(manifest)["services"])
+    audience = _broker_capability_services(manifest, names)
+    if services is None:
+        bridges = ["br-*"] if audience == names else []
+    else:
+        bridges = [services[n]["bridge"] for n in audience if services[n]["bridge"]]
+    return ['  iifname "%s" tcp dport %d accept' % (b, SENTINEL_PORT) for b in bridges]
+
+
 def render_egress_rules(manifest):
     """Guest-wide policy, installed atomically before any workload starts.
 
     Guest processes (including brokers) match network.egress. Forwarded container
     packets match network.egress too, or, with network.service_egress, only the
     tuples of the service whose bridge they enter on, plus service-to-service
-    traffic on the internal bridge. Only loopback and replies to inbound
-    connections bypass those tuples. An inet table also denies IPv6.
+    traffic on the internal bridge. Inbound, only the broker audience reaches the
+    sentinel port. Only loopback and replies bypass those tuples. An inet table
+    also denies IPv6.
     """
     services = service_networks(manifest)
     rules = [
@@ -520,15 +536,17 @@ def render_egress_rules(manifest):
         "delete table inet dsmack_egress",
         "table inet dsmack_egress {",
     ]
-    for hook in ("output", "forward"):
+    for hook in ("input", "output", "forward"):
         rules += [
             " chain %s {" % hook,
             "  type filter hook %s priority -10; policy drop;" % hook,
         ]
-        if hook == "output":
-            rules.append('  oifname "lo" accept')
+        if hook != "forward":
+            rules.append('  %sifname "lo" accept' % hook[0])
         rules.append("  ct direction reply ct state established,related accept")
-        if hook == "output" or services is None:
+        if hook == "input":
+            rules += _sentinel_rules(manifest, services)
+        elif hook == "output" or services is None:
             rules += _accept_rules(manifest["network"].get("egress", []))
         else:
             rules.append('  iifname "%s" oifname "%s" accept' % (SERVICE_BRIDGE, SERVICE_BRIDGE))

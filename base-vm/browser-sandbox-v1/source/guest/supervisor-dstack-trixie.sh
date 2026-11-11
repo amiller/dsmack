@@ -131,7 +131,7 @@ echo "DSMACK_SUPERVISOR_KERNEL_FEATURES overlay=$(grep -w overlay /proc/filesyst
 ip link set lo up 2>/dev/null
 
 # R2 + PORTABLE NETWORKING (guest-io-integration): static network config for
-# the digest pulls. The values come from a MEASURED network-profile declaration
+# the workload's declared egress. The values come from a MEASURED network-profile declaration
 # installed in the image (/usr/local/lib/dsmack/net/guest-network.env); its
 # values are exactly the VERIFIED upstream gvproxy v0.8.9 unconfigured NAT
 # profile (subnet 192.168.127.0/24, gateway + DNS 192.168.127.1), the
@@ -150,6 +150,9 @@ if [ -f "$GUEST_NET_PROFILE" ]; then
   echo "DSMACK_GUEST_NET_PROFILE $GUEST_NET_PROFILE iface=$GUEST_IFACE"
 fi
 if ip link show "$GUEST_IFACE" >/dev/null 2>&1; then
+  # Loopback only until the manifest's table replaces this one: images come from
+  # the vdc OCI layout over 127.0.0.1:5005 and the agent uses dsmack-ctl.
+  python3 -m dsmack_compose_contract.egress >>/run/dsmack-diagnostics 2>&1 || fail 34
   # GIO09: do NOT suppress address/route failures with `|| true`. Attempt the
   # add, then VERIFY the resulting state (idempotent: a pre-assigned address or
   # route is fine; a genuinely unconfigured interface fails closed). The check
@@ -593,7 +596,7 @@ for mf in $APP/manifests/*.app-compose.json; do
   vrc=$?
   echo "DSMACK_RUNNER_VALIDATE $name rc=$vrc"
   [ $vrc -eq 0 ] || { runner_rc_total=1; echo "DSMACK_RUNNER_EXIT $name rc=$vrc phase=validate"; continue; }
-  # Filter guest output AND Docker forwarding before brokers or compose start.
+  # Swap in the manifest's input/output/forward filter before brokers or compose start.
   # A failed atomic nft transaction aborts the VM; never run with open NAT.
   python3 -m dsmack_compose_contract.egress "$mf" >>/run/dsmack-diagnostics 2>&1 || fail 34
   echo "DSMACK_EGRESS_APPLIED $name"

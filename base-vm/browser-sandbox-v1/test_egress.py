@@ -62,8 +62,36 @@ class Egress(unittest.TestCase):
         for encoded in (raw(), raw([]), raw([], "none")):
             manifest, _ = validate_manifest_bytes(encoded)
             rules = render_egress_rules(manifest)
-            self.assertEqual(rules.count("policy drop;"), 2)
+            self.assertEqual(rules.count("policy drop;"), 3)
             self.assertNotIn("daddr", rules)
+            self.assertNotIn("dport", chain(rules, "input"))
+
+    def test_table_before_nic_up_allows_only_loopback_and_replies(self):
+        with patch("dsmack_compose_contract.egress.subprocess.run") as run:
+            apply()
+        rules = run.call_args.kwargs["input"].decode()
+        self.assertEqual(rules.count("policy drop;"), 3)
+        self.assertEqual([line.strip() for line in rules.splitlines() if "accept" in line], [
+            'iifname "lo" accept', "ct direction reply ct state established,related accept",
+            'oifname "lo" accept', "ct direction reply ct state established,related accept",
+            "ct direction reply ct state established,related accept"])
+
+    def test_only_the_broker_audience_reaches_the_sentinel(self):
+        # Without service_egress every service shares the compose bridge, so the port opens only when all are audience.
+        for kwargs, audience, want in (
+                ({"service_egress": {"gateway": [GW], "worker": [GW]}}, ["worker"], ['iifname "dsme1" tcp dport 5100 accept']),
+                ({"service_egress": {"gateway": [GW], "worker": []}}, ["worker"], []),
+                ({}, ["worker"], []),
+                ({}, ["gateway", "worker"], ['iifname "br-*" tcp dport 5100 accept'])):
+            with self.subTest(kwargs=kwargs, audience=audience):
+                m = json.loads(raw([GW], compose=two_services(), **kwargs))
+                m["outputs"]["completion_service"] = "worker"
+                m["credentials"] = {"required": True, "via": "runtime-input-broker", "adapter": {
+                    "accepted_fields": ["claudeAiOauth"], "profile": "claude-subscription/1",
+                    "provider_route": "https://api.anthropic.com", "source": "explicit-caller-stdin-or-file"}}
+                m["allowed_envs"] = [{"name": "CLAUDE_SUBSCRIPTION_OAUTH", "audience": "broker", "services": audience}]
+                manifest, _ = validate_manifest_bytes(json.dumps(m).encode())
+                self.assertEqual([line.strip() for line in chain(render_egress_rules(manifest), "input").splitlines() if "dport" in line], want)
 
     def test_bad_destinations_cannot_widen_or_inject_firewall_rules(self):
         good = {"destination": "203.0.113.7", "protocol": "tcp", "port": 443}
@@ -102,7 +130,7 @@ class Egress(unittest.TestCase):
         manifest, summary = validate_manifest_bytes(raw([GW]))
         lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/docker.sock", run_id="test")
         self.assertEqual(set(json.loads(render_compose_file(manifest, lowered))), {"services"})
-        self.assertNotIn("iifname", lowered["egress_nftables"])
+        self.assertNotIn("iifname", chain(lowered["egress_nftables"], "forward"))
 
     def test_service_egress_reaches_only_the_named_service(self):
         manifest, summary = validate_manifest_bytes(raw([DNS], service_egress={"gateway": [GW, DNS], "worker": []}, compose=two_services()))

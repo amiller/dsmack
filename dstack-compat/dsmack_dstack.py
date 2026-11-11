@@ -2,9 +2,9 @@
 in-guest agent can import it (the guest image has no crypto packages).
 
 A dsmack guest serves dstack's GetKey from a scoped root key that a dstack
-app grants per (task, worker). The returned signature chain is
-[link0 by scoped root, grant by the app's signer, signer's dstack chain (2 links)],
-so a Mac-derived key verifies to the dstack KMS root but never as the app's own key.
+coordinator app grants per (task, worker). The returned signature chain is
+[link0 by scoped root, grant by coordinator signer, signer's dstack chain (2 links)],
+so a Mac-derived key verifies to the dstack KMS root but never as the coordinator's own key.
 """
 import hashlib
 import hmac
@@ -190,7 +190,7 @@ def verify_dstack_chain(pub, chain, domain, algorithm, app_id):
 
 
 def verify_worker_chain(pub, chain, domain, algorithm, app_id, grant, now):
-    """Mac key -> grant -> app signer -> KMS root. Returns the KMS root key."""
+    """Mac key -> grant -> coordinator signer -> KMS root. Returns the KMS root key."""
     if len(chain) != 4:
         raise ValueError("worker chain has %d links, expected 4" % len(chain))
     if now >= grant["expires"]:

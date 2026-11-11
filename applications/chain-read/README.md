@@ -62,8 +62,9 @@ wrangler deploy
 ## Relay
 
 Helios's OP-stack client takes its head from a server answering `GET /latest` with the newest sequencer-signed
-block. Run Helios's `opstack-server` (it follows the sequencer's gossip) and point `relays` or `RELAY_URL` at it.
-Helios's built-in host, `https://<network>.operationsolarstorm.org`, is the last default relay.
+block, such as Helios's `opstack-server`, which follows the sequencer's gossip. Point `relays` or `RELAY_URL` at
+it. Helios's built-in host, `https://<network>.operationsolarstorm.org`, is the last default relay. `chainRead`
+rejects when no relay answers its first `/latest`.
 
 ## Test
 

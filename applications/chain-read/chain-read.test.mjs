@@ -53,7 +53,7 @@ test("tries sources in order, reports each failure and caches per block", async 
     ["eth_getBlockByNumber", "good", [{ source: "bad", error: "HTTP 503" }]],
     ["eth_call", "good", [{ source: "bad", error: "HTTP 503" }]],
   ]);
-  assert.deepEqual(cr.diagnostics.relays["https://down.test"], { ok: 0, failed: 1, error: "relay down" });
+  assert.deepEqual(cr.diagnostics.relays["https://down.test"], { ok: 0, failed: 2, error: "relay down" });
   assert.equal(seen.filter((u) => u === "https://good.test/").length, 2);
   await cr.close();
 });
@@ -82,5 +82,11 @@ test("the first head is held back until it is lagSeconds old", async () => {
   const t = Date.now();
   const cr = await open({ sources: [{ url: "https://good.test/" }], lagSeconds: 0.3 });
   assert.ok(Date.now() - t >= 300);
+  await cr.close();
+});
+
+test("start rejects with the relay errors when no relay gives a head", async () => {
+  await assert.rejects(open({ relays: ["https://down.test"], sources: [{ url: "https://good.test/" }] }), /every relay failed.*relay down/);
+  const cr = await open({ sources: [{ url: "https://good.test/" }] });
   await cr.close();
 });

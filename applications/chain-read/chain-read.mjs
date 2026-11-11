@@ -110,10 +110,17 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
     diagnostics.background.push({ at: Date.now(), body: body.slice(0, 200) });
     return send(usable[0], body);
   };
+  // Helios polls a dead relay forever and cannot be shut down mid-sync, so take the first head before starting it.
+  await latest("/latest");
   globalThis.fetch = wrapped;
   networks.add(network);
 
   const p = await helios({ executionRpc: exec, network, dbType: "config" }, "opstack");
+  const close = async () => {
+    await p.shutdown();
+    if (globalThis.fetch === wrapped) globalThis.fetch = prev;
+    networks.delete(network);
+  };
   await p.waitSynced();
 
   // Reads run one at a time so the wrapper knows which source the current read uses.
@@ -159,10 +166,5 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
     return { block, call, multicall };
   };
 
-  const close = async () => {
-    await p.shutdown();
-    if (globalThis.fetch === wrapped) globalThis.fetch = prev;
-    networks.delete(network);
-  };
   return { snapshot, read, diagnostics, sources: usable.map((s) => s.name), close };
 }

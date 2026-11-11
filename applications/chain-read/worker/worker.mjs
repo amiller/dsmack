@@ -21,8 +21,10 @@ export default {
     const denied = list.filter((r) => !METHODS.has(r?.method)).map((r) => error(r?.id, -32601, `method not allowed: ${r?.method}`));
     let answers = [];
     if (allowed.length) {
-      const r = await fetch(env.RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(allowed) }).catch(() => null);
-      if (!r?.ok) return json(error(null, -32603, r ? `upstream HTTP ${r.status}` : "upstream unreachable"), 502);
+      const r = await fetch(env.RPC_URL, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(Array.isArray(body) ? allowed : allowed[0]) }).catch(() => null);
+      if (!r) return json(error(null, -32603, "upstream unreachable"), 502);
+      // Upstream errors pass through unchanged: Helios backs off on the provider's own 429, not on a rewritten one.
+      if (!r.ok) return new Response(r.body, { status: r.status, headers: { ...CORS, "content-type": r.headers.get("content-type") ?? "text/plain" } });
       answers = [await r.json()].flat();
     }
     return json(Array.isArray(body) ? [...answers, ...denied] : answers[0] ?? denied[0]);

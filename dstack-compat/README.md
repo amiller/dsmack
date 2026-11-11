@@ -4,21 +4,24 @@ dstack's guest API v1 (`/v1/GetKey`, `/v1/Attest`, `/v1/Info`, `/v1/Version` on
 `/var/run/dstack.sock`) for a dsmack guest, so one compose file calls one key
 API on dstack and on a Mac.
 
-A dstack app (the coordinator) mints a grant per (task, worker): a scoped root
-key from its own `GetKey`, signed by its grant signer key. The shim derives
-keys from that scoped root with dstack's v1 KDF. `GetKey` returns a four-link
-chain: scoped root over the key claim, coordinator signer over the grant, then
-the signer's two-link dstack chain to the KMS root. A worker key verifies to
-the KMS root through the grant and never verifies as a coordinator key.
+A task secret comes from the secret-release policy (below): the guest attests,
+the policy checks the attestation on chain and seals the secret to the guest
+agent's in-memory `secret-key`, and the workload opens it with `/v1/GetSecret`.
 
-On the Mac the runner app fetches the grant before the guest boots: it POSTs
-`{task_id, key_id, compose_hash, run, seal_pub, assertion}` to the coordinator's
-`/grant` ([applications/coordinator](../applications/coordinator/README.md)), where
-`assertion` is App Attest over `"dsmack.appattest.grant-request/1" ||
-manifest_sha256 || run || sha256(seal_pub) || sha256(task_id)`. The coordinator
-checks the assertion, the runner cdhash and the compose hash, mints the grant
-for `worker_id = keyId` and seals the root key to `seal_pub`, an ephemeral P-256
-key that exists only in the app. The app hands the grant to the shim over
+`GetKey` serves keys from a grant: a dstack app mints, with `grant.py`, a scoped
+root key per (task, worker) from its own `GetKey`, signed by its grant signer
+key. The shim derives keys from that scoped root with dstack's v1 KDF. `GetKey`
+returns a four-link chain: scoped root over the key claim, the app's signer over
+the grant, then the signer's two-link dstack chain to the KMS root. A worker key
+verifies to the KMS root through the grant and never verifies as the app's key.
+
+A runner session with `"grant": {"url", "task_id"}` fetches the grant before the
+guest boots: it POSTs `{task_id, key_id, compose_hash, run, seal_pub, assertion}`
+to `<url>/grant`, where `assertion` is App Attest over
+`"dsmack.appattest.grant-request/1" || manifest_sha256 || run || sha256(seal_pub)
+|| sha256(task_id)`. The app checks the assertion, the runner cdhash and the
+compose hash, mints the grant for `worker_id = keyId` and seals the root key to
+`seal_pub` (`grant.seal`), an ephemeral P-256 key that exists only in the runner app. The app hands the grant to the shim over
 `dsmack-ctl` and logs `sha256(grant text)` as the `worker-grant` event, so every
 `Attest` assertion commits to it. The key never reaches the Mac's disk.
 
@@ -49,7 +52,8 @@ unchanged.
   sends its public key as the `secret-key` system event before the seal, and serves
   `/v1/GetSecret {task_id, epk, iv, ct}` → `{secret}`.
 - `secret-release/` the release policy, one JS module (`policy.mjs`) run as a dstack-webhost handler
-  (`server.ts`) or a Lit action (`lit-action.js`). `POST /release {task_id, attestation}` verifies the
+  (`server.ts`) or a Lit action (`lit-action.js`; `lit.mjs` registers it, wraps task secrets for it and
+  serves `POST /release` in front of it). `POST /release {task_id, attestation}` verifies the
   guest Attest attestation (App Attest key enrolled in an `AppleAttestRegistryV1`, cdhash of the approved
   CDRegistry build, counter above the on-chain one, signature over the rebuilt client data, exactly one
   `secret-key` before `system-ready`, the task's manifest and images, `report_data =
@@ -65,8 +69,8 @@ unchanged.
 - `canary_workload.py <repo> <image files> <starter public-tree> <out>` builds the canary
   workload: one `/v1/Attest` with zero `report_data`, written to its outputs, then a sleep.
   Owner canaries bind its manifest sha256.
-- `grant.py mint <dstack.sock> <task> <worker> <compose_hash> <ttl_s>` the coordinator call;
-  `seal` and `grant_request_client_data` are what the coordinator's `/grant` uses.
+- `grant.py mint <dstack.sock> <task> <worker> <compose_hash> <ttl_s>` mints a grant inside a dstack app;
+  `seal` and `grant_request_client_data` are the `/grant` reply and request the runner app speaks.
 - `docker-compose.json` a stdlib worker that calls `GetKey` (secp256k1 and ed25519),
   `Info` and `Attest` over its key.
 - `e2e.sh <dir>` runs that compose in a docker-in-docker guest twice, once

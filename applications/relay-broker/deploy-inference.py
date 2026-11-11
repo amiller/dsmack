@@ -111,6 +111,8 @@ def prepare(args):
             for name in ("chain-reader.mjs", "rpc.mjs", "admission.mjs", "helios-reader.mjs"):
                 archive.add(REPO / "applications/payments" / name, arcname="applications/payments/" + name)
             archive.add(bundled, arcname="applications/payments/schema.mjs")
+            archive.add(REPO / "applications/chain-read/chain-read.mjs", arcname="applications/chain-read/chain-read.mjs")
+            archive.add(REPO / "applications/chain-read/vendor/helios-0.12.0.mjs", arcname="applications/chain-read/vendor/helios-0.12.0.mjs")
             attestation = Path(temporary) / "near-attestation.mjs"
             subprocess.run(["deno", "bundle", "--platform=deno", "--minify",
                             str(APP / "near-attestation.mjs"), "-o", str(attestation)], check=True)

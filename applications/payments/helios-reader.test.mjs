@@ -3,24 +3,33 @@ import { test } from "node:test";
 import { keccak256 } from "./schema.mjs";
 import { HeliosReader, sharedSnapshots } from "./helios-reader.mjs";
 
-const escrow = "0x" + "35".repeat(20), code = "0x6000", CHAIN_READ = "https://chain.invalid/chain-read";
-// chain-read whose head advances one block per /head; `fail` makes the next /head refuse. Counts fetches per path.
+const escrow = "0x" + "35".repeat(20), code = "0x6000";
+const bytes = (h) => Uint8Array.from(h.slice(2).match(/../g), (x) => parseInt(x, 16));
+// A chain-read stand-in whose head advances one block per snapshot; `fail` makes the next snapshot refuse. Logs reads.
+let current;
 function chain() {
-  const c = { head: 1000, fetches: [], fail: false };
-  globalThis.fetch = async (url) => {
-    const u = new URL(url), q = (k) => u.searchParams.get(k), path = u.pathname.split("/").pop();
-    c.fetches.push(path + " " + (q("data") ?? q("address") ?? ""));
-    if (path === "head") {
-      if (c.fail) return Response.json({ error: "helios down" }, { status: 502 });
-      c.head++;
-      return Response.json({ block: c.head - 30, block_hash: "0x" + (c.head - 30).toString(16).padStart(64, "0"), depth: 30, head: c.head, head_age_s: 2, verified_by: "helios-opstack" });
-    }
-    const pin = { block_hash: q("block"), verified_by: "helios-opstack" };
-    return Response.json(path === "code" ? { ...pin, code } : { ...pin, result: "0x" + q("data").slice(2).padStart(64, "0") });
+  const c = current = { head: 1000, fetches: [], fail: false, failCall: false, inFlight: 0, peak: 0, delay: 0 };
+  c.instance = {
+    snapshot: async () => {
+      c.fetches.push("head ");
+      if (c.fail) throw new Error("helios down");
+      const n = ++c.head;
+      return { block: { number: n, hash: "0x" + n.toString(16).padStart(64, "0"), timestamp: Date.now() / 1000 - 2 },
+        call: async (to, data) => {
+          c.inFlight++; c.peak = Math.max(c.peak, c.inFlight);
+          try {
+            await new Promise((r) => setTimeout(r, c.delay));
+            if (c.failCall) { c.failCall = false; throw new Error("eth_call failed on every source"); }
+            c.fetches.push("call " + data);
+            return bytes("0x" + data.slice(2).padStart(64, "0"));
+          } finally { c.inFlight--; }
+        } };
+    },
+    read: async (method, [address]) => { c.fetches.push("code " + address); return code; },
   };
   return c;
 }
-const reader = () => new HeliosReader({ escrow, codeHash: keccak256(code), chainRead: CHAIN_READ });
+const reader = () => new HeliosReader({ escrow, codeHash: keccak256(code), open: async () => current.instance });
 const calls = (c) => c.fetches.filter((f) => f.startsWith("call")).length;
 
 test("a snapshot fetches each read once", async () => {
@@ -63,36 +72,40 @@ test("a snapshot is never served past 2 * seconds: callers wait for the next and
   assert.equal(await shared.snapshot(), a);
   await new Promise((r) => setTimeout(r, 10));
   t = 60;
-  await assert.rejects(shared.snapshot(), /chain-read \/head: HTTP 502 helios down/);
+  await assert.rejects(shared.snapshot(), /helios down/);
   c.fail = false;
   assert.ok((await shared.snapshot()).block.number > a.block.number);
 });
 
 test("a failed read is not kept", async () => {
-  const c = chain(), s = await reader().snapshot(), ok = globalThis.fetch;
-  globalThis.fetch = async () => Response.json({ error: "timeout" }, { status: 502 });
-  await assert.rejects(s.read("eth_call", [{ to: escrow, data: "0x03" }]), /HTTP 502/);
-  globalThis.fetch = ok;
+  const c = chain(), s = await reader().snapshot();
+  c.failCall = true;
+  await assert.rejects(s.read("eth_call", [{ to: escrow, data: "0x03" }]), /failed on every source/);
   assert.equal(await s.read("eth_call", [{ to: escrow, data: "0x03" }]), "0x" + "03".padStart(64, "0"));
   assert.equal(calls(c), 1);
 });
 
 test("the next snapshot replays the previous reads one at a time", async () => {
-  chain();
-  const ok = globalThis.fetch;
-  let inFlight = 0, peak = 0;
-  globalThis.fetch = async (url) => {
-    inFlight++; peak = Math.max(peak, inFlight);
-    try { await new Promise((r) => setTimeout(r, 2)); return await ok(url); } finally { inFlight--; }
-  };
+  const c = chain();
+  c.delay = 2;
   let t = 0;
   const shared = sharedSnapshots(reader(), 30, () => t);
   const a = await shared.snapshot();
   for (const d of ["0x01", "0x02", "0x03", "0x04"]) await a.read("eth_call", [{ to: escrow, data: d }]);
-  peak = 0;
+  c.peak = 0;
   t = 31;
   await shared.snapshot();
   await new Promise((r) => setTimeout(r, 100));
   assert.notEqual(await shared.snapshot(), a);
-  assert.equal(peak, 1);
+  assert.equal(c.peak, 1);
+});
+
+test("a head older than maxHeadAge is refused, and a failed Helios start is retried", async () => {
+  const c = chain();
+  let starts = 0;
+  const r = new HeliosReader({ escrow, codeHash: keccak256(code), open: async () => { if (starts++ === 0) throw new Error("no relay"); return c.instance; },
+    now: () => Date.now() / 1000 + 200 });
+  await assert.rejects(r.snapshot(), /no relay/);
+  await assert.rejects(r.snapshot(), /Helios head is \d+ s old/);
+  assert.equal(starts, 2);
 });

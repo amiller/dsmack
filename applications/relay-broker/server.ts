@@ -6,6 +6,7 @@ import { Workspaces } from "./workspaces.mjs";
 import { tunnelIndex } from "./tunnel-index.mjs";
 import { fleet, readFleet, readOwnership } from "./fleet.mjs";
 import { HeliosReader, heliosAdmission, sharedSnapshots } from "../payments/helios-reader.mjs";
+import { chainRead } from "../chain-read/chain-read.mjs";
 import { networkMonitor } from "./network.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
@@ -42,15 +43,15 @@ async function load(ctx: Context) {
   if (cfg.enrollments || cfg.payments?.enrollments) {
     throw new Error("broker config must not pin enrollments; enroll the key on AppleAttestRegistry");
   }
-  // Guest admission reads only Helios-verified state through chain-read, never a public RPC.
+  // Guest admission reads only state verified by Helios in this process (chain-read); cfg.chainRead is the Worker URL.
   if (!cfg.payments || !/^https:\/\//.test(cfg.chainRead)) {
-    throw new Error("broker config needs payments and chainRead (the chain-read URL)");
+    throw new Error("broker config needs payments and chainRead (the chain-read Worker URL)");
   }
   // Without it, every model charge to a wallet with deposited USDC fails to settle (Nov 9-10 outage).
   if (!/^0x[0-9a-fA-F]{40}$/.test(cfg.payments.inferenceOperator ?? "")) {
     throw new Error("broker config needs payments.inferenceOperator");
   }
-  const helios = sharedSnapshots(new HeliosReader({ ...cfg.payments, chainRead: cfg.chainRead }));
+  const helios = sharedSnapshots(new HeliosReader({ ...cfg.payments, open: () => chainRead({ worker: cfg.chainRead }) }));
   let payments;
   if (cfg.payments) {
     const path = ctx.dataDir + "/payments-" +

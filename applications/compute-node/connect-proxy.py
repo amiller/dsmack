@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CONNECT on port 443 to the operator hosts, the package hosts, and whatever the stay's browse policy allows.
+"""CONNECT on port 443, or a plain HTTP request on port 80, to the operator hosts, the package hosts, and whatever the stay's browse policy allows.
 
 The policy is runtime input. The guest sends `Proxy-Authorization: Basic base64("browse:"+token)`, and the
 proxy looks the token up at the broker, which recorded {mode, hosts, expires_at} from the accepted terms.
@@ -33,9 +33,12 @@ class Handler(socketserver.StreamRequestHandler):
         self.connection.settimeout(10)
         line = self.rfile.readline(4097)
         match = re.fullmatch(rb'CONNECT ([a-z0-9.-]+):443 HTTP/1\.[01]\r\n', line)
-        host = match[1].decode() if match else ''
+        # Plain HTTP arrives in proxy absolute form; it is forwarded as one request on a fresh connection.
+        plain = re.fullmatch(rb'([A-Z]{3,7}) http://([a-z0-9.-]+)(?::80)?(/[^ ]*)? HTTP/1\.[01]\r\n', line)
+        host = match[1].decode() if match else plain[2].decode() if plain else ''
+        port = 80 if plain else 443
         report = re.fullmatch(rb'GET /browse HTTP/1\.[01]\r\n', line)
-        size, token = len(line), None
+        size, token, headers = len(line), None, []
         while True:
             line = self.rfile.readline(4097)
             size += len(line)
@@ -44,6 +47,8 @@ class Handler(socketserver.StreamRequestHandler):
             if line == b'\r\n':
                 break
             name, _, value = line.decode('latin-1').partition(':')
+            if name.strip().lower() not in ('proxy-authorization', 'proxy-connection', 'connection', 'keep-alive'):
+                headers.append(line)
             if name.strip().lower() == 'proxy-authorization' and value.strip().startswith('Basic '):
                 user, _, secret = base64.b64decode(value.strip()[6:]).decode('latin-1').partition(':')
                 token = secret if user == 'browse' else None
@@ -71,13 +76,13 @@ class Handler(socketserver.StreamRequestHandler):
                 print(json.dumps({'host': host, 'token': bool(token), 'refused': str(error)}), flush=True)
                 self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
                 return
-        print(json.dumps({'host': host, 'rule': rule}), flush=True)
+        print(json.dumps({'host': host, 'port': port, 'rule': rule}), flush=True)
         via = server.upstream if rule in ('named', 'open') else None
         # A VPN upstream may need a fresh tunnel handshake before it answers CONNECT (10 s timed out on 2026-11-10).
-        with socket.create_connection(via or (address, 443), timeout=30 if via else 10) as upstream:
+        with socket.create_connection(via or (address, port), timeout=30 if via else 10) as upstream:
             if via:
                 # Browse traffic leaves through the operator's upstream (a VPN), not the Mac's own line.
-                upstream.sendall(f'CONNECT {address}:443 HTTP/1.1\r\nHost: {address}:443\r\n\r\n'.encode())
+                upstream.sendall(f'CONNECT {address}:{port} HTTP/1.1\r\nHost: {address}:{port}\r\n\r\n'.encode())
                 reply = b''
                 while b'\r\n\r\n' not in reply:
                     chunk = upstream.recv(1)
@@ -86,7 +91,10 @@ class Handler(socketserver.StreamRequestHandler):
                     reply += chunk
                 if not re.match(rb'HTTP/1\.[01] 200', reply):
                     raise ConnectionError(f'upstream refused CONNECT: {reply[:80]!r}')
-            self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n'); self.wfile.flush()
+            if plain:
+                upstream.sendall(plain[1] + b' ' + (plain[3] or b'/') + b' HTTP/1.1\r\n' + b''.join(headers) + b'Connection: close\r\n\r\n')
+            else:
+                self.wfile.write(b'HTTP/1.1 200 Connection Established\r\n\r\n'); self.wfile.flush()
             # Unbuffered input avoids consuming the first TLS bytes with the headers.
             self.connection.settimeout(30); upstream.settimeout(30)
             deadline = time.monotonic() + server.connection_seconds

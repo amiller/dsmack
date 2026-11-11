@@ -23,7 +23,8 @@ function chain() {
             c.fetches.push("call " + data);
             return bytes("0x" + data.slice(2).padStart(64, "0"));
           } finally { c.inFlight--; }
-        } };
+        },
+        multicall: async (list) => { c.fetches.push("multicall " + list.length); return list.map(([, data]) => bytes("0x" + data.slice(2).padStart(64, "0"))); } };
     },
     read: async (method, [address]) => { c.fetches.push("code " + address); return code; },
   };
@@ -85,19 +86,19 @@ test("a failed read is not kept", async () => {
   assert.equal(calls(c), 1);
 });
 
-test("the next snapshot replays the previous reads one at a time", async () => {
+test("the next snapshot replays the previous reads in one multicall and verifies code once", async () => {
   const c = chain();
-  c.delay = 2;
   let t = 0;
   const shared = sharedSnapshots(reader(), 30, () => t);
   const a = await shared.snapshot();
   for (const d of ["0x01", "0x02", "0x03", "0x04"]) await a.read("eth_call", [{ to: escrow, data: d }]);
-  c.peak = 0;
   t = 31;
   await shared.snapshot();
-  await new Promise((r) => setTimeout(r, 100));
-  assert.notEqual(await shared.snapshot(), a);
-  assert.equal(c.peak, 1);
+  await new Promise((r) => setTimeout(r, 10));
+  const b = await shared.snapshot();
+  assert.notEqual(b, a);
+  for (const d of ["0x01", "0x02", "0x03", "0x04"]) await b.read("eth_call", [{ to: escrow, data: d }]);
+  assert.deepEqual(c.fetches.filter((f) => !f.startsWith("head")), ["code " + escrow, "call 0x01", "call 0x02", "call 0x03", "call 0x04", "multicall 4"]);
 });
 
 test("a head older than maxHeadAge is refused, and a failed Helios start is retried", async () => {

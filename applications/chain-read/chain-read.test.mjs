@@ -53,7 +53,8 @@ test("tries sources in order, reports each failure and caches per block", async 
     ["eth_getBlockByNumber", "good", [{ source: "bad", error: "HTTP 503" }]],
     ["eth_call", "good", [{ source: "bad", error: "HTTP 503" }]],
   ]);
-  assert.deepEqual(cr.diagnostics.relays["https://down.test"], { ok: 0, failed: 2, error: "relay down" });
+  // Start and waitSynced both ask for the head; the second is answered from the first poll.
+  assert.deepEqual(cr.diagnostics.relays["https://down.test"], { ok: 0, failed: 1, error: "relay down" });
   assert.equal(seen.filter((u) => u === "https://good.test/").length, 2);
   await cr.close();
 });
@@ -88,5 +89,17 @@ test("the first head is held back until it is lagSeconds old", async () => {
 test("start rejects with the relay errors when no relay gives a head", async () => {
   await assert.rejects(open({ relays: ["https://down.test"], sources: [{ url: "https://good.test/" }] }), /every relay failed.*relay down/);
   const cr = await open({ sources: [{ url: "https://good.test/" }] });
+  await cr.close();
+});
+
+test("Helios's head polls reach the relay at most once per pollSeconds", async () => {
+  const cr = await open({ sources: [{ url: "https://good.test/" }], pollSeconds: 0.2 });
+  seen.length = 0;
+  const poll = () => fetch("https://base-sepolia.operationsolarstorm.org/latest");
+  for (let i = 0; i < 5; i++) assert.deepEqual(await (await poll()).json(), { data: "0xhead" });
+  assert.equal(seen.filter((u) => u === "https://relay.test/latest").length, 0, "all five answered from the last head");
+  await new Promise((r) => setTimeout(r, 250));
+  await poll();
+  assert.equal(seen.filter((u) => u === "https://relay.test/latest").length, 1);
   await cr.close();
 });

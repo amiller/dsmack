@@ -19,7 +19,10 @@ export async function replayNear(page) {
       if (response.status() !== 200) rekorResponses.delete(key);
       return { status: response.status(), headers, body: await response.body() };
     })().catch(error => { rekorResponses.delete(key); throw error; }));
-    await route.fulfill(await rekorResponses.get(key));
+    // A prepare started by typing can still be fetching when a case closes its page; that request has no one to answer.
+    let response;
+    try { response = await rekorResponses.get(key); } catch (error) { if (page.isClosed()) return; throw error; }
+    await route.fulfill(response);
   });
   await page.clock.setFixedTime(recording.now);
   // Recorded quotes carry this fixed challenge. Production always uses random

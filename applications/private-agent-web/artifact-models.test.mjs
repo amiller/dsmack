@@ -257,3 +257,23 @@ test('a stream lost during a tool call sends its failed result to the next model
   assert.equal(transcript[2].tool_call_id, 'lost-call');
   assert.match(transcript[2].content, /Guest disconnected/);
 });
+
+test('a session prepared while typing is used by the next send, and discarded once another model call ran', async () => {
+  const f = await fixture(), prepares = [];
+  const api = async (path, body, options) => { if (path === '/inference/prepare') prepares.push(body.attestationNonce); return f.api(path, body, options); };
+  const main = brokerStream({ ...f.options, api, startedAt: Date.now(), error: () => {} });
+  main.prepare({ id: model });
+  main.prepare({ id: model });
+  const first = await main({ id: model }, { messages: [{ role: 'user', content: 'hello' }] }).result();
+  assert.equal(first.stopReason, 'stop');
+  assert.equal(prepares.length, 1, 'the send took the session prepared while typing');
+  assert.equal(f.calls[0].sessionId, '1'.padStart(32, '0'));
+
+  main.prepare({ id: model });
+  await f.models.grant(scope, '20000000');
+  await f.models.complete(scope, { messages: [{ role: 'user', content: 'artifact' }] });
+  const second = await main({ id: model }, { messages: [{ role: 'user', content: 'again' }] }).result();
+  assert.equal(second.stopReason, 'stop');
+  assert.equal(second.billing.costNanoUsd, '300000', 'the cost baseline is the fresh session, not the stale one');
+  assert.equal(prepares.length, 3, 'the prepared session was discarded after the artifact call');
+});

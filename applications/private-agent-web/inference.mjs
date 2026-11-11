@@ -40,12 +40,15 @@ export async function* sse(body) {
 }
 // Main chat and artifact calls share a wallet ledger. Hold the lock until usage
 // is reconciled so another caller cannot change the attribution baseline.
+// `generation` counts operations that held the lock, so a prepared session can tell whether another call ran since.
 const walletCalls = new Map();
+let generation = 0;
 export function withInferenceWallet(credit, operation) {
   const key = `dsmack/inference/${credit.address?.toLowerCase() || "unconnected"}`;
   const prior = walletCalls.get(key) || Promise.resolve();
+  const run = () => { generation++; return operation(); };
   const next = prior.catch(() => {}).then(() => globalThis.navigator?.locks
-    ? navigator.locks.request(key, operation) : operation());
+    ? navigator.locks.request(key, run) : run());
   walletCalls.set(key, next);
   const clear = () => { if (walletCalls.get(key) === next) walletCalls.delete(key); };
   next.then(clear, clear);
@@ -56,7 +59,33 @@ export function brokerStream(
   { credit, api, cfg, quote, evidence, usage, error, startedAt, systemPrompt, preflight, billingUpdated, status },
 ) {
   const conversationStarted = new Date(startedAt);
-  return (model, context, options = {}) => {
+  // A fresh nonce, the broker's attested session for it, and the browser's check of that evidence.
+  const prepareVerified = async (modelId, artifactId, signal) => {
+    const started = Date.now();
+    const attestationNonce = Array.from(
+      crypto.getRandomValues(new Uint8Array(32)),
+      (b) => b.toString(16).padStart(2, "0"),
+    ).join("");
+    const session = await api(
+      "/inference/prepare",
+      await walletBody(credit, "prepare", { attestationNonce, ...(artifactId ? { artifactId } : {}) }),
+      { signal },
+    );
+    const checked = await checkEvidence(session.attestation, modelId, started, attestationNonce, session.modelPublicKey);
+    require(/^[0-9a-f]{32}$/.test(session.sessionId), "Provider preparation has no session ID.");
+    return { session, checked, ready: Date.now() };
+  };
+  // prepare() runs while the person types. The broker keeps a session 60 s and one per wallet, and the session's spend
+  // summary is the baseline for this reply's cost, so a send takes it only within 40 s and if no other model call ran.
+  let warm;
+  const take = async (modelId) => {
+    const w = warm;
+    warm = undefined;
+    if (!w || w.modelId !== modelId) return;
+    const r = await w.p.catch(() => undefined);
+    if (r && w.generation === generation - 1 && Date.now() - r.ready < 40000) return r;
+  };
+  const streamFn = (model, context, options = {}) => {
     const stream = new AssistantMessageEventStream();
     const answer = {
       role: "assistant",
@@ -145,29 +174,10 @@ export function brokerStream(
           "CREDIT_EXHAUSTED: Chat credit used up.",
         );
         const { messages, tools } = modelTranscript(context);
-        const started = Date.now();
-        const attestationNonce = Array.from(
-          crypto.getRandomValues(new Uint8Array(32)),
-          (b) => b.toString(16).padStart(2, "0"),
-        ).join("");
         status?.("Verifying the model…", "", "verify");
-        session = await api(
-          "/inference/prepare",
-          await walletBody(credit, "prepare", { attestationNonce,
-            ...(options.artifactId ? { artifactId: options.artifactId } : {}) }),
-          { signal: options.signal },
-        );
-        const checked = await checkEvidence(
-          session.attestation,
-          model.id,
-          started,
-          attestationNonce,
-          session.modelPublicKey,
-        );
-        require(
-          /^[0-9a-f]{32}$/.test(session.sessionId),
-          "Provider preparation has no session ID.",
-        );
+        let checked;
+        ({ session, checked } = (!options.artifactId && await take(model.id)) ||
+          await prepareVerified(model.id, options.artifactId, options.signal));
         await evidence(checked);
         const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
         const date = new Intl.DateTimeFormat(undefined, {
@@ -378,6 +388,14 @@ export function brokerStream(
     });
     return stream;
   };
+  streamFn.prepare = (model) => {
+    if (warm && Date.now() - warm.at < 30000) return;
+    if (!credit.signer || !quote()?.configured) return;
+    const w = warm = { at: Date.now(), modelId: model.id };
+    w.p = withInferenceWallet(credit, () => { w.generation = generation; return prepareVerified(model.id); });
+    w.p.catch((e) => { if (warm === w) warm = undefined; console.error("model prefetch:", e.message); });
+  };
+  return streamFn;
 }
 
 // Preserve tool requests and results in the encrypted provider transcript. Pi 1.4

@@ -44,13 +44,14 @@ const jsonResponse = (body, url) => {
 };
 
 // sources: [{ url } | { provider }] tried in order per read; relays: base URLs serving GET /latest, tried in order per poll.
-// With no arguments a page uses its own Worker at `worker`, then the public RPCs, then an injected wallet on the right chain.
+// With no arguments a page uses the Worker at `worker` (a path on its own origin, or a URL), then the public RPCs, then an injected wallet on the right chain.
 export async function chainRead({ network = "base-sepolia", worker = "/chain-read", relays, sources, wallet = globalThis.ethereum,
   lagSeconds = 6, timeoutMs = 10000, helios = createHeliosProvider } = {}) {
   if (networks.has(network)) throw new Error(`chainRead for ${network} already running`);
   const origin = globalThis.location?.origin, consensus = `https://${network}.operationsolarstorm.org`;
-  relays ??= [...(origin ? [origin + worker] : []), consensus];
-  sources ??= [...(origin ? [{ name: "worker", url: origin + worker + "/rpc" }] : []), ...PUBLIC_RPCS[network].map((url) => ({ url })),
+  const base = worker && (origin || URL.canParse(worker)) ? new URL(worker, origin).href.replace(/\/$/, "") : undefined;
+  relays ??= [...(base ? [base] : []), consensus];
+  sources ??= [...(base ? [{ name: "worker", url: base + "/rpc" }] : []), ...PUBLIC_RPCS[network].map((url) => ({ url })),
     ...(wallet ? [{ name: "wallet", provider: wallet }] : [])];
   const diagnostics = { reads: [], relays: {}, skipped: [], background: [] };
   const usable = [], prev = globalThis.fetch;

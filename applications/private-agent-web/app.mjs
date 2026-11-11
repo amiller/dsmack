@@ -980,7 +980,7 @@ async function initChat() {
 }
 
 // On-chain mode (the default) pins code only: the guest's App Attest key is read from AppleAttestRegistry through
-// chain-read (Helios) and must have a MacLink to the payee, so a Mac's key rotation needs no new policy.
+// chain-read (Helios, in this page) and must have a MacLink to the payee, so a Mac's key rotation needs no new policy.
 function loadPolicy(raw) {
   const onChain = (raw?.enrollmentMode ?? "on-chain") === "on-chain";
   require(
@@ -1040,12 +1040,12 @@ function directoryLookup() {
 async function reverify({ registration: prior, signal, directory, browserPeer, step = () => {} }) {
   const peer = prior.relay_peer;
   const challenge = sandbox.hex(crypto.getRandomValues(new Uint8Array(32)));
-  if (policy.chain) step("reading the approved build and canary on-chain via layover-chain");
+  if (policy.chain) step("reading the approved build and canary on-chain, verified by Helios in this page");
   const pinned = await policy.chain?.snapshot();
   performance.mark("dsmack:attestation:start", { detail: { peer } });
   let chain, direct;
   if (directory === "chain") {
-    step("reading the guest directory on-chain via layover-chain");
+    step("reading the guest directory on-chain");
     chain = await directoryLookup().read({ signal });
     const selected = chain.nodes.find(node => node.relay_peer === peer);
     require(selected, "Chain directory no longer lists this guest.");
@@ -1112,7 +1112,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       }
       brokerFailure = directoryFailure(e);
       showDirectory("chain", brokerFailure);
-      step(brokerFailure.replace(/\.$/, "") + "; reading the guest directory on-chain via layover-chain");
+      step(brokerFailure.replace(/\.$/, "") + "; reading the guest directory on-chain");
       try {
         chainDirectory = await directoryLookup().read({ signal });
         nodes = chainDirectory.nodes;
@@ -1135,7 +1135,7 @@ async function discover({ peer: browserPeer, wait = false, deadline = Date.now()
       const peer = selected.relay_peer;
       // Chain reads that name no guest happen before the stay opens: the broker frees a stay unused for 90 s.
       $("node-status").textContent = "Reading the approved build and canary from Base Sepolia…";
-      if (policy.chain) step("reading the approved build and canary on-chain via layover-chain");
+      if (policy.chain) step("reading the approved build and canary on-chain, verified by Helios in this page");
       const pinned = await policy.chain?.snapshot();
       $("node-status").textContent = "Checking the sandbox's Apple attestation, approved build and bound keys…";
       let release;

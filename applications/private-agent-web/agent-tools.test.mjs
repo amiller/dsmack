@@ -195,17 +195,17 @@ test("a browser failure before Bash starts names the browser connection instead 
 });
 
 test("a failed chain read during setup is reported as a setup failure naming its step, not as command output", async () => {
-  const chainError = "layover-chain call 0x04f5 0x5523509a: HTTP 502 The operation was aborted due to timeout";
+  const chainError = "chain-read eth_call 0x04f5 0x5523509a: HTTP 502 The operation was aborted due to timeout";
   const session = new GuestSession({ catalog: [{ name: "bash", description: "bash", inputSchema: {} }], changed: () => {},
     workspace: { latest: async () => null },
-    discover: async ({ step }) => { step("asking the broker for free Macs"); step("reading the approved build and canary on-chain via layover-chain"); throw new Error(chainError); } });
+    discover: async ({ step }) => { step("asking the broker for free Macs"); step("reading the approved build and canary on-chain, verified by Helios in this page"); throw new Error(chainError); } });
   const updates = [];
   const result = await session.tools()[0].execute("call", { command: "curl ipinfo.io" }, undefined, update => updates.push(update));
   assert(result.isError);
-  assert.equal(result.content[0].text, `Sandbox setup failed before the command ran (step: reading the approved build and canary on-chain via layover-chain): ${chainError}. The command did not run.`);
-  assert.equal(result.details.setupFailed, "reading the approved build and canary on-chain via layover-chain");
+  assert.equal(result.content[0].text, `Sandbox setup failed before the command ran (step: reading the approved build and canary on-chain, verified by Helios in this page): ${chainError}. The command did not run.`);
+  assert.equal(result.details.setupFailed, "reading the approved build and canary on-chain, verified by Helios in this page");
   assert.deepEqual(result.details.setup.map(step => step.text), ["looking for a free slot", "asking the broker for free Macs",
-    "reading the approved build and canary on-chain via layover-chain", "failed: " + chainError]);
+    "reading the approved build and canary on-chain, verified by Helios in this page", "failed: " + chainError]);
   assert.equal(updates.length, 3, "each setup step reaches the running card as it starts");
   assert.equal(session.peer, null);
 });

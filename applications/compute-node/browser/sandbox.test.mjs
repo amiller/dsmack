@@ -130,27 +130,29 @@ test("a Helios snapshot pins every read to one block, reads each once, and leave
     if (to === canary) return word(0);
     throw new Error("unexpected read " + to + data);
   };
-  const realFetch = globalThis.fetch;
-  globalThis.fetch = async (url) => {
-    const u = new URL(url), reply = (status, body) => ({ ok: status === 200, status, json: async () => ({ ...body, verified_by: "helios-opstack" }) });
-    if (u.pathname === "/chain-read/head") return reply(200, { block_hash: blocks[heads++] });
-    const [to, data, block] = ["to", "data", "block"].map((k) => u.searchParams.get(k));
+  // A stand-in for chain-read: each snapshot is one block with chain-read's per-block cache of successful reads.
+  const read = async (block, to, data) => {
     calls.push({ to, data, block, failed: data.startsWith(fail) });
-    if (data.startsWith(fail)) { fail = undefined; return { ok: false, status: 502, json: async () => ({ error: "helios eth_call: timeout" }) }; }
-    return reply(200, { block_hash: block, result: "0x" + await answer(to, data) });
+    if (data.startsWith(fail)) { fail = undefined; throw new Error("eth_call failed on every source"); }
+    return unhex(await answer(to, data));
   };
-  try {
-    const helios = heliosChain({ attest: attestAddr, canary, registry, cdhash: node.command[5], image: m.base_vm.os_image_hash },
-      "https://chain.invalid/chain-read");
-    await assert.rejects(helios.snapshot(), /chain-read call 0x(ca)+ 0xe62b7cbd: HTTP 502/);
-    const pinned = await helios.snapshot();
-    assert.equal(heads, 1, "a failed read does not discard the snapshot");
-    const before = calls.length, g = await guest(key);
-    await verifyNode(g.r, { ...g.policy, chain: pinned });
-    await verifyNode(g.r, { ...g.policy, chain: await helios.snapshot() });
-    assert.deepEqual(calls.slice(before).map((c) => c.data.slice(0, 10)), ["0xdde5b7a1"], "after the claim only the guest's key is read");
-    assert.ok(calls.every((c) => c.block === blocks[0]), "every read names the snapshot's block");
-    const ok = calls.filter((c) => !c.failed).map((c) => c.to + c.data);
-    assert.equal(new Set(ok).size, ok.length, "no read is fetched twice; the failed one is fetched again");
-  } finally { globalThis.fetch = realFetch; }
+  const open = async () => ({ snapshot: async () => {
+    const block = blocks[heads++], reads = new Map(), k = (to, data) => (to + data).toLowerCase();
+    const call = (to, data) => {
+      if (!reads.has(k(to, data))) { const p = read(block, to, data); reads.set(k(to, data), p); p.catch(() => reads.delete(k(to, data))); }
+      return reads.get(k(to, data));
+    };
+    return { block, call, multicall: (cs) => Promise.all(cs.map(([to, data]) => call(to, data))) };
+  } });
+  const helios = heliosChain({ attest: attestAddr, canary, registry, cdhash: node.command[5], image: m.base_vm.os_image_hash }, { open });
+  await assert.rejects(helios.snapshot(), /eth_call failed on every source/);
+  const pinned = await helios.snapshot();
+  assert.equal(heads, 2, "a failed read discards the snapshot; the next one pins a new block");
+  const before = calls.length, g = await guest(key);
+  await verifyNode(g.r, { ...g.policy, chain: pinned });
+  await verifyNode(g.r, { ...g.policy, chain: await helios.snapshot() });
+  assert.deepEqual(calls.slice(before).map((c) => c.data.slice(0, 10)), ["0xdde5b7a1"], "after the claim only the guest's key is read");
+  assert.ok(calls.slice(before).every((c) => c.block === blocks[1]), "every read names the snapshot's block");
+  const ok = calls.filter((c) => c.block === blocks[1]).map((c) => c.to + c.data);
+  assert.equal(new Set(ok).size, ok.length, "no read is fetched twice within a snapshot");
 });

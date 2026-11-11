@@ -133,7 +133,8 @@ export class GuestSession {
           if (signal?.aborted) throw error;
           const step = setup.at(-1)?.text || "starting the guest";
           const failure = replyFailure(error);
-          const detail = ["browser", "offline", "broker", "guest", "capacity"].includes(failure.category) ? failure.message : error.message;
+          // The guest category's friendly text says the command may have run; before admission it did not.
+          const detail = ["browser", "offline", "broker", "capacity"].includes(failure.category) ? failure.message : error.message;
           log("failed: " + error.message);
           const mac = this.macInfo?.(this.node);
           return { isError: true, content: [{ type: "text", text: `Sandbox setup failed before the command ran (step: ${step}): ${detail.replace(/\.$/, "")}. The command did not run.` }],

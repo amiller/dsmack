@@ -230,3 +230,13 @@ test("user-key guest tool calls retain PromptGuard preflight and complete assist
   for (const call of calls.filter(call => call.name === "read"))
     assert.equal(call._meta["dsmack/monitorResponse"], JSON.stringify(assistant.content));
 });
+
+test("a guest that closes before admission is a setup failure that says only that the command did not run", async () => {
+  const session = new GuestSession({ catalog: [{ name: "bash", description: "bash", inputSchema: {} }], changed: () => {},
+    workspace: { latest: async () => null },
+    discover: async () => { throw new Error("Guest closed before session admission."); } });
+  const result = await session.tools()[0].execute("call", { command: "true" }, undefined, () => {});
+  assert(result.isError);
+  assert.match(result.content[0].text, /^Sandbox setup failed before the command ran \(step: .*\): Guest closed before session admission\. The command did not run\.$/);
+  assert.doesNotMatch(result.content[0].text, /may have run/);
+});

@@ -291,3 +291,19 @@ The Mac mini's key `0xbccf55541eefdc6092155b71b0911bb99badb033dc3389e9445602b49b
 `applications/badge/workload.py` (image `7c1ebf67…`), and the claim from that attestation minted token
 `0xbccf…20d4` to `0x9788…E6aA` in `0xe04cab87fd896d23ca87e3e651cdd3ba243d2d0315828e8acc53d6f004292619`
 (253,053 gas). Resubmitting it reverts with `assertion replay`.
+
+### v2 with chip and on-chain art, Base Sepolia, 2026-11-10
+
+`Badge` now pins the `applications/badge/workload.py` manifest and binds a CPU class the guest measures
+from its feature flags (`sme2` -> M4+, `bf16` -> M2-M3, else M1; Hypervisor.framework hides the part number).
+`tokenURI` returns JSON with an on-chain SVG. Manifest `0xf6370c07f495cb65638545eff8315140132089c3837ae63ece7d40e5931fc60c`
+(compute-node python 3.11 starter, image `7c1ebf67…`).
+
+| Contract | Address | Tx |
+|---|---|---|
+| AppleAttestAnyBuildV1 (`registry` = Badge) | `0x688DE9BC40E53CE13D5168dB33011D501B7C9571` | `0xc9dc30c51f145502c23e3ab49cf2a19d3ce96af36c65fabf7be12d6cbbc2d664` |
+| Badge | `0xCACE07229Df63ba3aC9d304FC8B63866171b6fbC` | `0x68c2e9be5f33edcee03eff6ab8e0dfb4179b87a83fb8277007a9e96d8172ad86` |
+
+The Mac mini's key `0xbccf…20d4` enrolled in `0x2ae7e1e0d9dad097e6f8fad7119bf72a278a771020155c765f21724c7f243ac2`;
+its guest measured `M4+` and the claim minted to `0x9788…E6aA` in
+`0xb778f850aadbd9712841f88d5f4c93e63cdf6ce54b516e36a363077faa9959dd` (321,181 gas).

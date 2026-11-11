@@ -86,7 +86,7 @@ curl --fail --silent --show-error \
   --output environment-key.json
 
 deno run --allow-read --allow-write \
-  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
+  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE,LIVE_TESTS \
   applications/relay-broker/encrypt-provider-env.mjs \
   environment-key.json "$EXPECTED_PAYMENT_SIGNER" \
   "$HOME/.config/near-key" near-encrypted-env.json
@@ -143,7 +143,7 @@ curl --fail --silent --show-error \
   https://pod.dstack.soc1024.com/relay-broker-staging/inference/environment-key \
   --output "$STAGING_ENVIRONMENT_KEY"
 deno run --allow-read --allow-write \
-  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
+  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE,LIVE_TESTS \
   applications/relay-broker/encrypt-provider-env.mjs \
   "$STAGING_ENVIRONMENT_KEY" "$STAGING_PAYMENT_SIGNER" \
   "$PROVIDER_KEY_PATH" "$STAGING_ENCRYPTED_ENV"
@@ -236,8 +236,16 @@ From the repository root:
 ```sh
 deno check applications/relay-broker/server.ts
 deno test --allow-read --allow-net \
-  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE \
+  --allow-env=WS_NO_BUFFER_UTIL,WS_NO_UTF_8_VALIDATE,LIVE_TESTS \
   applications/relay-broker applications/payments/payments.test.mjs
+```
+
+NEAR policy tests replay signed Rekor entries from `fixtures/rekor-responses.json`.
+Set `LIVE_TESTS=1` to query Rekor instead. The recorded policy tests can run without
+network permission:
+
+```sh
+deno test --allow-read --allow-env=LIVE_TESTS applications/relay-broker/near-policy.test.mjs
 ```
 
 ## Encrypted conversation sync

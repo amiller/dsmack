@@ -17,6 +17,7 @@ await build({
   plugins: [piPromptPlugin(), nearRequestBodyPlugin()],
   entryPoints: { app: "app.mjs", "wallet-bootstrap": "wallet-bootstrap.mjs" },
   bundle: true,
+  splitting: true,
   format: "esm",
   platform: "browser",
   target: "es2022",

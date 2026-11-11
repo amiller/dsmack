@@ -1,0 +1,12 @@
+name = "chain-read"
+main = "worker.mjs"
+compatibility_date = "2025-06-01"
+
+# Per client IP, per Cloudflare location. One verified eth_call is ~10-20 upstream requests and Helios polls /latest about once a second. namespace_id is any positive integer unique to the account.
+[[ratelimits]]
+name = "LIMITER"
+namespace_id = "8453"
+
+  [ratelimits.simple]
+  limit = 600
+  period = 60

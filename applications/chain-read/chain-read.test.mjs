@@ -11,9 +11,10 @@ const ret = (datas) => "0x" + word(0x20) + word(datas.length) + datas.map((_, i)
 const BLOCK = { number: "0x10", hash: "0x" + "ab".repeat(32), timestamp: "0x5" };
 const A = "0x" + "11".repeat(20), B = "0x" + "22".repeat(20);
 
-const seen = [];
+const seen = [], bodies = [];
 const answer = (method, params) => {
   if (method === "eth_getBlockByNumber") return BLOCK;
+  if (method === "eth_createAccessList") return { accessList: [{ address: A, storageKeys: [word(0)].map((w) => "0x" + w) }], gasUsed: "0x1" };
   if (method === "eth_chainId") return "0x14a34";
   if (params[0].to === "0xcA11bde05977b3631167028862bE2a173976CA11") return ret(params[0].data === aggregate3([[A, "0x01"], [B, "0x02"]]) ? [word(1), word(2)] : [word(3)]);
   return "0x" + word(9);
@@ -25,7 +26,9 @@ globalThis.fetch = async (url, init) => {
   if (url === "https://relay.test/latest") return new Response('{"data":"0xhead"}');
   if (url === "https://bad.test/") return new Response("busy", { status: 503 });
   const r = JSON.parse(init.body);
-  return new Response(JSON.stringify({ jsonrpc: "2.0", id: r.id, result: answer(r.method, r.params) }));
+  bodies.push(r);
+  const one = (q) => ({ jsonrpc: "2.0", id: q.id, result: answer(q.method, q.params) });
+  return new Response(JSON.stringify(Array.isArray(r) ? r.map(one) : one(r)));
 };
 const fakeHelios = async ({ executionRpc, network }) => ({
   waitSynced: async () => { await fetch(`https://${network}.operationsolarstorm.org/latest`); },
@@ -101,5 +104,18 @@ test("Helios's head polls reach the relay at most once per pollSeconds", async (
   await new Promise((r) => setTimeout(r, 250));
   await poll();
   assert.equal(seen.filter((u) => u === "https://relay.test/latest").length, 1);
+  await cr.close();
+});
+
+test("block-pinned reads are fetched once, and after eth_createAccessList the accounts Helios will prove come in one batch", async () => {
+  const cr = await open({ sources: [{ url: "https://good.test/" }] });
+  bodies.length = 0;
+  const at = { blockHash: "0x" + "cd".repeat(32) }, slot = (n) => "0x" + word(n);
+  await cr.read("eth_createAccessList", [{ to: A, data: "0x01" }, at]);
+  await cr.read("eth_getProof", [A, [slot(0)], at]);
+  await cr.read("eth_getCode", [A, at]);
+  for (let i = 0; i < 2; i++) await cr.read("eth_getProof", ["0x4200000000000000000000000000000000000015", [slot(3)], at]);
+  await cr.read("eth_getProof", [B, [], at]);
+  assert.deepEqual(bodies.map((b) => Array.isArray(b) ? "batch " + b.length : b.method), ["eth_createAccessList", "batch 17", "eth_getProof"]);
   await cr.close();
 });

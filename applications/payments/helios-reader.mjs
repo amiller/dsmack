@@ -69,7 +69,7 @@ export class HeliosReader {
 // guest egress timeout (15 s). Callers now share one snapshot for `seconds`. The next is built in the background and
 // replays the reads of the one it replaces before it is served, so a steady caller never waits on a cold read. A snapshot
 // is served for at most 2 * seconds after it was taken; past that, callers wait for the next one and get its error.
-export function sharedSnapshots(reader, seconds = 60, now = () => Date.now() / 1000) {
+export function sharedSnapshots(reader, seconds = 30, now = () => Date.now() / 1000) {
   let current, next;
   const refresh = () => next ??= (async () => {
     const at = now(), s = await reader.snapshot();

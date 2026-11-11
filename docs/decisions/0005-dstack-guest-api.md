@@ -19,4 +19,4 @@ decided something, Dsmack follows it unless there is a Mac-specific reason.
 ## Consequences
 
 One compose file runs on both. A worker key verifies to the dstack KMS root
-through its grant and never verifies as a coordinator key.
+through its grant and never verifies as the granting app's key.

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import { test } from "node:test";
 import * as p from "./policy.mjs";
+import * as lit from "./lit.mjs";
 
 const fx = (n) => JSON.parse(fs.readFileSync(new URL("fixtures/" + n, import.meta.url)));
 const canary = fx("canary-run-2.json");
@@ -101,10 +102,12 @@ test("the Lit wrapper releases a secret provisioned to the action key, and only 
     class extends Date { static now() { return NOW; } });
   const { pub } = await main({ op: "publicKey" });
   const task = { id: run.task_id, ...TASK };
-  const label = "dsmack.secret-release/lit-task/1" + JSON.stringify([task.id, task.manifest, task.images]);
-  const wrapped = await p.seal(p.unhex(pub), p.unhex("5ec2e7"), label);
+  const wrapped = await lit.wrap(pub, p.unhex("5ec2e7"), task);
+  // What `lit.mjs serve` sends for a guest's {task_id, attestation}.
+  const params = lit.releaseParams({ [task.id]: { ...TASK, wrapped } }, req);
   await withRpc(fakeRpc(run), async () => {
-    assert.equal((await main({ op: "release", task, wrapped, ...req })).epk.length, 128);
-    await assert.rejects(main({ op: "release", task: { ...task, images: [...task.images, "00".repeat(32)] }, wrapped, ...req }));
+    assert.equal((await main(params)).epk.length, 128);
+    await assert.rejects(main({ ...params, task: { ...task, images: [...task.images, "00".repeat(32)] } }));
   });
+  assert.throws(() => lit.releaseParams({}, req), /unknown task/);
 });

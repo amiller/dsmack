@@ -223,7 +223,7 @@ current runner, and repoint the main verifier, so a new `AppleAttestRegistryV1` 
 a new `AppleAttestAnyBuildV1` with `registry` = the canary's predicted address, then
 the `Canary`, re-enrollment of each key in both verifiers, and `arm` (each entry's
 term is at least 90 days). Deploy from the current owner key: `owner` is the deployer.
-Off chain, repoint the coordinator's `CDREGISTRY`, the secret-release policy's `attest`
+Off chain, repoint the secret-release policy's `attest`
 and `canary`, the dashboard `registry.json` entry (`canary-read-codec/3`), and `$CDS`
 in docs/canary/RUNNER-README.md.
 
@@ -255,3 +255,64 @@ app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
 `contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
 A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]`.
 
+
+## Badge
+
+`Badge` is a non-transferable ERC721 with one badge per App Attest key; the token id is
+the key id. Any workload in a dsmack guest on an enrolled Mac claims it by calling
+`/v1/Attest` with
+
+```
+report_data = sha256("dsmack.badge.claim/1" ‖ chainid ‖ badge ‖ to) ‖ 0^32
+```
+
+(`reportData(to)` on the contract). Anyone then submits
+`claim(to, (image, manifest, run, head, caller, report_data), proof)` from that attestation;
+the contract rebuilds the guest Attest context, verifies it through `attest`, requires
+`cds.buildOf(cdhash) == build` and mints to `to`. No key or service other than the
+Mac's App Attest key signs anything.
+
+Deploy an `AppleAttestAnyBuildV1` with `registry` = the badge's predicted address, then
+`Badge(attest, buildId)` with the runner's CDRegistry `buildId`. Each Mac enrolls its key
+in that verifier before claiming.
+
+### Base Sepolia, 2026-11-10
+
+From `0x97883cb4B2f21530277F86490d8881654E36E6aA`, on the live `CDRegistry` `0x14b5…8d20`, build
+`0xdf2cc3ef35273367f60416dda9e7a7a7066eac24d306932b5ec74dcdbcf4b127` (runner `0c3d3c90…`).
+
+| Contract | Address | Tx |
+|---|---|---|
+| AppleAttestAnyBuildV1 (`registry` = Badge) | `0x0Ef5f00197B07ffBFfcd58A793Cb705d71cAD988` | `0x8d73d2ef8ab3c51e05c1b76f2d0de2c3d58e67e1f2b0245436f74aebc6ff996c` |
+| Badge | `0x77BF8aF6c255eaF0AF08C0Df3C25359335943646` | `0x2e7559d3b3be0feb9aa960425698f21fa14a260db59e15e8447042a00e660edb` |
+
+The Mac mini's key `0xbccf55541eefdc6092155b71b0911bb99badb033dc3389e9445602b49b1a20d4` enrolled in
+`0xc3b5372f081ec2d1a9e154a71812901bf8a758abea13b78fd94e74f7ce37c3f7` (14,170,635 gas). Its guest ran
+`applications/badge/workload.py` (image `7c1ebf67…`), and the claim from that attestation minted token
+`0xbccf…20d4` to `0x9788…E6aA` in `0xe04cab87fd896d23ca87e3e651cdd3ba243d2d0315828e8acc53d6f004292619`
+(253,053 gas). Resubmitting it reverts with `assertion replay`.
+
+### v2 with chip and on-chain art, Base Sepolia, 2026-11-10
+
+`Badge` now pins the `applications/badge/workload.py` manifest and binds a CPU class the guest measures
+from its feature flags (`sme2` -> M4+, `bf16` -> M2-M3, else M1; Hypervisor.framework hides the part number).
+`tokenURI` returns JSON with an on-chain SVG. Manifest `0xf6370c07f495cb65638545eff8315140132089c3837ae63ece7d40e5931fc60c`
+(compute-node python 3.11 starter, image `7c1ebf67…`).
+
+| Contract | Address | Tx |
+|---|---|---|
+| AppleAttestAnyBuildV1 (`registry` = Badge) | `0x688DE9BC40E53CE13D5168dB33011D501B7C9571` | `0xc9dc30c51f145502c23e3ab49cf2a19d3ce96af36c65fabf7be12d6cbbc2d664` |
+| Badge | `0xCACE07229Df63ba3aC9d304FC8B63866171b6fbC` | `0x68c2e9be5f33edcee03eff6ab8e0dfb4179b87a83fb8277007a9e96d8172ad86` |
+
+The Mac mini's key `0xbccf…20d4` enrolled in `0x2ae7e1e0d9dad097e6f8fad7119bf72a278a771020155c765f21724c7f243ac2`;
+its guest measured `M4+` and the claim minted to `0x9788…E6aA` in
+`0xb778f850aadbd9712841f88d5f4c93e63cdf6ce54b516e36a363077faa9959dd` (321,181 gas).
+
+## TurnHeads, Base Sepolia, 2026-11-10
+
+`TurnHeads` `0xf59AD11f773C998233c92137Aa6a79674bF8142B` (`0x806b4ef255dfddb6f60255d5a4f8bb69520123a13908b7aa5668c98d48e88679`).
+Agent `0x8d76a65b399318f71bc4fbc8df30f9b7a3331286` (task `personal-agent/demo`, manifest `00658d5b…`, image `7c1ebf67…`,
+secret released by Lit action `QmSvRdWH…` checking `AppleAttestRegistryV1` `0x04f5…162e`) ran two turns on the Mac mini:
+turn 0 committed `(1, 5518…c194)` in `0xb026c0b8cbe932c512d5a46dfec910f6e5c3b30b944cd086906099c592b0a73c` and turn 1
+`(2, 5610…bf9a)` in `0xb57200c992f2efca7394746e4eaa55027a96959366d8142db16d6209861ed085`. Resubmitting turn 0's commit
+reverts with `stale head`.

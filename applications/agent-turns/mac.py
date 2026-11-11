@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """Operator side of the Mac transport, run on the operator host: the agent-turns image and its signed release,
 per-attempt workload admissions, and verification of the Mac's run evidence. admit-v02 mints an attempt
-for the v0.2.0-canary.1 runner instead, where the turn binds its results with a guest Attest, and admits
-its compose at the coordinator's /admit-compose.
+for the v0.2.0-canary.1 runner instead, where the turn binds its results with a guest Attest.
 
-The release key is in the coordinator app (applications/coordinator): release and admit call its
-/sign-release and /admit at $DSMACK_COORDINATOR with $DSMACK_OPERATOR_TOKEN.
+release and admit sign with the alpha release key: $DSMACK_RELEASE_KEY (Ed25519 PEM) under key id
+$DSMACK_RELEASE_KEY_ID, the trust key the Mac's installed bootstrap pins.
 """
 import argparse
 import base64
@@ -20,7 +19,6 @@ import shutil
 import subprocess
 import sys
 import tarfile
-import urllib.request
 
 TURNS = Path(__file__).resolve().parent
 ROOT = TURNS.parents[1]
@@ -74,13 +72,13 @@ def private_write(path, raw):
         stream.write(raw)
 
 
-def coordinator(path, body=None):
-    """GET /keys, or an operator POST to the coordinator app that holds the release key."""
-    request = urllib.request.Request(os.environ['DSMACK_COORDINATOR'] + path, body and canonical(body),
-                                     {'content-type': 'application/json',
-                                      'authorization': 'Bearer ' + os.environ['DSMACK_OPERATOR_TOKEN']})
-    with urllib.request.urlopen(request, timeout=60) as response:
-        return json.loads(response.read())
+def sign(document, signature):
+    """Ed25519 over schema NUL canonical document with the release key; returns the signed bytes."""
+    from cryptography.hazmat.primitives.serialization import load_pem_private_key
+    raw = canonical(document)
+    key = load_pem_private_key(env('DSMACK_RELEASE_KEY').read_bytes(), None)
+    signature.write_bytes(key.sign(document['schema'].encode() + b'\0' + raw))
+    return raw
 
 
 def image(args):
@@ -221,15 +219,13 @@ def release(args):
     now = datetime.datetime.now(datetime.timezone.utc)
     inventory = {k: base[k] for k in ('schema', 'key_id', 'channel', 'platform', 'app', 'provenance_sha256',
                                       'verification_policy')}
-    inventory.update(key_id=coordinator('/keys')['key_id'], release_id=f'agent-turns-mac-{out.name}',
+    inventory.update(key_id=os.environ['DSMACK_RELEASE_KEY_ID'], release_id=f'agent-turns-mac-{out.name}',
                      sequence=args.sequence, issued_at=stamp(now),
                      expires_at=stamp(now + datetime.timedelta(days=7)), files=files,
                      profiles=[{'profile_id': SELECTOR, 'descriptor_path': profile_path, 'descriptor_sha256': sha(profile_raw)}],
                      archive={'format': 'tar+gzip', 'bytes': archive.stat().st_size, 'sha256': file_sha(archive)})
-    signed = coordinator('/sign-release', {'inventory': inventory})
-    raw = signed['inventory'].encode()
+    raw = sign(inventory, out/'release.sig')
     (out/'release.json').write_bytes(raw)
-    (out/'release.sig').write_bytes(base64.b64decode(signed['signature']))
     print(json.dumps({'inventory_sha256': sha(raw), 'manifest_sha256': sha(manifest), 'sequence': args.sequence}))
 
 
@@ -313,11 +309,13 @@ def admit(args):
                'verifier_version': '2', 'core_sha256': CORE, 'extractor_tool_sha256': EXTRACTOR,
                'report_key_id': report['key_id'], 'report_verify_key_b64': report['public_b64'], 'expected': expected}
     (out/'checker-context.json').write_bytes(canonical(checker))
-    profile = json.loads((args.release/'stage/profiles'/(SELECTOR + '.json')).read_bytes())
-    signed = coordinator('/admit', {'release_inventory_sha256': sha(inventory_raw), 'profile': profile,
-                                    'closure_context': closure, 'workload_disk': disk})
-    (out/'workload-admission.json').write_bytes(signed['admission'].encode())
-    (out/'workload.sig').write_bytes(base64.b64decode(signed['signature']))
+    now = datetime.datetime.now(datetime.timezone.utc)
+    admission = {'schema': 'dsmack-alpha-workload-admission/1', 'key_id': os.environ['DSMACK_RELEASE_KEY_ID'],
+                 'release_inventory_sha256': sha(inventory_raw), 'profile_id': SELECTOR,
+                 'compose_manifest_sha256': sha(manifest_raw), 'attempt_id': attempt,
+                 'closure_context_sha256': sha(canonical(closure)), 'workload_disk': disk,
+                 'issued_at': stamp(now), 'expires_at': stamp(now + datetime.timedelta(hours=2))}
+    (out/'workload-admission.json').write_bytes(sign(admission, out/'workload.sig'))
     verifier(authority, 'operator', 'issue-challenge', '--replay', authority/'replay.sqlite', '--key-id', key_id,
              '--manifest-sha256', sha(manifest_raw), '--ttl', 7200, '--challenge', challenge.hex())
     print(json.dumps({'attempt_id': attempt, 'workload_disk': disk}))
@@ -328,9 +326,7 @@ def admit_v02(args):
     alpha = (args.release/'stage/public'/(SELECTOR + '.app-compose.json')).read_bytes()
     manifest_raw = compose_manifest_v02(alpha, json.loads((args.oci/'index.json').read_bytes())['manifests'][0]['digest'], args.base)
     attempt, _, disk = prepare(args.out, manifest_raw, args, args.base)
-    admitted = coordinator('/admit-compose', {'compose_manifest_sha256': sha(manifest_raw)})
-    print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk,
-                      'expires_at': admitted['expires_at']}))
+    print(json.dumps({'attempt_id': attempt, 'manifest_sha256': sha(manifest_raw), 'workload_disk': disk}))
 
 
 def authorize(args):

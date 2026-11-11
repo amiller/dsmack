@@ -3,11 +3,12 @@
 
 python3 secret_workload.py <repo> <image files> <starter public-tree> <out> <task id> <policy url>
 
-Same inputs as canary_workload.py; network nat so the service reaches the policy (http://192.168.127.254:<port> is
-the Mac's loopback through gvproxy). Prints manifest_sha256, os_image_hash, workload digest.
+Same inputs as canary_workload.py; network nat with one egress rule for the policy's IP and port
+(http://192.168.127.254:<port> is the Mac's loopback through gvproxy). Prints manifest_sha256, os_image_hash, workload digest.
 """
 import json
 import sys
+import urllib.parse
 from pathlib import Path
 
 import canary_workload as cw
@@ -40,7 +41,9 @@ def manifest(starter, files, task, url):
     svc = json.loads(m["docker_compose_file"])["services"]["attester"]
     del svc["security_profile"]
     svc["command"] = ["-c", CODE % (task, url)]
-    m.update(name=NAME, network={"mode": "nat", "listen_ports": []},
+    u = urllib.parse.urlsplit(url)
+    egress = [{"destination": u.hostname + "/32", "protocol": "tcp", "port": u.port or (443 if u.scheme == "https" else 80)}]
+    m.update(name=NAME, network={"mode": "nat", "listen_ports": [], "egress": egress},
              docker_compose_file=json.dumps({"services": {"worker": svc}}, sort_keys=True, separators=(",", ":")),
              outputs={"artifacts": [{"name": "secret-release", "path": "/workspace/artifacts/secret-release.json"}],
                       "capture": ["stdout", "stderr"]})

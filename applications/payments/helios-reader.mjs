@@ -1,36 +1,29 @@
-// Guest admission reads through chain-read, which answers only what its Helios OP-stack light client verified. A
-// snapshot pins one verified block hash `depth` blocks behind the head; every read names that hash. Same snapshot
-// interface as ChainReader (block, tag, read, call), so admissionChain runs unchanged. Reads fail closed: a reply not
-// marked helios-opstack, or pinned to another block, is an error.
+// Guest admission reads through chain-read (applications/chain-read): a Helios OP-stack light client in this process
+// verifies every answer against Base's sequencer-signed head. A snapshot pins chain-read's verified head, which lags the
+// newest head by its lagSeconds; every read names that block hash. Same snapshot interface as ChainReader (block, tag,
+// read, call), so admissionChain runs unchanged.
 import { abi, keccak256, require } from "./schema.mjs";
 import { admissionChain } from "./admission.mjs";
 
+const hex = (b) => "0x" + Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+
 export class HeliosReader {
-  constructor({ escrow, codeHash, chainRead, depth = 30, maxHeadAge = 120 }) {
-    require(/^0x[0-9a-fA-F]{40}$/.test(escrow) && /^0x[0-9a-fA-F]{64}$/.test(codeHash) && /^https:\/\//.test(chainRead),
-      "escrow, deployed code hash and chain-read URL required");
-    Object.assign(this, { escrow, codeHash, base: chainRead.replace(/\/$/, ""), depth, maxHeadAge });
-  }
-  async get(path, params) {
-    const r = await fetch(`${this.base}${path}?${new URLSearchParams(params)}`), j = await r.json();
-    require(r.ok && j.verified_by === "helios-opstack", `chain-read ${path}: HTTP ${r.status} ${j.error ?? ""}`);
-    return j;
+  // open() starts a chainRead instance; a failed start is retried on the next snapshot.
+  constructor({ escrow, codeHash, open, maxHeadAge = 120, now = () => Date.now() / 1000 }) {
+    require(/^0x[0-9a-fA-F]{40}$/.test(escrow) && /^0x[0-9a-fA-F]{64}$/.test(codeHash) && open,
+      "escrow, deployed code hash and chain-read opener required");
+    Object.assign(this, { escrow, codeHash, open, maxHeadAge, now });
   }
   async snapshot() {
-    const head = await this.get("/head", { depth: this.depth });
-    require(head.head_age_s <= this.maxHeadAge, `Helios head is ${head.head_age_s} s old`);
-    require(Number.isInteger(head.depth) && head.depth >= this.depth && Number.isInteger(head.block) && Number.isInteger(head.head) &&
-      head.block <= head.head - this.depth, `chain-read /head ignored depth ${this.depth}: ${JSON.stringify(head)}`);
-    const block = { hash: head.block_hash, number: head.block }, tag = { blockHash: block.hash };
-    const pinned = async (path, params) => {
-      const j = await this.get(path, { ...params, block: block.hash });
-      require(j.block_hash === block.hash, "chain-read answered for another block");
-      return j;
-    };
+    if (!this.chain) { this.chain = this.open(); this.chain.catch(() => { this.chain = undefined; }); }
+    const c = await this.chain, s = await c.snapshot();
+    const age = this.now() - s.block.timestamp;
+    require(age <= this.maxHeadAge, `Helios head is ${Math.round(age)} s old`);
+    const block = { hash: s.block.hash, number: s.block.number }, tag = { blockHash: block.hash };
     const fetchRead = async (method, arg) => {
-      if (method === "eth_getCode") return (await pinned("/code", { address: arg })).code;
+      if (method === "eth_getCode") return c.read("eth_getCode", [arg, tag]);
       require(method === "eth_call", "unsupported Helios read " + method);
-      return (await pinned("/call", { to: arg.to, data: arg.data })).result;
+      return hex(await s.call(arg.to, arg.data));
     };
     // State at a pinned block hash never changes, so a snapshot fetches each read once. A failed read is not kept.
     // `used` holds what callers read; warm() fetches without marking, so a refresh replays only reads still in use.
@@ -68,9 +61,7 @@ export function sharedSnapshots(reader, seconds = 30, now = () => Date.now() / 1
     const at = now(), s = await reader.snapshot();
     if (current) {
       require(s.block.number >= current.s.block.number, "chain-read pinned an older block than the served snapshot");
-      // One read at a time: Helios queues concurrent new-block reads, and a burst of ~11 every 30 s held
-      // every other layover-chain client (browser guest checks) past its 25 s timeout.
-      // Stop at the served snapshot's limit; reads not warmed by then are fetched on demand.
+      // One read at a time: chain-read runs reads one after another anyway. Stop at the served snapshot's limit; reads not warmed by then are fetched on demand.
       for (const k of [...current.s.used]) {
         if (now() - current.at >= 2 * seconds) break;
         await Promise.allSettled([s.warm(k)]);

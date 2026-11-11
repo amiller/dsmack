@@ -132,15 +132,7 @@ class Workspace:
 
     def materialize_delivery(self, plan: dict) -> dict:
         """Materialize every workload-audience destination from the
-        validated delivery plan (files + user_config). Broker-audience
-        entries are REFUSED here (they go only to a broker store; with no
-        broker the run already failed closed at lowering)."""
-        if plan.get("broker_env") or plan.get("broker_files"):
-            raise RunnerError(
-                "broker-input-without-broker",
-                "broker-audience inputs cannot be delivered by this runner without a credential "
-                "broker; they are never materialized under the workload workspace",
-            )
+        validated delivery plan (files + user_config)."""
         delivered = {"files": [], "user_config": None}
         for entry in plan.get("workload_files", []):
             data = None

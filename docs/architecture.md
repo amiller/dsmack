@@ -27,7 +27,8 @@ there is no macOS VM per task.
 
 The base image ([`base-vm/browser-sandbox-v1`](../base-vm/browser-sandbox-v1/README.md))
 is a dstack-derived Debian ARM64 system. It supplies the guest supervisor,
-Docker/compose execution, input/output transport and the credential broker.
+Docker/compose execution and input/output transport. Credential handling
+belongs in the workload's compose.
 Claude Code, browser tests or any other program go in OCI images selected by the
 workload. Many workloads share one base and one signed app.
 

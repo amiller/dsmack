@@ -1,8 +1,10 @@
 import copy
 import hashlib
+import io
 import json
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -62,8 +64,32 @@ class Egress(unittest.TestCase):
         for encoded in (raw(), raw([]), raw([], "none")):
             manifest, _ = validate_manifest_bytes(encoded)
             rules = render_egress_rules(manifest)
-            self.assertEqual(rules.count("policy drop;"), 2)
+            self.assertEqual(rules.count("policy drop;"), 3)
             self.assertNotIn("daddr", rules)
+            self.assertNotIn("dport", chain(rules, "input"))
+
+    def test_table_before_nic_up_allows_only_loopback_and_replies(self):
+        with patch("dsmack_compose_contract.egress.subprocess.run") as run:
+            apply()
+        rules = run.call_args.kwargs["input"].decode()
+        self.assertEqual(rules.count("policy drop;"), 3)
+        self.assertEqual([line.strip() for line in rules.splitlines() if "accept" in line], [
+            'iifname "lo" accept', "ct direction reply ct state established,related accept",
+            'oifname "lo" accept', "ct direction reply ct state established,related accept",
+            "ct direction reply ct state established,related accept"])
+
+    def test_runner_refuses_credentialed_manifest_at_validate(self):
+        # This base runs no credential broker; credential handling belongs in the app's compose.
+        from dsmack_compose_runner.cli import main
+        m = json.loads(raw([GW]))
+        m["credentials"] = {"required": True, "via": "runtime-input-broker", "adapter": {
+            "accepted_fields": ["claudeAiOauth"], "profile": "claude-subscription/1",
+            "provider_route": "https://api.anthropic.com", "source": "explicit-caller-stdin-or-file"}}
+        m["allowed_envs"] = [{"name": "CLAUDE_SUBSCRIPTION_OAUTH", "audience": "broker"}]
+        with tempfile.NamedTemporaryFile() as f, patch("sys.stderr", new_callable=io.StringIO) as err:
+            f.write(json.dumps(m).encode()); f.flush()
+            self.assertEqual(main(["validate", f.name]), 2)
+        self.assertIn("runner-error credentials-unsupported", err.getvalue())
 
     def test_bad_destinations_cannot_widen_or_inject_firewall_rules(self):
         good = {"destination": "203.0.113.7", "protocol": "tcp", "port": 443}
@@ -102,7 +128,7 @@ class Egress(unittest.TestCase):
         manifest, summary = validate_manifest_bytes(raw([GW]))
         lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/docker.sock", run_id="test")
         self.assertEqual(set(json.loads(render_compose_file(manifest, lowered))), {"services"})
-        self.assertNotIn("iifname", lowered["egress_nftables"])
+        self.assertNotIn("iifname", chain(lowered["egress_nftables"], "forward"))
 
     def test_service_egress_reaches_only_the_named_service(self):
         manifest, summary = validate_manifest_bytes(raw([DNS], service_egress={"gateway": [GW, DNS], "worker": []}, compose=two_services()))

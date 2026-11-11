@@ -79,26 +79,12 @@ def _component(name: str, path: str) -> dict:
     return {"name": name, "sha256": digest.hexdigest()}
 
 
-def _workload_delivery(plan: dict) -> dict:
-    """The WORKLOAD-ONLY view of a validated delivery plan handed to the
-    private workspace.
-
-    Broker-audience inputs (``broker_env`` / ``broker_files``, e.g. the
-    ``CLAUDE_SUBSCRIPTION_OAUTH`` bearer credential) are held by the per-run
-    sentinel, staged out-of-band by the harness, and are NEVER materialized
-    under the workload workspace (C03). The caller keeps the FULL validated
-    ``plan`` for commitment/audience accounting and for rendering the
-    workload env; only this filtered view crosses the workspace boundary.
-
-    The workspace guard stays fail-closed and UNCHANGED: it is handed no
-    broker data here, and a plan still carrying broker inputs that is passed
-    to ``Workspace.materialize_delivery`` directly (a forged or misused call)
-    is still refused. This view carries only ``workload_files`` and
-    ``user_config``; it never fabricates or substitutes a credential."""
-    workload_delivery = dict(plan)
-    workload_delivery["broker_env"] = {}
-    workload_delivery["broker_files"] = []
-    return workload_delivery
+def validate_runnable(manifest_bytes: bytes) -> tuple[dict, dict]:
+    manifest, summary = validate_manifest_bytes(manifest_bytes)
+    if manifest.get("credentials", {}).get("required"):
+        raise RunnerError("credentials-unsupported",
+                          "this base runs no credential broker; put credential handling in the app's compose")
+    return manifest, summary
 
 
 def run_manifest(
@@ -115,7 +101,6 @@ def run_manifest(
     summary_out_path: str | None = None,
     export_artifacts_dir: str | None = None,
     export_outputs_dir: str | None = None,
-    broker: dict | None = None,
     environment: str = "linux-test",
     boot_observations_path: str | None = None,
 ) -> tuple[dict, dict]:
@@ -132,7 +117,7 @@ def run_manifest(
     started_wall = int(time.time())
     try:
         # -- 1. validate the exact manifest bytes (identity) ----------------
-        manifest, summary = validate_manifest_bytes(manifest_bytes)
+        manifest, summary = validate_runnable(manifest_bytes)
         manifest_sha256 = summary["manifest_sha256"]
 
         # VM-OBSERVATIONS: resolve the environment + the (validated) real VM
@@ -206,16 +191,8 @@ def run_manifest(
         # -- 4. external admission over the REAL bundle bytes (fail closed) -
         admission_result = admit_base_bundle(manifest, base_bundle_dir, admission_path)
 
-        # -- 5. lower (deterministic; fail-closed runtime/broker checks) ----
+        # -- 5. lower (deterministic; fail-closed runtime checks) -----------
         workspace_path = os.path.join(workspace_root, "%s-%s" % (run_id, manifest_sha256[:12]))
-        # F02: the broker is a CALLER-SUPPLIED capability (the harness/pinned
-        # adapter launches the per-run sentinel and passes its endpoint) --
-        # the runner no longer hardcodes broker=None. A credential-required
-        # manifest with NO broker still fails closed; a supplied broker makes
-        # both credential profiles executable (broker-audience inputs route
-        # through the sentinel, never to the workload directly).
-        if broker is not None and not (isinstance(broker, dict) and isinstance(broker.get("endpoint"), str) and broker["endpoint"]):
-            raise RunnerError("broker-invalid", "a supplied broker must carry a string endpoint")
         lowered = lower(
             manifest,
             manifest_sha256,
@@ -223,15 +200,7 @@ def run_manifest(
             run_id=run_id,
             workspace_host_dir=workspace_path,
             runtime_available=tuple(sorted(registered)),
-            broker=broker,
         )
-        if lowered["requires_broker"] and broker is None:
-            raise RunnerError(
-                "broker-unavailable",
-                "this run requires a credential broker; broker-audience inputs are never handed to "
-                "a workload directly and no broker is configured -- failing closed",
-            )
-        sentinel_endpoint = broker["endpoint"] if broker is not None else None
         control.install_lowered_env(lowered)
         if control.build_env().get("DOCKER_HOST") != daemon_endpoint:
             raise RunnerError("control-env-endpoint-mismatch", "the lowered endpoint diverged from the explicit selection")
@@ -259,15 +228,6 @@ def run_manifest(
             env_summary = validate_runtime_inputs_bytes(manifest_bytes, envelope_bytes)
             envelope_dict = json.loads(envelope_bytes.decode("utf-8"))
             plan = delivery_plan(manifest, envelope_dict)
-            if (plan["broker_env"] or plan["broker_files"]) and broker is None:
-                raise RunnerError(
-                    "broker-unavailable",
-                    "broker-audience inputs require a credential broker; failing closed",
-                )
-            # When a broker IS supplied, broker-audience inputs are held by the
-            # per-run sentinel (staged by the harness out-of-band) and are never
-            # materialized into the workload workspace; the workload reaches
-            # them only through the sentinel endpoint rendered below (F02).
             if plan["stdin_b64"] is not None:
                 stdin_bytes = base64.b64decode(plan["stdin_b64"])
 
@@ -282,26 +242,10 @@ def run_manifest(
         cap_mode = workspace.prepare_cap(["inputs", "state", "artifacts"])
         delivered = {"files": [], "user_config": None}
         if plan is not None:
-            # PRODUCT-DELIVERY: reaching here means the fail-closed broker gates
-            # already passed -- step 5 (lowering requires_broker) and step 7 (the
-            # envelope broker-audience check) both refuse a required broker with
-            # none supplied BEFORE any workspace exists. The workspace receives a
-            # WORKLOAD-ONLY view (_workload_delivery): broker-audience inputs
-            # (e.g. CLAUDE_SUBSCRIPTION_OAUTH) are held by the per-run sentinel
-            # out-of-band and are NEVER materialized under the workload
-            # workspace. The full validated `plan` is preserved for
-            # commitment/audience accounting and for workload_env rendering
-            # below; the workspace guard stays fail-closed and unchanged.
-            delivered = workspace.materialize_delivery(_workload_delivery(plan))
+            delivered = workspace.materialize_delivery(plan)
 
         # -- 9. render + execute the frozen lifecycle ------------------------
-        # F02: when a broker is configured, the concrete workload-reachable
-        # sentinel endpoint is rendered into the broker-capability services;
-        # render fails closed if a broker is required but no endpoint is given.
-        compose_text = render_compose_file(
-            manifest, lowered, workload_env=(plan or {}).get("workload_env", {}),
-            sentinel_endpoint=sentinel_endpoint,
-        )
+        compose_text = render_compose_file(manifest, lowered, workload_env=(plan or {}).get("workload_env", {}))
         cancel = CancelEvent()
         previous = {sig: signal.getsignal(sig) for sig in (signal.SIGINT, signal.SIGTERM)}
 
@@ -521,8 +465,8 @@ def _summarize(*, run_id, manifest_sha256, daemon_endpoint, tools, admission_res
             for service, identity in image_identity.items()
         },
         "harness_resolved": harness_observation["path"],
-        # GIO03: the generated compose bytes carry PRIVATE runtime env values and
-        # the broker endpoint; they are destroyed at cleanup and NEITHER they nor
+        # GIO03: the generated compose bytes carry PRIVATE runtime env values;
+        # they are destroyed at cleanup and NEITHER they nor
         # a digest of them is published here (a hash of private content is a
         # forbidden private-input content hash). The committed-inputs evidence is
         # the frozen v4 commitment recorded in the receipt.

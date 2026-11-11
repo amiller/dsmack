@@ -31,8 +31,6 @@ Commands:
                                          and explicit flock-serialized replay
                                          state (C01/D02/R03/S02/S03/T02)
   lower MANIFEST --daemon-endpoint ENDPOINT --run-id ID [--workspace-host-dir DIR]
-                                         [--broker-endpoint URL]
-                                         [--sentinel-endpoint URL]
                                          deterministic lowering to execution
                                          config + generated compose file
   hash FILE                              exact-bytes and canonical sha256 under
@@ -172,11 +170,8 @@ def _run(args):
             daemon_endpoint=args.daemon_endpoint,
             run_id=args.run_id,
             workspace_host_dir=args.workspace_host_dir,
-            broker={"endpoint": args.broker_endpoint} if args.broker_endpoint else None,
         )
-        lowered["generated_compose_file"] = render_compose_file(
-            manifest, lowered, workload_env={}, sentinel_endpoint=args.sentinel_endpoint
-        )
+        lowered["generated_compose_file"] = render_compose_file(manifest, lowered, workload_env={})
         return _emit({"ok": True, "kind": "lowered-execution-config", "lowering": lowered})
 
     if args.command == "hash":
@@ -285,8 +280,6 @@ def main(argv=None):
     p.add_argument("--daemon-endpoint", required=True, help="explicit Docker daemon endpoint (the only selection mechanism)")
     p.add_argument("--run-id", required=True, help="fresh per-run identifier (project/workspace isolation)")
     p.add_argument("--workspace-host-dir", default=None, help="private per-run workspace directory")
-    p.add_argument("--broker-endpoint", default=None, help="guest-root credential broker endpoint")
-    p.add_argument("--sentinel-endpoint", default=None, help="runner-resolved workload-reachable per-run sentinel URL")
 
     p = sub.add_parser("hash", help="print exact-bytes and canonical sha256 of a JSON file")
     p.add_argument("file")

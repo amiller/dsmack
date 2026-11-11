@@ -15,11 +15,6 @@ v4 changes (contract3-review):
         mounted source and the materialized bytes are always the same file;
         omitted OPTIONAL slots and omitted user_config have explicit
         materialize-empty entries.
-  D07 - the sentinel ABI is a per-run lifecycle: a fresh per-run bearer
-        token path, readiness gating, measured-route-only restriction,
-        credential binding to the run, and teardown; the lifecycle contract
-        is emitted in the lowered config for the runner to implement. The
-        manifest subset already rejects broker + network 'none'.
   D09 - the bounded multi-service subset lowers per service: every service
         carries the runtime key, user, read_only root, its audience-filtered
         mounts and env; state/artifacts/shared are shared rw directory
@@ -58,7 +53,6 @@ from .manifest import (
 CONTROL_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 WORKLOAD_UID = 1000
 WORKLOAD_GID = 1000
-SENTINEL_ENV_NAME = "DSMACK_SENTINEL_ENDPOINT"
 AGENT_SOCKET_DIR = "/run/dsmack-agent"
 # The supervisor writes the guest resolver here. Docker's embedded DNS (127.0.0.11) needs xt DNAT/SNAT,
 # which the guest kernel lacks (CONFIG_NETFILTER_XT_NAT unset), so networked containers use it directly.
@@ -80,7 +74,6 @@ def lower(
     run_id=None,
     workspace_host_dir=None,
     runtime_available=("runc",),
-    broker=None,
 ):
     """Lower a validated manifest dict + exact manifest digest to the
     deterministic execution configuration. Raises LoweringError on any
@@ -107,30 +100,9 @@ def lower(
             "contract REQUIRES failing closed -- no silent fallback to another runtime" % runtime_name
         )
 
-    requires_broker = bool(manifest.get("credentials", {}).get("required"))
-    if requires_broker and not (isinstance(broker, dict) and isinstance(broker.get("endpoint"), str) and broker["endpoint"]):
-        raise LoweringError(
-            "manifest.credentials.required is true but no credential broker endpoint is available; "
-            "execution fails closed (broker-audience inputs are never handed to the workload directly)"
-        )
-    # E10: the adapter dict is validated to carry provider_route EXPLICITLY
-    # (required key; null for the files-only profile) so lowering never
-    # indexes an absent key.
-    adapter_route = None
-    if requires_broker:
-        adapter = manifest.get("credentials", {}).get("adapter", {})
-        if "provider_route" not in adapter:
-            raise LoweringError("manifest.credentials.adapter.provider_route is REQUIRED (validated upstream; fail closed)")
-        adapter_route = adapter["provider_route"]
-
     compose_doc = _compose_doc(manifest)
     service_names = [name for name in compose_doc["services"] if isinstance(name, str)]
     completion_service = manifest["outputs"].get("completion_service") or (service_names[0] if service_names else None)
-    # E10: the sentinel capability is injected ONLY into the broker audience
-    # (the consistent services list every broker-audience input declares; all
-    # services when none declares one).
-    broker_capability_services = _broker_capability_services(manifest, service_names)
-
     # D09: per-service mounts (audience- and service-filtered, keyed by the
     # target segment so source bytes and mounted file are the same file).
     services_lowered = {}
@@ -155,12 +127,6 @@ def lower(
     return {
         "security_profiles": security_profiles,
         "argv_by_service": _lower_argv_by_service(manifest),
-        "broker": None
-        if not requires_broker
-        else {
-            "endpoint": broker["endpoint"],
-            "provider_route": adapter_route,
-        },
         "compose_argv": compose_argv,
         "completion_service": completion_service,
         "lifecycle": lifecycle,
@@ -184,13 +150,12 @@ def lower(
         ),
         "input_delivery": {
             "env": "workload-audience env values are merged into the generated compose environment by "
-            "render_compose_file per the entry's service audience; broker-audience values go ONLY to "
-            "the credential broker",
+            "render_compose_file per the entry's service audience",
             "files": "each declared workload slot is a SINGLE-FILE bind <workspace>/inputs/<target-segment> "
             "-> target, keyed by the TARGET segment so mounted source and delivered bytes are the same "
             "file; bytes are materialized before start and never rewritten; omitted OPTIONAL slots are "
             "materialized as EMPTY regular files (delivery_plan marks materialize_empty); broker-audience "
-            "slots are materialized only into the broker's own store, never under the workload workspace",
+            "slots are never materialized",
             "stdin": "mode none: compose up attaches no stdin (closed). mode pipe (single-service only): "
             "compose run -i -T; the runner writes at most the validated max_bytes then CLOSES stdin (EOF); "
             "larger envelopes are rejected at validation, never truncated",
@@ -200,8 +165,7 @@ def lower(
             if uc.get("mode") == "opaque-file"
             else "user_config mode is 'none'",
             "lifetime": "all workload inputs exist only inside the private per-run workspace and are "
-            "destroyed at cleanup (lstat walk, no symlink following); broker inputs are destroyed with "
-            "the broker's per-run store; no input is exported by default",
+            "destroyed at cleanup (lstat walk, no symlink following); no input is exported by default",
         },
         "mounts_by_service": services_lowered,
         "network_mode": network_mode,
@@ -210,7 +174,6 @@ def lower(
         "ports": ports,
         "project_name": project_name,
         "read_only_rootfs": True,
-        "requires_broker": requires_broker,
         "requires_runtime": runtime_name,
         "runtime_closure_duty": (
             "prelaunch (in-guest supervisor, before dockerd): verify the executable/bundle bytes at "
@@ -232,164 +195,12 @@ def lower(
             "/workspace/shared (or any declared slot/user_config target) fails closed. The "
             "designated completion service must be the one launched with these verified bytes"
         ),
-        "sentinel": None
-        if not requires_broker
-        else {
-            "env_name": SENTINEL_ENV_NAME,
-            "upstream_provider_route": adapter_route,
-            "capability_services": broker_capability_services,
-            "lifecycle": {
-                "creation": "per-run: the broker creates a fresh listener on the compose bridge gateway "
-                "bound to this run_id, with a FRESH per-run bearer token embedded in the endpoint path; "
-                "tokens from previous runs are invalid by construction",
-                "readiness": "the runner polls readiness BEFORE start and fails closed on timeout; the "
-                "sentinel env is injected only after readiness, ONLY into capability_services",
-                "authorization": "every request must carry this run's bearer token; the broker binds the "
-                "run's credential to run_id and rejects unknown/stale/expired tokens (cross-run access "
-                "rejected; negative test duty)",
-                "route_restrictions": (
-                    "provider-proxy form (env-transport profiles): the ONLY upstream ORIGIN is the "
-                    "measured provider_route (client paths map to it per endpoint_construction); "
-                    "any other host is refused and only '/v1/<path>' client paths are accepted; TLS "
-                    "verification toward the provider stays ON. Files-only form (generic-broker-file/1, "
-                    "provider_route null): NO provider route is proxied at all -- the ONLY route class "
-                    "is the bounded broker-file disclosure route (see disclosure_policy), and a "
-                    "service may fetch only slots whose declared audience includes it"
-                ),
-                # R09: exact, frozen endpoint construction per profile. The
-                # bearer token is path segment 1; the per-profile route space
-                # is fixed and unambiguous.
-                "endpoint_construction": {
-                    "token_form": "the fresh per-run bearer token is the FIRST path segment: http://<gateway-ip>:<port>/<token>...",
-                    # T03: the endpoint ends AT THE TOKEN -- the pinned client
-                    # (Anthropic SDK / Claude Code) appends '/v1/<path>' to its
-                    # base URL, so a base ending in '/v1' would double the
-                    # prefix ('/v1/v1/...' upstream). Gateway authentication is
-                    # the run-local token capability, never the provider key.
-                    # S07: a CONCRETE client-path -> upstream-path mapping.
-                    # provider_route (e.g. https://api.anthropic.com) is the
-                    # MEASURED UPSTREAM ORIGIN -- never a path appended to the
-                    # endpoint. The upstream request URL is the upstream
-                    # origin + the client path after the token segment,
-                    # verbatim.
-                    "env_transport_profiles": (
-                        "endpoint = http://<gateway-ip>:<port>/<token> (ends AT the token; NO /v1 "
-                        "suffix). PINNED CLIENT CONFIGURATION (Anthropic SDK / Claude Code): the "
-                        "workload process is started with ANTHROPIC_BASE_URL = this endpoint and "
-                        "ANTHROPIC_API_KEY = this run's token (path segment 1) -- a RUN-LOCAL "
-                        "capability, never the provider key; the client then requests "
-                        "<endpoint>/v1/<path> per the pinned client's own URL construction. "
-                        "CONCRETE PROXY MAPPING: upstream_url = provider_route + <client path after "
-                        "'/<token>'>. The client path after the token segment is forwarded VERBATIM "
-                        "to the measured upstream ORIGIN. Examples: client POST "
-                        "http://10.0.2.15:8100/tok-abc/v1/messages -> upstream POST "
-                        "https://api.anthropic.com/v1/messages ; client GET "
-                        "http://10.0.2.15:8100/tok-abc/v1/models -> upstream GET "
-                        "https://api.anthropic.com/v1/models. GATEWAY AUTHENTICATION: the token "
-                        "(path segment 1) is the per-run capability the broker resolves to this "
-                        "run; the token itself is REMOVED from the forwarded path (never upstream), "
-                        "and the proxy REPLACES every client credential header (x-api-key, "
-                        "Authorization) upstream-side with the run's own broker-held credential -- "
-                        "client headers are never forwarded and the provider key never exists "
-                        "workload-side. provider_route "
-                        "(https://api.anthropic.com) is the measured upstream ORIGIN only -- it is "
-                        "never appended to the endpoint, and client request paths are never embedded "
-                        "in it. Allowed client paths after the token under env-transport are "
-                        "exactly '/v1/<path>' (any method); any other path shape is 404"
-                    ),
-                    "files_only_profile": (
-                        "endpoint = http://<gateway-ip>:<port>/<token> (NO /v1); the ONLY request form "
-                        "is GET http://<gateway-ip>:<port>/<token>/broker-file/<slot> returning that "
-                        "slot's caller-supplied bytes bounded by the slot max_bytes; any other path or "
-                        "method is 404/405"
-                    ),
-                    "authorization": (
-                        "every request must carry this run's bearer token as path segment 1; the "
-                        "broker resolves the token to the run and enforces the slot audience "
-                        "(files-only) or the measured route (env-transport); unknown/stale/expired "
-                        "tokens are refused"
-                    ),
-                },
-                # R09: the files-only profile is a DISTINCT MEASURED
-                # DISCLOSURE/transport policy, named as such: broker-audience
-                # FILE slot bytes are readable by the declared audience
-                # services through this bounded route. It is not a secrecy
-                # waiver for anything else: claude-api-key/1 credentials stay
-                # env/proxy-only and never reach workloads; non-audience
-                # services never see broker bytes; sources stay explicitly
-                # caller-owned with no discovery/reuse.
-                "disclosure_policy": (
-                    "dsmack.broker-file-disclosure/1 (generic-broker-file/1 only): the declared "
-                    "audience services of a broker-audience FILE slot retrieve that slot's EXACT "
-                    "caller-supplied bytes via the frozen GET <endpoint>/broker-file/<slot> route, "
-                    "bounded by the slot max_bytes, per-run token-bound, GET-only, teardown-bound. "
-                    "This is a measured, audience-scoped transport for declared caller files -- NOT "
-                    "credential discovery or reuse, and NOT applicable to claude-api-key/1 (whose "
-                    "credentials never reach workloads). Any secrecy claim outside this named "
-                    "policy (workload-env secrecy, provider secrecy, cross-audience secrecy) is "
-                    "unchanged"
-                ),
-                # S07: the credential-binding rule is explicitly
-                # PROFILE-SPECIFIC -- a blanket "never exposed to the
-                # workload" contradicts the files-only profile's measured
-                # file-disclosure route.
-                "credential_binding": (
-                    "PROFILE-SPECIFIC. env-transport profiles (claude-api-key/1): the run's provider "
-                    "credential lives ONLY in the broker's per-run store bound to this run_id and is "
-                    "NEVER exposed to the workload directly -- workloads reach the provider only "
-                    "through the token-bound proxy above, the broker injects the credential "
-                    "upstream-side, and no workload-readable copy exists. files-only profile "
-                    "(generic-broker-file/1): broker-audience FILE slot bytes ARE disclosed to their "
-                    "DECLARED AUDIENCE services, but ONLY through the measured "
-                    "dsmack.broker-file-disclosure/1 route (see disclosure_policy) -- never through "
-                    "any other path, never to non-audience services, never across runs. ALL "
-                    "profiles: broker-audience inputs are associated with this run_id only, and "
-                    "credential sourcing stays explicitly caller-owned (no discovery, no reuse)"
-                ),
-                "teardown": "after workload exit (any status): listener closed, per-run store and tokens "
-                "destroyed, then workspace cleanup; post-teardown requests fail closed",
-            },
-            "transport": (
-                "workload-reachable TCP endpoint on the compose bridge gateway; the runner resolves "
-                "the gateway after network creation and passes the concrete URL to "
-                "render_compose_file; resolution failure fails closed. Endpoint construction is "
-                "FROZEN per profile in endpoint_construction (env-transport: "
-                "http://<gateway-ip>:<port>/<token> -- ending AT the token; the pinned client appends "
-                "/v1/<path> -- with the concrete client-path-to-upstream "
-                "mapping and run-local token authentication; files-only: http://<gateway-ip>:<port>/<token> "
-                "with the single GET <token>/broker-file/<slot> route). This endpoint is DISTINCT "
-                "from the root-only control/credential socket and exposes only the route class "
-                "allowed by the adapter profile"
-            ),
-        },
         "workspace_host_dir": workspace_host_dir,
         "workspace_ownership": "private per-run directory of the runner's unprivileged workload uid "
         "(%d:%d); enforced in the generated config via the service user key; cleanup walks it without "
         "following symlinks (lstat-based), then removes it" % (WORKLOAD_UID, WORKLOAD_GID),
         "workload_uid_gid": [WORKLOAD_UID, WORKLOAD_GID],
     }
-
-
-def _broker_capability_services(manifest, service_names):
-    """E10: the services that receive the sentinel capability.
-
-    Exactly the broker audience: the (validated-consistent) `services` list
-    every broker-audience input declares, defaulting to every declared
-    service when no broker input restricts its audience. R06: a shape-failed
-    services value (e.g. [[]]; the validation error was already recorded)
-    must never reach the set intersection -- it is treated as unrestricted
-    here and validation never reaches lowering.
-    """
-    audiences = set()
-    for entry in manifest.get("allowed_envs", []) if isinstance(manifest.get("allowed_envs"), list) else []:
-        if isinstance(entry, dict) and entry.get("audience") == "broker":
-            services = entry.get("services")
-            audiences.update(services if isinstance(services, list) and all(isinstance(s, str) for s in services) else service_names)
-    for entry in manifest.get("allowed_files", []) if isinstance(manifest.get("allowed_files"), list) else []:
-        if isinstance(entry, dict) and entry.get("audience") == "broker":
-            services = entry.get("services")
-            audiences.update(services if isinstance(services, list) and all(isinstance(s, str) for s in services) else service_names)
-    return sorted(audiences & set(service_names))
 
 
 def _input_reaches(entry, service_name, service_names):
@@ -508,11 +319,11 @@ def _accept_rules(egress, match=""):
 def render_egress_rules(manifest):
     """Guest-wide policy, installed atomically before any workload starts.
 
-    Guest processes (including brokers) match network.egress. Forwarded container
+    Guest processes match network.egress. Forwarded container
     packets match network.egress too, or, with network.service_egress, only the
     tuples of the service whose bridge they enter on, plus service-to-service
-    traffic on the internal bridge. Only loopback and replies to inbound
-    connections bypass those tuples. An inet table also denies IPv6.
+    traffic on the internal bridge. Input accepts only loopback and replies,
+    which also bypass those tuples. An inet table also denies IPv6.
     """
     services = service_networks(manifest)
     rules = [
@@ -520,17 +331,17 @@ def render_egress_rules(manifest):
         "delete table inet dsmack_egress",
         "table inet dsmack_egress {",
     ]
-    for hook in ("output", "forward"):
+    for hook in ("input", "output", "forward"):
         rules += [
             " chain %s {" % hook,
             "  type filter hook %s priority -10; policy drop;" % hook,
         ]
-        if hook == "output":
-            rules.append('  oifname "lo" accept')
+        if hook != "forward":
+            rules.append('  %sifname "lo" accept' % hook[0])
         rules.append("  ct direction reply ct state established,related accept")
-        if hook == "output" or services is None:
+        if hook == "output" or (hook == "forward" and services is None):
             rules += _accept_rules(manifest["network"].get("egress", []))
-        else:
+        elif hook == "forward":
             rules.append('  iifname "%s" oifname "%s" accept' % (SERVICE_BRIDGE, SERVICE_BRIDGE))
             for s in services.values():
                 if s["bridge"]:
@@ -635,7 +446,7 @@ def _lifecycle(manifest, completion_service):
             "State.OOMKilled -- the receipt's per-service observations come from this stable state"
         ),
         "collect": "collect declared artifacts and captured streams AFTER stop (no writer can mutate them mid-collection); outputs.stdout/stderr are the COMPLETION service's streams (stream ownership); auxiliary service streams stay runner-private and are never receipt-recorded",
-        "teardown": "docker compose down only AFTER inspect+collect; then workspace cleanup (lstat walk) and sentinel teardown per the sentinel lifecycle",
+        "teardown": "docker compose down only AFTER inspect+collect; then workspace cleanup (lstat walk)",
     }
 
 
@@ -653,23 +464,12 @@ def _compose_doc(manifest):
     return load_json_bytes(manifest["docker_compose_file"].encode("utf-8"), "compose")
 
 
-def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=None):
+def render_compose_file(manifest, lowered, workload_env=None):
     """Render the generated compose file text (deterministic JSON).
 
     workload_env: ONLY validated WORKLOAD-audience env name/value pairs.
     Broker-audience names are refused here (they must never reach the
     workload). Values reach a service per the entry's service audience (D09).
-
-    sentinel_endpoint: REQUIRED when the lowered config requires a broker:
-    the concrete workload-reachable per-run sentinel URL resolved by the
-    runner from the bridge gateway after readiness, built exactly per the
-    frozen endpoint_construction for the profile -- BOTH profile forms end AT
-    the token: http://<gateway-ip>:<port>/<token> (env-transport: the pinned
-    client appends /v1/<path> to this base URL; files-only: the broker-file
-    disclosure route appends /broker-file/<slot>). It is injected as the
-    runner-owned sentinel env ONLY into the broker capability audience
-    (lowered["sentinel"]["capability_services"], E10); no other service
-    sees it and no other sentinel path exists.
 
     Literal-dollar handling: the manifest subset contains no '$' anywhere
     (rejected at validation), but RUNTIME env values are unmeasured caller
@@ -687,13 +487,6 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
     }
     all_services = list(doc["services"])
 
-    if lowered["sentinel"] is not None:
-        if not isinstance(sentinel_endpoint, str) or not sentinel_endpoint or "$" in sentinel_endpoint:
-            raise LoweringError(
-                "sentinel_endpoint is REQUIRED when the manifest requires a credential broker: the "
-                "runner-resolved workload-reachable per-run sentinel URL (resolution failure fails closed)"
-            )
-
     gen_services = {}
     for service_name in all_services:
         service = doc["services"][service_name]
@@ -705,7 +498,7 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
                 if name not in allowed_workload:
                     raise LoweringError(
                         "refusing to render env (name withheld): not a workload-audience name in "
-                        "allowed_envs (broker-audience values go to the credential broker, undeclared "
+                        "allowed_envs (broker-audience values never reach a workload, undeclared "
                         "names are rejected)"
                     )
                 if name in static_names:
@@ -716,14 +509,6 @@ def render_compose_file(manifest, lowered, workload_env=None, sentinel_endpoint=
                 if not isinstance(value, str):
                     raise LoweringError("refusing to render env (name withheld): value must be a string")
                 env[name] = value.replace("$", "$$")  # literal-dollar escape
-
-        if lowered["sentinel"] is not None:
-            # E10: the sentinel capability reaches ONLY the broker audience.
-            if service_name in lowered["sentinel"]["capability_services"]:
-                sentinel_name = lowered["sentinel"]["env_name"]
-                if sentinel_name in static_names:
-                    raise LoweringError("refusing to render the sentinel env: collides with the compose static environment")
-                env[sentinel_name] = sentinel_endpoint
 
         volumes_out = []
         for mount in lowered["mounts_by_service"][service_name]["mounts"]:

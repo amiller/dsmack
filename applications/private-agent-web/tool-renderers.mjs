@@ -8,6 +8,8 @@ import { sandboxLabel } from "./network-context.mjs";
 
 let activeMac = () => undefined;
 export function configureSandboxMac(getMac) { activeMac = getMac; }
+// One choice for every card, kept for this page session.
+let showSetup = false;
 
 // Pi's native bash renderer uses "Running command..." for every state. Keep
 // its inline console presentation and distinguish settled results explicitly.
@@ -17,10 +19,16 @@ registerToolRenderer("bash", {
     const state = completed ? (result.isError ? "error" : "complete") : "inprogress";
     const output = result?.content?.filter(c => c.type === "text").map(c => c.text).join("\n") || "";
     const command = params?.command;
-    const label = completed ? (result.isError ? "bash · failed" : "bash · completed") : "bash · running";
+    const setup = result?.details?.setup;
+    const label = completed ? (result.details?.setupFailed ? "bash · sandbox setup failed" : result.isError ? "bash · failed" : "bash · completed")
+      : setup && setup.at(-1).text !== "running command" ? "bash · setting up sandbox" : "bash · running";
+    const header = renderHeader(state, SquareTerminal, label);
     return { isCustom: false, content: html`<div class="dsmack-sandbox space-y-3">
       <a class="sandbox-label" href="./network/index.html">${sandboxLabel(result?.details?.dsmackMac || (!completed ? activeMac() : undefined))}</a>
-      ${renderHeader(state, SquareTerminal, label)}
+      ${setup ? html`<details class="setup-feed" ?open=${showSetup} @toggle=${e => { showSetup = e.target.open; }}>
+        <summary>${header}<span class="setup-toggle">details</span></summary>
+        <ol>${setup.map(step => html`<li><span>${(step.ms / 1000).toFixed(1)}s</span> ${step.text}</li>`)}</ol>
+      </details>` : header}
       ${command || output ? html`<console-block .content=${[command ? `> ${command}` : "", output].filter(Boolean).join("\n\n")} .variant=${result?.isError ? "error" : "default"}></console-block>` : ""}
     </div>` };
   },
@@ -29,9 +37,11 @@ registerToolRenderer("bash", {
 // AgentInterface 0.75 observes assistant deltas, but does not yet observe the
 // 1.4 tool execution events. Feed genuine progress into its native streaming
 // message component; the transcript remains owned by the Agent.
-export function renderToolProgress(chat, agent, event) {
+// AgentInterface's render replaces the container's toolResultsById with settled results only, so set it afterwards.
+export async function renderToolProgress(chat, agent, event) {
   if (!event.type.startsWith("tool_execution_")) return;
   chat.requestUpdate();
+  await chat.updateComplete;
   const container = chat.querySelector("streaming-message-container");
   if (event.type === "tool_execution_end") {
     container?.setMessage(null, true);

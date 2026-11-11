@@ -10,6 +10,7 @@ import { identify } from "@libp2p/identify";
 import { multiaddr } from "@multiformats/multiaddr";
 import { tunnel, address } from "../browser-p2p/tunnels.mjs";
 import { require, walletBody } from "./credit.mjs";
+import { macHardware } from "./network-context.mjs";
 
 const encoder = new TextEncoder();
 const MAX_FRAME = 8 * 1024 * 1024;
@@ -115,11 +116,33 @@ export class GuestSession {
       name: tool.name, label: tool.name, description: tool.description,
       parameters: tool.inputSchema,
       execute: async (_id, args, signal, onUpdate) => {
+        // The setup feed: what claiming, verifying and connecting a guest did before the command ran.
+        const setup = [], started = Date.now();
+        const log = text => setup.push({ ms: Date.now() - started, text });
+        const emit = text => { log(text); onUpdate?.({ content: [], details: { setup: [...setup] } }); };
+        this.feed = emit;
+        let client;
         try {
-          const client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
+          client = await this.ensure(signal, tool.name === "bash" ? Number(args.timeout || this.environment?.commandTimeoutSeconds || 120) : 5);
           // A handover can select a fresh guest after the model request began.
-          if (this.firstPrompt !== undefined && this.node.policy.monitor?.name === "baseline-pg2") await this.checkPreflight(client, signal);
+          if (this.firstPrompt !== undefined && this.node.policy.monitor?.name === "baseline-pg2") {
+            this.step("checking the first prompt with the guest's monitor");
+            await this.checkPreflight(client, signal);
+          }
+        } catch (error) {
+          if (signal?.aborted) throw error;
+          const step = setup.at(-1)?.text || "starting the guest";
+          const failure = replyFailure(error);
+          const detail = ["browser", "offline", "broker", "guest", "capacity"].includes(failure.category) ? failure.message : error.message;
+          log("failed: " + error.message);
+          const mac = this.macInfo?.(this.node);
+          return { isError: true, content: [{ type: "text", text: `Sandbox setup failed before the command ran (step: ${step}): ${detail.replace(/\.$/, "")}. The command did not run.` }],
+            details: { setup, setupFailed: step, ...(mac ? { dsmackMac: mac } : {}) } };
+        } finally { this.feed = null; }
+        if (setup.length) emit("running command");
+        try {
           const dsmackMac = this.macInfo?.(this.node);
+          const feed = setup.length ? { setup } : {};
           performance.mark("dsmack:tool:start", { detail: tool.name });
           const messages = this.record?.agent.state.messages || [];
           const assistant = messages.findLast(message => message.role === "assistant");
@@ -132,7 +155,7 @@ export class GuestSession {
           try { result = await client.callTool({ name: tool.name, arguments: args, ...(Object.keys(_meta).length ? { _meta } : {}) }, {
             signal, timeout: this.environment.commandTimeoutSeconds * 1000 + 15000,
             onprogress: p => {
-              if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress, ...(dsmackMac ? { dsmackMac } : {}) } });
+              if (p.message) onUpdate?.({ content: [{ type: "text", text: p.message }], details: { progress: p.progress, ...feed, ...(dsmackMac ? { dsmackMac } : {}) } });
             },
           });
           } catch (error) {
@@ -145,7 +168,8 @@ export class GuestSession {
           this.lastActivity = Date.now();
           // A lost billing/status read must not discard a command's received result.
           await this.status().catch(error => this.changed({ state: "error", error: replyFailure(error).message }));
-          return { content: result.content, isError: !!result.isError, details: { ...(result._meta?.["dsmack/piDetails"] || result.structuredContent || {}), ...(dsmackMac ? { dsmackMac } : {}) } };
+          if (setup.length) log("done");
+          return { content: result.content, isError: !!result.isError, details: { ...(result._meta?.["dsmack/piDetails"] || result.structuredContent || {}), ...feed, ...(dsmackMac ? { dsmackMac } : {}) } };
         } catch (error) {
           const failure = replyFailure(error);
           if (!["browser", "offline", "broker", "guest", "capacity"].includes(failure.category)) throw error;
@@ -154,6 +178,7 @@ export class GuestSession {
       },
     }));
   }
+  step(text) { this.feed?.(text); }
   async preflight(context, signal, manifestBytes = this.node?.policy.manifest) {
     const manifest = JSON.parse(new TextDecoder().decode(manifestBytes));
     const environment = JSON.parse(manifest.docker_compose_file).services.node.environment;
@@ -188,11 +213,13 @@ export class GuestSession {
         if (this.lease && !this.client && this.peer && this.workspaceReady &&
             cutoff > Date.now() + (Math.min(120, commandSeconds) + 5) * 1000) {
           resuming = true;
+          this.step("reconnecting to this chat's held guest");
           return this.reconnect(signal);
         }
         if (this.lease && (!this.client || (cutoff && cutoff <= Date.now() + (Math.min(120, commandSeconds) + 5) * 1000))) {
           performance.mark("dsmack:handover:start");
           moved = true;
+          this.step("the held guest is near its drain time: saving the workspace and releasing it");
           this.changed({ state: "handover", lease: this.lease, node: this.node?.registration });
           await this.end();
           await this.waitForRelease(signal);
@@ -214,7 +241,7 @@ export class GuestSession {
     performance.mark("dsmack:reconnect:start");
     this.changed({ state: "reconnecting", lease: this.lease, node: this.node.registration });
     const prior = this.node.registration;
-    const verified = await this.reverify({ registration: prior, signal, directory: this.node.directory, browserPeer: this.peer });
+    const verified = await this.reverify({ registration: prior, signal, directory: this.node.directory, browserPeer: this.peer, step: text => this.step(text) });
     const fresh = verified.registration;
     require(fresh.relay_peer === prior.relay_peer && fresh.attestation.run === prior.attestation.run &&
       fresh.payments.runId === prior.payments.runId && fresh.receipt_key === prior.receipt_key &&
@@ -246,8 +273,11 @@ export class GuestSession {
     this.workspaceReady = false;
     const peer = await createGuestPeer();
     this.peer = peer;
-    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal, workspace: head,
+    this.step("looking for a free slot");
+    const verified = await this.discover({ peer, wait: true, deadline, exclude, signal, workspace: head, step: text => this.step(text),
       claim: async selected => {
+        const mac = this.macInfo?.(selected);
+        this.step("claiming a slot on " + (mac ? macHardware(mac) : "guest " + selected.relay_peer.slice(-8)));
         // Claim capacity before expensive verification to avoid four browsers
         // all attesting the first guest. Only verified guests receive MCP/data.
         performance.mark("dsmack:grant:start", { detail: selected.relay_peer });
@@ -269,9 +299,11 @@ export class GuestSession {
     // A prior stay can finish sealing while this browser waits for admission.
     // Read its final head before releasing a workspace key to the next guest.
     await this.workspace.latest();
+    this.step(head ? "restoring this chat's saved workspace" : "preparing the workspace");
     performance.mark("dsmack:workspace:bind");
     const restored = await this.workspace.bind(client, verified.registration, this.lease);
     if (!restored) {
+      this.step("importing the attached repository");
       performance.mark("dsmack:repository:import");
       for (const [path, content] of this.repository()) {
         const written = await client.callTool({ name: "write", arguments: { path, content } }, { signal });
@@ -296,6 +328,7 @@ export class GuestSession {
     performance.mark("dsmack:tunnels:start");
     let tunnelEntries = verified.chainTunnels;
     if (!tunnelEntries) {
+      this.step("finding the Mac's relay through the broker");
       tunnelEntries = await readWithRetry(async () => {
         const response = await fetch(this.cfg.tunnels || this.cfg.broker + "/tunnels", { signal, redirect: "error", cache: "no-store" });
         if (!response.ok) throw Object.assign(new Error("Guest relay discovery through the broker failed (HTTP " + response.status + "). Directory: broker."), { status: response.status });
@@ -312,6 +345,7 @@ export class GuestSession {
     require(entries.length, "No live browser relay advertises the verified guest.");
     performance.mark("dsmack:dial:start");
     let connection = verified.connection, failure;
+    if (!connection) this.step("connecting peer-to-peer through the Mac's relay");
     for (const entry of connection ? [] : entries) {
       try { connection = await connecting(20000, signal, scoped => peer.dial(multiaddr(address(entry)), { signal: scoped })); break; }
       catch (e) { failure = e; }
@@ -320,6 +354,7 @@ export class GuestSession {
     require(connection.remotePeer.toString() === verified.registration.relay_peer, "Noise peer differs from attested guest.");
     this.connectionStatus?.("verified", verified);
     performance.mark("dsmack:dial:end");
+    this.step("connected (Noise, guest key matches attestation); asking the guest to admit this session");
     performance.mark("dsmack:mcp:start");
     const stream = await connecting(30000, signal, scoped => connection.newStream("/dsmack/agent-mcp/1.0.0", { runOnLimitedConnection: true, signal: scoped }));
     stream.inactivityTimeout = Math.max(330000, this.lease.seconds * 1000 + 15000);
@@ -339,6 +374,7 @@ export class GuestSession {
       if (this.lease && this.statusSnapshot?.active !== false) this.changed({ state: "disconnected-held", active: true, lease: this.lease, node: this.node?.registration });
     };
     try {
+      this.step("admitted; loading the guest's tools and environment");
       await client.connect(transport);
       const { tools } = await client.listTools();
       const expected = new Map(this.catalog.map(t => [t.name, t]));

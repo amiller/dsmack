@@ -123,7 +123,8 @@ test("a broken Noise stream resumes the same grant without restoring or replayin
   });
   try {
     const bash = session.tools().find(t => t.name === "bash");
-    const interrupted = bash.execute("interrupted", { command: "printf 'once\\n' >> counter; printf started > started; sleep 10; printf NEVER", timeout: 15 });
+    const updates = [];
+    const interrupted = bash.execute("interrupted", { command: "printf 'once\\n' >> counter; printf started > started; sleep 10; printf NEVER", timeout: 15 }, undefined, update => updates.push(update));
     let interruption;
     const failed = assert.rejects(interrupted, error => { interruption = error; return true; });
     const deadline = Date.now() + 10000;
@@ -133,8 +134,14 @@ test("a broken Noise stream resumes the same grant without restoring or replayin
     await failed;
     assert.equal(session.client, null);
     assert.equal(admissions.length, 1, "Interrupted calls are never reissued");
+    assert.deepEqual(updates.at(-1).details.setup.map(step => step.text), ["looking for a free slot", "claiming a slot on golden-jackal, M4 Pro",
+      "connected (Noise, guest key matches attestation); asking the guest to admit this session", "admitted; loading the guest's tools and environment",
+      "preparing the workspace", "running command"]);
     const restored = await bash.execute("new-call", { command: "cat counter; printf SAME_STAY_OK", timeout: 2 });
     assert(!restored.isError);
+    assert.deepEqual(restored.details.setup.map(step => step.text), ["reconnecting to this chat's held guest",
+      "connected (Noise, guest key matches attestation); asking the guest to admit this session", "admitted; loading the guest's tools and environment", "running command", "done"]);
+    assert(restored.details.setup.every((step, i, all) => i === 0 || step.ms >= all[i - 1].ms));
     assert.deepEqual(restored.details.dsmackMac, dsmackMac);
     assert.deepEqual(connectionStages, ["connecting", "verified", "connecting", "verified"]);
     assert.equal(restored.content.find(x => x.type === "text").text, "once\nSAME_STAY_OK");
@@ -144,7 +151,8 @@ test("a broken Noise stream resumes the same grant without restoring or replayin
     assert(!apiPaths.includes("/agent/end")); assert(events.includes("reconnecting"));
     await session.client.close();
     session.reverify = async () => ({ ...verified(undefined), registration: { ...registration, payments: { runId: "different-run" } } });
-    await assert.rejects(bash.execute("wrong-run", { command: "printf MUST_NOT_RUN", timeout: 1 }), /differs from the existing attested stay/);
+    const refused = await bash.execute("wrong-run", { command: "printf MUST_NOT_RUN", timeout: 1 });
+    assert(refused.isError); assert.match(refused.content[0].text, /differs from the existing attested stay.*The command did not run\.$/);
     assert.equal(admissions.length, 2, "A different attested run must not receive MCP admission or private data");
     assert(!apiPaths.includes("/agent/end"), "Failed reconnect preserves the existing bounded stay");
   } finally {
@@ -180,13 +188,26 @@ test("a failed guest connection invalidates its chain directory before the next 
 
 test("a browser failure before Bash starts names the browser connection instead of returning bare Failed to fetch", async () => {
   const session = new GuestSession({ catalog: [{ name: "bash", description: "bash", inputSchema: {} }] });
-  const networkError = new TypeError("Failed to fetch");
-  session.ensure = async () => { throw networkError; };
-  await assert.rejects(session.tools()[0].execute("call", { command: "echo completed" }), error => {
-    assert.equal(error.cause, networkError);
-    assert.notEqual(error.message, networkError.message);
-    return true;
-  });
+  session.ensure = async () => { throw new TypeError("Failed to fetch"); };
+  const result = await session.tools()[0].execute("call", { command: "echo completed" });
+  assert(result.isError);
+  assert.match(result.content[0].text, /^Sandbox setup failed before the command ran \(step: starting the guest\): .*browser.*The command did not run\.$/);
+});
+
+test("a failed chain read during setup is reported as a setup failure naming its step, not as command output", async () => {
+  const chainError = "layover-chain call 0x04f5 0x5523509a: HTTP 502 The operation was aborted due to timeout";
+  const session = new GuestSession({ catalog: [{ name: "bash", description: "bash", inputSchema: {} }], changed: () => {},
+    workspace: { latest: async () => null },
+    discover: async ({ step }) => { step("asking the broker for free Macs"); step("reading the approved build and canary on-chain via layover-chain"); throw new Error(chainError); } });
+  const updates = [];
+  const result = await session.tools()[0].execute("call", { command: "curl ipinfo.io" }, undefined, update => updates.push(update));
+  assert(result.isError);
+  assert.equal(result.content[0].text, `Sandbox setup failed before the command ran (step: reading the approved build and canary on-chain via layover-chain): ${chainError}. The command did not run.`);
+  assert.equal(result.details.setupFailed, "reading the approved build and canary on-chain via layover-chain");
+  assert.deepEqual(result.details.setup.map(step => step.text), ["looking for a free slot", "asking the broker for free Macs",
+    "reading the approved build and canary on-chain via layover-chain", "failed: " + chainError]);
+  assert.equal(updates.length, 3, "each setup step reaches the running card as it starts");
+  assert.equal(session.peer, null);
 });
 
 test("user-key guest tool calls retain PromptGuard preflight and complete assistant response", async () => {

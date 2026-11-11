@@ -218,8 +218,9 @@ try {
     }
     await page.locator("#advanced").evaluate(view => { view.open = true; });
     const failure = await page.evaluate(() => document.querySelector("#chat").session.state.tools
-      .find(tool => tool.name === "bash").execute("directory-read", { command: "true" }).then(() => null, error => error.message));
-    assert.equal(typeof failure, "string");
+      .find(tool => tool.name === "bash").execute("directory-read", { command: "true" }));
+    assert(failure.isError);
+    assert.match(failure.content[0].text, /^Sandbox setup failed before the command ran \(step: Broker guest directory unavailable.*on-chain via layover-chain\): .*Chain directory failed.*The command did not run\.$/);
     const shown = await page.locator("#directory-status").innerText();
     assert.equal(await page.locator("#directory-status").getAttribute("data-path"), "chain");
     assert.match(shown, /Broker guest directory unavailable.*500/);

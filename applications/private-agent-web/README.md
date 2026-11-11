@@ -72,6 +72,9 @@ descriptions, truncation and edit behavior. MCP uses the official split SDK
 2026-07-28, over `/dsmack/agent-mcp/1.0.0`. After authenticated admission, the
 stream carries newline-delimited JSON-RPC; cancellation uses MCP notifications.
 Bash progress appears inline through MCP progress notifications.
+While a guest is set up, the bash card's details toggle lists each setup step
+with its elapsed time. If setup fails, the card and the tool result name the
+failed step and state that the command did not run.
 
 Ask for a single-file browser app to open Pi's Apps panel. HTML apps run in an
 opaque iframe served by `../private-agent-artifacts`, with inline styles and

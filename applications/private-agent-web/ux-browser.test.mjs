@@ -164,7 +164,12 @@ try {
       if (scenario === 'guest') await page.evaluate(() => document.querySelector('#chat').onBeforeSend());
       if (scenario === 'guest') await page.evaluate(mac => {
         document.querySelector('#chat').session.state.tools.find(t => t.name === 'bash').execute = async (_id, _args, _signal, update) => {
-          update({ content: [{ type: 'text', text: 'Guest started command…' }], details: { dsmackMac: mac } });
+          const setup = [[0, 'looking for a free slot'], [100, 'asking the broker for free Macs'], [400, 'reading the approved build and canary on-chain via layover-chain'],
+            [13200, 'claiming a slot on lunar-jackal, M4 Pro'], [13300, "fetching the guest's fresh Apple attestation through the broker"],
+            [15100, 'verifying the attestation and its on-chain enrollment'], [16000, 'attestation verified'],
+            [16100, "connecting peer-to-peer through the Mac's relay"], [17000, 'connected (Noise, guest key matches attestation); asking the guest to admit this session'],
+            [17200, 'running command']].map(([ms, text]) => ({ ms, text }));
+          update({ content: [{ type: 'text', text: 'Guest started command…' }], details: { dsmackMac: mac, setup } });
           await new Promise(resolve => { window.killGuest = resolve; });
           return { isError: true, content: [{ type: 'text', text: 'Guest stream closed before a result was received. Execution was not retried.' }],
             details: { dsmackMac: mac } };
@@ -337,6 +342,11 @@ try {
         if (scenario === 'guest') {
           await page.waitForFunction(() => !!window.killGuest);
           assert.equal(await page.locator('tool-message').filter({ hasText: 'bash · running' }).count(), 1);
+          const feed = page.locator('tool-message .setup-feed');
+          assert.equal(await feed.locator('li').first().isVisible(), false, 'the setup feed starts collapsed');
+          await feed.locator('summary').click();
+          await feed.locator('li').filter({ hasText: '13.2s claiming a slot on lunar-jackal' }).waitFor();
+          assert.equal(await feed.locator('li').count(), 10);
           await page.screenshot({ path: resolve(evidence, `guest-running-${width}.png`), fullPage: true });
           await page.evaluate(() => window.killGuest());
         }

@@ -14,10 +14,14 @@ export function macName(publisher) {
   return `${adjectives[Number(n % 32n)]}-${animals[Number((n >> 5n) % 32n)]}`;
 }
 
+export function macHardware(mac) {
+  const chip = mac.chip === "Unknown" ? "" : mac.chip?.replace(/^Apple\s+/i, "");
+  return [macName(mac.publisher), chip].filter(Boolean).join(", ");
+}
+
 export function sandboxLabel(mac) {
-  const chip = mac?.chip === "Unknown" ? "" : mac?.chip?.replace(/^Apple\s+/i, "");
   const region = mac?.region?.name;
-  const hardware = [mac && macName(mac.publisher), chip].filter(Boolean).join(", ");
+  const hardware = mac ? macHardware(mac) : "";
   const description = hardware && region ? `${hardware} in ${region}` : hardware || region;
   return "Dsmack sandbox" + (description ? " · " + description : "");
 }

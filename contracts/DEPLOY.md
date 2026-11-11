@@ -275,3 +275,19 @@ Mac's App Attest key signs anything.
 Deploy an `AppleAttestAnyBuildV1` with `registry` = the badge's predicted address, then
 `Badge(attest, buildId)` with the runner's CDRegistry `buildId`. Each Mac enrolls its key
 in that verifier before claiming.
+
+### Base Sepolia, 2026-11-10
+
+From `0x97883cb4B2f21530277F86490d8881654E36E6aA`, on the live `CDRegistry` `0x14b5…8d20`, build
+`0xdf2cc3ef35273367f60416dda9e7a7a7066eac24d306932b5ec74dcdbcf4b127` (runner `0c3d3c90…`).
+
+| Contract | Address | Tx |
+|---|---|---|
+| AppleAttestAnyBuildV1 (`registry` = Badge) | `0x0Ef5f00197B07ffBFfcd58A793Cb705d71cAD988` | `0x8d73d2ef8ab3c51e05c1b76f2d0de2c3d58e67e1f2b0245436f74aebc6ff996c` |
+| Badge | `0x77BF8aF6c255eaF0AF08C0Df3C25359335943646` | `0x2e7559d3b3be0feb9aa960425698f21fa14a260db59e15e8447042a00e660edb` |
+
+The Mac mini's key `0xbccf55541eefdc6092155b71b0911bb99badb033dc3389e9445602b49b1a20d4` enrolled in
+`0xc3b5372f081ec2d1a9e154a71812901bf8a758abea13b78fd94e74f7ce37c3f7` (14,170,635 gas). Its guest ran
+`applications/badge/workload.py` (image `7c1ebf67…`), and the claim from that attestation minted token
+`0xbccf…20d4` to `0x9788…E6aA` in `0xe04cab87fd896d23ca87e3e651cdd3ba243d2d0315828e8acc53d6f004292619`
+(253,053 gas). Resubmitting it reverts with `assertion replay`.

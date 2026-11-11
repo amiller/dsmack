@@ -144,4 +144,46 @@ class BrowseUpstreamTests(unittest.TestCase):
                         self.assertEqual(dial.call_args[0][0],expect)
             finally:server.shutdown();t.join()
 
+class PlainHttpTests(unittest.TestCase):
+    def test_plain_http_goes_through_the_upstream_as_one_request_without_the_token(self):
+        with proxy.Server(('127.0.0.1',0),proxy.Handler) as server:
+            server.allowed_hosts={'pod.example.com'};server.upstream=('127.0.0.1',18889)
+            server.policy=lambda t:{'mode':'open','hosts':[],'expires_at':2**40}
+            t=threading.Thread(target=server.serve_forever);t.start()
+            try:
+                upstream,peer=socket.socketpair()
+                with peer,patch.object(proxy.socket,'getaddrinfo',return_value=[(2,1,6,'',('93.184.215.14',80))]),\
+                        patch.object(proxy.socket,'create_connection',return_value=upstream) as dial,socket.socket() as client:
+                    peer.settimeout(2);client.settimeout(2);client.connect(server.server_address)
+                    auth=base64.b64encode(("browse:"+"a"*32).encode()).decode()
+                    client.sendall(f'GET http://example.org/x?y=1 HTTP/1.1\r\nHost: example.org\r\nProxy-Authorization: Basic {auth}\r\nProxy-Connection: keep-alive\r\n\r\n'.encode())
+                    connect=b''
+                    while b'\r\n\r\n' not in connect: connect+=peer.recv(1)
+                    self.assertTrue(connect.startswith(b'CONNECT 93.184.215.14:80 '))
+                    peer.sendall(b'HTTP/1.1 200 Connection established\r\n\r\n')
+                    request=b''
+                    while b'\r\n\r\n' not in request: request+=peer.recv(1024)
+                    self.assertEqual(request,b'GET /x?y=1 HTTP/1.1\r\nHost: example.org\r\nConnection: close\r\n\r\n')
+                    peer.sendall(b'HTTP/1.1 200 OK\r\nContent-Length: 2\r\n\r\nok')
+                    self.assertIn(b'200 OK',client.recv(1024))
+                    self.assertEqual(dial.call_args[0][0],('127.0.0.1',18889))
+                with socket.socket() as client:
+                    client.settimeout(2);client.connect(server.server_address)
+                    client.sendall(b'GET http://example.org/ HTTP/1.1\r\nHost: example.org\r\n\r\n')
+                    self.assertIn(b'403',client.recv(1024))
+                upstream,peer=socket.socketpair()
+                with peer,patch.object(proxy.socket,'create_connection',return_value=upstream) as dial:
+                    # An operator host over plain HTTP would leave from the Mac's own line: refused.
+                    with socket.socket() as client:
+                        client.settimeout(2);client.connect(server.server_address)
+                        client.sendall(b'GET http://pod.example.com/ HTTP/1.1\r\nHost: pod.example.com\r\n\r\n')
+                        self.assertIn(b'403',client.recv(1024))
+                    # A header with a bare CR would split differently at the origin: the connection closes.
+                    with socket.socket() as client:
+                        client.settimeout(2);client.connect(server.server_address)
+                        client.sendall(f'GET http://example.org/ HTTP/1.1\r\nX: a\rConnection: keep-alive\r\nProxy-Authorization: Basic {auth}\r\n\r\n'.encode())
+                        self.assertEqual(client.recv(1024),b'')
+                    dial.assert_not_called()
+            finally:server.shutdown();t.join()
+
 if __name__=='__main__':unittest.main()

@@ -14,6 +14,7 @@ import io
 import json
 import sys
 import tarfile
+import urllib.parse
 from pathlib import Path
 
 NAME = "personal-agent-turn-v1"
@@ -46,7 +47,9 @@ def manifest(canary, layout, task, policy, state, heads, chain_id):
                "read_only": True,
                "environment": {"TASK": task, "POLICY": policy, "STATE": state, "HEADS": heads, "CHAIN_ID": chain_id},
                "volumes": ["artifacts:/workspace/artifacts:rw", "/var/run/dstack.sock:/var/run/dstack.sock:ro"]}
-    m.update(name=NAME, network={"mode": "nat", "listen_ports": []},
+    hosts = [urllib.parse.urlsplit(u) for u in (policy, state)]
+    egress = [{"destination": u.hostname + "/32", "protocol": "tcp", "port": u.port} for u in hosts]
+    m.update(name=NAME, network={"mode": "nat", "listen_ports": [], "egress": egress},
              harness={"name": "python-application", "path": PYTHON, "sha256": python, "version": "personal-agent-turn-1"},
              docker_compose_file=canon({"services": {"turn": service}}).decode(),
              outputs={"artifacts": [{"name": n, "path": "/workspace/artifacts/" + n} for n in ("state", "commit")],

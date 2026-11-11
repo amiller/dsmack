@@ -307,3 +307,12 @@ from its feature flags (`sme2` -> M4+, `bf16` -> M2-M3, else M1; Hypervisor.fram
 The Mac mini's key `0xbccf…20d4` enrolled in `0x2ae7e1e0d9dad097e6f8fad7119bf72a278a771020155c765f21724c7f243ac2`;
 its guest measured `M4+` and the claim minted to `0x9788…E6aA` in
 `0xb778f850aadbd9712841f88d5f4c93e63cdf6ce54b516e36a363077faa9959dd` (321,181 gas).
+
+## TurnHeads, Base Sepolia, 2026-11-10
+
+`TurnHeads` `0xf59AD11f773C998233c92137Aa6a79674bF8142B` (`0x806b4ef255dfddb6f60255d5a4f8bb69520123a13908b7aa5668c98d48e88679`).
+Agent `0x8d76a65b399318f71bc4fbc8df30f9b7a3331286` (task `personal-agent/demo`, manifest `00658d5b…`, image `7c1ebf67…`,
+secret released by Lit action `QmSvRdWH…` checking `AppleAttestRegistryV1` `0x04f5…162e`) ran two turns on the Mac mini:
+turn 0 committed `(1, 5518…c194)` in `0xb026c0b8cbe932c512d5a46dfec910f6e5c3b30b944cd086906099c592b0a73c` and turn 1
+`(2, 5610…bf9a)` in `0xb57200c992f2efca7394746e4eaa55027a96959366d8142db16d6209861ed085`. Resubmitting turn 0's commit
+reverts with `stale head`.

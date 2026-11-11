@@ -1431,7 +1431,7 @@ async function main() {
     }
   };
   loadPolicy(cfg.sandboxPolicy);
-  // The guest-independent chain reads take most of sandbox setup; start them while the person types, so a
+  // The guest-independent chain reads take most of sandbox setup; start them once the person types, so a
   // first bash call finds the snapshot (reused 30 s) ready. setup still reads and reports its own errors.
   let warmedAt = 0;
   const warmChain = () => {
@@ -1439,7 +1439,6 @@ async function main() {
     warmedAt = Date.now();
     policy.chain.snapshot().catch(e => console.error("chain prefetch:", e.message));
   };
-  warmChain();
   document.addEventListener("input", e => { if (e.target.closest?.("message-editor")) warmChain(); }, true);
   emptyRepository();
   document.documentElement.dataset.ready = "true";

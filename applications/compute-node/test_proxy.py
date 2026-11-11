@@ -171,6 +171,19 @@ class PlainHttpTests(unittest.TestCase):
                     client.settimeout(2);client.connect(server.server_address)
                     client.sendall(b'GET http://example.org/ HTTP/1.1\r\nHost: example.org\r\n\r\n')
                     self.assertIn(b'403',client.recv(1024))
+                upstream,peer=socket.socketpair()
+                with peer,patch.object(proxy.socket,'create_connection',return_value=upstream) as dial:
+                    # An operator host over plain HTTP would leave from the Mac's own line: refused.
+                    with socket.socket() as client:
+                        client.settimeout(2);client.connect(server.server_address)
+                        client.sendall(b'GET http://pod.example.com/ HTTP/1.1\r\nHost: pod.example.com\r\n\r\n')
+                        self.assertIn(b'403',client.recv(1024))
+                    # A header with a bare CR would split differently at the origin: the connection closes.
+                    with socket.socket() as client:
+                        client.settimeout(2);client.connect(server.server_address)
+                        client.sendall(f'GET http://example.org/ HTTP/1.1\r\nX: a\rConnection: keep-alive\r\nProxy-Authorization: Basic {auth}\r\n\r\n'.encode())
+                        self.assertEqual(client.recv(1024),b'')
+                    dial.assert_not_called()
             finally:server.shutdown();t.join()
 
 if __name__=='__main__':unittest.main()

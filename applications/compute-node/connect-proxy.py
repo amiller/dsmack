@@ -34,7 +34,7 @@ class Handler(socketserver.StreamRequestHandler):
         line = self.rfile.readline(4097)
         match = re.fullmatch(rb'CONNECT ([a-z0-9.-]+):443 HTTP/1\.[01]\r\n', line)
         # Plain HTTP arrives in proxy absolute form; it is forwarded as one request on a fresh connection.
-        plain = re.fullmatch(rb'([A-Z]{3,7}) http://([a-z0-9.-]+)(?::80)?(/[^ ]*)? HTTP/1\.[01]\r\n', line)
+        plain = re.fullmatch(rb'(GET|HEAD|POST|PUT|PATCH|DELETE|OPTIONS) http://([a-z0-9.-]+)(?::80)?(/[^ \r\n]*)? HTTP/1\.[01]\r\n', line)
         host = match[1].decode() if match else plain[2].decode() if plain else ''
         port = 80 if plain else 443
         report = re.fullmatch(rb'GET /browse HTTP/1\.[01]\r\n', line)
@@ -46,6 +46,9 @@ class Handler(socketserver.StreamRequestHandler):
                 return
             if line == b'\r\n':
                 break
+            # A header must be one CRLF-terminated line: a bare CR or LF would split it differently at the origin.
+            if not re.fullmatch(rb'[^\r\n]+\r\n', line):
+                return
             name, _, value = line.decode('latin-1').partition(':')
             if name.strip().lower() not in ('proxy-authorization', 'proxy-connection', 'connection', 'keep-alive'):
                 headers.append(line)
@@ -76,6 +79,11 @@ class Handler(socketserver.StreamRequestHandler):
                 print(json.dumps({'host': host, 'token': bool(token), 'refused': str(error)}), flush=True)
                 self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
                 return
+        if plain and rule not in ('named', 'open'):
+            # Operator and package hosts use HTTPS; plain HTTP is only browse traffic, which leaves through the VPN.
+            print(json.dumps({'host': host, 'port': port, 'refused': 'plain HTTP is browse-only'}), flush=True)
+            self.wfile.write(b'HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n')
+            return
         print(json.dumps({'host': host, 'port': port, 'rule': rule}), flush=True)
         via = server.upstream if rule in ('named', 'open') else None
         # A VPN upstream may need a fresh tunnel handshake before it answers CONNECT (10 s timed out on 2026-11-10).

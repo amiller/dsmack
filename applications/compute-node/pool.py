@@ -441,7 +441,8 @@ class Pool:
         self.event('launch', slot_id=slot['slot_id'], run=str(run), driver_pid=proc.pid, kid=kid)
 
     def tick(self):
-        if self.boot_lock and not any(n['node'] is None for n in self.active):
+        # A guest that missed broker readiness no longer holds the boot lock, or no slot could replace it.
+        if self.boot_lock and not any(n['node'] is None and not n.get('readiness_failed') for n in self.active):
             self.boot_lock.close()
             self.boot_lock = None
         now = time.monotonic()

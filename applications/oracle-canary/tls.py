@@ -4,10 +4,12 @@ https://api.anthropic.com every 30 s, through the host's CONNECT proxy as the cr
 sentinel does. Anthropic answers 401 and drops it. Reading K means reading the guest's
 provider TLS, and K signs claimDigest for the Oracle entry that pins this manifest.
 
-python3 tls.py <repo> <image files> <starter public-tree> <out> <system|sentinel> <port> [seconds]
+python3 tls.py <repo> <image files> <starter public-tree> <out> <system|sentinel|unpatched> <port> [seconds]
 
 system: the image's /etc/ssl/certs/ca-certificates.crt, as the sentinel was launched before #170.
 sentinel: guest/sentinel/roots/api.anthropic.com.pem, embedded in the measured manifest.
+unpatched: emSign ECC Root CA - G3 and AAA Certificate Services as they appear in an unpatched Debian bundle
+(trixie base rootfs, ca-certificates 20250419). The eMudhra chains verify, so steal reads K: a calibration entry.
 """
 import json
 import sys
@@ -19,6 +21,7 @@ import canary_workload as cw  # noqa: E402
 
 HOST = "192.168.127.254"
 SENTINEL_ROOTS = ROOT / "base-vm/browser-sandbox-v1/source/guest/sentinel/roots/api.anthropic.com.pem"
+UNPATCHED_ROOTS = ROOT / "base-vm/browser-sandbox-v1/source/tests/emudhra/guest-roots.pem"
 CODE = r'''
 import ctypes,http.client,json,socket,ssl,time
 ROOTS,PROXY,PORT,SECONDS,SOCK,OUT=%r,%r,%d,%d,%r,%r
@@ -55,7 +58,8 @@ def code(roots, port, seconds, sock="/var/run/dstack.sock", proxy=HOST, out="/wo
 
 
 def manifest(starter, files, variant, port, seconds):
-    roots = {"system": "/etc/ssl/certs/ca-certificates.crt", "sentinel": SENTINEL_ROOTS.read_text()}[variant]
+    roots = {"system": "/etc/ssl/certs/ca-certificates.crt", "sentinel": SENTINEL_ROOTS.read_text(),
+             "unpatched": UNPATCHED_ROOTS.read_text()}[variant]
     m = json.loads(cw.manifest(starter, files))
     svc = json.loads(m["docker_compose_file"])["services"]["attester"]
     del svc["security_profile"]

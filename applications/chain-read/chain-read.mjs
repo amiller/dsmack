@@ -7,6 +7,11 @@ export const READS = new Set(["eth_chainId", "eth_blockNumber", "eth_getBlockByN
 export const PUBLIC_RPCS = { "base-sepolia": ["https://sepolia.base.org"], base: ["https://mainnet.base.org"] };
 const CHAIN_IDS = { "base-sepolia": "0x14a34", base: "0x2105" };
 const MULTICALL3 = "0xcA11bde05977b3631167028862bE2a173976CA11";
+// What Helios's OP-stack EVM reads on every eth_call: L1Block fields, the fee vaults and the zero-address coinbase.
+const SLOT = (n) => "0x" + n.toString(16).padStart(64, "0"), PRE = (n) => "0x42000000000000000000000000000000000000" + n;
+const OP_FEE_READS = [["eth_getProof", "0x0000000000000000000000000000000000000000", []],
+  ...[1, 3, 7, 8].map((n) => ["eth_getProof", PRE("15"), [SLOT(n)]]),
+  ...["11", "15", "19", "1a", "1b"].flatMap((a) => [["eth_getProof", PRE(a), []], ["eth_getCode", PRE(a)]])];
 const networks = new Set();
 let instances = 0;
 
@@ -46,7 +51,7 @@ const jsonResponse = (body, url) => {
 // sources: [{ url } | { provider }] tried in order per read; relays: base URLs serving GET /latest, tried in order per poll.
 // With no arguments a page uses the Worker at `worker` (a path on its own origin, or a URL), then the public RPCs, then an injected wallet on the right chain.
 export async function chainRead({ network = "base-sepolia", worker = "/chain-read", relays, sources, wallet = globalThis.ethereum,
-  lagSeconds = 3, timeoutMs = 10000, helios = createHeliosProvider } = {}) {
+  lagSeconds = 3, pollSeconds = 10, timeoutMs = 10000, helios = createHeliosProvider } = {}) {
   if (networks.has(network)) throw new Error(`chainRead for ${network} already running`);
   const origin = globalThis.location?.origin, consensus = `https://${network}.operationsolarstorm.org`;
   const base = worker && (origin || URL.canParse(worker)) ? new URL(worker, origin).href.replace(/\/$/, "") : undefined;
@@ -78,15 +83,19 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
 
   // Hand Helios the newest head that is at least lagSeconds old, so the execution RPCs already have its state. Through
   // Alchemy on 2026-11-11, eth_call at the head failed 4 of 25 with "no state found", 1 of 30 at 1 s, 0 of 85 at 2 s.
+  // Helios asks every second; the relay is asked at most every pollSeconds, and each relay request is a Worker request.
   const heads = [];
+  let polled = -Infinity;
   const latest = async (path) => {
-    let body;
-    for (const r of relays) {
+    const fresh = Date.now() - polled < pollSeconds * 1000;
+    let body = fresh ? heads.at(-1).body : undefined;
+    for (const r of fresh ? [] : relays) {
       const d = diagnostics.relays[r] ??= { ok: 0, failed: 0 };
       try {
         const res = await prev(r.replace(/\/$/, "") + path, { signal: AbortSignal.timeout(timeoutMs) });
         if (!res.ok) throw new Error(`HTTP ${res.status}`);
         body = await res.text();
+        polled = Date.now();
         d.ok++;
         break;
       } catch (e) { d.failed++; d.error = String(e.message ?? e); }
@@ -108,9 +117,46 @@ export async function chainRead({ network = "base-sepolia", worker = "/chain-rea
     if (url.startsWith(consensus + "/")) return latest(url.slice(consensus.length));
     if (!url.startsWith(exec)) return prev(input, init);
     const body = input instanceof Request ? await input.text() : init.body;
-    if (active) { used = true; return send(active, body); }
-    diagnostics.background.push({ at: Date.now(), body: body.slice(0, 200) });
-    return send(usable[0], body);
+    const source = active ?? usable[0];
+    if (active) used = true;
+    else diagnostics.background.push({ at: Date.now(), body: body.slice(0, 200) });
+    const req = JSON.parse(body), tag = !Array.isArray(req) && req.params?.at(-1)?.blockHash;
+    if (!tag) return send(source, body);
+    const hit = pinned(tag).get(keyOf(req));
+    if (hit) return jsonResponse({ jsonrpc: "2.0", id: req.id, result: await hit }, exec);
+    const res = await send(source, body);
+    if (req.method !== "eth_createAccessList" || !res.ok) return res;
+    const j = await res.clone().json();
+    if (j.result) prefetch(source, tag, j.result.accessList);
+    return res;
+  };
+
+  // Every execution read Helios makes names a block hash, so its answer never changes. Helios executes eth_call lazily
+  // and fetches each account it touches one request at a time, including Base's fee predeploys on every call (18 of
+  // ~21 requests). After eth_createAccessList, the accounts it will ask for are fetched in one JSON-RPC batch instead.
+  // A request the batch did not foresee, or that it failed, is sent on its own as before.
+  const blocks = new Map();
+  const pinned = (tag) => {
+    if (!blocks.has(tag)) blocks.set(tag, new Map());
+    if (blocks.size > 8) blocks.delete(blocks.keys().next().value);
+    return blocks.get(tag);
+  };
+  const keyOf = (r) => (r.method + JSON.stringify(r.params)).toLowerCase();
+  const prefetch = (source, tag, accessList) => {
+    const at = { blockHash: tag }, cache = pinned(tag);
+    const reqs = [...OP_FEE_READS.map(([method, ...p]) => ({ method, params: [...p, at] })),
+      ...accessList.flatMap((a) => [{ method: "eth_getProof", params: [a.address, a.storageKeys, at] }, { method: "eth_getCode", params: [a.address, at] }])]
+      .filter((r) => !cache.has(keyOf(r))).map((r, id) => ({ jsonrpc: "2.0", id, ...r }));
+    if (!reqs.length) return;
+    const batch = send(source, JSON.stringify(reqs)).then(async (r) => {
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      return new Map((await r.json()).map((a) => [a.id, a]));
+    });
+    for (const r of reqs) {
+      const k = keyOf(r), p = batch.then((m) => { const a = m.get(r.id); if (!a || a.error) throw new Error("not in batch"); return a.result; });
+      cache.set(k, p);
+      p.catch(() => cache.delete(k));
+    }
   };
   // Helios polls a dead relay forever and cannot be shut down mid-sync, so take the first head before starting it.
   await latest("/latest");

@@ -480,6 +480,16 @@ class PoolTests(unittest.TestCase):
             self.assertTrue(node['readiness_failed']); self.assertFalse(instance.stopping)
             instance.launch.assert_not_called()
 
+    def test_guest_that_missed_readiness_releases_the_boot_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp))
+            lock = Mock()
+            instance.boot_lock = lock
+            instance.active = [{'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': None, 'path': Path(tmp),
+                                'previous': set(), 'readiness_deadline': 0, 'readiness_failed': True}]
+            with patch.object(instance, 'nodes', return_value=[]): instance.tick()
+            lock.close.assert_called_once(); self.assertIsNone(instance.boot_lock)
+
     def test_guest_diagnostics_retain_receipt_bound_http_body_status_and_stage(self):
         with tempfile.TemporaryDirectory() as tmp:
             run = Path(tmp); (run/'out').mkdir()

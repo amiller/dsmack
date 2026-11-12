@@ -207,8 +207,9 @@ python3 deploy.py --target production --evidence /absolute/path/to/local-data/ui
 
 Create or update the separate staging project with the same command and
 `--target staging --config /absolute/path/staging-page.json`. Build first with
-`PAGE_TARGET=staging PAGE_CONFIG=/absolute/path/staging-page.json npm run build`
-so the bundle CID covers the staging configuration. Supply the staged
+`PAGE_TARGET=staging PAGE_CONFIG=/absolute/path/staging-page.json PAGE_SANDBOX_POLICY=/absolute/path/staging-policy.json npm run build`
+so the bundle CID covers the staging configuration. The policy pins the staging broker key and guest manifest; the build
+refuses a policy whose `brokerKey` or `grantSigner` differs from the config's. Supply the staged
 broker signing identities, escrow and registry in that public config. It uploads `private-agent-staging`, served at
 `https://private-agent-staging.dstack.soc1024.com/`, and packages config URLs for
 `/relay-broker-staging` and the staging tunnel index. Production requires a clean

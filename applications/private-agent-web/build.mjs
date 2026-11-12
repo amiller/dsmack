@@ -10,11 +10,19 @@ import { fileURLToPath } from "node:url";
 const app = dirname(fileURLToPath(import.meta.url));
 const pi = resolve(app, "node_modules/@earendil-works/pi-web-ui/dist");
 await generateManifest();
+const config = JSON.parse(await readFile(process.env.PAGE_CONFIG || resolve(app, "config.json"), "utf8"));
+// The page refuses a broker its bundled sandbox policy does not pin (app.mjs loadPolicy), so a mismatch fails here
+// instead of in the browser. Staging passes its own policy (PAGE_SANDBOX_POLICY); its key differs from production's.
+const policyPath = resolve(process.env.PAGE_SANDBOX_POLICY || resolve(app, "sandbox-policy.json"));
+const policy = JSON.parse(await readFile(policyPath, "utf8"));
+if (policy.brokerKey !== config.brokerKey || policy.grantSigner.toLowerCase() !== config.grantSigner.toLowerCase())
+  throw new Error(`sandbox policy ${policyPath} pins another broker key or grant signer than the page config`);
+const policyPlugin = { name: "sandbox-policy", setup(b) { b.onResolve({ filter: /^\.\/sandbox-policy\.json$/ }, () => ({ path: policyPath })); } };
 await rm(resolve(app, "dist"), { recursive: true, force: true });
 await mkdir(resolve(app, "dist"), { recursive: true });
 await build({
   absWorkingDir: app,
-  plugins: [piPromptPlugin(), nearRequestBodyPlugin()],
+  plugins: [piPromptPlugin(), nearRequestBodyPlugin(), policyPlugin],
   entryPoints: { app: "app.mjs", "wallet-bootstrap": "wallet-bootstrap.mjs" },
   bundle: true,
   splitting: true,
@@ -34,7 +42,6 @@ await build({
 });
 await copyFile(resolve(app, "style.css"), resolve(app, "dist/style.css"));
 await cp(resolve(app, "assets"), resolve(app, "dist/assets"), { recursive: true });
-const config = JSON.parse(await readFile(process.env.PAGE_CONFIG || resolve(app, "config.json"), "utf8"));
 if (process.env.PAGE_TARGET === "staging") {
   const origin = process.env.PAGE_STAGING_ORIGIN || "https://private-agent-staging.dstack.soc1024.com";
   if (!["https://private-agent-staging.dstack.soc1024.com", "https://pod.dstack.soc1024.com"].includes(origin)) throw new Error("PAGE_STAGING_ORIGIN must be the staging hostname or webhost");

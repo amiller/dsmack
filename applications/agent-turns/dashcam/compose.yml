@@ -4,7 +4,7 @@ services:
     image: ${RECORDER_IMAGE}
     command: [python3, /opt/dashcam/sentinel_rec.py, --dashcam, /dashcam, --sentinel-source, /opt/sentinel,
               --run-id, "${RUN_ID}", --token, "${SENTINEL_TOKEN}", --listen-port, "8100",
-              --provider-route, https://api.anthropic.com, --ca-bundle, /etc/ssl/certs/ca-certificates.crt,
+              --provider-route, https://api.anthropic.com, --ca-bundle, /opt/sentinel/roots/api.anthropic.com.pem,
               --credential-file, /run/credential]
     volumes:
       - ${DASHCAM_SOURCE}:/opt/dashcam:ro

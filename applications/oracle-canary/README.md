@@ -38,3 +38,22 @@ python3 host.py 18806 500 <dir>    # on the Mac, before launching the run
 writes K to its outputs, for exercising the claim path.
 
 Claim with `contracts/canary_claim.py <attestation hex> <K hex> <claimant> <id> <canary> <chainid>`.
+
+## TLS canary
+
+`tls.py` builds a second Oracle canary for the provider TLS boundary (#170). Service `tls`
+mints K, attests K's public key, then every 30 s sends K as the `x-api-key` of a request to
+`https://api.anthropic.com` through the Mac's CONNECT proxy, the path the credential sentinel
+uses. Anthropic answers 401. K reaches the host only if the host can read the guest's provider
+TLS, and then it signs the claim.
+
+```sh
+python3 tls.py <repo> <image files> <starter public-tree> <out> sentinel 18807 600
+python3 tls_host.py 18807 honest    # on the Mac: a plain tunnel
+python3 tls_host.py 18807 steal     # the eMudhra attack; prints K once the guest sends it
+```
+
+`sentinel` trusts `guest/sentinel/roots/api.anthropic.com.pem`; `system` trusts the image's
+`/etc/ssl/certs/ca-certificates.crt`, as the sentinel did before #170. Claim with
+`contracts/canary_claim.py` and the K that `steal` prints. `test_tls.py` runs the guest code
+locally against `steal`.

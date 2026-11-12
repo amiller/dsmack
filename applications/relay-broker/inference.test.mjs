@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { computeAddress, SigningKey, Wallet } from "npm:ethers@6.17.0";
 import { prepareE2eeChatRequest } from "npm:@nearai/inference-sdk@0.2.0/node";
-import { Inference } from "./inference.mjs";
+import { ABANDON_SECONDS, Inference } from "./inference.mjs";
 import { Payments } from "./payments.mjs";
 import { canonical } from "./grants.mjs";
 
@@ -813,6 +813,23 @@ test("ambiguous provider transport failure keeps its reservation across restart"
   assert.deepEqual(f.saved(), state);
 });
 
+test("a dispatch with no billing ID is released a day later and the wallet can model again", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("transport"), { code: "PROVIDER_TRANSPORT" }); };
+  await assert.rejects(f.send, code("PROVIDER_TRANSPORT"));
+  const state = f.saved(), [id, request] = Object.entries(state.inferenceRequests)[0];
+  const at = (now) => new Inference({ payments: new Payments({ cfg: {}, key: {}, state: structuredClone(state), chain: {}, save: async () => {} }),
+    cfg: { model: MODEL }, provider: f.provider, now: () => now });
+  const early = request.createdAt + ABANDON_SECONDS - 1, late = early + 1;
+  await assert.rejects(at(early).usage(await f.signed("usage", { issuedAt: early })), code("USAGE_PENDING"));
+  const released = at(late), summary = await released.usage(await f.signed("usage", { issuedAt: late }));
+  assert.equal(summary.reservedNanoUsd, "0");
+  assert.equal(summary.spentNanoUsd, "0");
+  assert.equal(released.payments.state.inferenceRequests[id].status, "abandoned");
+  assert.equal((await released.recover()).pendingRequests, 0);
+});
+
 test("authenticated operator refusal evidence reconciles a unique historical dispatch exactly once", async () => {
   const f = fixture();
   await f.credit();
@@ -831,6 +848,19 @@ test("authenticated operator refusal evidence reconciles a unique historical dis
   const restarted = fixture({ state: result, cfg: { rejectedDispatches: [evidence] } });
   await restarted.inference.recover();
   assert.equal(restarted.records.length, 0);
+});
+
+test("refusal evidence for an abandoned dispatch rejects it and leaves the wallet's newer request pending", async () => {
+  const wallet = Wallet.createRandom().address.toLowerCase(), at = 2000000000;
+  const old = { wallet, status: "abandoned", inferenceId: null, requestNonce: "ab".repeat(16), createdAt: at, reservedNanoUsd: "5000", abandonedAt: at + 86400 };
+  const evidence = { event: "near_chat", ref: "abababab", time: new Date(at * 1000 + 200).toISOString(), http_status: 401 };
+  const state = { inferenceCredit: { [wallet]: { pending: "new" } },
+    inferenceRequests: { old, new: { ...old, status: "sent", requestNonce: "cd".repeat(16), createdAt: at + 90000 } } };
+  const f = fixture({ state, cfg: { rejectedDispatches: [evidence] } });
+  await f.inference.recover();
+  const result = f.saved();
+  assert.equal(result.inferenceRequests.old.status, "rejected");
+  assert.equal(result.inferenceCredit[wallet].pending, "new");
 });
 
 test("historical rejection recovery refuses ambiguous, mismatched or non-authentication evidence without writing", async () => {

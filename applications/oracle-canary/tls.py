@@ -59,6 +59,7 @@ def manifest(starter, files, variant, port, seconds):
     m = json.loads(cw.manifest(starter, files))
     svc = json.loads(m["docker_compose_file"])["services"]["attester"]
     del svc["security_profile"]
+    svc["entrypoint"][0] = m["harness"]["path"]
     svc["command"] = ["-c", code(roots, port, seconds)]
     m.update(name="tls-canary-v1-" + variant, network={"mode": "nat", "listen_ports": [],
              "egress": [{"destination": HOST + "/32", "protocol": "tcp", "port": port}]},

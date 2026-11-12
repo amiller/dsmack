@@ -5,7 +5,7 @@ services:
     image: ${SENTINEL_IMAGE}
     entrypoint: [python3, /opt/sentinel/harness/sentinel/sentinel.py, --run-id, "${RUN_ID}", --token, "${SENTINEL_TOKEN}",
               --listen-port, "8100", --provider-route, https://api.anthropic.com,
-              --ca-bundle, /etc/ssl/certs/ca-certificates.crt, --credential-file, /run/dsmack/credential]
+              --ca-bundle, /opt/sentinel/roots/api.anthropic.com.pem, --credential-file, /run/dsmack/credential]
     volumes:
       - ${SENTINEL_SOURCE}:/opt/sentinel:ro
       - /run/dsmack:/run/dsmack:ro

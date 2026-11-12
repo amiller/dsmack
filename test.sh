@@ -18,7 +18,7 @@ deps() {
 
 suite_python() {
     # Same-named test modules live in different directories, so collect each separately.
-    for d in tests tools base-vm runner-vm applications/{agent-turns,bounties,bounty-dashboard,browser-p2p,pilot-client,compute-node,libp2p-attest,mac-ownership} contracts/payments dstack-compat; do
+    for d in tests tools base-vm runner-vm applications/{agent-turns,bounties,bounty-dashboard,browser-p2p,pilot-client,compute-node,libp2p-attest,mac-ownership,oracle-canary} contracts/payments dstack-compat; do
         python3 -m pytest -q -p no:cacheprovider "$d"
     done
 }

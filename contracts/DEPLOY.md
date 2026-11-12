@@ -255,3 +255,24 @@ app, key in its memory). The signature uses the RIP-7212 precompile at `0x100`.
 `contracts/canary_claim.py` prints the calldata from a run's attestation and the key.
 A burned entry sets `burnedImage[image]` (Guest, Owner) or `burnedBuild[buildId]`.
 
+
+## TLS canary, Base Sepolia, 2026-11-12
+
+An Oracle entry for the provider TLS boundary (#170), on the live `CDRegistry` `0x14b5…8d20` and build
+`0xdf2cc3ef35273367f60416dda9e7a7a7066eac24d306932b5ec74dcdbcf4b127` (runner `0c3d3c90…`), from `0x9788…E6aA`.
+
+| Contract | Address | Tx |
+|---|---|---|
+| AppleAttestAnyBuildV1 (`registry` = Canary) | `0x3E275d6a120D47D88C393b6108AEEa81Bf5EcaF9` | `0xe3635279ecfeca988cc885cc45c354242ad312424743540f68bf92772f1e7ba1` |
+| Canary | `0x7eaf08caF40005cF4C08067ED6B1d46B82b68cF2` | `0xc5f9f64e136699c4e2371d8d00159c5ec34ca30f079031cfa9278a80835035ab` |
+
+The Mac mini's key `JSeBFr…nhk=` enrolled in `0x3b347ef7dc2757ffaf18b2076d6e604bb681bdb92101c89872a915d4b371c80f`
+(14,586,504 gas). Entry 0, Oracle, 0.0003 ETH: image `7c1ebf67…`, manifest
+`0xf6b6522ada8a30f1d11288c96c75ff5dab1b7678346255850f753bbeda08d0bf` (`oracle-canary/tls.py unpatched`, guest
+trusting emSign ECC Root CA - G3 and AAA Certificate Services as an unpatched Debian bundle does), caller
+`sha256("tls")`, armed in `0x91dad383e4e6b95c0a444dbf382ca71eee12d1d7204f07e3a68a8c3efffaec01`. The guest ran on
+the mini; `tls_host.py steal` served an `api.anthropic.com` leaf minted with the recovered EM DV TLS CA - G3B key
+and read K from the `x-api-key`. The claim with K and the guest's attestation burned the entry in
+`0x29a43e4bf2c970d9ccd8e42b7e5101dc5a840a92ec284b935cc553d5a10f3036` (285,428 gas). On the mini the `system`
+variant, whose image carries the patched bookworm bundle, refused the forged chain; `test_tls.py` shows the
+`sentinel` roots refuse it.

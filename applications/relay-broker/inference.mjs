@@ -105,11 +105,13 @@ export class Inference {
         const [id, request] = matches[0];
         if (request.status === "rejected" && request.rejectionEvidence &&
           canonical(request.rejectionEvidence) === canonical(evidence)) continue;
-        check(request.status === "sent" && !request.inferenceId && accounts[request.wallet]?.pending === id,
+        // An abandoned dispatch already released its reservation; the wallet may have a newer one pending.
+        const pending = accounts[request.wallet]?.pending === id;
+        check(!request.inferenceId && ((request.status === "sent" && pending) || request.status === "abandoned"),
           "USAGE_MISMATCH", "refusal does not match an unresolved dispatch", 502);
         requests[id] = { ...request, status: "rejected", rejectionCode: `PROVIDER_HTTP_${evidence.http_status}`,
           rejectionEvidence: evidence, rejectedAt: this.now() };
-        accounts[request.wallet] = { ...accounts[request.wallet], pending: null };
+        if (pending) accounts[request.wallet] = { ...accounts[request.wallet], pending: null };
         changed = true;
       }
       for (const [id, request] of Object.entries(requests)) {

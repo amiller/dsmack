@@ -850,6 +850,19 @@ test("authenticated operator refusal evidence reconciles a unique historical dis
   assert.equal(restarted.records.length, 0);
 });
 
+test("refusal evidence for an abandoned dispatch rejects it and leaves the wallet's newer request pending", async () => {
+  const wallet = Wallet.createRandom().address.toLowerCase(), at = 2000000000;
+  const old = { wallet, status: "abandoned", inferenceId: null, requestNonce: "ab".repeat(16), createdAt: at, reservedNanoUsd: "5000", abandonedAt: at + 86400 };
+  const evidence = { event: "near_chat", ref: "abababab", time: new Date(at * 1000 + 200).toISOString(), http_status: 401 };
+  const state = { inferenceCredit: { [wallet]: { pending: "new" } },
+    inferenceRequests: { old, new: { ...old, status: "sent", requestNonce: "cd".repeat(16), createdAt: at + 90000 } } };
+  const f = fixture({ state, cfg: { rejectedDispatches: [evidence] } });
+  await f.inference.recover();
+  const result = f.saved();
+  assert.equal(result.inferenceRequests.old.status, "rejected");
+  assert.equal(result.inferenceCredit[wallet].pending, "new");
+});
+
 test("historical rejection recovery refuses ambiguous, mismatched or non-authentication evidence without writing", async () => {
   const wallet = Wallet.createRandom().address.toLowerCase(), at = 2000000000;
   const request = { wallet, status: "sent", inferenceId: null, requestNonce: "ab".repeat(16), createdAt: at, reservedNanoUsd: "5000" };

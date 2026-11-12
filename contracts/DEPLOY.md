@@ -273,5 +273,6 @@ trusting emSign ECC Root CA - G3 and AAA Certificate Services as an unpatched De
 `sha256("tls")`, armed in `0x91dad383e4e6b95c0a444dbf382ca71eee12d1d7204f07e3a68a8c3efffaec01`. The guest ran on
 the mini; `tls_host.py steal` served an `api.anthropic.com` leaf minted with the recovered EM DV TLS CA - G3B key
 and read K from the `x-api-key`. The claim with K and the guest's attestation burned the entry in
-`0x29a43e4bf2c970d9ccd8e42b7e5101dc5a840a92ec284b935cc553d5a10f3036` (285,428 gas). The same workload with the
-`sentinel` roots, and the compute-node image's patched bookworm bundle, refused the forged chain.
+`0x29a43e4bf2c970d9ccd8e42b7e5101dc5a840a92ec284b935cc553d5a10f3036` (285,428 gas). On the mini the `system`
+variant, whose image carries the patched bookworm bundle, refused the forged chain; `test_tls.py` shows the
+`sentinel` roots refuse it.

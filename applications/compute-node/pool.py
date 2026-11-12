@@ -176,10 +176,9 @@ def preflight(state, active, pool_root=None, coexist_pools=()):
     allowed_sessions = set()
     for root in coexist_pools:
         allowed_sessions.update(str(path.resolve()) for path in root.glob('**/run-*/session.json'))
+    # pgrep -fl prints each runner's full command line; a second ps per pid raced runners that exit in between.
     for line in result.stdout.splitlines():
-        pid = int(line.split()[0])
-        command = subprocess.check_output(['ps', '-p', str(pid), '-o', 'command='], text=True)
-        if not (owned_sessions | allowed_sessions).intersection(shlex.split(command)):
+        if not (owned_sessions | allowed_sessions).intersection(shlex.split(line)[1:]):
             raise MacOccupied('another lane owns the active Mac VM; waiting')
     return {'free_bytes': free, 'owned_runner_sessions': sorted(owned_sessions)}
 

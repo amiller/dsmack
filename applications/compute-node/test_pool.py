@@ -163,13 +163,12 @@ class PoolTests(unittest.TestCase):
 
     def test_preflight_rejects_other_lanes_runner_and_allows_owned_overlap(self):
         disk = SimpleNamespace(free=20 << 30)
-        process = SimpleNamespace(returncode=0, stdout='123 /runner/MacOS/dsmack-runner\n')
-        with patch.object(pool.shutil, 'disk_usage', return_value=disk), patch.object(pool.subprocess, 'run', return_value=process), \
-                patch.object(pool.subprocess, 'check_output', return_value='/runner/MacOS/dsmack-runner hvf-v3 /other/session.json'):
+        other = SimpleNamespace(returncode=0, stdout='123 /runner/MacOS/dsmack-runner hvf-v3 /other/session.json\n')
+        owned = SimpleNamespace(returncode=0, stdout='123 /runner/MacOS/dsmack-runner hvf-v3 /owned/session.json\n')
+        with patch.object(pool.shutil, 'disk_usage', return_value=disk), patch.object(pool.subprocess, 'run', return_value=other):
             with self.assertRaisesRegex(RuntimeError, 'another lane'):
                 pool.preflight(Path('/state'), [{'path': Path('/owned')}])
-        with patch.object(pool.shutil, 'disk_usage', return_value=disk), patch.object(pool.subprocess, 'run', return_value=process), \
-                patch.object(pool.subprocess, 'check_output', return_value='/runner/MacOS/dsmack-runner hvf-v3 /owned/session.json'):
+        with patch.object(pool.shutil, 'disk_usage', return_value=disk), patch.object(pool.subprocess, 'run', return_value=owned):
             result = pool.preflight(Path('/state'), [{'path': Path('/owned')}])
             self.assertEqual(result['owned_runner_sessions'], ['/owned/session.json'])
 
@@ -227,10 +226,9 @@ class PoolTests(unittest.TestCase):
             session = root/'pool-2/guests-1/run-1/session.json'
             session.parent.mkdir(parents=True)
             session.touch()
-            process = SimpleNamespace(returncode=0, stdout='1 dsmack-runner\n')
+            process = SimpleNamespace(returncode=0, stdout=f'1 runner hvf-v3 {session}\n')
             with patch.object(pool.shutil, 'disk_usage', return_value=SimpleNamespace(free=20<<30)), \
-                    patch.object(pool.subprocess, 'run', return_value=process), \
-                    patch.object(pool.subprocess, 'check_output', return_value=f'runner hvf-v3 {session}'):
+                    patch.object(pool.subprocess, 'run', return_value=process):
                 pool.preflight(root, [], coexist_pools=[root])
                 with self.assertRaises(pool.MacOccupied):
                     pool.preflight(root, [], coexist_pools=[root/'other'])

@@ -157,8 +157,11 @@ test("admission fails closed when chain-read cannot verify a read, its head is s
   await assert.rejects(admit(await guest(broker, key, operator.address)), /failed on every source/);
   tamper({ age: 600 });
   await assert.rejects(admit(await guest(broker, key, operator.address)), /Helios head is 600 s old/);
-  tamper({ code: "0x6001" });
-  await assert.rejects(admit(await guest(broker, key, operator.address)), /code mismatch/);
+  // Deployed code cannot change (EIP-6780), so the reader checks it once per process: a broker that starts on the wrong code refuses.
+  const fresh = await setup(), other = await deviceKey();
+  fresh.enroll(other); await fresh.link(other, 1);
+  fresh.tamper({ code: "0x6001" });
+  await assert.rejects(fresh.admit(await guest(fresh.broker, other, fresh.operator.address)), /code mismatch/);
 });
 
 test("deposit credit is minted only from a Helios-verified deposits() read", async () => {

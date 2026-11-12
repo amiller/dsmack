@@ -12,7 +12,8 @@ export class HeliosReader {
   constructor({ escrow, codeHash, open, maxHeadAge = 120, now = () => Date.now() / 1000 }) {
     require(/^0x[0-9a-fA-F]{40}$/.test(escrow) && /^0x[0-9a-fA-F]{64}$/.test(codeHash) && open,
       "escrow, deployed code hash and chain-read opener required");
-    Object.assign(this, { escrow, codeHash, open, maxHeadAge, now });
+    // Deployed code cannot change after deployment (EIP-6780), so each address's code is verified once per process.
+    Object.assign(this, { escrow, codeHash, open, maxHeadAge, now, codes: new Map() });
   }
   async snapshot() {
     if (!this.chain) { this.chain = this.open(); this.chain.catch(() => { this.chain = undefined; }); }
@@ -21,7 +22,11 @@ export class HeliosReader {
     require(age <= this.maxHeadAge, `Helios head is ${Math.round(age)} s old`);
     const block = { hash: s.block.hash, number: s.block.number }, tag = { blockHash: block.hash };
     const fetchRead = async (method, arg) => {
-      if (method === "eth_getCode") return c.read("eth_getCode", [arg, tag]);
+      if (method === "eth_getCode") {
+        const k = arg.toLowerCase();
+        if (!this.codes.has(k)) { const p = c.read("eth_getCode", [arg, tag]); this.codes.set(k, p); p.catch(() => this.codes.delete(k)); }
+        return this.codes.get(k);
+      }
       require(method === "eth_call", "unsupported Helios read " + method);
       return hex(await s.call(arg.to, arg.data));
     };
@@ -43,7 +48,16 @@ export class HeliosReader {
     };
     const code = await read("eth_getCode", [this.escrow]);
     require(code !== "0x" && keccak256(code).toLowerCase() === this.codeHash.toLowerCase(), "escrow deployed code mismatch");
-    return { block, tag, read, used, warm: (k) => warm(k, ...JSON.parse(k)),
+    // Fetches the eth_calls among `keys` in one Multicall3 read: one Helios proof set instead of one per call.
+    const warmAll = (keys) => {
+      const calls = keys.filter((k) => !reads.has(k)).map((k) => [k, ...JSON.parse(k)]).filter(([, m]) => m === "eth_call");
+      if (calls.length) {
+        const all = s.multicall(calls.map(([, , a]) => [a.to, a.data]));
+        calls.forEach(([k], i) => { const p = all.then((r) => hex(r[i])); reads.set(k, p); p.catch(() => reads.delete(k)); });
+      }
+      return Promise.allSettled(keys.map((k) => warm(k, ...JSON.parse(k))));
+    };
+    return { block, tag, read, used, warmAll,
       call: async (name, args = []) =>
         abi.decodeFunctionResult(name, await read("eth_call", [{ to: this.escrow, data: abi.encodeFunctionData(name, args) }]))[0],
     };
@@ -61,11 +75,8 @@ export function sharedSnapshots(reader, seconds = 30, now = () => Date.now() / 1
     const at = now(), s = await reader.snapshot();
     if (current) {
       require(s.block.number >= current.s.block.number, "chain-read pinned an older block than the served snapshot");
-      // One read at a time: chain-read runs reads one after another anyway. Stop at the served snapshot's limit; reads not warmed by then are fetched on demand.
-      for (const k of [...current.s.used]) {
-        if (now() - current.at >= 2 * seconds) break;
-        await Promise.allSettled([s.warm(k)]);
-      }
+      // Reads that fail here are fetched on demand.
+      await s.warmAll([...current.s.used]);
     }
     return current = { s, at };
   })().finally(() => { next = undefined; });

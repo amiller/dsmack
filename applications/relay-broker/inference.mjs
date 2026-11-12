@@ -17,6 +17,7 @@ const enc = new TextEncoder();
 const hex = (bytes) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 const randomId = () => hex(crypto.getRandomValues(new Uint8Array(16)));
+export const ABANDON_SECONDS = 86400;
 const uint = (v) =>
   (typeof v === "string" && /^(0|[1-9][0-9]*)$/.test(v)) ||
   (Number.isSafeInteger(v) && v >= 0);
@@ -123,7 +124,7 @@ export class Inference {
     return {
       pendingRequests:
         Object.values(this.payments.state.inferenceRequests ?? {}).filter((r) =>
-          r.status !== "charged" && r.status !== "rejected"
+          r.status !== "charged" && r.status !== "rejected" && r.status !== "abandoned"
         ).length,
     };
   }
@@ -725,6 +726,20 @@ export class Inference {
     if (!a.pending) return this.summary(wallet);
     const localId = a.pending,
       ledger = this.payments.state.inferenceRequests[localId];
+    // A dispatch with no billing ID a day later will never settle: release its
+    // reservation and keep the record. The broker absorbs any unseen provider charge.
+    if (ledger.status === "sent" && !ledger.inferenceId && !this.activeRequests.has(localId) &&
+      this.now() - ledger.createdAt >= ABANDON_SECONDS) {
+      await this.payments.serial(async () => {
+        const state = this.payments.state;
+        if (state.inferenceCredit[wallet]?.pending !== localId) return;
+        await this.save({ ...state,
+          inferenceCredit: { ...state.inferenceCredit, [wallet]: { ...state.inferenceCredit[wallet], pending: null } },
+          inferenceRequests: { ...state.inferenceRequests,
+            [localId]: { ...state.inferenceRequests[localId], status: "abandoned", abandonedAt: this.now() } } });
+      });
+      return this.summary(wallet);
+    }
     check(
       ledger.inferenceId && ledger.status === "responded" &&
         (uint(ledger.usedTokens) || ledger.interrupted === true),

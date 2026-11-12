@@ -309,5 +309,7 @@ At startup the broker matches each record to exactly one persisted request by
 nonce reference and dispatch time (within 60 seconds). It records the refusal
 on that request and releases its reservation atomically. Reapplying the same
 evidence is idempotent. The request remains in the ledger. Requests with known
-billing IDs continue through `/inference/usage`; transport failures retain their
-reservations until provider billing evidence is available.
+billing IDs continue through `/inference/usage`. A dispatch that still has no
+billing ID a day after it was sent is marked `abandoned` at the wallet's next
+`/inference/usage` and its reservation released; the broker absorbs any provider
+charge it never saw.

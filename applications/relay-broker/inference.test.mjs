@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { computeAddress, SigningKey, Wallet } from "npm:ethers@6.17.0";
 import { prepareE2eeChatRequest } from "npm:@nearai/inference-sdk@0.2.0/node";
-import { Inference } from "./inference.mjs";
+import { ABANDON_SECONDS, Inference } from "./inference.mjs";
 import { Payments } from "./payments.mjs";
 import { canonical } from "./grants.mjs";
 
@@ -811,6 +811,23 @@ test("ambiguous provider transport failure keeps its reservation across restart"
   assert(BigInt(f.inference.summary(wallet).reservedNanoUsd) > 0n);
   assert.equal((await f.inference.recover()).pendingRequests, 1);
   assert.deepEqual(f.saved(), state);
+});
+
+test("a dispatch with no billing ID is released a day later and the wallet can model again", async () => {
+  const f = fixture();
+  await f.credit();
+  f.provider.chatEncrypted = async () => { throw Object.assign(new Error("transport"), { code: "PROVIDER_TRANSPORT" }); };
+  await assert.rejects(f.send, code("PROVIDER_TRANSPORT"));
+  const state = f.saved(), [id, request] = Object.entries(state.inferenceRequests)[0];
+  const at = (now) => new Inference({ payments: new Payments({ cfg: {}, key: {}, state: structuredClone(state), chain: {}, save: async () => {} }),
+    cfg: { model: MODEL }, provider: f.provider, now: () => now });
+  const early = request.createdAt + ABANDON_SECONDS - 1, late = early + 1;
+  await assert.rejects(at(early).usage(await f.signed("usage", { issuedAt: early })), code("USAGE_PENDING"));
+  const released = at(late), summary = await released.usage(await f.signed("usage", { issuedAt: late }));
+  assert.equal(summary.reservedNanoUsd, "0");
+  assert.equal(summary.spentNanoUsd, "0");
+  assert.equal(released.payments.state.inferenceRequests[id].status, "abandoned");
+  assert.equal((await released.recover()).pendingRequests, 0);
 });
 
 test("authenticated operator refusal evidence reconciles a unique historical dispatch exactly once", async () => {

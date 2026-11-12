@@ -51,7 +51,7 @@ async function load(ctx: Context) {
   if (!/^0x[0-9a-fA-F]{40}$/.test(cfg.payments.inferenceOperator ?? "")) {
     throw new Error("broker config needs payments.inferenceOperator");
   }
-  const helios = sharedSnapshots(new HeliosReader({ ...cfg.payments, open: () => chainRead({ worker: cfg.chainRead }) }));
+  const helios = sharedSnapshots(new HeliosReader({ ...cfg.payments, open: () => chainRead({ worker: cfg.chainRead, lagSeconds: 6 }) }));
   let payments;
   if (cfg.payments) {
     const path = ctx.dataDir + "/payments-" +

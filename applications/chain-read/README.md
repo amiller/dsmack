@@ -31,7 +31,7 @@ Each read tries the sources in that order. The source that served it and every f
 `cr.diagnostics.reads`; a wallet that was left out is in `cr.diagnostics.skipped`; per-relay counts and the last
 relay error are in `cr.diagnostics.relays`. A read that fails on every source rejects with all of the failures.
 
-Helios is handed the newest head that is `lagSeconds` (default 6) old, because hosted RPCs often lack state for the
+Helios is handed the newest head that is `lagSeconds` (default 3) old, because hosted RPCs often lack state for the
 newest one or two blocks.
 
 Other configurations:

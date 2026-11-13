@@ -19,7 +19,7 @@ class PoolTests(unittest.TestCase):
                       'reserve': {'mem_gb': 16, 'cores': 4}}
             host = {'mem_bytes': 64 << 30, 'cores': 14}
             path.write_text(json.dumps(config))
-            self.assertEqual(pool.operator_config(path, host), config)
+            self.assertEqual(pool.operator_config(path, host), {**config, 'spares': 1})
             self.assertEqual(pool.operator_config(path, host, 1)['max_guests'], 1)
             self.assertEqual(pool.operator_config(path, host, 8)['max_guests'], 4)
             self.assertEqual(json.loads(path.read_bytes()), config)
@@ -100,13 +100,38 @@ class PoolTests(unittest.TestCase):
             instance.launch.assert_called_once_with(instance.slots[1])
             self.assertFalse(instance.stopping)
 
-    def test_replacement_starts_before_old_node_admission_closes(self):
-        old = {'node': {'relay_peer': 'old'}, 'started': 0, 'admit_seconds': 570}
-        self.assertFalse(pool.should_replace([old], 449, 450))
-        self.assertTrue(pool.should_replace([old], 450, 450))
-        new = {'node': {'relay_peer': 'new'}, 'started': 450, 'admit_seconds': 570}
-        self.assertFalse(pool.should_replace([old, new], 570, 450))
-        self.assertTrue(pool.should_replace([new], 900, 450))
+    def test_a_guest_is_a_spare_while_booting_or_free_and_young(self):
+        self.assertTrue(pool.spare({'node': None}, 0, 3000))
+        self.assertFalse(pool.spare({'node': None, 'readiness_failed': True}, 0, 3000))
+        free = {'node': {'relay_peer': 'a', 'available': True}, 'started': 0}
+        self.assertTrue(pool.spare(free, 2999, 3000))
+        self.assertFalse(pool.spare(free, 3000, 3000), 'old enough that its successor should boot')
+        self.assertFalse(pool.spare({**free, 'node': {'relay_peer': 'a', 'available': False}}, 10, 3000), 'a stay holds it')
+        self.assertFalse(pool.spare({**free, 'node': {'relay_peer': 'a', 'telemetry': {'busy': True}}}, 10, 3000))
+
+    def test_an_empty_slot_reports_standby_capacity(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp))
+            instance.payments = {'node': 'class'}; instance.hardware = {}
+            self.assertEqual(instance.snapshot()['slots'][0]['state'], 'standby')
+
+    def test_pool_keeps_spares_booted_replaces_a_taken_spare_and_stops_at_max_guests(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            instance = self.instance(Path(tmp))
+            instance.slots = [{'slot_id': i, 'consecutive_failures': 0, 'last_error': None, 'jobs_served': 0} for i in range(3)]
+            instance.config = {'spares': 1, 'max_guests': 3}
+            running = lambda slot, **node: {'slot_id': slot, 'process': Mock(poll=Mock(return_value=None)),
+                                            'started': pool.time.monotonic(), 'admit_seconds': 3300, **node}
+            instance.active = [running(0, node={'relay_peer': 'free', 'available': True})]
+            instance.tick()
+            instance.launch.assert_not_called()
+            instance.active = [running(0, node={'relay_peer': 'taken', 'available': False})]
+            instance.tick()
+            instance.launch.assert_called_once_with(instance.slots[1])
+            instance.launch.reset_mock()
+            instance.active = [running(i, node={'relay_peer': str(i), 'available': False}) for i in range(3)]
+            instance.tick()
+            instance.launch.assert_not_called()
 
     def test_registered_replacement_takes_the_slot_unless_predecessor_holds_a_stay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -127,7 +152,7 @@ class PoolTests(unittest.TestCase):
     def test_expired_cached_broker_admission_is_not_advertised_ready(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
-            instance.payments = {'node': 'class'}; instance.config = {}; instance.hardware = {}
+            instance.payments = {'node': 'class'}; instance.config = {'spares': 1, 'max_guests': 2}; instance.hardware = {}
             registered = {'relay_peer': 'guest', 'expires_at': 1120, 'telemetry': {'busy': False}}
             node = {'slot_id': 0, 'started': 500, 'started_at': 1000, 'admit_seconds': 570, 'path': root,
                     'process': Mock(poll=Mock(return_value=None)), 'node': registered}
@@ -245,12 +270,13 @@ class PoolTests(unittest.TestCase):
 
     def instance(self, root):
         instance = object.__new__(pool.Pool)
-        instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=450, readiness_timeout=90,
+        instance.args = SimpleNamespace(repo=Path('/repo'), cycles=0, replace_after=3000, readiness_timeout=90,
                                         debugfs=Path('/debugfs'), pool_root=None, state=root)
         instance.boot_lock = None
         instance.active = []; instance.stopping = False; instance.failure = None
         instance.errors_file = root/'operator-errors.json'
-        instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'retry_pending': False, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
+        instance.slots = [{'slot_id': 0, 'consecutive_failures': 0, 'last_error': None, 'jobs_served': 0}]; instance.last_broker_error = None; instance.errors = []
+        instance.config = {'spares': 1, 'max_guests': 2}
         instance.measurement = 'compose'; instance.image = 'image'; instance.last_status_poll = pool.time.monotonic()
         instance.event = Mock(); instance.launch = Mock()
         return instance
@@ -325,7 +351,7 @@ class PoolTests(unittest.TestCase):
                 instance.tick()
             self.assertEqual(instance.keys.keys(), {'0xdead': {'failures': 1}})
 
-    def test_failed_guest_is_replaced_without_stopping_healthy_guest(self):
+    def test_failed_guest_retires_without_stopping_healthy_guest_which_remains_the_spare(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
             healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
@@ -338,7 +364,7 @@ class PoolTests(unittest.TestCase):
                 instance.tick()
             retire.assert_called_once_with(failed['path'], Path('/repo'))
             self.assertEqual(instance.active, [healthy]); self.assertFalse(instance.stopping)
-            instance.launch.assert_called_once()
+            instance.launch.assert_not_called()
             self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
             self.assertEqual(json.loads((failed['path']/'evidence/guest-error.json').read_text()), failure)
 
@@ -478,6 +504,12 @@ class PoolTests(unittest.TestCase):
             self.assertTrue(node['readiness_failed']); self.assertFalse(instance.stopping)
             instance.launch.assert_not_called()
 
+    def test_hour_guests_boot_their_replacement_five_minutes_before_admission_closes(self):
+        seconds, drain = 3600, 300
+        replace = pool.replace_after(seconds, drain)
+        self.assertEqual(seconds - drain - replace, 300)
+        self.assertLess(max(replace, seconds - replace) + 90, seconds - drain)
+
     def test_guest_that_missed_readiness_releases_the_boot_lock(self):
         with tempfile.TemporaryDirectory() as tmp:
             instance = self.instance(Path(tmp))
@@ -539,7 +571,7 @@ class PoolTests(unittest.TestCase):
         import time
         from urllib.error import HTTPError
         instance = self.instance(Path('/unused'))
-        instance.args = SimpleNamespace(broker='https://broker', readiness_timeout=90, cycles=0, replace_after=450)
+        instance.args = SimpleNamespace(broker='https://broker', readiness_timeout=90, cycles=0, replace_after=3000)
         node = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': None,
                 'path': Path('/owned'), 'previous': set(), 'readiness_deadline': 0, 'started': time.monotonic()}
         instance.active = [node]; instance.stopping = False; instance.failure = None
@@ -578,7 +610,8 @@ class PoolTests(unittest.TestCase):
             self.assertEqual(instance.slots[0]['consecutive_failures'], 1)
             self.assertEqual(instance.slots[0]['last_error']['status'], 404)
             self.assertEqual(instance.slots[0]['last_error']['stage'], 'broker_readiness')
-            self.assertEqual(instance.active, [healthy]); instance.launch.assert_called_once()
+            # The healthy free guest is the spare, so nothing boots.
+            self.assertEqual(instance.active, [healthy]); instance.launch.assert_not_called()
 
     def test_legacy_socket_timeout_is_reported_without_stopping_the_pool(self):
         # Python 3.9 on the Mac raises socket.timeout as OSError, not TimeoutError.

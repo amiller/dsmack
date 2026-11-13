@@ -9,18 +9,20 @@ export function networkSnapshot(fleet, now) {
   const macs = fleet.map(mac => {
     const busy = new Set(mac.slots.filter(slot => slot.state === "busy").map(slot => slot.slot_id));
     const ready = new Set(mac.slots.filter(slot => slot.state === "ready" && !busy.has(slot.slot_id)).map(slot => slot.slot_id));
+    // An empty slot boots a guest when a stay needs it, about a minute away.
+    const standby = new Set(mac.slots.filter(slot => slot.state === "standby").map(slot => slot.slot_id));
     return { publisher: mac.publisher, operator: mac.operator, region: mac.region ?? null,
       chip: typeof mac.hardware.chip === "string" ? mac.hardware.chip : "Unknown",
       ram_bytes: Number.isSafeInteger(mac.hardware.mem_bytes) ? mac.hardware.mem_bytes : null,
-      slots: mac.config.max_guests, ready: ready.size, busy: busy.size,
+      slots: mac.config.max_guests, ready: ready.size, busy: busy.size, standby: standby.size,
       slot_errors: mac.slots.filter(slot => typeof slot.last_error_code === "string")
         .map(slot => ({ slot_id: slot.slot_id, code: slot.last_error_code })),
       last_heartbeat: mac.updated_at, received_at: mac.received_at, online: mac.online, status: mac.status };
   });
-  const totals = { macs_online: 0, total_slots: 0, ready_slots: 0, busy_slots: 0, utilization: 0 };
+  const totals = { macs_online: 0, total_slots: 0, ready_slots: 0, busy_slots: 0, standby_slots: 0, utilization: 0 };
   for (const mac of macs.filter(mac => mac.online)) {
     totals.macs_online++; totals.total_slots += mac.slots;
-    totals.ready_slots += mac.ready; totals.busy_slots += mac.busy;
+    totals.ready_slots += mac.ready; totals.busy_slots += mac.busy; totals.standby_slots += mac.standby;
   }
   totals.utilization = totals.total_slots ? totals.busy_slots / totals.total_slots : 0;
   return { updated_at: now, capacity: "reported", macs, totals };

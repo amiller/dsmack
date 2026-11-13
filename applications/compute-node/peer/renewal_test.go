@@ -4,8 +4,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
-	"time"
 )
 
 func TestRegistrationErrorsRetainResponseAndRefusalsDoNotRetry(t *testing.T) {
@@ -26,18 +26,26 @@ func TestRegistrationErrorsRetainResponseAndRefusalsDoNotRetry(t *testing.T) {
 	}
 }
 
-func TestDrainingGuestDoesNotRenewItsExpiredPaidBinding(t *testing.T) {
-	calls := 0
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		calls++
-		http.Error(w, "fixed binding expired", http.StatusForbidden)
-	}))
-	defer server.Close()
-	renew := func() error { return post(server.Client(), server.URL+"/nodes", map[string]string{}, new(any)) }
-	if err := renewAdmission(time.Now().Add(-time.Second), renew); err != nil || calls != 0 {
-		t.Fatalf("draining guest renewed expired binding: calls=%d err=%v", calls, err)
+func TestGuestAttestsOnceThenRenewsItsLeaseAndReattestsOnlyWhenTheBrokerForgetsIt(t *testing.T) {
+	registered, refreshes, registrations := false, 0, 0
+	var refreshErr, registerErr error
+	refresh := func() error { refreshes++; return refreshErr }
+	register := func() error { registrations++; return registerErr }
+	for i := 0; i < 3; i++ {
+		if err := renewLease(&registered, refresh, register); err != nil {
+			t.Fatal(err)
+		}
 	}
-	if err := renewAdmission(time.Now().Add(time.Minute), renew); err == nil || calls != 1 {
-		t.Fatalf("admitting guest lost registration refusal: calls=%d err=%v", calls, err)
+	if registrations != 1 || refreshes != 2 {
+		t.Fatalf("idle ticks attested: registrations=%d refreshes=%d", registrations, refreshes)
+	}
+	refreshErr = errors.New("unknown guest")
+	if err := renewLease(&registered, refresh, register); err != nil || registrations != 2 || !registered {
+		t.Fatalf("forgotten guest did not register again: %v", err)
+	}
+	registerErr = errors.New("run expired")
+	err := renewLease(&registered, refresh, register)
+	if err == nil || !strings.Contains(err.Error(), "unknown guest") || !errors.Is(err, registerErr) || registered {
+		t.Fatalf("both failures must be reported: %v", err)
 	}
 }

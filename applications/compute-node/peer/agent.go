@@ -20,7 +20,19 @@ import (
 )
 
 const agentProtocol = "/dsmack/agent-mcp/1.0.0"
-const agentIdle = 5 * time.Minute
+// agentIdle ends a stay after this long without a tool call: AGENT_IDLE_TIMEOUT_SECONDS, measured in the compose.
+var agentIdle = idleTimeout(os.Getenv("AGENT_IDLE_TIMEOUT_SECONDS"))
+
+func idleTimeout(value string) time.Duration {
+	if value == "" {
+		return 5 * time.Minute
+	}
+	seconds, err := strconv.Atoi(value)
+	if err != nil || seconds < 1 {
+		panic("AGENT_IDLE_TIMEOUT_SECONDS must be a positive integer")
+	}
+	return time.Duration(seconds) * time.Second
+}
 
 // The in-stay receipt checkpoint runs every checkpointEvery; a run of transient broker failures ends
 // the stay once it has lasted checkpointGrace.

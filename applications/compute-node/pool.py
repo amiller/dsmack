@@ -91,6 +91,10 @@ def operator_config(path, host, max_slots=None):
         if type(max_slots) is not int or max_slots < 1:
             raise ValueError('max slots must be a positive integer')
         config['max_guests'] = min(config['max_guests'], max_slots)
+    # Idle guests kept booted ahead of demand; the rest boot when stays take them (ADR 0009).
+    config['spares'] = min(config.get('spares', 1), config['max_guests'])
+    if type(config['spares']) is not int or config['spares'] < 1:
+        raise ValueError('operator spares must be an integer >= 1')
     guests, size, reserve = config['max_guests'], config['guest'], config['reserve']
     wanted_mem = guests * size['mem_mib']
     total_mem = host['mem_bytes'] // (1 << 20)
@@ -158,9 +162,19 @@ def ready_node(nodes, previous, measurement, image):
                  and n.get('attestation', {}).get('status') == 'verified'), None)
 
 
-def should_replace(active, now, replace_after):
-    serving = [n for n in active if n.get('node') and now < n['started'] + n['admit_seconds']]
-    return not serving or now - max(n['started'] for n in serving) >= replace_after
+def replace_after(seconds, drain_seconds):
+    """Boot a guest's replacement 5 minutes before the guest stops admitting stays: a replacement is ready in about a
+    minute, so a failed boot still has time to retry, and old and new guests overlap ~13 minutes of each hour, not ~30.
+    Short test lifetimes keep the half-life start."""
+    return max(seconds//2 + 30, seconds - drain_seconds - 300)
+
+
+def spare(node, now, replace_after):
+    """A booting guest, or a registered one that is free and young enough to take a useful stay."""
+    if node['node'] is None:
+        return not node.get('readiness_failed')
+    return (node['node'].get('available', True) and not node['node'].get('telemetry', {}).get('busy')
+            and now - node['started'] < replace_after)
 
 
 def preflight(state, active, pool_root=None, coexist_pools=()):
@@ -341,7 +355,7 @@ class Pool:
         self.hardware = hardware()
         self.config = operator_config(args.operator, self.hardware, getattr(args, 'max_slots', None))
         self.slots = [{'slot_id': i, 'consecutive_failures': 0, 'last_error': None,
-                       'retry_pending': False, 'jobs_served': 0}
+                       'jobs_served': 0}
                       for i in range(self.config['max_guests'])]
         self.errors_file = args.operator.parent/'operator-errors.json'
         try:
@@ -379,7 +393,7 @@ class Pool:
     def retry_broker(self, slot, error):
         delay = min(900, max(60, slot.get('broker_backoff', 0) * 2))
         slot.update(broker_backoff=delay, retry_at=time.monotonic()+delay,
-                    retry_pending=True, last_error=error)
+                    last_error=error)
         self.event('broker_retry', slot_id=slot['slot_id'], retry_seconds=delay, last_error=error)
 
     def nodes(self):
@@ -436,7 +450,6 @@ class Pool:
         node = {'slot_id': slot['slot_id'], 'kid': kid, 'started_at': int(time.time()), 'process': proc, 'path': run, 'started': time.monotonic(), 'node': None, 'previous': baseline,
                 'admit_seconds': self.args.seconds-self.args.drain_seconds, 'readiness_deadline': time.monotonic()+self.args.readiness_timeout}
         self.active.append(node)
-        slot['retry_pending'] = False
         self.event('launch', slot_id=slot['slot_id'], run=str(run), driver_pid=proc.pid, kid=kid)
 
     def tick(self):
@@ -476,7 +489,6 @@ class Pool:
                           or not closed or not (outputs.get('status') == 'completed' or normal_timeout or idle_end))
                 cleanup = preserve_and_retire(node['path'], self.args.repo)
                 if failed:
-                    slot['retry_pending'] = True
                     actual_error = result.get('error')
                     if not actual_error or actual_error.get('stage') == 'result_extraction':
                         actual_error = node.get('readiness_error') or actual_error
@@ -526,36 +538,40 @@ class Pool:
                     node['readiness_failed'] = True
                     self.event('readiness_timeout', slot_id=slot['slot_id'], run=str(node['path']),
                                error='new node did not attest at broker; waiting for this owned guest to finish')
-        if not self.stopping and (not self.args.cycles or self.launched < self.args.cycles):
-            for slot in self.slots:
-                active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
-                # Resolve one boot's broker identity before launching another, so
-                # identically measured guests cannot be assigned to the wrong slot.
-                if any(n['node'] is None and not n.get('readiness_failed') for n in self.active):
-                    break
-                if (now >= slot.get('retry_at', 0) and len(active) < 2 and not any(n['node'] is None for n in active)
-                        and (slot['retry_pending'] or should_replace(active, now, self.args.replace_after))):
-                    try:
-                        if self.args.pool_root:
-                            lock = (self.args.pool_root/'boot.lock').open('a')
-                            try:
-                                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                            except BlockingIOError:
-                                lock.close()
-                                break
-                            self.boot_lock = lock
-                        self.launch(slot)
-                    except DiskLow as error:
-                        slot['retry_at'] = now + 300
-                        self.event('disk_low', slot_id=slot['slot_id'], error=str(error), retry_seconds=300)
-                    except MacOccupied:
-                        self.event('waiting_for_other_lane', slot_id=slot['slot_id'])
-                    except KeyUnusable as error:
-                        slot['retry_at'] = now + 300
-                        self.event('key_unusable_no_launch', slot_id=slot['slot_id'], error=str(error), retry_seconds=300)
-                    except BrokerUnavailable:
-                        self.retry_broker(slot, self.last_broker_error)
-                    break
+        # Guests follow use: keep `spares` guests booting or free, boot one when a stay takes one, and never run more than
+        # max_guests. A free guest stops counting as a spare replace_after into its run, so its successor boots late.
+        booting = any(n['node'] is None and not n.get('readiness_failed') for n in self.active)
+        if (not self.stopping and (not self.args.cycles or self.launched < self.args.cycles) and not booting
+                and len(self.active) < self.config['max_guests']
+                and sum(spare(n, now, self.args.replace_after) for n in self.active) < self.config['spares']):
+            # Resolve one boot's broker identity before launching another, so identically measured guests cannot be
+            # assigned to the wrong slot. Prefer an empty slot; a slot holds at most two runs during a handover.
+            open_slots = sorted((slot for slot in self.slots if now >= slot.get('retry_at', 0)
+                                 and sum(n['slot_id'] == slot['slot_id'] for n in self.active) < 2
+                                 and not any(n['slot_id'] == slot['slot_id'] and n['node'] is None for n in self.active)),
+                                key=lambda slot: sum(n['slot_id'] == slot['slot_id'] for n in self.active))
+            for slot in open_slots[:1]:
+                try:
+                    if self.args.pool_root:
+                        lock = (self.args.pool_root/'boot.lock').open('a')
+                        try:
+                            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        except BlockingIOError:
+                            lock.close()
+                            break
+                        self.boot_lock = lock
+                    self.launch(slot)
+                except DiskLow as error:
+                    slot['retry_at'] = now + 300
+                    self.event('disk_low', slot_id=slot['slot_id'], error=str(error), retry_seconds=300)
+                except MacOccupied:
+                    self.event('waiting_for_other_lane', slot_id=slot['slot_id'])
+                except KeyUnusable as error:
+                    slot['retry_at'] = now + 300
+                    self.event('key_unusable_no_launch', slot_id=slot['slot_id'], error=str(error), retry_seconds=300)
+                except BrokerUnavailable:
+                    self.retry_broker(slot, self.last_broker_error)
+                break
 
     def snapshot(self):
         now = time.monotonic()
@@ -565,7 +581,8 @@ class Pool:
             active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
             for node in active or [None]:
                 registered = node['node'] if node else None
-                state = 'failed' if now < slot.get('retry_at', 0) else 'launching'
+                # An empty slot is capacity the pool boots into when stays need it.
+                state = 'failed' if now < slot.get('retry_at', 0) else 'launching' if node else 'standby'
                 if node:
                     if node.get('readiness_failed'):
                         state = 'failed'
@@ -634,14 +651,14 @@ def main():
     parser.add_argument('--debugfs', type=Path, default=Path('/opt/homebrew/opt/e2fsprogs/sbin/debugfs'),
                         help='read-only result diagnostic extractor')
     parser.add_argument('--seconds', type=int, default=3600)
-    parser.add_argument('--drain-seconds', type=int, default=480)
+    parser.add_argument('--drain-seconds', type=int, default=300)
     parser.add_argument('--replace-after', type=int, default=None)
     parser.add_argument('--readiness-timeout', type=int, default=90)
     parser.add_argument('--cycles', type=int, default=0, help='0 rotates continuously')
     parser.add_argument('--key-rotation', type=Path, help='key_rotation.py config: mark a key dead after two signing failures and rotate it')
     args = parser.parse_args()
     if args.replace_after is None:
-        args.replace_after = args.seconds//2 + 30
+        args.replace_after = replace_after(args.seconds, args.drain_seconds)
     if bool(args.publisher_key) != bool(args.publisher_address):
         parser.error('--publisher-key and --publisher-address are required together')
     if args.publisher_key and not args.pool_version:

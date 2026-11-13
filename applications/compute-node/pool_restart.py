@@ -7,7 +7,7 @@ import time
 from http.client import HTTPException
 from urllib.request import urlopen
 
-from pool import hardware, operator_config, sha, validate_config, ready_node
+from pool import hardware, operator_config, sha, validate_config, ready_node, replace_after
 
 
 def release_config(runner, workload, operator, version, peer, source=Path(__file__).resolve().parents[2]):
@@ -19,7 +19,7 @@ def release_config(runner, workload, operator, version, peer, source=Path(__file
         raise ValueError('replacement requires the existing measured relay peer')
     seconds = int(node['command'][2])
     drain = seconds - int(node['environment']['ADMIT_SECONDS'])
-    replace = seconds//2 + 30
+    replace = replace_after(seconds, drain)
     if (not 1 <= seconds <= 3600 or not 1 <= drain < seconds
             or max(replace, seconds-replace) + 90 >= seconds-drain):
         raise ValueError('replacement must attest before admission closes')

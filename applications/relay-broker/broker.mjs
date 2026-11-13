@@ -37,6 +37,12 @@ export class Broker {
     return [...this.relays.values()].filter((r) => !r.admit_until || r.admit_until > now);
   }
 
+  // A guest whose lease is current, whether or not it still admits new stays: a stay may run past admit_until.
+  alive(peer) {
+    const r = this.relays.get(peer);
+    return r && r.expires_at > this.now() ? r : undefined;
+  }
+
   // A running guest re-registers every 25-30 s, including while it seals past admit_until. It counts as gone only after
   // grant_seconds without a registration, so a broker restart (relays live in memory) or a shorter network blip closes nothing.
   gone(peer) {
@@ -46,6 +52,16 @@ export class Broker {
   async register(r) {
     const now = this.now();
     const telemetry = await nodeStatus(r, now);
+    // A guest attests once to register; later registrations are leases renewed by telemetry signed with the attested
+    // receipt key, so an idle guest does not spend an App Attest assertion every 25 s.
+    const prior = this.relays.get(r.relay_peer);
+    if (telemetry && prior && prior.kind === "compute" && prior.receipt_key === r.receipt_key &&
+        prior.payments?.runId === r.payments?.runId) {
+      require(!prior.attestation.nodeBinding || prior.attestation.nodeBinding.binding.expires > now, "run binding changed or expired");
+      Object.assign(prior, { telemetry, expires_at: now + limits.compute_lease_seconds });
+      this.seen.set(r.relay_peer, now);
+      return prior;
+    }
     if(!r.payments && r.kind==='compute' && this.cfg.sandboxDiagnosticWorkloads?.some(w=>['manifest_sha256','os_image_hash','cdhash'].every(k=>w[k]===r[k]))) {
       const out = await registerDiagnostic(this,r);
       if (telemetry) out.telemetry = telemetry;

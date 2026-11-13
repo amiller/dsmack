@@ -454,7 +454,7 @@ export class Inference {
     check(
       size <= MAX_REQUEST_BYTES,
       "BAD_REQUEST",
-      "encrypted inference request exceeds 262144 bytes",
+      `encrypted inference request exceeds ${MAX_REQUEST_BYTES} bytes`,
     );
     return BigInt(size + 256 + 64 * b.messages.length + b.max_tokens) *
       BigInt(this.cfg.maxNanoUsdPerToken);

@@ -53,14 +53,51 @@ What someone watching the New York Mac on 2026-11-12 saw:
    The VM count then follows use exactly: spares plus active stays. Combines with 2: spares on demand first, timers
    removed later.
 
-<!-- research: how CI runner autoscalers, serverless warm pools and the literature size idle pools; to be added. -->
+## What other systems do
+
+CI runners have the same shape as our guests: single use, a boot of a minute or so, and a fixed host budget.
+- GitLab's instance and docker-autoscaler executors run one job per instance (`capacity_per_instance=1`,
+  `max_use_count=1`) and delete the instance after it. They keep `idle_count` idle instances, each for at least
+  `idle_time`, under `max_instances` ([docs](https://docs.gitlab.com/runner/executors/instance.html)). A preemptive
+  mode takes a job only when an idle instance is ready, so no job waits for a boot.
+- GitHub's runner scale sets (ARC) target `minRunners` plus one runner per assigned job, capped at `maxRunners`
+  ([docs](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/deploy-runner-scale-sets)).
+
+Both size the idle floor by hand, independent of the cap. Neither fills every slot ahead of demand, and neither
+rotates idle instances on a fixed lifetime.
+
+The research agrees on keeping a floor:
+- In queueing models where servers take time to boot, keeping a few servers always on beats turning everything off
+  when idle. Gandhi, Harchol-Balter and Adan ([2010](https://www3.cs.stonybrook.edu/~anshul/perf_mmk_2010.pdf)) turn
+  an idle server off only above a threshold. Maccio and Down ([acc](https://www.cas.mcmaster.ca/~downd/acc_final.pdf))
+  find a floor near the expected number of busy servers close to optimal, while a floor of zero can be far from it.
+  So option 3 is the wrong end.
+- Serverless platforms keep instances warm after use rather than before it. Shahrad et al.
+  ([ATC 2020](https://arxiv.org/pdf/2003.03423)) size the keep-alive window from each application's histogram of idle
+  times, and beat fixed 10- and 20-minute windows on cold starts per unit of memory. That is a later refinement for us
+  (drop to zero spares overnight) once we have arrival data.
+
+None of these models has single-use guests with a hard lifetime. The recipe below is ours, not theirs.
+
+No self-hostable E2B-style sandbox platform came out of this search with a documented pool policy. Nor did any that
+runs guests under Apple Virtualization. That comparison is still open.
 
 ## Decision
 
-Proposed: option 2, with `spares` set per Mac in `operator.json` (default 1) and the slot count as the cap.
-Replacements of idle spares start 5 minutes before their admission closes (`pool.replace_after`). Options 4 and 5
-are a separate decision once the reasons for the two caps are known; 5 is the end state if they protect nothing that
-a per-stay bound cannot.
+Proposed: option 2, as GitLab and ARC do it.
+
+1. **Cap.** At most `max_guests` guests run, booted or booting. Memory bounds it: (64 − 16) / 4 = 12 on a 64 GB Mac.
+2. **Floor.** Keep `spares` idle, admitting guests, set in `operator.json`, default 1. Size it as at least the stays
+   that arrive during one boot: ceil(arrivals per minute × 1 min) + 1.
+3. **Replace on consume.** When a stay claims a spare, boot one guest at once to restore the floor. Do not wait for it
+   to be needed.
+4. **Rotate idle spares by remaining lifetime.** Replace an idle spare only when it can no longer take a useful stay:
+   5 minutes before its admission closes (`pool.replace_after`), not at half-life.
+5. **Later.** Optionally take a stay only when a spare is ready, and let the floor follow time of day once we have
+   arrival data.
+
+Options 4 and 5 are a separate decision once the reasons for the two caps are known. Option 5 is the end state if the
+caps protect nothing a per-stay bound cannot. It turns rule 4 into "never".
 
 ## Consequences
 

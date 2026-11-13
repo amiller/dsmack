@@ -40,8 +40,16 @@ What someone watching the New York Mac on 2026-11-12 saw:
 4. **Longer runs.** Raise the 3600 s and 64-attestation caps so an idle spare lives longer and rotates less. Needs a new
    guest build, its class registered on each escrow, and a re-signed runner (its code hash is checked on chain).
    Combines with 2.
-5. **No timers.** A guest lives until it serves its one stay. Its registration stays valid while the Mac's heartbeat
-   shows it alive, not until a fixed expiry. It attests only when a browser asks, so the 64 count tracks use, not idle
+5. **No timers: use decides.** The hour is neither a price rule nor a measure of use. Stays are already metered per
+   second, and a stay already ends after 300 s idle (`AGENT_IDLE_TIMEOUT_SECONDS`). The hour is the guest's whole life
+   counted from boot, mostly spent waiting for someone. A guest nobody used is thrown away at 60 minutes. One first
+   used at minute 50 must stop admitting at minute 52. Separate the three:
+   - **Guest lifetime:** until its one stay ends. An unused guest waits as long as it is needed.
+   - **Stay length:** ends after disuse (the idle timeout) or when its paid time runs out. It extends in increments
+     while used and paid for.
+   - **Price:** a minimum charge or an increment size if we want one. It is a billing rule and holds no VM up.
+
+   A guest's registration stays valid while the Mac's heartbeat shows it alive, not until a fixed expiry. It attests only when a browser asks, so the 64 count tracks use, not idle
    time. Today idle guests re-register on a loop and each registration attests, which uses up the 64 in about an hour.
    Admission close and drain go away with the hour. Any bound that matters (stay length, spend) moves onto the stay.
    Needs:

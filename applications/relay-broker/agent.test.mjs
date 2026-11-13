@@ -539,3 +539,17 @@ test("a stalled chain read cannot stall the guest's start receipt",async()=>{
  f.payments.chain={snapshot:()=>new Promise(()=>{})};
  assert.equal((await f.sessions.receipt(await f.receipt(session.sessionId,0))).stop,false);
 });
+
+test("HTTP broker reads an inference request up to the quoted maxRequestBytes", async () => {
+ const {handleRequest}=await import("./server.ts");
+ const f=await fixture();
+ const dir=await Deno.makeTempDir();
+ const server=Deno.serve({hostname:"127.0.0.1",port:0,onListen(){}},request=>handleRequest(request,f.broker,{dataDir:dir,env:{}}));
+ const status=async padding=>(await fetch(`http://127.0.0.1:${server.addr.port}/inference/chat`,{method:"POST",
+  headers:{"content-type":"application/json"},body:JSON.stringify({action:"chat",padding})})).status;
+ try {
+  const quoted=f.inference.quote().maxRequestBytes;
+  assert.notEqual(await status("x".repeat(quoted+1000)),413,"a quoted-size body plus its signed wrapper reaches the inference checks");
+  assert.equal(await status("x".repeat(quoted+32768)),413);
+ } finally { await server.shutdown(); await Deno.remove(dir,{recursive:true}); }
+});

@@ -87,8 +87,21 @@ The research agrees on keeping a floor:
 
 None of these models has single-use guests with a hard lifetime. The recipe below is ours, not theirs.
 
-No self-hostable E2B-style sandbox platform came out of this search with a documented pool policy. Nor did any that
-runs guests under Apple Virtualization. That comparison is still open.
+Agent sandbox platforms keep three things apart: maximum lifetime, release on disuse, and billing.
+
+| | Open source | Isolation | Warm pool | What ends a sandbox |
+|---|---|---|---|---|
+| [E2B](https://github.com/e2b-dev/infra) | yes, Apache-2.0; one-machine self-host | Firecracker microVM, restored from snapshot | pre-booted snapshots | create/pause/resume/kill API |
+| [Agent Sandbox](https://agent-sandbox.sigs.k8s.io/docs/) (kubernetes-sigs) | yes | gVisor or Kata via RuntimeClass | `SandboxWarmPool`, fixed `replicas`, scalable by KEDA/HPA | absolute `shutdownTime` or delete; idle suspend only on the roadmap |
+| [Modal](https://modal.com/docs/guide/sandbox) | no | | | `idle_timeout` (activity = running command, stdin, open tunnel connection), separate from max `timeout` |
+| [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/api/lifecycle) | no | container | | sleeps after `sleepAfter` idle (10 min default); `keepAlive` heartbeats hold it; `destroy()` |
+| [Fly Machines](https://docs.fly.io/about/pricing) | no | Firecracker | | proxy stops or suspends on excess capacity |
+
+Fly bills a running Machine per second, and a stopped one only for its disk. Billing follows run time, not how long
+the VM exists. Agent Sandbox's warm-pool example sizes the pool from claim rate × time to replenish one sandbox, the
+same rule as our floor.
+
+Nothing about Daytona, microsandbox, OpenHands, Arrakis or Coder survived verification either way.
 
 ## Decision
 
@@ -101,7 +114,10 @@ Proposed: option 2, as GitLab and ARC do it.
    to be needed.
 4. **Rotate idle spares by remaining lifetime.** Replace an idle spare only when it can no longer take a useful stay:
    5 minutes before its admission closes (`pool.replace_after`), not at half-life.
-5. **Later.** Optionally take a stay only when a spare is ready, and let the floor follow time of day once we have
+5. **Release on disuse.** A stay ends after an idle window that resets on activity (a tool call, input, an open
+   connection), as Modal and Cloudflare do. The guest is destroyed when its stay ends. Billing is metered run time with
+   its own minimum and increments.
+6. **Later.** Optionally take a stay only when a spare is ready, and let the floor follow time of day once we have
    arrival data.
 
 Options 4 and 5 are a separate decision once the reasons for the two caps are known. Option 5 is the end state if the

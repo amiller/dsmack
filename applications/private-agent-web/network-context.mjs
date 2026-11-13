@@ -28,6 +28,7 @@ export function sandboxLabel(mac) {
 
 export function networkSummary(network) {
   if (!network?.totals) return "Dsmack network ↗";
-  const { macs_online: online, ready_slots: free } = network.totals;
-  return `Dsmack network: ${online} Mac${online === 1 ? "" : "s"} online, ${free} free slot${free === 1 ? "" : "s"} ↗`;
+  const { macs_online: online, ready_slots: free, standby_slots: standby } = network.totals;
+  return `Dsmack network: ${online} Mac${online === 1 ? "" : "s"} online, ${free} free slot${free === 1 ? "" : "s"}` +
+    (standby ? `, ${standby} more on demand` : "") + " ↗";
 }

@@ -20,7 +20,7 @@ async function fixture({ starter = "250000000", lifetime = 1800, initialized = t
  const node={kind:"compute",relay_peer:peer,admit_until:now+lifetime,
   payments:{receiptSigner:receiptKey.address,operator:other.address},
   attestation:{nodeBinding:{binding:{receiptSigner:receiptKey.address}}}};
- const broker={payments,inference,key,cfg:{agent:agentCfg},live:()=>[node],gone:()=>false,now:()=>now};
+ const broker={payments,inference,key,cfg:{agent:agentCfg},live:()=>[node],alive(p){return this.live().find(n=>n.relay_peer===p)},gone:()=>false,now:()=>now};
  let fleetSlots;
  const readFleet=async()=>[{publisher:"mac-one",online:true,received_at:now,updated_at:now,config:{max_guests:1,...(hostBrowse?{browse:hostBrowse}:{})},
   slots:fleetSlots??broker.live().map((n,slot_id)=>({slot_id,state:"ready",relay_peer:n.relay_peer}))}];

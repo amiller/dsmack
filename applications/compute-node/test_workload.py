@@ -26,7 +26,7 @@ class MacWorkloadTests(unittest.TestCase):
         self.assertEqual(measured['network']['egress'], [
             {'destination':'192.168.127.254/32','protocol':'tcp','port':18484}])
         self.assertEqual(node['command'][1], RELAY)
-        self.assertEqual(env['ADMIT_SECONDS'], '360')
+        self.assertEqual(env['ADMIT_SECONDS'], '540')
         self.assertTrue({'egress-checks','gateway-log'}.issubset({a['name'] for a in measured['outputs']['artifacts']}))
 
     def test_second_pool_uses_its_own_measured_proxy_port(self):
@@ -42,7 +42,7 @@ class MacWorkloadTests(unittest.TestCase):
         measured = json.loads(self.generate(seconds=3600, tunnel_index=INDEX, payments=payments))
         node = json.loads(measured['docker_compose_file'])['services']['node']
         self.assertEqual(node['command'][2], '3600')
-        self.assertEqual(node['environment']['ADMIT_SECONDS'], '3120')
+        self.assertEqual(node['environment']['ADMIT_SECONDS'], '3300')
         self.assertEqual(json.loads(node['environment']['PAYMENTS_CONFIG'])['runSeconds'], 3600)
         self.assertEqual(measured['limits']['timeout_s'], 3600)
         with self.assertRaisesRegex(ValueError, 'must not name an App Attest key'):

@@ -5,13 +5,14 @@ import { Network, networkSnapshot } from "./network.mjs";
 const mac = { publisher: "publisher", operator: "operator", region: { name: "Michigan, US", lat: 42, lon: -84 },
   hardware: { name: "private-hostname", chip: "Apple M4", mem_bytes: 64 * 2 ** 30 },
   config: { max_guests: 4 }, slots: [{ slot_id: 0, state: "busy", run_id: "private-run" },
-    { slot_id: 0, state: "ready" }, { slot_id: 1, state: "ready" }, { slot_id: 1, state: "ready" }],
+    { slot_id: 0, state: "ready" }, { slot_id: 1, state: "ready" }, { slot_id: 1, state: "ready" },
+    { slot_id: 2, state: "standby" }, { slot_id: 3, state: "standby" }],
   errors: ["private-error"], signature: "private-envelope", link: { private: true },
   updated_at: 120, received_at: 120, online: true, status: "online" };
 
 test("public network counts rotating logical slots once and excludes offline capacity and private fields", () => {
   const value = networkSnapshot([mac, { ...mac, publisher: "offline", online: false, status: "offline" }], 140);
-  assert.deepEqual(value.totals, { macs_online: 1, total_slots: 4, ready_slots: 1, busy_slots: 1, utilization: 0.25 });
+  assert.deepEqual(value.totals, { macs_online: 1, total_slots: 4, ready_slots: 1, busy_slots: 1, standby_slots: 2, utilization: 0.25 });
   assert.equal(value.macs.length, 2); assert.deepEqual(value.macs[0].region, mac.region);
   assert.equal(value.macs[0].operator, "operator");
   assert(!JSON.stringify(value).includes("private"));

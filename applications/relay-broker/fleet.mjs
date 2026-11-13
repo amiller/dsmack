@@ -96,7 +96,7 @@ async function handle(req, escrow, path, now) {
     for (const slot of body.slots) {
       need(Number.isSafeInteger(slot.slot_id) && slot.slot_id >= 0 && slot.slot_id < body.config.max_guests,
         "slot id");
-      need(["launching", "attesting", "ready", "busy", "draining", "failed"].includes(slot.state), "slot state");
+      need(["launching", "attesting", "ready", "busy", "draining", "failed", "standby"].includes(slot.state), "slot state");
     }
     need(Array.isArray(body.errors) && body.errors.length <= 10, "at most ten errors");
     need(Array.isArray(body.classes) && body.classes.length <= 64 && body.classes.every(v => /^0x[0-9a-fA-F]{64}$/.test(v)), "node classes");

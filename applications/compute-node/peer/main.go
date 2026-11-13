@@ -96,12 +96,31 @@ func brokerClient(raw string) (*http.Client, error) {
 	return gatewayBrokerClient(u, os.Getenv("BROKER_GATEWAY"))
 }
 
-// Draining guests retain their relay circuits while their fixed paid binding expires.
-func renewAdmission(until time.Time, renew func() error) error {
-	if !time.Now().Before(until) {
+// Admission closes this long before the measured VM watchdog. An idle stay ends by then; a stay running a tool runs to
+// its grant expiry (run expiry − 120 s at the broker), which still leaves time to seal and send the final receipt.
+const drainReserve = 300 * time.Second
+
+// A guest attests once to register. Afterwards it renews its broker lease with telemetry signed by the attested
+// receipt key, so an idle guest does not spend an App Attest assertion (64 per run) every tick. A broker that no
+// longer knows the guest (its leases live in memory) refuses the refresh, and the guest attests and registers again.
+func renewLease(registered *bool, refresh, register func() error) error {
+	if *registered {
+		err := refresh()
+		if err == nil {
+			return nil
+		}
+		*registered = false
+		if again := register(); again != nil {
+			return fmt.Errorf("lease refresh: %v; registration: %w", err, again)
+		}
+		*registered = true
 		return nil
 	}
-	return renew()
+	if err := register(); err != nil {
+		return err
+	}
+	*registered = true
+	return nil
 }
 
 func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (serveErr error) {
@@ -259,7 +278,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		return fmt.Errorf("invalid Linux uptime")
 	}
 	remaining := time.Duration(seconds)*time.Second - time.Duration(uptimeSeconds*float64(time.Second)) - 30*time.Second
-	if remaining <= 480*time.Second {
+	if remaining <= drainReserve {
 		return fmt.Errorf("insufficient measured guest lifetime")
 	}
 	n := &engine{paid: paid, secret: secret, signer: signer, broker: key, node: h.ID().String(), until: time.Now().Add(remaining), resultPath: "/workspace/artifacts/last-result", seen: map[string]bool{}}
@@ -277,7 +296,7 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 		}
 		n.admissionUntil = time.Now().Add(time.Duration(admit) * time.Second)
 	}
-	cutoff := n.until.Add(-480 * time.Second)
+	cutoff := n.until.Add(-drainReserve)
 	if n.admissionUntil.IsZero() || n.admissionUntil.After(cutoff) {
 		n.admissionUntil = cutoff
 	}
@@ -318,12 +337,15 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 	renew := func() error {
 		var out map[string]any
 		snapshot := map[string]any{}
+		registrationMu.Lock()
 		for k, v := range registration {
 			snapshot[k] = v
 		}
+		registrationMu.Unlock()
 		snapshot["telemetry"] = n.telemetry()
 		return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 	}
+	refresh := renew
 	if err := os.WriteFile("/workspace/artifacts/registration", canon(registration), 0644); err != nil {
 		return err
 	}
@@ -434,8 +456,10 @@ func serve(relay, brokerURL, brokerHex, cdhash, worker string, seconds int) (ser
 			return post(c, strings.TrimRight(brokerURL, "/")+"/nodes", snapshot, &out)
 		}
 	}
-	register := renew
-	renew = func() error { return renewAdmission(n.admissionUntil, register) }
+	if paid != nil {
+		register, registered := renew, false
+		renew = func() error { return renewLease(&registered, refresh, register) }
+	}
 	// Paid runs expose their attested admission for the owner before registration.
 	// An unregistered run cannot receive a grant; retries permit owner admission.
 	if paid == nil {

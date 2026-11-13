@@ -36,7 +36,7 @@ const server=createServer(async(req,res)=>{
    let value;
    if(path.endsWith("/payments/key"))value={chainId:84532,escrow:cfg.escrow,codeHash:cfg.codeHash,address:cfg.grantSigner};
    else if(path.endsWith("/key"))value={public_key:cfg.brokerKey};
-   else if(path.endsWith("/inference/quote"))value={mode:"broker-e2ee",provider:"near",model:"fixture",configured:true,maxOutputTokens:512};
+   else if(path.endsWith("/inference/quote"))value={mode:"broker-e2ee",provider:"near",models:["fixture"],configured:true,maxOutputTokens:512};
    else if(path.endsWith("/inference/credit")) {
     const deposited=await rail.deposits(body.wallet);
     value={wallet:body.wallet,grantedNanoUsd:String(deposited*1000n),spentNanoUsd:"0",reservedNanoUsd:"0",remainingNanoUsd:String(deposited*1000n),usedTokens:"0"};

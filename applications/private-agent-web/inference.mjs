@@ -68,7 +68,7 @@ export function brokerStream(
     ).join("");
     const session = await api(
       "/inference/prepare",
-      await walletBody(credit, "prepare", { attestationNonce, ...(artifactId ? { artifactId } : {}) }),
+      await walletBody(credit, "prepare", { attestationNonce, model: modelId, ...(artifactId ? { artifactId } : {}) }),
       { signal },
     );
     const checked = await checkEvidence(session.attestation, modelId, started, attestationNonce, session.modelPublicKey);

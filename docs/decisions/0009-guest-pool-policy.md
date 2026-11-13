@@ -91,7 +91,10 @@ Agent sandbox platforms keep three things apart: maximum lifetime, release on di
 
 | | Open source | Isolation | Warm pool | What ends a sandbox |
 |---|---|---|---|---|
-| [E2B](https://github.com/e2b-dev/infra) | yes, Apache-2.0; one-machine self-host | Firecracker microVM, restored from snapshot | pre-booted snapshots | create/pause/resume/kill API |
+| [E2B](https://docs.e2b.dev/faq/sandbox-lifetime) | yes, Apache-2.0; one-machine self-host | Firecracker microVM | none: create restores a snapshot, memory paged in lazily | timeout from creation (5 min default), extended only by `setTimeout`; max continuous run 1 h (Hobby) / 24 h (Pro). On timeout: kill, or pause (memory and disk kept indefinitely) with auto-resume on the next request |
+| [Daytona](https://www.daytona.io/docs/en/warm-pools) | yes | | fixed size per snapshot and region; each claim starts a replacement | auto-stop after 15 min with no SDK events, archive after 7 days stopped, delete off by default |
+| [microsandbox](https://github.com/superradcompany/microsandbox) | yes | libkrun microVM; Linux, Windows, Apple Silicon | | explicit stop/rm; snapshot, fork and copy-on-write memory restore |
+| [Arrakis](https://github.com/abshkbh/arrakis) | yes | cloud-hypervisor microVM, Linux | | explicit; snapshot/restore |
 | [Agent Sandbox](https://agent-sandbox.sigs.k8s.io/docs/) (kubernetes-sigs) | yes | gVisor or Kata via RuntimeClass | `SandboxWarmPool`, fixed `replicas`, scalable by KEDA/HPA | absolute `shutdownTime` or delete; idle suspend only on the roadmap |
 | [Modal](https://modal.com/docs/guide/sandbox) | no | | | `idle_timeout` (activity = running command, stdin, open tunnel connection), separate from max `timeout` |
 | [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/api/lifecycle) | no | container | | sleeps after `sleepAfter` idle (10 min default); `keepAlive` heartbeats hold it; `destroy()` |
@@ -101,7 +104,17 @@ Fly bills a running Machine per second, and a stopped one only for its disk. Bil
 the VM exists. Agent Sandbox's warm-pool example sizes the pool from claim rate × time to replenish one sandbox, the
 same rule as our floor.
 
-Nothing about Daytona, microsandbox, OpenHands, Arrakis or Coder survived verification either way.
+E2B bills per second while running, with no stated minimum, and stops billing on pause or timeout. Its timer starts
+when a sandbox is created for a user, never while it waits in a pool. When the timer runs out, the sandbox is paused
+and kept, not thrown away. Daytona's warm pool is our recipe exactly: a fixed number of running spares, and each claim
+starts a replacement.
+
+The other way to fast starts is snapshot restore. E2B keeps no running VMs; it restores a pre-booted snapshot on
+demand. Apple's Virtualization framework can save and restore a VM's state too. If a restored guest can attest fresh,
+a snapshot could replace idle spares entirely. That is an open question for our attestation, not settled here.
+
+Nothing about OpenHands, Kata or gVisor as products, Coder or Codespaces survived verification, and no paper on sizing
+sandbox pools for agent workloads turned up.
 
 ## Decision
 

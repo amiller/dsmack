@@ -40,14 +40,27 @@ What someone watching the New York Mac on 2026-11-12 saw:
 4. **Longer runs.** Raise the 3600 s and 64-attestation caps so an idle spare lives longer and rotates less. Needs a new
    guest build, its class registered on each escrow, and a re-signed runner (its code hash is checked on chain).
    Combines with 2.
+5. **No timers.** A guest lives until it serves its one stay. Its registration stays valid while the Mac's heartbeat
+   shows it alive, not until a fixed expiry. It attests only when a browser asks, so the 64 count tracks use, not idle
+   time. Today idle guests re-register on a loop and each registration attests, which uses up the 64 in about an hour.
+   Admission close and drain go away with the hour. Any bound that matters (stay length, spend) moves onto the stay.
+   Needs:
+   - a new guest build, since the run limit is measured;
+   - its class registered again on each escrow;
+   - broker registration without a fixed expiry;
+   - a runner that counts per stay, which means a re-signed runner and a new code hash on chain.
+
+   The VM count then follows use exactly: spares plus active stays. Combines with 2: spares on demand first, timers
+   removed later.
 
 <!-- research: how CI runner autoscalers, serverless warm pools and the literature size idle pools; to be added. -->
 
 ## Decision
 
 Proposed: option 2, with `spares` set per Mac in `operator.json` (default 1) and the slot count as the cap.
-Replacements of idle spares start 5 minutes before their admission closes (`pool.replace_after`). Option 4 is a
-separate decision once the reasons for the two caps are known.
+Replacements of idle spares start 5 minutes before their admission closes (`pool.replace_after`). Options 4 and 5
+are a separate decision once the reasons for the two caps are known; 5 is the end state if they protect nothing that
+a per-stay bound cannot.
 
 ## Consequences
 

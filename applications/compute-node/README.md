@@ -120,9 +120,12 @@ image's `resource_profiles` bind the memory and vCPU count. Each size uses its
 own escrow node class and compose measurement; register the packed class
 with `applications/payments/register-class.mjs` before starting the pool.
 
-Each configured slot rotates independently: a replacement starts after 450
-seconds, the old guest stops admitting at 570 seconds and exits at 840 seconds.
-Up to two generations per slot overlap during handover. Boot registration is
+The pool keeps `spares` guests (in the operator JSON, default 1) booting or free
+and boots another when a stay takes one, up to `max_guests`. Empty slots report
+`standby`. A guest serves one stay and retires. A free guest stops counting as a
+spare 5 minutes before its admission closes (300 seconds before its measured
+lifetime), so its successor boots then. A paid guest attests once to register and
+renews its broker lease with telemetry signed by its attested receipt key. Boot registration is
 serialized to associate each guest's broker identity with its owned VM. A failed
 guest is preserved, retired and replaced. After three consecutive failures a slot
 retries with exponential backoff up to 30 minutes; successful retirement resets its failure count. Other slots continue.

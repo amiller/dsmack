@@ -100,38 +100,48 @@ class PoolTests(unittest.TestCase):
             instance.launch.assert_called_once_with(instance.slots[1])
             self.assertFalse(instance.stopping)
 
-    def test_a_guest_is_a_spare_while_booting_or_free_and_young(self):
+    def test_a_guest_is_a_spare_while_booting_or_listed_free_and_young(self):
         self.assertTrue(pool.spare({'node': None}, 0, 3000))
         self.assertFalse(pool.spare({'node': None, 'readiness_failed': True}, 0, 3000))
-        free = {'node': {'relay_peer': 'a', 'available': True}, 'started': 0}
-        self.assertTrue(pool.spare(free, 2999, 3000))
+        free = {'node': {'relay_peer': 'a', 'available': False}, 'listed': True, 'started': 0}
+        self.assertTrue(pool.spare(free, 2999, 3000), 'the broker marks a just-registered guest unavailable')
         self.assertFalse(pool.spare(free, 3000, 3000), 'old enough that its successor should boot')
-        self.assertFalse(pool.spare({**free, 'node': {'relay_peer': 'a', 'available': False}}, 10, 3000), 'a stay holds it')
-        self.assertFalse(pool.spare({**free, 'node': {'relay_peer': 'a', 'telemetry': {'busy': True}}}, 10, 3000))
+        self.assertTrue(pool.retiring(free, 3000, 3000))
+        self.assertFalse(pool.spare({**free, 'listed': False}, 10, 3000), 'its broker lease lapsed')
+        taken = {**free, 'node': {'relay_peer': 'a', 'telemetry': {'busy': True}}}
+        self.assertFalse(pool.spare(taken, 10, 3000))
+        self.assertFalse(pool.retiring(taken, 3100, 3000), 'a guest in a stay keeps its place')
 
     def test_an_empty_slot_reports_standby_capacity(self):
         with tempfile.TemporaryDirectory() as tmp:
             instance = self.instance(Path(tmp))
             instance.payments = {'node': 'class'}; instance.hardware = {}
             self.assertEqual(instance.snapshot()['slots'][0]['state'], 'standby')
+            instance.stopping = True
+            self.assertEqual(instance.snapshot()['slots'], [])
 
-    def test_pool_keeps_spares_booted_replaces_a_taken_spare_and_stops_at_max_guests(self):
+    def test_pool_keeps_spares_booted_replaces_a_taken_spare_and_hands_over_late_at_the_cap(self):
         with tempfile.TemporaryDirectory() as tmp:
             instance = self.instance(Path(tmp))
             instance.slots = [{'slot_id': i, 'consecutive_failures': 0, 'last_error': None, 'jobs_served': 0} for i in range(3)]
             instance.config = {'spares': 1, 'max_guests': 3}
-            running = lambda slot, **node: {'slot_id': slot, 'process': Mock(poll=Mock(return_value=None)),
-                                            'started': pool.time.monotonic(), 'admit_seconds': 3300, **node}
-            instance.active = [running(0, node={'relay_peer': 'free', 'available': True})]
-            instance.tick()
-            instance.launch.assert_not_called()
-            instance.active = [running(0, node={'relay_peer': 'taken', 'available': False})]
-            instance.tick()
-            instance.launch.assert_called_once_with(instance.slots[1])
-            instance.launch.reset_mock()
-            instance.active = [running(i, node={'relay_peer': str(i), 'available': False}) for i in range(3)]
-            instance.tick()
-            instance.launch.assert_not_called()
+            now = pool.time.monotonic()
+            def running(slot, busy=False, age=0):
+                return {'slot_id': slot, 'process': Mock(poll=Mock(return_value=None)), 'started': now - age,
+                        'admit_seconds': 3300, 'listed': True,
+                        'node': {'relay_peer': str(slot), 'available': False, 'telemetry': {'busy': busy}}}
+            instance.active = [running(0)]
+            instance.tick(); instance.launch.assert_not_called()
+            instance.active = [running(0, busy=True)]
+            instance.tick(); instance.launch.assert_called_once_with(instance.slots[1]); instance.launch.reset_mock()
+            instance.active = [running(i, busy=True) for i in range(3)]
+            instance.tick(); instance.launch.assert_not_called()
+            instance.slots[1]['retry_at'] = float('inf')
+            instance.active = [running(0, busy=True)]
+            instance.tick(); instance.launch.assert_called_once_with(instance.slots[2]); instance.launch.reset_mock()
+            instance.slots = instance.slots[:1]; instance.config = {'spares': 1, 'max_guests': 1}
+            instance.active = [running(0, age=3100)]
+            instance.tick(); instance.launch.assert_called_once_with(instance.slots[0])
 
     def test_registered_replacement_takes_the_slot_unless_predecessor_holds_a_stay(self):
         with tempfile.TemporaryDirectory() as tmp:
@@ -354,7 +364,7 @@ class PoolTests(unittest.TestCase):
     def test_failed_guest_retires_without_stopping_healthy_guest_which_remains_the_spare(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root)
-            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'}, 'listed': True,
                        'started': pool.time.monotonic(), 'admit_seconds': 570}
             failed = self.failed_node(root/'failed')
             instance.active = [healthy, failed]
@@ -593,7 +603,7 @@ class PoolTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp); instance = self.instance(root); instance.args.broker = 'https://broker'
             now = pool.time.monotonic()
-            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'},
+            healthy = {'slot_id': 0, 'process': Mock(poll=Mock(return_value=None)), 'node': {'relay_peer': 'healthy'}, 'listed': True,
                        'started': now, 'admit_seconds': 570}
             booting = self.failed_node(root/'booting'); booting.update(process=Mock(poll=Mock(return_value=None)),
                 previous=set(), started=now, admit_seconds=570, readiness_deadline=0)

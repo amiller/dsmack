@@ -250,9 +250,13 @@ test("a registered guest renews its lease with signed telemetry, without attesti
     return { relay_peer: "guest", kind: "compute", receipt_key: k.public_key, telemetry: { ...value, signature } };
   };
   b.relays.set("guest", { kind: "compute", relay_peer: "guest", receipt_key: own.public_key, admit_until: NOW + 10,
-    expires_at: NOW + 120, attestation: { status: "verified", nodeBinding: { binding: { expires: NOW + 3000 } } } });
+    payments: { runId: undefined }, expires_at: NOW + 120,
+    attestation: { status: "verified", nodeBinding: { binding: { expires: NOW + 3000 } } } });
   now = NOW + 100;
-  assert.equal((await b.register(await status(own))).expires_at, now + limits.compute_lease_seconds);
+  const fresh = await status(own);
+  assert.equal((await b.register(fresh)).expires_at, now + limits.compute_lease_seconds);
+  now = NOW + 110;
+  await assert.rejects(b.register(fresh), /./, "a replayed status must attest, which it cannot");
   assert.equal(b.live().length, 0, "admission closed: not offered for new stays");
   assert.equal(b.alive("guest").kind, "compute", "but its lease is current, so a running stay is still served");
   await assert.rejects(b.register(await status(other)), /./, "another receipt key must attest");

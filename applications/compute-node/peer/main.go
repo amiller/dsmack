@@ -96,8 +96,8 @@ func brokerClient(raw string) (*http.Client, error) {
 	return gatewayBrokerClient(u, os.Getenv("BROKER_GATEWAY"))
 }
 
-// A stay may run until this long before the measured VM watchdog, which leaves time to seal its workspace and send
-// the final receipt. Admission closes then too.
+// Admission closes this long before the measured VM watchdog. An idle stay ends by then; a stay running a tool runs to
+// its grant expiry (run expiry − 120 s at the broker), which still leaves time to seal and send the final receipt.
 const drainReserve = 300 * time.Second
 
 // A guest attests once to register. Afterwards it renews its broker lease with telemetry signed by the attested

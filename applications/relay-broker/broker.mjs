@@ -55,9 +55,11 @@ export class Broker {
     // A guest attests once to register; later registrations are leases renewed by telemetry signed with the attested
     // receipt key, so an idle guest does not spend an App Attest assertion every 25 s.
     const prior = this.relays.get(r.relay_peer);
-    if (telemetry && prior && prior.kind === "compute" && prior.receipt_key === r.receipt_key &&
-        prior.payments?.runId === r.payments?.runId) {
-      require(!prior.attestation.nodeBinding || prior.attestation.nodeBinding.binding.expires > now, "run binding changed or expired");
+    // Only paid guests renew this way: their run binding bounds the lease. Newer telemetry only, so a status read from
+    // GET /nodes cannot be replayed to extend a lease or roll back busy.
+    if (telemetry && prior?.payments && prior.kind === "compute" && prior.receipt_key === r.receipt_key &&
+        prior.payments.runId === r.payments?.runId && telemetry.updated_at > (prior.telemetry?.updated_at ?? 0)) {
+      require(prior.attestation.nodeBinding.binding.expires > now, "run binding changed or expired");
       Object.assign(prior, { telemetry, expires_at: now + limits.compute_lease_seconds });
       this.seen.set(r.relay_peer, now);
       return prior;

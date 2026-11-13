@@ -170,11 +170,18 @@ def replace_after(seconds, drain_seconds):
 
 
 def spare(node, now, replace_after):
-    """A booting guest, or a registered one that is free and young enough to take a useful stay."""
+    """A booting guest, or a registered one the broker still lists, that is not in a stay and young enough to take a
+    useful one. The guest's own signed telemetry says whether a stay holds it."""
     if node['node'] is None:
         return not node.get('readiness_failed')
-    return (node['node'].get('available', True) and not node['node'].get('telemetry', {}).get('busy')
+    return (node.get('listed') and not node['node'].get('telemetry', {}).get('busy')
             and now - node['started'] < replace_after)
+
+
+def retiring(node, now, replace_after):
+    """A free guest too old to take a useful stay: its successor may boot beside it while it runs out."""
+    return (node['node'] is not None and not node['node'].get('telemetry', {}).get('busy')
+            and now - node['started'] >= replace_after)
 
 
 def preflight(state, active, pool_root=None, coexist_pools=()):
@@ -464,6 +471,8 @@ class Pool:
             if current is not None:
                 by_peer = {n['relay_peer']: n for n in current}
                 for node in self.active:
+                    if node['node']:
+                        node['listed'] = node['node']['relay_peer'] in by_peer
                     if node['node'] and node['node']['relay_peer'] in by_peer:
                         latest = by_peer[node['node']['relay_peer']]
                         error = latest.get('telemetry', {}).get('last_error')
@@ -530,6 +539,7 @@ class Pool:
                 found = ready_node(nodes, node['previous'] | claimed, self.measurement, self.image)
                 if found:
                     node['node'] = found
+                    node['listed'] = True
                     node.pop('readiness_failed', None)
                     node.pop('readiness_error', None)
                     self.event('ready', slot_id=slot['slot_id'], run=str(node['path']), relay_peer=found['relay_peer'],
@@ -538,18 +548,21 @@ class Pool:
                     node['readiness_failed'] = True
                     self.event('readiness_timeout', slot_id=slot['slot_id'], run=str(node['path']),
                                error='new node did not attest at broker; waiting for this owned guest to finish')
-        # Guests follow use: keep `spares` guests booting or free, boot one when a stay takes one, and never run more than
-        # max_guests. A free guest stops counting as a spare replace_after into its run, so its successor boots late.
+        # Guests follow use: keep `spares` guests booting or free, boot one when a stay takes one, and never hold more than
+        # max_guests. A free guest stops counting as a spare replace_after into its run; its successor boots beside it
+        # in the same slot while it runs out, so admission never lapses.
         booting = any(n['node'] is None and not n.get('readiness_failed') for n in self.active)
+        held = sum(not retiring(n, now, self.args.replace_after) for n in self.active)
         if (not self.stopping and (not self.args.cycles or self.launched < self.args.cycles) and not booting
-                and len(self.active) < self.config['max_guests']
+                and held < self.config['max_guests']
                 and sum(spare(n, now, self.args.replace_after) for n in self.active) < self.config['spares']):
             # Resolve one boot's broker identity before launching another, so identically measured guests cannot be
-            # assigned to the wrong slot. Prefer an empty slot; a slot holds at most two runs during a handover.
+            # assigned to the wrong slot. Boot into an empty slot, or beside a retiring guest; prefer empty.
+            def runs(slot): return [n for n in self.active if n['slot_id'] == slot['slot_id']]
             open_slots = sorted((slot for slot in self.slots if now >= slot.get('retry_at', 0)
-                                 and sum(n['slot_id'] == slot['slot_id'] for n in self.active) < 2
-                                 and not any(n['slot_id'] == slot['slot_id'] and n['node'] is None for n in self.active)),
-                                key=lambda slot: sum(n['slot_id'] == slot['slot_id'] for n in self.active))
+                                 and (not runs(slot) or (len(runs(slot)) == 1
+                                                         and retiring(runs(slot)[0], now, self.args.replace_after)))),
+                                key=lambda slot: len(runs(slot)))
             for slot in open_slots[:1]:
                 try:
                     if self.args.pool_root:
@@ -581,7 +594,9 @@ class Pool:
             active = [n for n in self.active if n['slot_id'] == slot['slot_id']]
             for node in active or [None]:
                 registered = node['node'] if node else None
-                # An empty slot is capacity the pool boots into when stays need it.
+                # An empty slot is capacity the pool boots into when stays need it; a stopping pool offers none.
+                if not node and self.stopping:
+                    continue
                 state = 'failed' if now < slot.get('retry_at', 0) else 'launching' if node else 'standby'
                 if node:
                     if node.get('readiness_failed'):

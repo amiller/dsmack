@@ -74,7 +74,7 @@ export async function backend(page, kind) {
         configured: true,
         mode: "broker-e2ee",
         provider: "near",
-        model,
+        models: [model],
         starterCreditNanoUsd: "250000000",
         maxOutputTokens: 512,
         maxNanoUsdPerToken: "1500",

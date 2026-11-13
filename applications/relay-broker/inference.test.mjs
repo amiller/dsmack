@@ -100,7 +100,7 @@ function fixture({ state, cfg = {} } = {}) {
   };
   const inference = new Inference({
     payments,
-    cfg: { model: MODEL, ...cfg },
+    cfg: { models: [MODEL], ...cfg },
     provider,
     now: () => now,
   });
@@ -119,7 +119,7 @@ function fixture({ state, cfg = {} } = {}) {
   }
   async function prepare(signer = wallet) {
     return await inference.prepare(
-      await signed("prepare", { attestationNonce: "cd".repeat(32) }, signer),
+      await signed("prepare", { attestationNonce: "cd".repeat(32), model: MODEL }, signer),
     );
   }
   async function encrypted(session) {
@@ -169,6 +169,18 @@ function fixture({ state, cfg = {} } = {}) {
   };
 }
 
+test("prepare attests the requested offered model and the chat must name that same model", async () => {
+  const other = "near/other-model", f = fixture({ cfg: { models: [MODEL, other] } });
+  await f.credit();
+  assert.deepEqual(f.inference.quote().models, [MODEL, other]);
+  const prepare = async (model) => f.inference.prepare(await f.signed("prepare", { attestationNonce: "ab".repeat(32), model }));
+  await assert.rejects(prepare("near/not-offered"), code("BAD_REQUEST"));
+  const session = await prepare(other);
+  assert.equal(session.attestation.model, other);
+  await assert.rejects(f.inference.chat(await f.signed("chat", await f.encrypted(session))), code("BAD_REQUEST"));
+  assert.equal(f.calls(), 0);
+});
+
 test("wallet ownership, expiry and replay protect one starter grant per wallet", async () => {
   const f = fixture(), claim = await f.signed("credit");
   const tampered = { ...claim, wallet: Wallet.createRandom().address };
@@ -191,7 +203,7 @@ test("wallet ownership, expiry and replay protect one starter grant per wallet",
       chain: {},
       save: async () => {},
     }),
-    cfg: { model: MODEL },
+    cfg: { models: [MODEL] },
     provider: f.provider,
     now: () => 2000000000,
   });
@@ -384,7 +396,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
     });
   const restarted = new Inference({
     payments: payment,
-    cfg: { model: MODEL },
+    cfg: { models: [MODEL] },
     provider: f.provider,
     now: () => 2000000000,
   });
@@ -395,7 +407,7 @@ test("unknown dispatched requests remain reserved across restart and are never r
   );
   await assert.rejects(
     restarted.prepare(
-      await f.signed("prepare", { attestationNonce: "ef".repeat(32) }),
+      await f.signed("prepare", { attestationNonce: "ef".repeat(32), model: MODEL }),
     ),
     code("REQUEST_IN_FLIGHT"),
   );
@@ -607,7 +619,7 @@ test("model dispatch cannot spend credit already reserved by a held guest", asyn
 
 const artifactId = 'a1'.repeat(32);
 async function artifactPrepare(f) {
-  return f.inference.prepare(await f.signed('prepare', { attestationNonce: 'cd'.repeat(32), artifactId }));
+  return f.inference.prepare(await f.signed('prepare', { attestationNonce: 'cd'.repeat(32), artifactId, model: MODEL }));
 }
 async function artifactGrant(f, limitNanoUsd) {
   return f.inference.artifactBudget(await f.signed('artifact-budget', { artifactId, limitNanoUsd }));
@@ -670,7 +682,7 @@ test("restart reconciles interrupted known billing ID exactly once without inven
   const [id, request] = Object.entries(state.inferenceRequests)[0];
   state.inferenceRequests[id] = { ...request, status: "streaming", usedTokens: null, streamCompleted: false };
   const payments = new Payments({ cfg: {}, key: {}, state, chain: {}, save: async () => {} });
-  const restarted = new Inference({ payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  const restarted = new Inference({ payments, cfg: { models: [MODEL] }, provider: f.provider, now: () => 2000000000 });
   await restarted.recover();
   assert.equal(restarted.status().inFlightStreams, 0);
   assert.equal(payments.state.inferenceRequests[id].interrupted, true);
@@ -725,12 +737,12 @@ test("funded inference debit accrues exactly once to the configured provider pay
 test("duplicate signed prepare shares one attestation and the same session", async () => {
   const f = fixture();
   await f.credit();
-  const request = await f.signed("prepare", { attestationNonce: "cd".repeat(32) });
+  const request = await f.signed("prepare", { attestationNonce: "cd".repeat(32), model: MODEL });
   const [a, b] = await Promise.all([f.inference.prepare(request), f.inference.prepare(request)]);
   assert.deepEqual(a, b);
   assert.deepEqual(await f.inference.prepare(request), a);
   assert.equal(f.attests(), 1);
-  const changed = await f.signed("prepare", { nonce: request.nonce, attestationNonce: "ef".repeat(32) });
+  const changed = await f.signed("prepare", { nonce: request.nonce, attestationNonce: "ef".repeat(32), model: MODEL });
   await assert.rejects(f.inference.prepare(changed), code("REQUEST_REPLAY"));
 });
 
@@ -747,7 +759,7 @@ test("duplicate signed chat dispatches and reserves once, including after restar
   await original.text();
   assert.equal(f.calls(), 1);
   assert.equal(Object.keys(f.saved().inferenceRequests).length, 1);
-  const restarted = new Inference({ payments: f.payments, cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+  const restarted = new Inference({ payments: f.payments, cfg: { models: [MODEL] }, provider: f.provider, now: () => 2000000000 });
   assert.equal((await restarted.chat(request)).status, 202);
   await f.inference.usage(await f.signed("usage"));
   assert.equal((await restarted.chat(request)).status, 202);
@@ -771,7 +783,7 @@ test("the 278-byte usage check reports already sent after duplicate delivery or 
   assert.equal(first.spentNanoUsd, "300");
   assert.equal(first.usedTokens, "8");
   const restarted = new Inference({ payments: new Payments({ cfg: {}, key: {}, state: f.saved(), chain: {}, save: async () => {} }),
-    cfg: { model: MODEL }, provider: f.provider, now: () => 2000000000 });
+    cfg: { models: [MODEL] }, provider: f.provider, now: () => 2000000000 });
   await assert.rejects(restarted.usage(request), code("REQUEST_ALREADY_SENT"));
   assert.deepEqual(await restarted.usage(await f.signed("usage")), first);
   assert.equal(f.calls(), 1);
@@ -820,7 +832,7 @@ test("a dispatch with no billing ID is released a day later and the wallet can m
   await assert.rejects(f.send, code("PROVIDER_TRANSPORT"));
   const state = f.saved(), [id, request] = Object.entries(state.inferenceRequests)[0];
   const at = (now) => new Inference({ payments: new Payments({ cfg: {}, key: {}, state: structuredClone(state), chain: {}, save: async () => {} }),
-    cfg: { model: MODEL }, provider: f.provider, now: () => now });
+    cfg: { models: [MODEL] }, provider: f.provider, now: () => now });
   const early = request.createdAt + ABANDON_SECONDS - 1, late = early + 1;
   await assert.rejects(at(early).usage(await f.signed("usage", { issuedAt: early })), code("USAGE_PENDING"));
   const released = at(late), summary = await released.usage(await f.signed("usage", { issuedAt: late }));

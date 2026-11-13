@@ -45,7 +45,7 @@ export class Inference {
       now,
     });
     check(
-      payments && typeof cfg?.model === "string" && cfg.model.length > 0 &&
+      payments && Array.isArray(cfg?.models) && cfg.models.length > 0 && cfg.models.every((m) => typeof m === "string" && m.length > 0) &&
         uint(this.cfg.starterCreditNanoUsd) &&
         BigInt(this.cfg.starterCreditNanoUsd) > 0n &&
         uint(this.cfg.dailyStarterBudgetNanoUsd) &&
@@ -54,7 +54,7 @@ export class Inference {
         Number.isSafeInteger(this.cfg.maxOutputTokens) &&
         this.cfg.maxOutputTokens > 0,
       "BAD_REQUEST",
-      "model and integer inference limits are required",
+      "models and integer inference limits are required",
     );
     this.sessions = new Map();
     this.preparations = new Map();
@@ -72,7 +72,7 @@ export class Inference {
     return {
       mode: "broker-e2ee",
       provider: "near",
-      model: this.cfg.model,
+      models: this.cfg.models,
       configured: Boolean(this.provider?.apiKey),
       starterCreditNanoUsd: String(this.cfg.starterCreditNanoUsd),
       maxNanoUsdPerToken: String(this.cfg.maxNanoUsdPerToken),
@@ -155,7 +155,6 @@ export class Inference {
       .reduce((total, s) => total + BigInt(s.reservedNanoUsd), 0n);
     return {
       wallet,
-      model: this.cfg.model,
       mode: "broker-e2ee",
       grantedNanoUsd: a.grantedNanoUsd,
       spentNanoUsd: a.spentNanoUsd,
@@ -177,7 +176,7 @@ export class Inference {
   }
   async authorized(r, action) {
     const extra = action === "prepare"
-      ? ["attestationNonce", "artifactId"]
+      ? ["attestationNonce", "artifactId", "model"]
       : action === "artifact-budget"
       ? ["artifactId", "limitNanoUsd"]
       : action === "chat"
@@ -363,13 +362,14 @@ export class Inference {
     );
     if (r.artifactId !== undefined) check(this.artifactRemaining(wallet, r.artifactId) > 0n,
       "BUDGET_EXHAUSTED", "artifact model budget is exhausted", 402);
+    check(this.cfg.models.includes(r.model), "BAD_REQUEST", "model is not offered by this broker");
     const checked = await this.provider.attest({
-      model: this.cfg.model,
+      model: r.model,
       nonce: r.attestationNonce,
     });
     const e = checked?.evidence;
     check(
-      e?.verification === "verified" && e.model === this.cfg.model &&
+      e?.verification === "verified" && e.model === r.model &&
         e.nonce === r.attestationNonce &&
         /^[0-9a-fA-F]{128}$/.test(checked.modelPublicKey) &&
         checked.transport?.fetchEncrypted,
@@ -397,6 +397,7 @@ export class Inference {
       attestation: checked,
       consumed: false,
       artifactId: r.artifactId,
+      model: r.model,
     });
     return {
       ...this.summary(wallet),
@@ -422,7 +423,7 @@ export class Inference {
       ciphertext(t.function.name) && ciphertext(t.function.description) && ciphertext(t.function.parameters);
     check(
       fields(b, ["model", "messages", "stream", "max_tokens", "stream_options", "tools", "tool_choice"]) &&
-        b.model === this.cfg.model && b.stream === true && Number.isSafeInteger(b.max_tokens) &&
+        b.model === session.model && b.stream === true && Number.isSafeInteger(b.max_tokens) &&
         b.max_tokens > 0 && b.max_tokens <= this.cfg.maxOutputTokens &&
         fields(b.stream_options, ["include_usage"]) && b.stream_options.include_usage === true &&
         Array.isArray(b.messages) && b.messages.length > 0 && b.messages.length <= 128 && b.messages.every(message) &&
@@ -528,7 +529,7 @@ export class Inference {
     try {
       response = await this.provider.chatEncrypted({
         key: this.provider.apiKey,
-        model: this.cfg.model,
+        model: session.model,
         nonce: r.nonce,
         body: r.body,
         headers: r.headers,

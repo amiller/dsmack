@@ -297,9 +297,10 @@ async function refreshServices() {
   quote = await startupStep("inference-quote", () => api("/inference/quote"));
   require(
     quote.mode === "broker-e2ee" && quote.provider === "near" &&
-      typeof quote.model === "string",
+      Array.isArray(quote.models) && quote.models.length > 0 && quote.models.every((m) => typeof m === "string"),
     "Broker does not offer browser-encrypted NEAR chat.",
   );
+  showModelPick();
   setModel();
   if (credit.signer && (quote.configured || selectedModel)) await startupStep("wallet-credit", claimChatCredit);
   $("pins").textContent = JSON.stringify(
@@ -355,11 +356,26 @@ function renderEvidence(e) {
   $("attestations").replaceChildren();
   details($("attestations"), "Latest verification details", e);
 }
+// The broker may offer several NEAR models; the person's last choice is kept on this device.
+function nearModel() {
+  let chosen;
+  try { chosen = localStorage.getItem("near-model"); } catch {}
+  return quote?.models.includes(chosen) ? chosen : quote?.models[0];
+}
+function showModelPick() {
+  const pick = $("model-pick"), current = nearModel();
+  pick.replaceChildren(...quote.models.map((id) => new Option(id.split("/").pop(), id, false, id === current)));
+  pick.hidden = quote.models.length < 2 || !!selectedModel;
+  pick.onchange = () => {
+    try { localStorage.setItem("near-model", pick.value); } catch {}
+    setModel();
+  };
+}
 function setModel() {
   if (!agent) return;
   agent.state.model = selectedModel || {
-    id: quote?.model || "unavailable",
-    name: quote?.model || "NEAR TEE model",
+    id: nearModel() || "unavailable",
+    name: nearModel() || "NEAR TEE model",
     api: "dsmack-inference",
     provider: "near",
     baseUrl: cfg.broker + "/inference",

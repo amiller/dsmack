@@ -11,7 +11,7 @@ async function fixture() {
   const wallet=Wallet.createRandom(),issuer=Wallet.createRandom(),other=Wallet.createRandom();
   const escrow="0x"+"81".repeat(20),brokerKey="17".repeat(32);
   const payments=new Payments({cfg:{},key:{},chain:{},save:async next=>{saved=structuredClone(next)}});
-  const inference=new Inference({payments,cfg:{model:"fixture",starterCreditNanoUsd:"200000"},now:()=>now});
+  const inference=new Inference({payments,cfg:{models:["fixture"],starterCreditNanoUsd:"200000"},now:()=>now});
   const request={action:"credit",wallet:wallet.address,nonce:"ab".repeat(16),issuedAt:now};
   await inference.credit({...request,sig:await wallet.signMessage(canonical(request))});
   const domain={issuer:issuer.address,escrow,brokerKey};
@@ -33,7 +33,7 @@ test("only the configured funding wallet adds domain-bound gift credit once acro
  assert.equal(simultaneous.filter(receipt=>receipt.applied).length,1);
  assert.equal(f.inference.summary(wallet).grantedNanoUsd,"500000");
  const restarted=new Inference({payments:new Payments({cfg:{},key:{},chain:{},state:f.saved(),save:async()=>{throw Error("duplicate gift must not write")}}),
-  cfg:{model:"fixture"},now:()=>gift.grant.expiresAt+1});
+  cfg:{models:["fixture"]},now:()=>gift.grant.expiresAt+1});
  assert.equal((await restarted.grantCredit(gift,f.domain)).applied,false);
  assert.equal(restarted.summary(wallet).grantedNanoUsd,"500000");
  await assert.rejects(f.inference.grantCredit(await f.voucher({nonce:gift.grant.nonce,amountNanoUsd:"400000"}),f.domain),e=>e.code==="CREDIT_GIFT_REPLAY");

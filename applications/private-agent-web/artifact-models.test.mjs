@@ -96,7 +96,7 @@ async function fixture({remaining='250000000',pending=false,dispatchError=false,
     }
     credit.chatCredit=summary();return summary();
   };
-  const quote=()=>({configured:true,model,maxOutputTokens:8192,maxNanoUsdPerToken:'1500',maxRequestBytes:32768});
+  const quote=()=>({configured:true,models:[model],maxOutputTokens:8192,maxNanoUsdPerToken:'1500',maxRequestBytes:32768});
   const options={state,credit,api,cfg:{broker:'https://broker.invalid'},quote,usage,evidence:async e=>{evidences.push(e);}};
   return {models:new ArtifactModels(options),options,state,makeState,credit,api,quote,usage,budgets,calls,transcripts,evidences,records};
 }

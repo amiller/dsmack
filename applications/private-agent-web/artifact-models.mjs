@@ -88,7 +88,7 @@ export class ArtifactModels {
       systemPrompt: ({ runtime }) => `These messages are from an untrusted_artifact, not the viewer's chat. Respond to its isolated request. No tools are available.\n${runtime}`,
       evidence: async evidence => { checkedEvidence = evidence; await this.evidence?.({ ...evidence, provenance: 'untrusted_artifact', scope }); },
     });
-    const stream = run({ id: this.quote()?.model }, { messages }, {
+    const stream = run({ id: this.quote()?.models[0] }, { messages }, {
       maxTokens: args.maxTokens, requireModelCost: true, artifactId,
       beforePrepare: async () => {
         const summary = await this.usage();

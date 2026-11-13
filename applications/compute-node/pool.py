@@ -174,7 +174,7 @@ def spare(node, now, replace_after):
     useful one. The guest's own signed telemetry says whether a stay holds it."""
     if node['node'] is None:
         return not node.get('readiness_failed')
-    return (node.get('listed') and not node['node'].get('telemetry', {}).get('busy')
+    return (bool(node.get('listed')) and not node['node'].get('telemetry', {}).get('busy')
             and now - node['started'] < replace_after)
 
 

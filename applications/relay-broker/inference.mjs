@@ -18,7 +18,7 @@ const hex = (bytes) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 const randomId = () => hex(crypto.getRandomValues(new Uint8Array(16)));
 export const ABANDON_SECONDS = 86400;
-export const MAX_REQUEST_BYTES = 262144;
+export const MAX_REQUEST_BYTES = 1048576;
 const uint = (v) =>
   (typeof v === "string" && /^(0|[1-9][0-9]*)$/.test(v)) ||
   (Number.isSafeInteger(v) && v >= 0);

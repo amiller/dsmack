@@ -294,12 +294,13 @@ async function ensureWallet({ claim = true } = {}) {
 }
 async function refreshServices() {
   await startupStep("broker-identity", () => credit.checkBroker(api));
-  quote = await startupStep("inference-quote", () => api("/inference/quote"));
+  const offered = await startupStep("inference-quote", () => api("/inference/quote"));
   require(
-    quote.mode === "broker-e2ee" && quote.provider === "near" &&
-      Array.isArray(quote.models) && quote.models.length > 0 && quote.models.every((m) => typeof m === "string"),
+    offered.mode === "broker-e2ee" && offered.provider === "near" &&
+      Array.isArray(offered.models) && offered.models.length > 0 && offered.models.every((m) => typeof m === "string"),
     "Broker does not offer browser-encrypted NEAR chat.",
   );
+  quote = offered;
   showModelPick();
   setModel();
   if (credit.signer && (quote.configured || selectedModel)) await startupStep("wallet-credit", claimChatCredit);
@@ -352,22 +353,21 @@ async function usage() {
 }
 function renderEvidence(e) {
   if (e.browser?.fullQuoteVerifiedBy === "browser") localStorage.setItem("near-proven-images", JSON.stringify([...provenImages]));
-  if (e.type !== "guest-run") $("verified").hidden = !!selectedModel || e.browser?.fullQuoteVerifiedBy !== "browser";
+  // The badge is for the model in use; evidence for another model (an earlier pick, an artifact) leaves it alone.
+  if (e.type !== "guest-run" && e.model === agent?.state.model.id) $("verified").hidden = !!selectedModel || e.browser?.fullQuoteVerifiedBy !== "browser";
   $("attestations").replaceChildren();
   details($("attestations"), "Latest verification details", e);
 }
 // The broker may offer several NEAR models; the person's last choice is kept on this device.
 function nearModel() {
-  let chosen;
-  try { chosen = localStorage.getItem("near-model"); } catch {}
+  const chosen = localStorage.getItem("near-model");
   return quote?.models.includes(chosen) ? chosen : quote?.models[0];
 }
 function showModelPick() {
   const pick = $("model-pick"), current = nearModel();
   pick.replaceChildren(...quote.models.map((id) => new Option(id.split("/").pop(), id, false, id === current)));
-  pick.hidden = quote.models.length < 2 || !!selectedModel;
   pick.onchange = () => {
-    try { localStorage.setItem("near-model", pick.value); } catch {}
+    localStorage.setItem("near-model", pick.value);
     setModel();
   };
 }
@@ -385,6 +385,7 @@ function setModel() {
     contextWindow: quote?.contextWindow || 1048576,
     maxTokens: quote?.maxOutputTokens || 512,
   };
+  $("model-pick").hidden = !quote || quote.models.length < 2 || !!selectedModel;
   $("model").textContent = modelBadge(agent.state.model);
   $("model-privacy").textContent = $("model").title = modelPrivacy(agent.state.model);
   $("verified").hidden = !!selectedModel || !currentSession.dsmack.evidence.some(e =>

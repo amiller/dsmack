@@ -11,7 +11,7 @@ import { networkMonitor } from "./network.mjs";
 import { rankNodes, busyRetrySeconds } from "./scheduler.mjs";
 import { json } from "../payments/schema.mjs";
 import { Payments } from "./payments.mjs";
-import { Inference, InferenceError } from "./inference.mjs";
+import { Inference, InferenceError, MAX_REQUEST_BYTES } from "./inference.mjs";
 import { NearError, NearProvider } from "./near.mjs";
 import { Broker, limits, Refused } from "./broker.mjs";
 import { canonical } from "./grants.mjs";
@@ -359,7 +359,8 @@ async function dispatchRequest(req: Request, b: Broker, ctx: Context | undefined
         req.method === "POST" &&
         ["credit", "prepare", "chat", "usage", "artifact-budget"].includes(action)
       ) {
-        const request = await body(req);
+        // The page may send an encrypted model request up to the quoted maxRequestBytes; the signed wrapper adds a little.
+        const request = await body(req, MAX_REQUEST_BYTES + 16384);
         const result = await b.inference[action === "artifact-budget" ? "artifactBudget" : action](request);
         response = result instanceof Response ? result : Response.json(result);
       } else response = new Response("not found", { status: 404 });

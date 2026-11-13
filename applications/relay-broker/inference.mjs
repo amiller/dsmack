@@ -18,6 +18,7 @@ const hex = (bytes) =>
   Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
 const randomId = () => hex(crypto.getRandomValues(new Uint8Array(16)));
 export const ABANDON_SECONDS = 86400;
+export const MAX_REQUEST_BYTES = 262144;
 const uint = (v) =>
   (typeof v === "string" && /^(0|[1-9][0-9]*)$/.test(v)) ||
   (Number.isSafeInteger(v) && v >= 0);
@@ -77,7 +78,7 @@ export class Inference {
       starterCreditNanoUsd: String(this.cfg.starterCreditNanoUsd),
       maxNanoUsdPerToken: String(this.cfg.maxNanoUsdPerToken),
       maxOutputTokens: this.cfg.maxOutputTokens,
-      maxRequestBytes: 262144,
+      maxRequestBytes: MAX_REQUEST_BYTES,
       privacy: PRIVACY,
     };
   }
@@ -451,7 +452,7 @@ export class Inference {
     );
     const size = enc.encode(JSON.stringify(b)).length;
     check(
-      size <= 262144,
+      size <= MAX_REQUEST_BYTES,
       "BAD_REQUEST",
       "encrypted inference request exceeds 262144 bytes",
     );

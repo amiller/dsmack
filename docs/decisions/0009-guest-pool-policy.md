@@ -3,142 +3,128 @@ status: proposed
 date: 2026-11-12
 ---
 
-# How many guests a Mac keeps running, and when it boots new ones
+# Guests follow use: a small warm floor, and a lifetime set by the stay
 
 ## Context
 
-A guest is one VM run on a Mac. Three rules shape it today, and only one of them was ever argued for:
+A guest is one VM run on a Mac. It serves one stay, then retires.
+
+The pool (`compute-node/pool.py`) fills every slot and keeps it full. Each guest lives one hour from boot. Its
+replacement boots at `seconds//2 + 30`, whether or not anyone used it. What someone watching the New York Mac on
+2026-11-12 saw:
+- With one person on the demo, production ran 8 guest VMs (4 serving, 4 replacements booting early) for 4 usable
+  slots: 32 GB of a 64 GB Mac.
+- Staging allows one guest, so a single session showed "0 free slots".
+- A guest nobody used was thrown away after an hour. One first used at minute 50 stopped admitting at minute 52.
+
+Three rules produce this, and only one was ever argued for:
 
 | Rule | Where | Since | Recorded reason |
 |---|---|---|---|
 | A guest serves one stay, then retires | `compute-node/peer/agent.go` | 2026-10-30, `a23d26d` | a later owner must not see files left in the workspace |
-| A run lasts at most 3600 s; admission closes 480 s before the end | `payments/guest/payments.go:139`, the measured compose | 2026-10-30, `661883f` | none |
+| A run lasts at most 3600 s from boot; admission closes 480 s before the end | `payments/guest/payments.go:139`, the measured compose | 2026-10-30, `661883f` | none |
 | A run may make at most 64 App Attest assertions | `runner-vm/control-src/Sources/marAttest/GuestAttest.swift:28` | 2026-10-25, `f6b647b` | none |
 
-The pool (`compute-node/pool.py`) fills every slot and keeps it filled. Each slot's replacement boots at
-`seconds//2 + 30`, whether or not anyone used the old guest. That formula dates from 2026-10-29, when guests lived
-840 s: replace at 450 s, stop admitting at 570 s, exit at 840 s, about 6 minutes of overlap. The compute-node README
-still describes that. The next day guests became hour-long and the formula stayed, so the overlap grew to 30 minutes.
-Nobody chose 30 minutes.
+The half-life replacement is left over from 2026-10-29, when guests lived 840 s. Then the overlap was about 6 minutes.
+The compute-node README still says so. When guests became hour-long the formula stayed, and the overlap became 30
+minutes.
 
-What someone watching the New York Mac on 2026-11-12 saw:
-- With one person using the demo, production ran 8 guest VMs (4 serving, 4 replacements booting early) for 4 usable
-  slots, 32 GB of a 64 GB Mac.
-- Staging allows one guest, so a single session showed "0 free slots".
-- Every finished conversation throws its guest away and the pool boots another, even when nobody is waiting.
-- A reload on staging could not start its replacement: the one slot was held by the old guest, and the overlap
-  needs a second.
-
-## Options
-
-1. **Keep every slot warm, rotate on a timer** (today). No user ever waits for a boot. Cost scales with slots, not with
-   use: N slots cost up to 2N VMs around the clock.
-2. **Keep a few idle spares, boot more on demand, cap at the slot count.** Count idle, admitting guests. When there are
-   fewer than `spares`, boot one; when a stay takes a spare, that is the trigger. An idle spare that reaches its
-   admission close is replaced shortly before, not at half-life. One user costs about `spares + 1` VMs.
-3. **Boot only on demand.** Nothing runs idle. Every new conversation waits about a minute for its guest.
-4. **Longer runs.** Raise the 3600 s and 64-attestation caps so an idle spare lives longer and rotates less. Needs a new
-   guest build, its class registered on each escrow, and a re-signed runner (its code hash is checked on chain).
-   Combines with 2.
-5. **No timers: use decides.** The hour is neither a price rule nor a measure of use. Stays are already metered per
-   second, and a stay already ends after 300 s idle (`AGENT_IDLE_TIMEOUT_SECONDS`). The hour is the guest's whole life
-   counted from boot, mostly spent waiting for someone. A guest nobody used is thrown away at 60 minutes. One first
-   used at minute 50 must stop admitting at minute 52. Separate the three:
-   - **Guest lifetime:** until its one stay ends. An unused guest waits as long as it is needed.
-   - **Stay length:** ends after disuse (the idle timeout) or when its paid time runs out. It extends in increments
-     while used and paid for.
-   - **Price:** a minimum charge or an increment size if we want one. It is a billing rule and holds no VM up.
-
-   A guest's registration stays valid while the Mac's heartbeat shows it alive, not until a fixed expiry. It attests only when a browser asks, so the 64 count tracks use, not idle
-   time. Today idle guests re-register on a loop and each registration attests, which uses up the 64 in about an hour.
-   Admission close and drain go away with the hour. Any bound that matters (stay length, spend) moves onto the stay.
-   Needs:
-   - a new guest build, since the run limit is measured;
-   - its class registered again on each escrow;
-   - broker registration without a fixed expiry;
-   - a runner that counts per stay, which means a re-signed runner and a new code hash on chain.
-
-   The VM count then follows use exactly: spares plus active stays. Combines with 2: spares on demand first, timers
-   removed later.
+The hour measures neither price nor use:
+- Stays are already metered per second.
+- A stay already ends after 300 s idle (`AGENT_IDLE_TIMEOUT_SECONDS`).
+- The hour counts from boot, so it is mostly time spent waiting for someone.
+- The 64 attestations behave like a timer only because idle guests re-register on a loop and each registration attests.
 
 ## What other systems do
 
-CI runners have the same shape as our guests: single use, a boot of a minute or so, and a fixed host budget.
-- GitLab's instance and docker-autoscaler executors run one job per instance (`capacity_per_instance=1`,
-  `max_use_count=1`) and delete the instance after it. They keep `idle_count` idle instances, each for at least
-  `idle_time`, under `max_instances` ([docs](https://docs.gitlab.com/runner/executors/instance.html)). A preemptive
-  mode takes a job only when an idle instance is ready, so no job waits for a boot.
-- GitHub's runner scale sets (ARC) target `minRunners` plus one runner per assigned job, capped at `maxRunners`
+**CI runners have our shape:** single use, a boot of about a minute, a fixed host budget.
+- GitLab's instance and docker-autoscaler executors delete an instance after its one job (`max_use_count=1`). They keep
+  `idle_count` idle instances under `max_instances`
+  ([docs](https://docs.gitlab.com/runner/executors/instance.html)).
+- GitHub's runner scale sets target `minRunners` plus one runner per job, capped at `maxRunners`
   ([docs](https://docs.github.com/en/actions/how-tos/manage-runners/use-actions-runner-controller/deploy-runner-scale-sets)).
+- Daytona's warm pool keeps a fixed number of running sandboxes, and each claim starts a replacement
+  ([docs](https://www.daytona.io/docs/en/warm-pools)).
+- Agent Sandbox's `SandboxWarmPool` has a fixed size, scaled externally from claim rate × time to replenish one
+  ([docs](https://agent-sandbox.sigs.k8s.io/docs/)).
 
-Both size the idle floor by hand, independent of the cap. Neither fills every slot ahead of demand, and neither
-rotates idle instances on a fixed lifetime.
+None of them fills every slot ahead of demand, and none rotates idle instances on a fixed lifetime.
 
-The research agrees on keeping a floor:
-- In queueing models where servers take time to boot, keeping a few servers always on beats turning everything off
-  when idle. Gandhi, Harchol-Balter and Adan ([2010](https://www3.cs.stonybrook.edu/~anshul/perf_mmk_2010.pdf)) turn
-  an idle server off only above a threshold. Maccio and Down ([acc](https://www.cas.mcmaster.ca/~downd/acc_final.pdf))
-  find a floor near the expected number of busy servers close to optimal, while a floor of zero can be far from it.
-  So option 3 is the wrong end.
-- Serverless platforms keep instances warm after use rather than before it. Shahrad et al.
-  ([ATC 2020](https://arxiv.org/pdf/2003.03423)) size the keep-alive window from each application's histogram of idle
-  times, and beat fixed 10- and 20-minute windows on cold starts per unit of memory. That is a later refinement for us
-  (drop to zero spares overnight) once we have arrival data.
+**Queueing research backs a small floor over none.** When servers take time to boot, keeping a few always on beats
+turning everything off when idle ([Gandhi, Harchol-Balter, Adan 2010](https://www3.cs.stonybrook.edu/~anshul/perf_mmk_2010.pdf)).
+A floor near the expected number of busy servers is close to optimal, and a floor of zero can be far from it
+([Maccio, Down](https://www.cas.mcmaster.ca/~downd/acc_final.pdf)).
 
-None of these models has single-use guests with a hard lifetime. The recipe below is ours, not theirs.
+Serverless platforms size keep-alive from observed idle gaps. Shahrad et al.
+([ATC 2020](https://arxiv.org/pdf/2003.03423)) beat fixed 10- and 20-minute windows that way.
 
-Agent sandbox platforms keep three things apart: maximum lifetime, release on disuse, and billing.
+**Sandbox platforms keep lifetime, idle release and billing apart:**
+- **E2B** (open source, Firecracker): its timer starts when a sandbox is created for a user, 5 minutes by default. It
+  is extended by explicit calls, with at most 1 h (Hobby) or 24 h (Pro) of continuous run. On timeout E2B can pause
+  the sandbox instead of killing it, keeping memory and disk until the next request
+  ([docs](https://docs.e2b.dev/faq/sandbox-lifetime)). It bills per second while running, with no stated minimum.
+- **Daytona** stops a sandbox after 15 minutes with no SDK events.
+- **Modal** separates `idle_timeout` from a maximum `timeout`, and counts a running command, input or an open
+  connection as activity ([docs](https://modal.com/docs/guide/sandbox)).
+- **Cloudflare Sandbox** sleeps after 10 idle minutes ([docs](https://developers.cloudflare.com/sandbox/api/lifecycle)).
+- **Fly** bills a running Machine per second and a stopped one only for its disk
+  ([docs](https://docs.fly.io/about/pricing)).
 
 | | Open source | Isolation | Warm pool | What ends a sandbox |
 |---|---|---|---|---|
-| [E2B](https://docs.e2b.dev/faq/sandbox-lifetime) | yes, Apache-2.0; one-machine self-host | Firecracker microVM | none: create restores a snapshot, memory paged in lazily | timeout from creation (5 min default), extended only by `setTimeout`; max continuous run 1 h (Hobby) / 24 h (Pro). On timeout: kill, or pause (memory and disk kept indefinitely) with auto-resume on the next request |
-| [Daytona](https://www.daytona.io/docs/en/warm-pools) | yes | | fixed size per snapshot and region; each claim starts a replacement | auto-stop after 15 min with no SDK events, archive after 7 days stopped, delete off by default |
-| [microsandbox](https://github.com/superradcompany/microsandbox) | yes | libkrun microVM; Linux, Windows, Apple Silicon | | explicit stop/rm; snapshot, fork and copy-on-write memory restore |
-| [Arrakis](https://github.com/abshkbh/arrakis) | yes | cloud-hypervisor microVM, Linux | | explicit; snapshot/restore |
-| [Agent Sandbox](https://agent-sandbox.sigs.k8s.io/docs/) (kubernetes-sigs) | yes | gVisor or Kata via RuntimeClass | `SandboxWarmPool`, fixed `replicas`, scalable by KEDA/HPA | absolute `shutdownTime` or delete; idle suspend only on the roadmap |
-| [Modal](https://modal.com/docs/guide/sandbox) | no | | | `idle_timeout` (activity = running command, stdin, open tunnel connection), separate from max `timeout` |
-| [Cloudflare Sandbox](https://developers.cloudflare.com/sandbox/api/lifecycle) | no | container | | sleeps after `sleepAfter` idle (10 min default); `keepAlive` heartbeats hold it; `destroy()` |
-| [Fly Machines](https://docs.fly.io/about/pricing) | no | Firecracker | | proxy stops or suspends on excess capacity |
+| [E2B](https://github.com/e2b-dev/infra) | yes, Apache-2.0 | Firecracker | none; restores a snapshot on create | timer from creation, extended by call; pause or kill |
+| [Daytona](https://www.daytona.io/docs/en/warm-pools) | yes | | fixed, replace on claim | 15 min idle → stop; 7 days → archive |
+| [microsandbox](https://github.com/superradcompany/microsandbox) | yes | libkrun; Linux, Windows, Apple Silicon | | explicit; snapshot, fork |
+| [Arrakis](https://github.com/abshkbh/arrakis) | yes | cloud-hypervisor | | explicit; snapshot |
+| [Agent Sandbox](https://agent-sandbox.sigs.k8s.io/docs/) | yes | gVisor or Kata | fixed `replicas` | absolute time or delete |
+| [Modal](https://modal.com/docs/guide/sandbox) | no | | | idle timeout, separate max |
+| [Cloudflare](https://developers.cloudflare.com/sandbox/api/lifecycle) | no | container | | idle sleep |
+| [Fly](https://docs.fly.io/about/pricing) | no | Firecracker | | stop on excess capacity |
 
-Fly bills a running Machine per second, and a stopped one only for its disk. Billing follows run time, not how long
-the VM exists. Agent Sandbox's warm-pool example sizes the pool from claim rate × time to replenish one sandbox, the
-same rule as our floor.
-
-E2B bills per second while running, with no stated minimum, and stops billing on pause or timeout. Its timer starts
-when a sandbox is created for a user, never while it waits in a pool. When the timer runs out, the sandbox is paused
-and kept, not thrown away. Daytona's warm pool is our recipe exactly: a fixed number of running spares, and each claim
-starts a replacement.
-
-The other way to fast starts is snapshot restore. E2B keeps no running VMs; it restores a pre-booted snapshot on
-demand. Apple's Virtualization framework can save and restore a VM's state too. If a restored guest can attest fresh,
-a snapshot could replace idle spares entirely. That is an open question for our attestation, not settled here.
-
-Nothing about OpenHands, Kata or gVisor as products, Coder or Codespaces survived verification, and no paper on sizing
-sandbox pools for agent workloads turned up.
+None of these has our hard per-run attestation cap. The recipe below is ours.
 
 ## Decision
 
-Proposed: option 2, as GitLab and ARC do it.
-
+**Phase 1: a warm floor, replace on consume.** Pool code only; no guest build, no chain change.
 1. **Cap.** At most `max_guests` guests run, booted or booting. Memory bounds it: (64 − 16) / 4 = 12 on a 64 GB Mac.
 2. **Floor.** Keep `spares` idle, admitting guests, set in `operator.json`, default 1. Size it as at least the stays
    that arrive during one boot: ceil(arrivals per minute × 1 min) + 1.
-3. **Replace on consume.** When a stay claims a spare, boot one guest at once to restore the floor. Do not wait for it
-   to be needed.
-4. **Rotate idle spares by remaining lifetime.** Replace an idle spare only when it can no longer take a useful stay:
-   5 minutes before its admission closes (`pool.replace_after`), not at half-life.
-5. **Release on disuse.** A stay ends after an idle window that resets on activity (a tool call, input, an open
-   connection), as Modal and Cloudflare do. The guest is destroyed when its stay ends. Billing is metered run time with
-   its own minimum and increments.
-6. **Later.** Optionally take a stay only when a spare is ready, and let the floor follow time of day once we have
-   arrival data.
+3. **Replace on consume.** When a stay claims a spare, boot one guest at once to restore the floor.
+4. **Rotate idle spares late.** Replace an idle spare only when it can no longer take a useful stay: 5 minutes before
+   its admission closes (`pool.replace_after`), not at half-life.
 
-Options 4 and 5 are a separate decision once the reasons for the two caps are known. Option 5 is the end state if the
-caps protect nothing a per-stay bound cannot. It turns rule 4 into "never".
+One user then costs about 2 VMs instead of 8.
+
+**Phase 2: lifetime set by the stay.** Needs a new guest build, its class registered on each escrow, broker changes,
+and a re-signed runner (its code hash is checked on chain).
+1. **Guest lifetime:** until its one stay ends. An unused guest waits as long as it is needed.
+2. **Stay length:** ends after an idle window that resets on activity (a tool call, input, an open connection), or
+   when its paid time runs out. It extends in increments while used and paid for.
+3. **Price:** a minimum charge or increment size is a billing rule. It holds no VM up.
+4. **Registration:** valid while the Mac's heartbeat shows the guest alive, not until a fixed expiry.
+5. **Attestation:** a guest attests when a browser asks, so the 64 count tracks use. The runner counts per stay.
+
+Phase 2 removes rule 4 of phase 1: with no lifetime, an idle spare never needs replacing.
+
+## Options not taken
+
+- **Keep every slot warm on a timer** (today). Cost scales with slots, not use.
+- **Boot only on demand.** Every new conversation waits about a minute. The queueing results say a floor of zero is
+  the wrong end.
+- **Longer runs without changing what they count.** Raising 3600 s and 64 keeps idle time on the clock. It costs the
+  same build and re-signing as phase 2 and fixes less.
 
 ## Consequences
 
-- One user on the demo costs about 2 VMs instead of 8, and the freed memory can give staging a second slot.
-- A burst larger than `spares` waits about a minute per extra guest. The page already shows busy Macs.
+- The freed memory can give staging a second slot.
+- A burst larger than `spares` waits about a minute per extra guest.
 - The page's free-slot count shows idle spares, not capacity. It should show both.
-- Open: why runs are capped at one hour and 64 attestations. If the caps are arbitrary, option 4 is the larger saving.
+
+## Open questions
+
+- **Why one hour and 64 attestations?** No reason is recorded. Phase 2 assumes they protect nothing that a per-stay
+  bound cannot.
+- **Snapshot restore.** E2B keeps no running VMs and restores a pre-booted snapshot on demand. Apple's Virtualization
+  framework can save and restore VM state. If a restored guest can attest fresh, with a new run identity and key, a
+  snapshot could replace idle spares.
+- **Arrival data.** Once we have it, the floor can follow time of day, as in Shahrad et al.

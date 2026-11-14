@@ -31,7 +31,8 @@ import {
   walletBody,
 } from "./credit.mjs";
 import { loadProvider, saveProvider, directModel, modelBadge, modelPrivacy, providerStream, checkProvider, anthropicModels, defaultAnthropicModel } from "./model-provider.mjs";
-import { brokerStream } from "./inference.mjs";
+import { brokerStream, nearDirectStream } from "./inference.mjs";
+import { nearOwnAccount } from "./near-ui.mjs";
 import { intentsFunding } from "./intents-ui.mjs";
 import { referenceError, replyFailure, retryCandidate, meteredReply, settleInterruptedReply, failOrphanedTools } from "./reply-recovery.mjs";
 import * as sandbox from "@sandbox";
@@ -355,7 +356,7 @@ async function usage() {
 function renderEvidence(e) {
   if (e.browser?.fullQuoteVerifiedBy === "browser") localStorage.setItem("near-proven-images", JSON.stringify([...provenImages]));
   // The badge is for the model in use; evidence for another model (an earlier pick, an artifact) leaves it alone.
-  if (e.type !== "guest-run" && e.model === agent?.state.model.id) $("verified").hidden = !!selectedModel || e.browser?.fullQuoteVerifiedBy !== "browser";
+  if (e.type !== "guest-run" && e.model === agent?.state.model.id) $("verified").hidden = isDirect() || e.browser?.fullQuoteVerifiedBy !== "browser";
   $("attestations").replaceChildren();
   details($("attestations"), "Latest verification details", e);
 }
@@ -371,6 +372,14 @@ function showModelPick() {
     localStorage.setItem("near-model", pick.value);
     setModel();
   };
+}
+// A provider that sees the conversation; the page's own NEAR AI account is still attested and encrypted.
+const isDirect = () => !!selectedModel && selectedModel.provider !== "near-own";
+async function useModel(model, key) {
+  await saveProvider(storage, model, key);
+  selectedModel = model;
+  setModel();
+  await saveCurrentChat();
 }
 function setModel() {
   if (!agent) return;
@@ -389,7 +398,7 @@ function setModel() {
   $("model-pick").hidden = !quote || quote.models.length < 2 || !!selectedModel;
   $("model").textContent = modelBadge(agent.state.model);
   $("model-privacy").textContent = $("model").title = modelPrivacy(agent.state.model);
-  $("verified").hidden = !!selectedModel || !currentSession.dsmack.evidence.some(e =>
+  $("verified").hidden = isDirect() || !currentSession.dsmack.evidence.some(e =>
     e.model === agent.state.model.id && e.browser?.fullQuoteVerifiedBy === "browser");
   chat?.requestUpdate();
 }
@@ -704,7 +713,10 @@ async function useSession(data) {
     },
     toolExecution: "sequential",
     getApiKey: provider => provider === "near" ? undefined : storage.providerKeys.get(provider),
-    streamFn: providerStream({ preflight, systemPrompt, startedAt: currentSession.createdAt, near: nearStream = brokerStream({
+    streamFn: providerStream({ preflight, systemPrompt, startedAt: currentSession.createdAt,
+      nearOwn: nearDirectStream({ apiKey: () => storage.providerKeys.get("near-own"), evidence: addEvidence, error: sendFailure,
+        status: sendStatus, preflight, systemPrompt, startedAt: currentSession.createdAt }),
+      near: nearStream = brokerStream({
       credit, api, cfg, quote: () => quote, evidence: addEvidence, usage, error: sendFailure, status: sendStatus,
       billingUpdated: async answer => {
         const reply = artifactAgent.state.messages.findLast(message => message.role === "assistant" &&
@@ -802,7 +814,7 @@ async function loadSharedViewer() {
 function initProviderSettings() {
   const dialog = $("provider-dialog"), form = $("provider-form"), provider = $("provider-choice");
   const showFields = () => {
-    $("provider-fields").hidden = provider.value === "near";
+    $("provider-fields").hidden = provider.value === "near" || provider.value === "near-own";
     $("provider-url-label").hidden = provider.value !== "openai-compatible";
     $("provider-model").setAttribute("list", provider.value === "anthropic" ? "anthropic-models" : "");
   };
@@ -816,7 +828,8 @@ function initProviderSettings() {
     showFields();
   };
   action("provider-settings", () => {
-    provider.value = selectedModel?.provider === "anthropic" ? "anthropic" : selectedModel ? "openai-compatible" : "near";
+    provider.value = selectedModel?.provider === "anthropic" || selectedModel?.provider === "near-own" ? selectedModel.provider
+      : selectedModel ? "openai-compatible" : "near";
     $("provider-model").value = selectedModel?.id || defaultAnthropicModel;
     $("provider-url").value = selectedModel?.baseUrl || "https://api.openai.com/v1";
     $("provider-key").value = "";
@@ -831,6 +844,10 @@ function initProviderSettings() {
     $("provider-cancel").disabled = true;
     $("provider-error").textContent = "";
     try {
+      if (provider.value === "near-own") {
+        require(selectedModel?.provider === "near-own", "Set this up under Add credit → Your own NEAR AI account.");
+        return dialog.close();
+      }
       const model = provider.value === "near" ? undefined : directModel(provider.value, $("provider-model").value, $("provider-url").value);
       const key = $("provider-key").value.trim() || (model && await storage.providerKeys.get(model.provider)) || "";
       if (model) await checkProvider(model, key);
@@ -900,9 +917,10 @@ async function initChat() {
   chat.onBeforeSend = async () => {
     clearError();
     sendStatus("Checking credit…", "", "credit");
-    await credit.checkBroker(api);
+    const own = selectedModel?.provider === "near-own";
+    if (!own) await credit.checkBroker(api);
     if (!selectedModel) require(quote?.configured, "Private inference is not configured on this broker.");
-    await ensureWallet();
+    await ensureWallet({ claim: !own });
     if (!selectedModel) {
       if (credit.chatCredit.pendingInferenceId) await usage();
       require(!credit.chatCredit.pendingInferenceId,
@@ -1417,10 +1435,29 @@ async function main() {
   $("recover-device").disabled = false;
   $("open-add-credit").addEventListener("click", openAddCredit);
   intentsFunding({ $, wallet: () => credit.address, ensureWallet });
+  nearOwnAccount({ $, cfg, ensureWallet, use: useModel });
   action("copy-address", async () => {
     require(credit.address, "Create or connect a wallet first.");
     await navigator.clipboard.writeText(credit.address);
     $("copy-address").textContent = "Address copied";
+  });
+  // Moves this wallet (and its NEAR AI account) to another origin: the hosted page, a local checkout or an IPNS page.
+  action("export-wallet", async () => {
+    $("wallet-transfer").hidden = false;
+    $("wallet-transfer").value = JSON.stringify({ keys: keys.bundle, near: { seed: await store("near.seed"), session: await store("near.session"),
+      key: await store("near.key"), activation: await store("near.activation"), payment: await store("near.payment") } });
+  });
+  action("import-wallet", async () => {
+    if ($("wallet-transfer").hidden || !$("wallet-transfer").value.trim()) {
+      $("wallet-transfer").hidden = false;
+      $("wallet-transfer").value = "";
+      $("wallet-transfer").placeholder = "Paste an exported wallet, then press Import again. This replaces the wallet in this browser.";
+      return;
+    }
+    const v = JSON.parse($("wallet-transfer").value);
+    await keys.import(v.keys);
+    for (const [k, value] of Object.entries(v.near)) await store("near." + k, value ?? null);
+    location.reload();
   });
   action("balance", async () => {
     require(credit.address, "Create or connect a wallet first.");

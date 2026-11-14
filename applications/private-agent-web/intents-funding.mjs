@@ -26,7 +26,7 @@ function decode58(text, length) {
   check(bytes.length === length, "bad key or signature length");
   return bytes;
 }
-function encode58(bytes) {
+export function encode58(bytes) {
   let n = BigInt("0x" + Array.from(bytes, (x) => x.toString(16).padStart(2, "0")).join("")), out = "";
   while (n) { out = B58[Number(n % 58n)] + out; n /= 58n; }
   for (const b of bytes) { if (b) break; out = "1" + out; }

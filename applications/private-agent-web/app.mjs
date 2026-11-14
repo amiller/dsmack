@@ -32,6 +32,7 @@ import {
 } from "./credit.mjs";
 import { loadProvider, saveProvider, directModel, modelBadge, modelPrivacy, providerStream, checkProvider, anthropicModels, defaultAnthropicModel } from "./model-provider.mjs";
 import { brokerStream } from "./inference.mjs";
+import { intentsFunding } from "./intents-ui.mjs";
 import { referenceError, replyFailure, retryCandidate, meteredReply, settleInterruptedReply, failOrphanedTools } from "./reply-recovery.mjs";
 import * as sandbox from "@sandbox";
 import { heliosChain } from "../compute-node/browser/helios-chain.mjs";
@@ -1415,6 +1416,7 @@ async function main() {
   render();
   $("recover-device").disabled = false;
   $("open-add-credit").addEventListener("click", openAddCredit);
+  intentsFunding({ $, wallet: () => credit.address, ensureWallet });
   action("copy-address", async () => {
     require(credit.address, "Create or connect a wallet first.");
     await navigator.clipboard.writeText(credit.address);

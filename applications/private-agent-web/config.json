@@ -46,5 +46,6 @@
   "syncAnchor": "0x04EE64A2C22e6E0d48F2ca05eF4086E2aaAc9c3b",
   "syncAnchorCodeHash": "0xa92abf9ca5d270b88627c8a2723696e962d31e79864dcc80595cf8480dbdeec5",
   "tunnels": "https://pod.dstack.soc1024.com/private-agent/tunnels",
-  "deploymentBlock": 53564638
+  "deploymentBlock": 53564638,
+  "nearPay": "./near-pay"
 }

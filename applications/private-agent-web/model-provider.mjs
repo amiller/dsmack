@@ -10,19 +10,26 @@ export const defaultAnthropicModel = Object.keys(ANTHROPIC_MODELS).find(id => id
 const selectedKey = "chat.provider";
 
 export function providerLabel(model) {
-  return model.provider === "anthropic" ? "Anthropic" : new URL(model.baseUrl).host;
+  return model.provider === "anthropic" ? "Anthropic" : model.provider === "near-own" ? "NEAR AI" : new URL(model.baseUrl).host;
 }
 export function modelPrivacy(model) {
-  return model.provider === "near"
+  return model.provider === "near" || model.provider === "near-own"
     ? "End-to-end encrypted to the model's secure hardware."
     : `Model calls go directly from this browser to ${providerLabel(model)}, which sees the conversation. Model tokens use your provider key; sandbox time uses chat credit.`;
 }
 export function modelBadge(model) {
+  if (model.provider === "near-own") return `${model.name} via NEAR AI · paid from this page's own NEAR AI account`;
   if (model.provider !== "near")
     return `${model.id} · ${providerLabel(model)} sees the conversation · paid with your provider key`;
   const label = model.id === "unavailable" ? "Model unavailable"
     : model.id.split("/").at(-1).replace(/-\d{4,8}$/, "").replaceAll("-", " ");
   return `${label} via NEAR AI · paid from your Abalone credit`;
+}
+// A NEAR AI Cloud model from GET /v1/models, called directly with the page's own account key.
+export function nearOwnModel(m) {
+  return { id: m.id, name: m.name, provider: "near-own", api: "near-direct", baseUrl: "https://cloud-api.near.ai/v1",
+    reasoning: false, input: ["text"], cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
+    contextWindow: m.context_length, maxTokens: 8192 };
 }
 export function directModel(provider, id, baseUrl) {
   if (!id.trim()) throw Error("Enter a model ID.");
@@ -64,9 +71,10 @@ export async function checkProvider(model, apiKey) {
   if (["error", "aborted"].includes(result.stopReason))
     throw Error("Browser connection failed. Check the key, model and endpoint CORS: " + result.errorMessage);
 }
-export function providerStream({ near, preflight, systemPrompt, startedAt }) {
+export function providerStream({ near, nearOwn, preflight, systemPrompt, startedAt }) {
   return (model, context, options) => {
     if (model.provider === "near") return near(model, context, options);
+    if (model.provider === "near-own") return nearOwn(model, context, options);
     return lazyStream(model, async () => {
       await preflight(context, options.signal);
       const runtime = `Model: ${model.id}\nProvider: ${providerLabel(model)}\nConversation started: ${startedAt}`;

@@ -271,6 +271,35 @@ the broker's `browser_origins`. Wallet and conversation storage belongs to that
 origin. Shared `/ipfs/` and `/ipns/` path gateways are rejected to isolate wallets.
 A stable DNSLink/IPNS gateway origin preserves browser storage across releases.
 
+## Your own NEAR AI account
+
+Add credit → Your own NEAR AI account lets the page's wallet buy NEAR AI credit
+and call NEAR AI Cloud directly with its own key, the route the ZCON stick used.
+Send USDC and a little ETH on Base mainnet to the page's wallet, then press the
+step button: it activates an implicit NEAR account (0.01 NEAR bought through
+1Click with Base ETH), signs in to NEAR AI with NEP-413, buys credit with a
+PingPay invoice paid in Base USDC, and creates an inference key. Each send shows
+the amount and recipient and needs a second click. Chat then fetches NEAR's
+attestation report from the browser, verifies it as for broker chat, and
+encrypts to the attested model key. No broker is involved in model calls.
+
+PingPay's checkout routes do not accept browser origins, so `server.ts` forwards
+three fixed calls under `/near-pay/` (`near-pay.mjs`). `config.json` `nearPay`
+names that route, relative to the page or absolute for an IPFS build.
+
+Export wallet / Import a wallet move the wallet and its NEAR AI account between
+origins: the hosted page, a local checkout, an IPNS page.
+
+Run from a checkout:
+
+```sh
+npm ci && npm run build
+deno run --allow-net --allow-read=. --allow-env server.ts 8788   # http://127.0.0.1:8788/
+```
+
+Off the hosted origin, the sandbox, passkeys and email recovery need the broker
+and the page's server, so only chat with your own NEAR AI account works.
+
 ## Public IPFS pin on the Mac
 
 Run the publisher independently of the compute pool:

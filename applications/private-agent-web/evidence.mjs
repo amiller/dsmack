@@ -36,7 +36,7 @@ const summary = (v, raw) => ({ signingAddress: v.signer.signingAddress, tcbStatu
   advisoryIds: v.advisoryIds, composeHash: v.deployment.runtimeMeasurements.composeHash, ...identity(raw) });
 
 export async function checkEvidence(e, model, started, expectedNonce, modelPublicKey) {
-  require(e?.provider === "near" && e.model === model && e.mode === "broker-e2ee", "Provider attestation is invalid or names another model.");
+  require(e?.provider === "near" && e.model === model && ["broker-e2ee", "near-direct"].includes(e.mode), "Provider attestation is invalid or names another model.");
   require(/^[0-9a-f]{64}$/.test(expectedNonce), "Provider attestation needs a 32-byte client challenge.");
   const report = e.report, rawGateway = report?.gateway_attestation;
   require(/^[0-9a-f]{64}$/.test(rawGateway?.tls_cert_fingerprint), "NEAR gateway TLS key binding is missing.");
@@ -74,7 +74,7 @@ export async function checkEvidence(e, model, started, expectedNonce, modelPubli
   }));
   const [gateway, models] = await Promise.all([gatewayCheck, modelChecks]);
   require(Date.now() - started < 60000, "NEAR attestation took too long. No prompt sent.");
-  return { provider: "near", model, nonce: expectedNonce, mode: "broker-e2ee", verifiedAt: Math.floor(Date.now() / 1000),
+  return { provider: "near", model, nonce: expectedNonce, mode: e.mode, verifiedAt: Math.floor(Date.now() / 1000),
     verification: "verified", verifier: "browser: @phala/dcap-qvl + @nearai/inference-sdk",
     gateway: { ...summary(gateway, rawGateway), tlsFingerprint: rawGateway.tls_cert_fingerprint }, models,
     tls: { quotedSpkiBinding: "verified-in-browser", livePeerSpki: "not-observable-in-browser" },

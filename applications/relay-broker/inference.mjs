@@ -427,7 +427,7 @@ export class Inference {
         b.model === session.model && b.stream === true && Number.isSafeInteger(b.max_tokens) &&
         b.max_tokens > 0 && b.max_tokens <= this.cfg.maxOutputTokens &&
         fields(b.stream_options, ["include_usage"]) && b.stream_options.include_usage === true &&
-        Array.isArray(b.messages) && b.messages.length > 0 && b.messages.length <= 128 && b.messages.every(message) &&
+        Array.isArray(b.messages) && b.messages.length > 0 && b.messages.every(message) &&
         (b.tools === undefined || (Array.isArray(b.tools) && b.tools.every(tool))) &&
         (b.tool_choice === undefined || (b.tool_choice === "auto" && b.tools?.length > 0)),
       "BAD_REQUEST", "only bounded SDK-encrypted messages and tool fields are accepted",

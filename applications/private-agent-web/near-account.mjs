@@ -11,6 +11,8 @@ export const BASE_RPC = "https://mainnet.base.org";
 export const BASE_ETH = "nep141:base.omft.near";
 export const NEAR_USDC = "nep141:17208628f84f5d6ad33f0da3bbbeb27ffcb398eac501a31bd6ad2011e36133a1";
 export const TREASURY = "jasnah-treasury.sputnik-dao.near";
+// USDC kept after paying NEAR AI, for x402 tool calls such as run_code.
+export const TOOL_USDC = 250000n;
 const ACTIVATION_YOCTO = 10n ** 22n, MAX_ACTIVATION_WEI = 3n * 10n ** 13n, GAS_RESERVE_WEI = 2n * 10n ** 13n;
 const need = (ok, message) => { if (!ok) throw new Error(message); };
 const hex = (bytes) => Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
@@ -46,7 +48,7 @@ async function publicOf(privateKey) {
 }
 
 // PingPay's prepared payment must pay the asked USD amount of NEAR USDC to NEAR AI's treasury for this invoice,
-// from Base USDC sent by this wallet, refunded to it. Mirrors near_fund/payment.py prepare().
+// from Base USDC sent by this wallet. Mirrors near_fund/payment.py prepare().
 export function checkPayment(p, { sessionId, units, payer }) {
   const q = p.quote, pay = p.payment, r = q.quoteRequest;
   need(pay.status === "PENDING" && pay.paymentMethod === "DEPOSIT", "PingPay payment is not a pending deposit");
@@ -54,13 +56,21 @@ export function checkPayment(p, { sessionId, units, payer }) {
   need(pay.request.idempotencyKey === "session:" + sessionId, "PingPay payment is for another invoice");
   need(r.originAsset === BASE_USDC && r.destinationAsset === NEAR_USDC, "PingPay swap assets differ");
   need(q.amountOut === String(units), "PingPay output differs from the invoice");
-  need(r.refundTo.toLowerCase() === payer.toLowerCase() && r.refundType === "ORIGIN_CHAIN", "PingPay refunds elsewhere");
+  need(pay.request.payer.address.toLowerCase() === payer.toLowerCase(), "PingPay names another payer");
   need(/^0x[0-9a-fA-F]{40}$/.test(p.depositAddress) && pay.depositAddress === p.depositAddress && q.depositAddress === p.depositAddress,
     "PingPay deposit addresses differ");
   need(/^[1-9]\d*$/.test(q.amountIn) && BigInt(q.amountIn) <= units * 11n / 10n, "PingPay asks more than 10% over the invoice");
   return { depositAddress: p.depositAddress, amountIn: BigInt(q.amountIn) };
 }
 
+// NEAR AI accepts a sign-in nonce that starts with the current time: 8-byte big-endian milliseconds, then 24 random
+// bytes (as near_fund/account.py builds it). A fully random nonce is refused with invalid_auth.
+export function signInNonce(now = Date.now()) {
+  const n = new Uint8Array(32);
+  new DataView(n.buffer).setBigUint64(0, BigInt(now));
+  n.set(crypto.getRandomValues(new Uint8Array(24)), 8);
+  return n;
+}
 export class NearAccount {
   constructor({ privateKey, relay, fetcher = (...a) => fetch(...a), rpc = new JsonRpcProvider(BASE_RPC, 8453, { staticNetwork: true }) }) {
     this.wallet = new Wallet(privateKey, rpc);
@@ -146,7 +156,7 @@ export class NearAccount {
     return { organizationId: orgs[0].id, workspaceId: work[0].id };
   }
   async signIn() {
-    const reply = await this.cloud("POST", "/v1/auth/near", { token: null, body: await signInBody(this.seed, crypto.getRandomValues(new Uint8Array(32))) });
+    const reply = await this.cloud("POST", "/v1/auth/near", { token: null, body: await signInBody(this.seed, signInNonce()) });
     const ids = await this.me(reply.access_token);
     await store("near.session", this.session = { access_token: reply.access_token, refresh_token: reply.refresh_token,
       refresh_token_expiration: reply.refresh_token_expiration, ...ids });
@@ -175,8 +185,8 @@ export class NearAccount {
     await this.fresh();
     const units = BigInt(Math.round(usd * 1e6));
     need(units >= 1000000n && units <= 10000000n, "Buy between $1 and $10.");
-    const { sessionId } = await this.pay("/checkout", { accessToken: this.session.access_token, refreshToken: this.session.refresh_token,
-      organizationId: this.session.organizationId, amount: Number(units) / 1e6 });
+    const { sessionId } = await this.pay("/checkout", { signIn: await signInBody(this.seed, signInNonce()),
+      organizationId: this.session.organizationId, amount: Number(units / 10000n) }); // cents
     need(/^[A-Za-z0-9_-]{1,128}$/.test(sessionId), "NEAR AI returned no invoice");
     const s = (await this.pay("/session", { json: { sessionId } })).json.session;
     need(s.sessionId === sessionId && s.metadata.organizationId === this.session.organizationId && s.amount.amount === String(units) &&
@@ -227,10 +237,11 @@ export class NearAccount {
       await sleep(5000);
     }
     if (!this.session) { say("Signing in to NEAR AI."); await this.signIn(); }
-    if (!this.payment) {
+    // An account that already holds the credit (a payment that landed before its record was saved) is not charged again.
+    if (!this.payment && BigInt((await this.credit()).remaining) < BigInt(Math.round(usd * 1e9 / 2))) {
       const inv = await this.invoice(usd);
       for (;;) {
-        const short = inv.amountIn - (await this.balances()).usdcUnits;
+        const short = inv.amountIn + TOOL_USDC - (await this.balances()).usdcUnits;
         if (short <= 0n) break;
         const status = this.usdcSwap && (await swapStatus(this.usdcSwap.depositAddress, this.fetch)).status;
         if (!this.usdcSwap || ["SUCCESS", "REFUNDED", "FAILED"].includes(status)) {
@@ -242,13 +253,13 @@ export class NearAccount {
       say(`Paying NEAR AI's $${usd} invoice: ${formatUnits(inv.amountIn, 6)} USDC to PingPay.`);
       await this.payInvoice(inv);
     }
-    while (!await this.paymentCredited()) { say("Waiting for NEAR AI to add the credit."); await sleep(5000); }
+    while (this.payment && !await this.paymentCredited()) { say("Waiting for NEAR AI to add the credit."); await sleep(5000); }
     say("Creating this page's NEAR AI key.");
     return this.apiKey();
   }
 }
 // Base ETH the one payment should deliver for `usd` of NEAR AI credit: the invoice with 6% for swap fees and price
-// moves, the 0.01 NEAR activation, and gas for three Base sends.
+// moves, $0.25 of USDC left for x402 tool calls, the 0.01 NEAR activation, and gas for three Base sends.
 export function fundingWei(usd, ethUsd) {
-  return BigInt(Math.ceil((usd * 1.06 + 0.1) / ethUsd * 1e18)) + MAX_ACTIVATION_WEI + 2n * GAS_RESERVE_WEI;
+  return BigInt(Math.ceil((usd * 1.06 + 0.1 + Number(TOOL_USDC) / 1e6) / ethUsd * 1e18)) + MAX_ACTIVATION_WEI + 2n * GAS_RESERVE_WEI;
 }

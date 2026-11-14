@@ -31,7 +31,7 @@ export function nearOwnAccount({ $, cfg, ensureWallet, use }) {
     if (!f) return;
     await show(f);
     for (;;) {
-      if ((await account.balances()).ethWei >= BigInt(f.wei) * 95n / 100n) return finish(f.usd);
+      if (account.activation || (await account.balances()).ethWei >= BigInt(f.wei) * 95n / 100n) return finish(f.usd);
       if (f.depositAddress) say(`Waiting for your payment: 1Click ${(await swapStatus(f.depositAddress)).status}.`);
       await new Promise((r) => setTimeout(r, 10000));
     }

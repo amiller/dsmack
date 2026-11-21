@@ -102,8 +102,8 @@ def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_
     require(a['run'] == hashlib.sha256(launch_data).digest(), 'Attest is not from this launch')
     require(a['manifest_sha256'].hex() == sha(compose) and a['os_image_hash'].hex() == os_image_hash,
             'Attest is not for this compose and image')
-    service, = json.loads(json.loads(compose)['docker_compose_file'])['services']
-    require(a['caller'] == hashlib.sha256(service.encode()).digest(), 'Attest caller is not the workload service')
+    services = json.loads(json.loads(compose)['docker_compose_file'])['services']
+    require(a['caller'] == hashlib.sha256(b'agent').digest(), 'Attest caller is not the agent service')
     require(a['report_data'] == find.report(request_bytes, outputs).ljust(64, b'\0'), 'report_data does not bind these results')
     request = json.loads(request_bytes)
     require(request['schema'] == 'dsmack-agent-turn/1', 'not a turn request')
@@ -111,7 +111,7 @@ def from_guest_attest(blob, request_bytes, outputs, run, enrollment, cdhash, os_
     artifacts = {n: sha((outputs/n).read_bytes()) for n in names if (outputs/n).exists()}
     head = outputs/'dashcam-head'
     return {'agent_sha256': sha(canonical(request['agent'])), 'manifest_sha256': sha(compose),
-            'images': [json.loads(json.loads(compose)['docker_compose_file'])['services'][service]['image']],
+            'images': sorted({s['image'] for s in services.values()}),
             'commitment': None, 'inputs_sha256': request['inputs_sha256'],
             'prompt_sha256': sha(request['prompt'].encode()), 'state_in': request['state_in'],
             'state_out': artifacts.get('state'), 'outputs': artifacts,

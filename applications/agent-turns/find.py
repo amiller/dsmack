@@ -7,6 +7,7 @@ these inputs, answered X" or "wrote this patch", not that X is true. The executi
 output files, so their names are the receipt's artifact names.
 """
 import argparse
+import base64
 import hashlib
 import http.client
 import json
@@ -20,6 +21,7 @@ import subprocess
 import tarfile
 import tempfile
 import time
+from urllib.parse import urlsplit
 
 MAX_STDOUT = 8*1024*1024
 MAX_STDERR = 65536
@@ -214,7 +216,7 @@ def run(spec, inputs, output, cli):
     require(file_sha(cli) == agent['cli_sha256'], 'CLI binary digest')
     require(tree_digest(inputs) == spec['inputs_sha256'], 'inputs digest')
     output.mkdir(parents=True, exist_ok=True)
-    endpoint = os.environ['DSMACK_SENTINEL_ENDPOINT']
+    endpoint = os.environ['SENTINEL_ENDPOINT']
     if not asking:
         return edit(spec, inputs, output, cli, endpoint)
     text, verdicts, observed = prompt(spec), [], set()
@@ -256,6 +258,20 @@ def attest(report_data, output):
     (output/'attestation').write_bytes(bytes.fromhex(body['attestation']))
 
 
+def wait_for_sentinel(endpoint, seconds=60):
+    """The sentinel is a sibling compose service that may still be starting."""
+    url = urlsplit(endpoint)
+    if url.scheme != 'http':
+        return
+    deadline = time.time() + seconds
+    while True:
+        try:
+            return socket.create_connection((url.hostname, url.port), 2).close()
+        except OSError:
+            require(time.time() < deadline, 'sentinel not reachable')
+            time.sleep(1)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--spec', type=Path, required=True)
@@ -263,9 +279,16 @@ def main():
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--cli', type=Path, default=Path('/usr/local/bin/claude'))
     parser.add_argument('--attest', action='store_true', help='bind the results with a guest Attest on ' + DSTACK_SOCK)
+    parser.add_argument('--from-env', action='store_true',
+                        help='first write the base64 env value TURN to --spec, and TREE_0, TREE_1, ... joined to --inputs')
     args = parser.parse_args()
+    if args.from_env:
+        args.spec.write_bytes(base64.b64decode(os.environ.pop('TURN')))
+        parts = sorted((k for k in os.environ if k.startswith('TREE_')), key=lambda k: int(k[5:]))
+        args.inputs.write_bytes(base64.b64decode(''.join(os.environ.pop(k) for k in parts)))
     inputs = unpack(args.inputs) if args.inputs.is_file() else args.inputs.resolve()
     request = args.spec.read_bytes()
+    wait_for_sentinel(os.environ['SENTINEL_ENDPOINT'])
     run(json.loads(request), inputs, args.output, args.cli)
     if args.attest:
         attest(report(request, args.output), args.output)

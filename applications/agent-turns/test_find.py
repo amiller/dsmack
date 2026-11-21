@@ -48,7 +48,7 @@ class FindTest(unittest.TestCase):
         self.inputs = self.tmp/'inputs'
         (self.inputs/'src').mkdir(parents=True)
         (self.inputs/'src'/'a.py').write_text('def f():\n    return 1\n')
-        os.environ['DSMACK_SENTINEL_ENDPOINT'] = 'http://10.0.2.2:8100/tok'
+        os.environ['SENTINEL_ENDPOINT'] = 'http://10.0.2.2:8100/tok'
         self.spec = {'schema': 'dsmack-agent-turn/1', 'prompt': 'Does f return 1?', 'state_in': None,
                      'answers': ['yes', 'no', 'unclear'], 'runs': 3, 'aggregate': 'unanimous',
                      'agent': {'cli_version': '2.1.187', 'cli_sha256': None,
@@ -73,7 +73,7 @@ class FindTest(unittest.TestCase):
         self.assertEqual(self.run_mode('oauth')['answer'], 'yes')
 
     def test_inference_cli_preserves_native_oauth_and_proxy(self):
-        with mock.patch.dict(os.environ, {'DSMACK_SENTINEL_ENDPOINT': 'https://api.anthropic.com',
+        with mock.patch.dict(os.environ, {'SENTINEL_ENDPOINT': 'https://api.anthropic.com',
                                          'CLAUDE_CODE_OAUTH_TOKEN': 'DUMMY-INFERENCE',
                                          'HTTPS_PROXY': 'http://192.0.2.3:18443'}):
             self.assertEqual(self.run_mode('direct-oauth')['answer'], 'yes')

@@ -45,7 +45,7 @@ Operator calls carry `Authorization: Bearer $OPERATOR_TOKEN`:
   one `dsmack-alpha-workload-admission/1` per attempt id, for a profile of a release this app signed.
   Its compose is admitted for `/grant` until the admission's `expires_at`.
 - `POST /admit-compose {compose_manifest_sha256}`: admit a compose built outside a release
-  profile (`mac.py admit-v02`) for `/grant` for two hours.
+  profile for `/grant` for two hours.
 - `POST /enroll {attestation, key_id, client_data}`: record a Mac's App Attest key for `/grant`.
   A key that is already enrolled is refused.
 

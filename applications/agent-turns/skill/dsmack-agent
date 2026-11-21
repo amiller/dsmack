@@ -29,8 +29,8 @@ CLI_VERSION, CLI_SHA256 = '2.1.187', 'b49be8a5e565bf2d45b50d2de62017b25462131acc
 MAX_INPUTS = 16 << 20
 # ssh hosts, the operator's dispatch directories and the operator address the Mac fetches attempt files from
 # (README.md, Dispatch to the Mac).
-OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC, FETCH_ADDR = (os.environ[k] for k in (
-    'DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST', 'DSMACK_OPERATOR_FETCH_ADDR'))
+ENV = ('DSMACK_OPERATOR_HOST', 'DSMACK_OPERATOR_DIR', 'DSMACK_OPERATOR_V02_DIR', 'DSMACK_MAC_HOST', 'DSMACK_OPERATOR_FETCH_ADDR')
+OPERATOR, OPERATOR_DIR, V02_OPERATOR_DIR, MAC, FETCH_ADDR = map(os.environ.get, ENV)
 FETCH_PORT = 8765
 RELEASE, IMAGE = 'release-6', 'image-3'
 MAC_DIR = 'dsmack-mac-dispatch-20261025'
@@ -76,24 +76,37 @@ $C --execute --plan $PLAN > execute.json
 V02_IMAGE, V02_MAC_DIR = 'image-4', 'dsmack-agent-turns-v02-20261025'
 V02_CDHASH = '7011178cdb7a92bac0c28faa651ba54d20470a8057c569b2afe55dbf8b467970'
 V02_OS_IMAGE = 'c6bc2b7f0bddd086bce43638303b5a74fc02dc1f69d2d2b47f9bd85b9d51e42a'
+# The scratch/result templates and gvproxy under ~/.ap/runtime30 (seq-30 release), which match the base cmdline's template hashes.
+V02_RUNTIME = '.ap/runtime30'
+# The Mac's source/ is dca5c69 (Oct 25), the helpers matching the sentinel baked into V02_OS_IMAGE. Do not sync it
+# from main: from d717f31 on, staging accepts setup tokens, which this image's sentinel rejects (it needs refreshToken
+# and expiresAt), so run-v02 takes only the refreshable login in CREDENTIAL.
+V02_HELPERS = {
+    'applications/pilot-client/workload/export_subscription.py': '5fe803aa898028ecd4ef1a28d89b0d9901474f7af4d803a7604554b8c817dabc',
+    'applications/pilot-client/workload/stage_private.py': '81d69c1f2c245ec0cf97ad73379be6e3456f2416d33e4aa4e29549841862e935',
+    'applications/pilot-client/workload/portable.py': 'cd0692051a087e85bfd3ce6f8c0c6efbf51e94aed53640f5f14d4e967204fa01',
+    'base-vm/browser-sandbox-v1/source/guest/sentinel/harness/adapter/claude_subscription_document.py':
+        '11f4e0fa320c741c2324bf21c0892a133c608d56b7e2b0e76e47c72556d12487',
+    'base-vm/browser-sandbox-v1/source/smoke/launch_vm_dstack_arm64.py': 'c390723c8b7f4417483462b0a6110f274c13a97d4b394cdac0b7d121322d4f9d',
+}
 
 # On the Mac: stage the credential through the pipe, then one hvf-v3 launch of the attempt with that private disk.
 MAC_RUN_V02 = r'''set -euo pipefail
 D=$HOME/$1; T=$D/t/$2; S=$D/source
 [ "$(df -k "$D" | tail -1 | awk '{print $4}')" -gt 12582912 ] || { echo 'the Mac needs 12 GiB free' >&2; exit 3; }
-! pgrep -f MacOS/dsmack-runner >/dev/null || { echo 'another runner VM is running on the Mac' >&2; exit 3; }
+# Other runner VMs (the Layover guests) may run; refuse only another turn from this dir.
+! pgrep -f "$D/DsmackRunner.app/" >/dev/null || { echo 'another agent turn is running on the Mac' >&2; exit 3; }
 W=$S/applications/pilot-client/workload; G=$S/base-vm/browser-sandbox-v1/source
 cd "$T"; mkdir -m700 private tmp
 P=preparation; M=$(shasum -a 256 $P/compose-manifest.json | cut -d' ' -f1); J=$(shasum -a 256 $P/public-file-projection.json | cut -d' ' -f1)
-C=$HOME/$3; if [ -e "$HOME/.dsmack/private-inputs/claude-oauth-token" ]; then C=$HOME/.dsmack/private-inputs/claude-oauth-token; fi
-python3 -I -B $W/export_subscription.py --source "$C" --emit-credential-stdout | \
+python3 -I -B $W/export_subscription.py --source "$HOME/$3" --emit-credential-stdout | \
 python3 -I -B $W/stage_private.py --preparation $P --expected-manifest-sha256 $M --expected-projection-sha256 $J \
   --guest-source $G --transport-module $G/smoke/launch_vm_dstack_arm64.py --private-parent $T/private --out-name turn \
   --transport-backend darwin-owned-tempfile-v1 --portable-module $W/portable.py --temporary-parent $T/tmp > stage.json
-python3 -I - "$D" "$T" <<'PY'
+python3 -I - "$D" "$T" "$HOME/$4" <<'PY'
 import hashlib,json,secrets,subprocess,sys,time
 from pathlib import Path
-d,t=Path(sys.argv[1]),Path(sys.argv[2]);b=d/'base';rt=Path.home()/'.ap/runtime'
+d,t,rt=map(Path,sys.argv[1:4]);b=d/'base'
 canon=lambda v:json.dumps(v,sort_keys=True,separators=(',',':')).encode()
 def fsha(p):
  h=hashlib.sha256()
@@ -127,6 +140,70 @@ try:subprocess.run(['/usr/bin/open','-n','-W','--stdout',str(t/'stdout.txt'),'--
 finally:net.terminate();net.wait()
 PY
 '''
+
+# doctor: each check prints `ok <name>` or `FAIL <name>: <reason>`; nothing secret is printed.
+CHECKS = r'''
+import hashlib,json,os,shutil,subprocess,sys,time,urllib.request
+from pathlib import Path
+a=json.loads(sys.argv[1]);h=Path.home()
+sha=lambda p:hashlib.sha256(Path(p).read_bytes()).hexdigest()
+def c(name,f):
+ try:r=f()
+ except Exception as e:r='%s %s'%(type(e).__name__,e)
+ print('ok '+name if r is None else 'FAIL %s: %s'%(name,r),flush=True)
+want=lambda got,exp:None if got==exp else 'got %s'%got
+'''
+OPERATOR_CHECKS = CHECKS + r'''
+o,v=Path(a['dir']),Path(a['v02_dir']);e=os.environ
+c('operator dirs present',lambda:None if o.is_dir() and v.is_dir() else 'missing %s'%[str(x) for x in (o,v) if not x.is_dir()])
+c('coordinator.env sets DSMACK_COORDINATOR, DSMACK_OPERATOR_TOKEN, DSMACK_BROKER_BUILD, DSMACK_OPERATOR_POLICY',
+  lambda:None if all(k in e for k in ('DSMACK_COORDINATOR','DSMACK_OPERATOR_TOKEN','DSMACK_BROKER_BUILD','DSMACK_OPERATOR_POLICY')) else 'not set')
+c('coordinator /keys answers',lambda:urllib.request.urlopen(e['DSMACK_COORDINATOR'].rstrip('/')+'/keys',timeout=10).close())
+c('broker build and operator policy present',lambda:None if Path(e['DSMACK_BROKER_BUILD']).is_dir() and Path(e['DSMACK_OPERATOR_POLICY']).is_file() else 'missing')
+c('release '+a['release'],lambda:None if (o/a['release']).is_dir() else 'missing')
+c('image '+a['image'],lambda:None if (v/a['image']/'oci-layout').is_dir() else 'missing')
+c('operator base matches V02_OS_IMAGE',lambda:want(sha(v/'base/sha256sum.txt'),a['os_image']))
+c('operator source has mac.py',lambda:None if (v/'source/applications/agent-turns/mac.py').is_file() else 'missing')
+'''
+MAC_CHECKS = CHECKS + r'''
+d,rt,cred=h/a['dir'],h/a['runtime'],h/a['credential']
+c('runner CDHash',lambda:None if 'CandidateCDHashFull sha256='+a['cdhash'] in subprocess.run(['codesign','-d','--verbose=4',str(d/'DsmackRunner.app')],capture_output=True,text=True).stderr else 'mismatch')
+c('base matches V02_OS_IMAGE',lambda:want(sha(d/'base/sha256sum.txt'),a['os_image']))
+c('enrollment present',lambda:None if all((d/'enrollment'/n).is_file() for n in ('attestation.cbor','clientData.bin','keyId.txt')) else 'missing')
+cmd=dict(x.split('=',1) for x in json.loads((d/'base/metadata.json').read_bytes())['cmdline'].split() if '=' in x)
+for n in ('scratch','result'):c('runtime %s template'%n,lambda:want(sha(rt/'base'/(n+'-template.ext4')),cmd['dstack.%s_template_sha256'%n]))
+c('runtime gvproxy',lambda:None if os.access(rt/'helper/gvproxy-darwin',os.X_OK) else 'missing')
+for f,x in a['helpers'].items():c('helper '+f,lambda:want(sha(d/'source'/f),x))
+def login():
+ o=json.loads(cred.read_bytes())['claudeAiOauth']
+ if 'refreshToken' not in o:return 'not a refreshable login'
+ left=o['expiresAt']//1000-int(time.time())
+ return None if left>=1200 else 'access token expired %s; log in on the Mac'%time.strftime('%Y-%m-%d %H:%M',time.gmtime(o['expiresAt']//1000))
+c('refreshable login with 20 min left',login)
+c('12 GiB free',lambda:None if shutil.disk_usage(d).free>12<<30 else '%d GiB'%(shutil.disk_usage(d).free>>30))
+def vms():
+ p=subprocess.run(['pgrep','-f',str(d/'DsmackRunner.app')+'/'],capture_output=True,text=True)
+ return None if p.returncode==1 else 'agent turn pids %s'%p.stdout.split()
+c('no agent turn running',vms)
+c('fetch address reachable (tcp 22)',lambda:None if subprocess.run(['nc','-z','-G','3',a['fetch'],'22'],capture_output=True).returncode==0 else 'unreachable')
+'''
+
+
+def doctor(args):
+    """Check, without launching anything, everything run-v02 needs."""
+    lines = [f'{"ok" if os.environ.get(k) else "FAIL"} env {k}' for k in ENV]
+    lines.append('ok debugfs' if Path('/sbin/debugfs').exists() else 'FAIL debugfs: /sbin/debugfs missing')
+    for host, script, params, pre in (
+            (OPERATOR, OPERATOR_CHECKS, {'dir': OPERATOR_DIR, 'v02_dir': V02_OPERATOR_DIR, 'release': RELEASE, 'image': V02_IMAGE,
+                                         'os_image': V02_OS_IMAGE}, f'[ -r {OPERATOR_DIR}/coordinator.env ] && . {OPERATOR_DIR}/coordinator.env; '),
+            (MAC, MAC_CHECKS, {'dir': V02_MAC_DIR, 'runtime': V02_RUNTIME, 'credential': CREDENTIAL, 'cdhash': V02_CDHASH,
+                               'os_image': V02_OS_IMAGE, 'helpers': V02_HELPERS, 'fetch': FETCH_ADDR}, '')):
+        if not host:
+            continue
+        p = subprocess.run(['ssh', host, pre + 'python3 -I - ' + shlex.quote(json.dumps(params))], input=script, capture_output=True, text=True)
+        lines += p.stdout.splitlines() or [f'FAIL {host} reachable: ssh exit {p.returncode}']
+    print('\n'.join(lines))
+    sys.exit(any(l.startswith('FAIL') for l in lines))
 
 
 def snapshot(repo, inputs):
@@ -191,7 +268,7 @@ def mac_v02(request, inputs, out):
     fetch(f'{op}/admit', 'workload.img preparation closure-context.json', mac_t, admission['workload_disk']['sha256'])
     ssh(OPERATOR, f'rm {op}/admit/workload.img {op}/tree.tar')
     try:
-        ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL}', input=MAC_RUN_V02.encode())
+        ssh(MAC, f'bash -s {V02_MAC_DIR} {run_id} {CREDENTIAL} {V02_RUNTIME}', input=MAC_RUN_V02.encode())
     finally:
         # private-input.img holds the credential.
         ssh(MAC, f'rm -rf {mac_t}/private {mac_t}/tmp {mac_t}/workload.img')
@@ -251,6 +328,7 @@ def pipe(source, sink, src=MAC, dst=OPERATOR):
 
 
 def run(args):
+    find.require(all(map(os.environ.get, ENV)), f'set {", ".join(ENV)} (README.md, Dispatch to the Mac)')
     repo, out = args.repo.resolve(), args.out.resolve()
     out.mkdir(parents=True)
     (out/'inputs').mkdir()
@@ -273,6 +351,7 @@ def main():
     sub = parser.add_subparsers(required=True)
     add_run(sub.add_parser('run', help='dispatch one coding turn to the alpha release'), mac)
     add_run(sub.add_parser('run-v02', help='dispatch one coding turn to the v0.2.0-canary.1 runner'), mac_v02)
+    sub.add_parser('doctor', help='check the operator host and the Mac for run-v02 without launching').set_defaults(func=doctor)
     args = parser.parse_args()
     args.func(args)
 

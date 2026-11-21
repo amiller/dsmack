@@ -169,6 +169,16 @@ the Attest assertion over the rebuilt client data, the replayed event log
 ending in `system-ready`, that `run` is the launch assertion's client data, the
 compose (the manifest `admit-v02` admitted) and image hashes, and `report_data` against the artifacts.
 
+The Mac's `~/dsmack-agent-turns-v02-20261025` holds `source/` at dca5c69, whose
+credential helpers match the sentinel inside `c6bc2b7f…`. Do not sync it from
+main: d717f31 taught staging to accept setup tokens, which that sentinel
+rejects. To restore it, `git archive dca5c69 applications/pilot-client/workload
+base-vm/browser-sandbox-v1/source` into `source/`. `V02_HELPERS` in
+`skill/dsmack-agent` pins the files the launch uses, and the launch reads the
+templates and gvproxy from `~/.ap/runtime30` (`V02_RUNTIME`).
+`skill/dsmack-agent doctor` checks all of this, the operator dirs and coordinator,
+the Mac's login and disk, and whether another turn is running, without launching.
+
 Setup: `image-4` built by `mac.py image` and `base/` (the `derive.py` artifacts) in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
 and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
 

@@ -24,6 +24,7 @@ conversation.
 ```sh
 DSMACK_AGENT=<dsmack checkout>/applications/agent-turns/skill/dsmack-agent
 export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR_V02_DIR=<dir> DSMACK_MAC_HOST=<ssh host> DSMACK_OPERATOR_FETCH_ADDR=<operator IP the Mac reaches>
+"$DSMACK_AGENT" doctor   # checks both hosts without launching; fix every FAIL first
 "$DSMACK_AGENT" run --repo "$REPO" --prompt "$PROMPT" \
   --out "$SCRATCH/dispatch-$(date +%s)"
 ```
@@ -31,7 +32,8 @@ export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR
 - The agent uses the Claude login on the Mac
   (`~/.dsmack/private-inputs/claude-subscription.json` there). If staging
   refuses it as expired, ask the user to log in on the Mac; never copy a
-  credential between machines yourself.
+  credential between machines yourself. `run-v02` takes only this refreshable
+  login: the v0.2 image's sentinel rejects setup tokens (`claude-oauth-token`).
 - `run-v02` takes the same arguments and runs on the v0.2.0-canary.1 runner and
   the current guest image. `--out` then also holds `artifacts/attestation` (the guest Attest
   over the request, patch, transcript and verdict), `out/` (the runner's launch

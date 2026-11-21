@@ -7,9 +7,9 @@ description: Hand a bounded coding task on a local git checkout to the pinned ds
 
 The pinned agent is Claude Code 2.1.187 with model `claude-opus-4-8`, run by
 `find.py` in the `agent-turns` image. It sees only a snapshot of the working
-tree (tracked and untracked, not ignored files; at most 16 MiB), has the tools
+tree (tracked and untracked, not ignored files; at most 640 KiB), has the tools
 you allow and no shell, and cannot commit. Its only network peer is the
-sentinel, which adds the provider key.
+sentinel service, which holds the Claude credential.
 
 ## When
 
@@ -23,33 +23,26 @@ conversation.
 
 ```sh
 DSMACK_AGENT=<dsmack checkout>/applications/agent-turns/skill/dsmack-agent
-export DSMACK_OPERATOR_HOST=<ssh host> DSMACK_OPERATOR_DIR=<dir> DSMACK_OPERATOR_V02_DIR=<dir> DSMACK_MAC_HOST=<ssh host> DSMACK_OPERATOR_FETCH_ADDR=<operator IP the Mac reaches>
-"$DSMACK_AGENT" doctor   # checks both hosts without launching; fix every FAIL first
+export DSMACK_MAC_HOST=<ssh host of the Mac>
+"$DSMACK_AGENT" doctor   # checks the Mac without launching; fix every FAIL first
 "$DSMACK_AGENT" run --repo "$REPO" --prompt "$PROMPT" \
   --out "$SCRATCH/dispatch-$(date +%s)"
 ```
 
-- The agent uses the Claude login on the Mac
-  (`~/.dsmack/private-inputs/claude-subscription.json` there). If staging
-  refuses it as expired, ask the user to log in on the Mac; never copy a
-  credential between machines yourself. `run-v02` takes only this refreshable
-  login: the v0.2 image's sentinel rejects setup tokens (`claude-oauth-token`).
-- `run-v02` takes the same arguments and runs on the v0.2.0-canary.1 runner and
-  the current guest image. `--out` then also holds `artifacts/attestation` (the guest Attest
-  over the request, patch, transcript and verdict), `out/` (the runner's launch
-  evidence), `result/` and `turn.json` with the checked `attest` fields. A
-  run takes about three minutes.
+- The agent uses the Claude setup token on the Mac
+  (`~/.dsmack/private-inputs/claude-oauth-token`, from `claude setup-token`,
+  valid a year). If doctor fails on it, ask the user to make a new one on the
+  Mac; never copy a credential between machines yourself.
 - `--tools` defaults to `Read,Grep,Glob,Edit,Write`; pass `Read,Grep,Glob` for a
   read-only task.
-- `--wall-seconds` (480) and `--max-turns` (30) match the Mac develop recipe.
+- `--wall-seconds` (480) and `--max-turns` (30) bound the agent.
 - `--out` must not exist and must be outside `--repo`.
 
 It prints the path of the patch on success. `--out` then holds `request.json`,
-`inputs/` (the snapshot), `admission.json`, `verification.json`, the verified
-`receipt.json` and signed `report.json`, `turn.json` (the turn record from
-`turn.py`) and `artifacts/` (`patch`, `run-1-transcript`). A
-run takes about ten minutes. A failed run exits non-zero with the reason; the
-out path is printed first.
+`inputs/` (the snapshot), `artifacts/` (`patch`, `run-1-transcript`, `verdict`
+and `attestation`, the guest Attest over all of them), `out/` (the runner's
+launch evidence), `result/`, and `turn.json` with the checked `attest` fields.
+A failed run exits non-zero with the reason; the out path is printed first.
 
 ## Review and apply
 

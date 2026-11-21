@@ -91,8 +91,8 @@ both kinds into the same turn.
 
 ## Run
 
-`find.py` runs a stateless turn as the workload of a credentialed compose
-manifest; the per-run sentinel endpoint arrives in `DSMACK_SENTINEL_ENDPOINT`.
+`find.py` runs a stateless turn as the `agent` service of the compose; the
+sentinel endpoint, with its per-run token, arrives in `SENTINEL_ENDPOINT`.
 
 ```sh
 python3 find.py --spec turn.json --inputs /inputs --output /workspace/artifacts
@@ -100,94 +100,80 @@ python3 find.py --spec turn.json --inputs /inputs --output /workspace/artifacts
 
 `turn.py` reads turns and checks a chain. `from_receipt(receipt, request_bytes,
 outputs_dir)` takes a receipt the [run-result verifier](../pilot-client/verifier/README.md)
-has accepted; `from_mac_compose(evidence, compose_bytes, cdhash, blobs_dir)` checks
+has accepted; `from_guest_attest` checks a turn's guest Attest (below);
+`from_mac_compose(evidence, compose_bytes, cdhash, blobs_dir)` checks
 the App Attest evidence itself; `check_chain(turns, genesis)` returns the head.
-
-The sentinel that terminates TLS to `https://api.anthropic.com` inside the guest
-is in [`base-vm/browser-sandbox-v1/source/guest/sentinel/`](../../base-vm/browser-sandbox-v1/source/guest/sentinel/),
-copied byte for byte from `/usr/local/lib/dsmack/sentinel` in the
-0.7.1.broker-timeout-v1 rootfs (`dstack.rootfs_hash=c62f6746…`).
 
 ## Dispatch to the Mac
 
 `skill/dsmack-agent run` snapshots a local working tree and runs an edit turn in
 the attested guest on a Mac; [`skill/SKILL.md`](skill/SKILL.md) tells a
-local agent how to use it. The run follows [docs/running.md](../../docs/running.md):
+local agent how to use it. No operator host or coordinator takes part in a turn.
 
-1. The operator host (`mac.py admit`) puts the request in file slot `turn` and a tar of the
-   snapshot in slot `tree` (at most 16 MiB), builds the measured workload disk
-   with the image and the commitment declaration, has the
-   [coordinator](../coordinator/README.md) sign a workload admission for a fresh
-   attempt (`POST /admit`), and writes a checker context and a replay challenge.
-2. The Mac pipes its local Claude login through `export_subscription.py` into
-   `stage_private.py`, then runs `alpha_coordinator.py` prepare, check-only and
-   execute on the installed release (profile `agent-turns-edit-v1`).
-3. The operator host (`mac.py verify`) runs the run-result verifier on the Mac's original
-   evidence, and `turn.from_receipt` reads the verified receipt and artifacts.
+The compose (`manifest()` in `mac.py`) has two services on one image:
 
-The guest runs `find.py` as the compose workload with `--inputs` pointing at
-the tar; it checks the unpacked tree against the request's `inputs_sha256`.
+- `agent` runs `find.py --attest --from-env` on the request and snapshot, which
+  arrive base64-encoded in the private env values `TURN` and `TREE_0`..`TREE_7`
+  (the gzipped tar in chunks under Linux's 128 KiB limit per env string). It has no network: with `network.service_egress` it sits only on
+  the guest's service bridge, where it reaches `sentinel`.
+- `sentinel` runs `sentinel_env.py`, which hands the credential to
+  [`sentinel.py`](../../base-vm/browser-sandbox-v1/source/guest/sentinel/) on a pipe
+  in `claude-subscription` mode. It alone may reach api.anthropic.com
+  (160.79.104.0/23:443) and the resolver. The credential is a Claude setup token
+  (`claude setup-token`, one year, inference only), which the sentinel sends as a
+  Bearer token and never refreshes.
 
-One-time operator setup in `$DSMACK_OPERATOR_DIR` on the operator host, with
-`source/` a copy of this checkout and `coordinator.env` exporting `DSMACK_COORDINATOR`
-(the coordinator's URL), `DSMACK_OPERATOR_TOKEN` and the paths `mac.py` reads
-(`DSMACK_BROKER_BUILD`, `DSMACK_OPERATOR_POLICY`).
-`skill/dsmack-agent` reaches the two machines as `$DSMACK_OPERATOR_HOST` and `$DSMACK_MAC_HOST`. The Mac fetches
-the attempt files over HTTP from `$DSMACK_OPERATOR_FETCH_ADDR:8765`, which the operator host serves for the
-transfer, and checks each file's sha256 before use. `release` has the coordinator
-sign the inventory under its key id:
+This is #103's route: the credential proxy is part of the application's measured
+compose, so the base image carries no provider code and needs no change for it.
+
+Per turn, the laptop sends the Mac `request.json`, `tree.tar` and three helpers
+from this checkout. The Mac pipes `~/.dsmack/private-inputs/claude-oauth-token`
+through `export_subscription.py` into `private_inputs.py`, which writes the
+private input disk: one runtime-input envelope with `TURN`, `TREE_*` and the
+sentinel endpoint (agent only), and the credential and a fresh sentinel token
+(sentinel only). They are env values rather than file slots because the
+8783a3be runner fails any manifest with file slots (`KeyError: 'slot'` in
+`lifecycle.parser_validate`); env values are capped at 1 MiB in total, so the
+gzipped snapshot must stay under about 700 KiB. It then boots the fixed workload disk once with `DsmackRunner.app
+hvf-v3`. `turn.from_guest_attest` checks the runner key's App Attest attestation,
+the Attest assertion over the rebuilt client data, the replayed event log ending
+in `system-ready`, that `run` is the launch assertion's client data, the compose
+(`MANIFEST`) and image (`OS_IMAGE`) hashes, that the caller is the `agent`
+service, and `report_data` against the artifacts. The private disk is not
+measured; `report_data` binds the request and the results, and `find.py`
+checks the snapshot against the request's `inputs_sha256`.
+
+Pins in `skill/dsmack-agent`: runner `CDHASH` `0c3d3c90…` (the Layover hosts'
+DsmackRunner, enrolled on the mini), base `OS_IMAGE` `8783a3be…` (the Layover
+guests' base), `MANIFEST` and `WORKLOAD` from `mac.py workload` of image
+`sha256:d4fcf41e…`.
+
+### Build (once per image, on the operator host)
+
+On zed as `devops`, in `/data/devops/dsmack-agent-turns`: `qualified-claude-2.1.187/`
+is the OCI layout of the qualified parent, `base-8783a3be/` the base bundle,
+`source/` a `git archive` of this checkout, and `agent-turns` a docker-container
+buildx builder.
 
 ```sh
 M="python3 -B source/applications/agent-turns/mac.py"
-$M image --out image-1          # Dockerfile on the qualified 2.1.187 parent, as a gzip OCI layout
-. ./coordinator.env
-$M release --base-inventory BASE.json --base-archive BASE.tar.gz --oci image-1/oci-layout \
-  --base BASE-IMAGE --sequence 30 --out release-1  # a prior release with this profile; current pilot-client
-$M authorize --authority authority --registration DIR   # attestation.cbor, clientData.bin, keyId.txt of the Mac key
+$M image --builder agent-turns --qualified qualified-claude-2.1.187 --out image-1   # prints the image digest
+$M workload --image image-1 --base base-8783a3be --out workload-1                   # prints manifest and workload sha256
 ```
 
-Then install `release-1` on the Mac with `alpha-bootstrap.mjs` and `alpha_stage.py`
-into `~/dsmack-mac-dispatch-20261025/installed`, as in docs/running.md, with the
-coordinator's `public_pem` from `GET /keys` as the bootstrap trust key.
-`--base` is the guest image the release ships in `base/`. The alpha app (CDHash
-`6b9baf8b…`) predates the guest Attest agent and does not answer on `dsmack-ctl`,
-so it boots the B44 base (`os_image_hash` `b44abf14…`); a derived image
-(`image.sha256`) stops with supervisor code 33 when the agent cannot seal.
+Put the printed digests in `skill/dsmack-agent`, then install on the Mac in
+`~/dsmack-agent-turns-20261121`:
 
-### On the v0.2.0-canary.1 runner
+- `runner/DsmackRunner.app`: a link to the enrolled app with `CDHASH`;
+  `runner/enrollment/`: its key's `attestation.cbor`, `clientData.bin`, `keyId.txt`;
+  `runner/runtime/`: `base/{scratch,result}-template.ext4` and `helper/gvproxy-darwin`;
+  `runner/base/`: the base bundle (`cp -c` clones).
+- `workload/`: `workload.img` and `compose-manifest.json` from `workload-1`.
 
-`skill/dsmack-agent run-v02` runs the same turn on the v0.2.0-canary.1 runner
-(CDHash `7011178c…`) and the derived image `image.sha256` (`c6bc2b7f…`), without the
-alpha installer. `mac.py admit-v02` takes the alpha manifest, swaps in the `base_vm`
-of `--base`, binds `/var/run/dstack.sock` and adds `find.py --attest`. After the
-turn, `find.py` calls `/v1/Attest` with `report_data` = `find.report`: the
-sha256 of `{request, patch, transcripts, verdict, dashcam, state_out}`, and
-writes the attestation as the `attestation` artifact. The Mac stages the
-credential as above and launches `DsmackRunner.app hvf-v3` with that private
-disk. `turn.from_guest_attest` checks the runner key's App Attest attestation,
-the Attest assertion over the rebuilt client data, the replayed event log
-ending in `system-ready`, that `run` is the launch assertion's client data, the
-compose (the manifest `admit-v02` admitted) and image hashes, and `report_data` against the artifacts.
-
-The Mac's `~/dsmack-agent-turns-v02-20261025` holds `source/` at dca5c69, whose
-credential helpers match the sentinel inside `c6bc2b7f…`. Do not sync it from
-main: d717f31 taught staging to accept setup tokens, which that sentinel
-rejects. To restore it, `git archive dca5c69 applications/pilot-client/workload
-base-vm/browser-sandbox-v1/source` into `source/`. `V02_HELPERS` in
-`skill/dsmack-agent` pins the files the launch uses, and the launch reads the
-templates and gvproxy from `~/.ap/runtime30` (`V02_RUNTIME`).
-`skill/dsmack-agent doctor` checks all of this, the operator dirs and coordinator,
-the Mac's login and disk, and whether another turn is running, without launching.
-
-Setup: `image-4` built by `mac.py image` and `base/` (the `derive.py` artifacts) in `$DSMACK_OPERATOR_V02_DIR` on the operator host,
-and `~/dsmack-agent-turns-v02-20261025` on the Mac with the files the `V02_` comment in `skill/dsmack-agent` lists.
-
-An in-guest process writes `/run/dsmack/credential` on tmpfs with mode 0400,
-owned by the sentinel uid. `compose-private.yml` mounts that directory read-only
-for the sentinel and runs it as a container on two
-networks and the agent on an internal one only. `gateway_mode_ipv4: isolated`
-(Docker 28) removes the bridge gateway, so the agent cannot reach the host either;
-with `internal: true` alone the host's listeners stay reachable.
+`skill/dsmack-agent doctor` checks all of this, the token file, the disk and
+whether another turn is running, without launching. The Mac's compute pools pause
+while a runner VM they cannot see runs, so the turn links its run dir into `~/ds`
+and `~/dl` for its lifetime, as Layover's `run-mini.sh` does.
 
 ```sh
 python3 -m pytest -q applications/agent-turns

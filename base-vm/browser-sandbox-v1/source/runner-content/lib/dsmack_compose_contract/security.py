@@ -7,20 +7,28 @@ from pathlib import Path
 PROFILE = 'browser-sandbox-v1'
 AGENT_PROFILE = 'agent-sandbox-v1'
 AGENT_SOCKET_TARGET = '/root/dstack.sock'
-POLICY_SHA256 = 'cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849'
-POLICY_PATH = '/usr/local/lib/dsmack/compose-runner/lib/dsmack_compose_contract/browser-sandbox-v1.json'
+# A dev session runs its own rootless container engine; the per-run VM is the isolation boundary (ADR 0010).
+DEV_PROFILE = 'dev-session-v1'
+ENGINE_TARGET = '/var/lib/dsmack-engine'
+ENGINE_HOST_ROOT = '/var/lib/docker/dsmack-engine'
+POLICY_DIR = '/usr/local/lib/dsmack/compose-runner/lib/dsmack_compose_contract/'
+POLICIES = {PROFILE: ('cc3e61cabda6bbc1e53e54d27ba4d55a9d3be829b6dd1a596f4a7b31b1cc7849', 12997),
+            DEV_PROFILE: ('bc9b12c0526d1514aa690d34ea8e30b76dcf39b5e8205438b5f7068d9d1090e8', 11713)}
+POLICY_SHA256 = POLICIES[PROFILE][0]
+POLICY_PATH = POLICY_DIR + PROFILE + '.json'
 
 
-def verify_policy():
-    path = Path(__file__).with_name('browser-sandbox-v1.json')
+def verify_policy(profile=PROFILE):
+    digest, size = POLICIES[profile]
+    path = Path(__file__).with_name(profile + '.json')
     fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
     try:
         st = os.fstat(fd)
-        if not stat.S_ISREG(st.st_mode) or st.st_size != 12997:
-            raise ValueError('browser policy type/size refused')
-        data = os.read(fd, 12998)
-        if len(data) != 12997 or hashlib.sha256(data).hexdigest() != POLICY_SHA256:
-            raise ValueError('browser policy digest refused')
+        if not stat.S_ISREG(st.st_mode) or st.st_size != size:
+            raise ValueError('%s policy type/size refused' % profile)
+        data = os.read(fd, size + 1)
+        if len(data) != size or hashlib.sha256(data).hexdigest() != digest:
+            raise ValueError('%s policy digest refused' % profile)
     finally:
         os.close(fd)
 
@@ -41,6 +49,17 @@ def preset_fields(profile=PROFILE):
             'pids_limit': 128,
             'mem_limit': 2147483648,
         }
+    if profile == DEV_PROFILE:
+        verify_policy(profile)
+        return {
+            'cap_drop': ['ALL'],
+            'cap_add': [],
+            'security_opt': ['no-new-privileges:true', 'seccomp:' + POLICY_DIR + profile + '.json', 'systempaths=unconfined'],
+            'tmpfs': ['/workspace:rw,nosuid,nodev,size=268435456,uid=1000,gid=1000,mode=0700'],
+            'shm_size': 67108864,
+            'pids_limit': 1024,
+            'mem_limit': 2147483648,
+        }
     verify_policy()
     return {
         'cap_drop': ['ALL'],
@@ -57,9 +76,11 @@ def require_selection(service, manifest):
     profile = service.get('security_profile')
     if 'security_profile' not in service:
         return None
-    if profile == AGENT_PROFILE:
+    if profile in (AGENT_PROFILE, DEV_PROFILE):
         if manifest.get('credentials', {}).get('required'):
-            raise ValueError('agent preset refuses credential broker')
+            raise ValueError('%s refuses credential broker' % profile)
+        if profile == DEV_PROFILE:
+            verify_policy(profile)
         return profile
     if profile != PROFILE:
         raise ValueError('unknown security profile')

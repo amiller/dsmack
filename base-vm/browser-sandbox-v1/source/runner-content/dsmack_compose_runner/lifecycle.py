@@ -139,13 +139,15 @@ def parser_validate(control, lowered, project_name: str) -> dict:
                 raise RunnerError("config-browser-preset-drift", str(exc)) from None
         for volume in service.get("volumes") or []:
             source = volume.get("source") or ""
-            if volume.get("type") != "bind" or (volume.get("bind") or {}).get("propagation") != "rprivate":
-                raise RunnerError("config-mount-drift", "mounts must be rprivate binds")
+            from dsmack_compose_contract.security import ENGINE_HOST_ROOT
+            want = "rslave" if source.startswith(ENGINE_HOST_ROOT + "/") else "rprivate"
+            if volume.get("type") != "bind" or (volume.get("bind") or {}).get("propagation") != want:
+                raise RunnerError("config-mount-drift", "mounts must be rprivate binds (rslave from the engine scratch dir)")
             agent_sock = (source, volume.get("target"), volume.get("read_only")) == (
                 "%s/%s.sock" % (AGENT_SOCKET_DIR, name),
                 AGENT_SOCKET_TARGET if profile == AGENT_PROFILE else "/var/run/dstack.sock", True)
             resolv = (source, volume.get("target"), volume.get("read_only")) == (GUEST_RESOLV_CONF, "/etc/resolv.conf", True)
-            runtime = any(m["slot"] == "runtime" and
+            runtime = any(m["slot"] in ("runtime", "engine") and
                           (source, volume.get("target"), volume.get("read_only", False)) ==
                           (m["source"], m["target"], m["mode"] == "ro")
                           for m in lowered["mounts_by_service"][name]["mounts"])

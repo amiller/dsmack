@@ -145,5 +145,44 @@ class AgentSandboxProfile(unittest.TestCase):
         self.assertEqual(failure.exception.code, "config-browser-preset-drift")
 
 
+class DevSessionProfile(unittest.TestCase):
+    validate = AgentSandboxProfile.validate
+    test_parser_refuses_privileged = AgentSandboxProfile.test_parser_refuses_privileged_agent
+
+    def setUp(self):
+        doc = json.loads(COMPOSE)
+        doc["services"]["worker"].update({"security_profile": "dev-session-v1",
+                                          "volumes": ["/var/run/dstack.sock:/var/run/dstack.sock:ro"]})
+        self.raw = app_compose(docker_compose_file=json.dumps(doc))
+        manifest, summary = validate_manifest_bytes(self.raw)
+        self.lowered = lower(manifest, summary["manifest_sha256"], daemon_endpoint="unix:///run/d.sock",
+                             run_id="r" * 32, workspace_host_dir="/w/run-1")
+        self.rendered = json.loads(render_compose_file(manifest, self.lowered))
+        self.service = self.rendered["services"]["worker"]
+
+    def test_dev_session_runs_unprivileged_with_userns_policy_and_scratch_engine_store(self):
+        self.assertEqual((self.service["user"], self.service["cap_drop"], self.service["cap_add"]), ("1000:1000", ["ALL"], []))
+        self.assertIn("no-new-privileges:true", self.service["security_opt"])
+        self.assertIn("systempaths=unconfined", self.service["security_opt"])
+        engine = next(v for v in self.service["volumes"] if v["target"] == "/var/lib/dsmack-engine")
+        self.assertEqual((engine["source"], engine["read_only"]), ("/var/lib/docker/dsmack-engine/run-1/worker", False))
+        self.assertTrue(any(v["target"] == "/var/run/dstack.sock" for v in self.service["volumes"]))
+        self.service["security_opt"] = [o.replace("no-new-privileges:", "no-new-privileges=") for o in self.service["security_opt"]]
+        self.assertEqual(self.validate(), {"services": ["worker"]})
+
+    def test_dev_session_refuses_credential_broker(self):
+        m = json.loads(self.raw)
+        m["dsmack"]["credentials"] = {"required": True}
+        with self.assertRaises(MultiError):
+            validate_manifest_bytes(json.dumps(m).encode())
+
+    def test_dev_session_refuses_a_dropped_seccomp_policy(self):
+        from dsmack_compose_runner.errors import RunnerError
+        self.service["security_opt"] = ["no-new-privileges:true", "seccomp:unconfined", "systempaths=unconfined"]
+        with self.assertRaises(RunnerError) as failure:
+            self.validate()
+        self.assertEqual(failure.exception.code, "config-browser-preset-drift")
+
+
 if __name__ == "__main__":
     unittest.main()

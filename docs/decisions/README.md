@@ -11,3 +11,4 @@ One short file per design decision: `NNNN-title-with-dashes.md`, copied from
 | [0003](0003-chats-stay-in-browser.md) | Chats live in the browser and sync encrypted under the wallet | accepted |
 | [0004](0004-no-plaintext-reports.md) | Failure reports never carry conversation content | accepted |
 | [0005](0005-dstack-guest-api.md) | The Mac guest offers dstack's guest API | accepted |
+| [0010](0010-dev-session-profile.md) | A dev-session profile lets a workload run its own rootless container engine | proposed |

@@ -240,6 +240,9 @@ def run_manifest(
             cap_bytes=limits["workspace_max_bytes"],
         )
         cap_mode = workspace.prepare_cap(["inputs", "state", "artifacts"])
+        for m in (m for s in lowered["mounts_by_service"].values() for m in s["mounts"] if m.get("slot") == "engine"):
+            os.makedirs(m["source"], mode=0o700)
+            os.chown(m["source"], 1000, 1000)
         delivered = {"files": [], "user_config": None}
         if plan is not None:
             delivered = workspace.materialize_delivery(plan)

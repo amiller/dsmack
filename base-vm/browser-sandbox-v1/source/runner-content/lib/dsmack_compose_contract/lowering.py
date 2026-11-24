@@ -248,6 +248,14 @@ def _service_mounts(manifest, service_name, workspace_host_dir):
         mounts.append(
             {"create_host_path": False, "mode": "ro", "slot": "dstack", "source": "%s/%s.sock" % (AGENT_SOCKET_DIR, service_name), "target": AGENT_SOCKET_TARGET if profile == AGENT_PROFILE else "/var/run/dstack.sock", "type": "bind"}
         )
+    from .security import DEV_PROFILE, ENGINE_HOST_ROOT, ENGINE_TARGET
+    if _compose_doc(manifest)["services"][service_name].get("security_profile") == DEV_PROFILE:
+        # Engine storage on the encrypted per-boot scratch disk: overlay needs a real filesystem, not tmpfs.
+        # The scratch disk is dockerd's root, and Docker requires rslave for a bind from inside it.
+        mounts.append(
+            {"create_host_path": False, "mode": "rw", "slot": "engine", "type": "bind", "target": ENGINE_TARGET, "propagation": "rslave",
+             "source": "%s/%s/%s" % (ENGINE_HOST_ROOT, workspace_host_dir.rsplit("/", 1)[1], service_name)}
+        )
     for volume in _compose_doc(manifest)["services"][service_name].get("volumes", []):
         if volume in DSMACK_RUNTIME_VOLUMES:
             mounts.append(
@@ -514,7 +522,7 @@ def render_compose_file(manifest, lowered, workload_env=None):
         for mount in lowered["mounts_by_service"][service_name]["mounts"]:
             volumes_out.append(
                 {
-                    "bind": {"create_host_path": False, "propagation": "rprivate"},
+                    "bind": {"create_host_path": False, "propagation": mount.get("propagation", "rprivate")},
                     "read_only": mount["mode"] == "ro",
                     "source": mount["source"],
                     "target": mount["target"],

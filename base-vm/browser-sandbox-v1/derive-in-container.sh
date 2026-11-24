@@ -34,7 +34,7 @@ cp -a /guest-egress/usr/lib/aarch64-linux-gnu/*.so* "$TREE/usr/lib/aarch64-linux
 for file in public_inputs.py public_toc.py; do
  install -m0644 "/w/source/runner-content/dsmack_guest_io/$file" "$TREE/usr/local/lib/dsmack/guest-io/dsmack_guest_io/$file"
 done
-for file in __main__.py manifest.py lowering.py egress.py security.py browser-sandbox-v1.json; do
+for file in __main__.py manifest.py lowering.py egress.py security.py browser-sandbox-v1.json dev-session-v1.json; do
  install -m0644 "/w/source/runner-content/lib/dsmack_compose_contract/$file" "$RDEST/lib/dsmack_compose_contract/$file"
 done
 for file in cli.py runner.py lifecycle.py workspace.py; do

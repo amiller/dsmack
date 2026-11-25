@@ -56,6 +56,7 @@ suite_contracts() {
     . app-attest/circuit/env.sh
     forge test --root contracts --offline --use "$SOLC"
     forge test --root contracts/work-escrow --offline --use "$SOLC"
+    forge test --root examples/attest-nft --offline --use "$SOLC"
     forge test --root app-attest/contracts --offline --use "$SOLC"
     app-attest/circuit/prove-leaf.sh
     forge build --root app-attest/contracts/verifier --offline --use "$ATTEST_TOOLS/bin/solc-0.8.27"

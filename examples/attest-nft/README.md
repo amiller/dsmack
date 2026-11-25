@@ -83,3 +83,7 @@ Approved build: `approved/attest-nft`, compiled on a Mac mini (M4 Pro), signed A
 The mini enrolled key `0x8a010228…fa6b` in `0x6a6ebc12e0f42728dfbceb9f1bcc8807eff37d616dcf686e02ff5ab332af77ee`
 (13,886,275 gas) and claimed token `0x4bb94217…fce0` ("Apple M4 Pro", chip-id `0x6040`) to `0x9788…E6aA` in
 `0xc70130372e8ea7133cb7501db9339ef42199e6a3b34a37a6aeed70545febf7b9` (337,816 gas).
+
+The notarized Developer ID copy in the `attest-nft-v1` release (CDHash
+`0x6b5053c08de171db34d51eeab0c55a0d69936f5b8e7ec0866f993f1942391ae1`) was registered as a copy of that build in
+`0x8db1f5ecf30468681af96d542545ceb3225cadda146ad48c4e005a9e51ac7952`.

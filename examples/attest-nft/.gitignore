@@ -1,0 +1,6 @@
+out/
+cache/
+build/
+broadcast/
+key/
+foundry.lock

@@ -1,0 +1,12 @@
+[profile.default]
+src = "."
+test = "test"
+script = "script"
+out = "out"
+solc_version = "0.8.21"
+optimizer = true
+via_ir = true
+libs = ["../../app-attest/contracts/lib"]
+remappings = ["forge-std/=../../app-attest/contracts/lib/forge-std/src/", "attest/=../../app-attest/contracts/src/", "dsmack/=../../contracts/src/", "attest-test/=../../app-attest/contracts/test/"]
+fs_permissions = [{ access = "read", path = "../../contracts/fixtures" }, { access = "read", path = "./build" }, { access = "read", path = "./test/fixtures" }, { access = "write", path = "./deployment.json" }, { access = "write", path = "./out/token-uri.txt" }]
+allow_paths = ["../../app-attest/contracts", "../../contracts"]

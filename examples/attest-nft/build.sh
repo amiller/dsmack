@@ -18,6 +18,7 @@ cat > "$app/Contents/Info.plist" <<PLIST
 <key>CFBundleName</key><string>AttestNFT</string>
 <key>CFBundlePackageType</key><string>APPL</string>
 <key>CFBundleVersion</key><string>1</string>
+<key>CFBundleShortVersionString</key><string>1.0</string>
 <key>LSUIElement</key><true/>
 <key>LSMinimumSystemVersion</key><string>27.0</string>
 </dict></plist>
@@ -33,6 +34,6 @@ cat > build/entitlements.plist <<PLIST
 <key>keychain-access-groups</key><array><string>$team.*</string></array>
 </dict></plist>
 PLIST
-codesign --force --options runtime --timestamp --sign "$identity" --entitlements build/entitlements.plist --generate-entitlement-der "$app"
+codesign --force --options runtime --timestamp --sign "$identity" ${KEYCHAIN:+--keychain "$KEYCHAIN"} --entitlements build/entitlements.plist --generate-entitlement-der "$app"
 codesign --verify --strict "$app"
-codesign -d --verbose=2 "$app" 2>&1 | grep CDHash=
+codesign -d --verbose=2 "$app" 2>&1 | grep CDHash

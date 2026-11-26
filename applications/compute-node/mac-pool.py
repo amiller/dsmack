@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Own a Mac quick tunnel, capped relay and CONNECT helper for the warm pool lifetime."""
-import argparse,json,shutil,signal,subprocess,sys,time,re,socket,ssl,http.client,base64,hashlib,os,ipaddress
+import argparse,json,shutil,signal,subprocess,sys,tempfile,time,re,socket,ssl,http.client,base64,hashlib,os,ipaddress
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -49,18 +49,17 @@ class GuestDirectoryPublication:
         if entries == self.previous and not pending:
             return
         now = time.monotonic()
-        if now < self.retry_at and (self.reserve_delay or not withdrawing):
+        if now < self.retry_at and not withdrawing:
             return
         try:
             refusal = publish(entries, True)
         except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
             self.retry_at = now + 60
-            self.reserve_delay = 0
             print(json.dumps(dict(event='guest-directory-publication-failed',
                                   error=type(error).__name__, retrySeconds=60)), flush=True)
             return
         if refusal:
-            self.reserve_delay = min(3600, max(120, 2 * self.reserve_delay))
+            self.reserve_delay = min(900, max(120, 2 * self.reserve_delay))
             self.retry_at = time.monotonic() + self.reserve_delay
             print(json.dumps(dict(event='guest-directory-reserve-backoff',
                                   retrySeconds=self.reserve_delay, **refusal)), flush=True)
@@ -342,9 +341,11 @@ def main():
             time.sleep(5)
         raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
     pending_path=a.state/'chain-pending.txt'
+    def write_entries(out,entries):
+        (out/'entries.json').write_text(json.dumps(entries))
     def prepare(entries):
         out=a.state/('publication-'+str(time.time_ns()));out.mkdir()
-        (out/'entries.json').write_text(json.dumps(entries))
+        write_entries(out,entries)
         return out
     def run_publication(out,chain):
         cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',out/'entries.json','--evidence',out,'--expiry-state',a.state.parent/'publication-expiry']
@@ -354,7 +355,10 @@ def main():
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     def publish(entries,chain):
         if chain:return publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
-        run_publication(prepare(entries),False)
+        with tempfile.TemporaryDirectory(prefix='broker-publication-',dir=a.state) as tmp:
+            out=Path(tmp)
+            write_entries(out,entries)
+            run_publication(out,False)
     backoff=RestartBackoff(a.state.parent/'launcher-backoff.json')
     try:
         if not a.adopt_launcher and not backoff.begin(lambda:stopping):return

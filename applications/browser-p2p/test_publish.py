@@ -17,6 +17,10 @@ from eth_account.messages import encode_defunct
 from unittest.mock import Mock, patch
 
 
+class StubReserveError(Exception):
+    pass
+
+
 class BrokerPublicationTests(unittest.TestCase):
     def run_publication(self, replies, root, account=None, entries=None, sleep_effect=None):
         received = []
@@ -135,7 +139,7 @@ class ChainPublicationTests(unittest.TestCase):
                     '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
                     '--evidence', str(root)]
             with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
-                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=RuntimeError, load_owner=None, send=send, wait_receipt=None)}), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=StubReserveError, load_owner=None, send=send, wait_receipt=None)}), \
                     patch('urllib.request.urlopen', side_effect=AssertionError('chain publication contacted HTTP broker')), \
                     contextlib.redirect_stdout(io.StringIO()):
                 runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
@@ -194,7 +198,7 @@ class ChainPublicationTests(unittest.TestCase):
                     '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
                     '--evidence', str(root)]
             with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
-                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=RuntimeError, load_owner=None, send=submit, wait_receipt=reconcile)}), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=StubReserveError, load_owner=None, send=submit, wait_receipt=reconcile)}), \
                     contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(TimeoutError, 'submission response lost'):
                     runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')

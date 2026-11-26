@@ -11,7 +11,7 @@ from eth_account import Account
 from eth_account.messages import encode_defunct
 ROOT=Path(__file__).resolve().parents[2]
 sys.path.insert(0,str(ROOT/'contracts/payments'))
-from deploy import load_owner,send,wait_receipt
+from deploy import ReserveError,load_owner,send,wait_receipt
 from rpc import ChainReader,CHAIN_ID
 p=argparse.ArgumentParser(description=__doc__)
 p.add_argument('action',choices=['deploy','publish','chain','broker'])
@@ -117,6 +117,11 @@ else:
   envelope=signed_publication(values,account);raw=json.dumps(envelope,separators=(',',':'))
   (a.evidence/'signed-publication.json').write_text(json.dumps(envelope,indent=2)+'\n')
   data='0x'+(keccak(text='publish(string)')[:4]+encode(['string'],[raw])).hex()
-  receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
+  try:
+   receipt=send(account,quorum,a.evidence,'publish',to=a.registry,data=data,**({'min_reserve_wei':100_000_000_000_000,'balance_block':'latest'} if a.publisher_address else {}))
+  except ReserveError as error:
+   if a.action!='chain':raise
+   (a.evidence/'reserve-refusal.json').write_text(json.dumps(error.details)+'\n')
+   sys.exit(os.EX_TEMPFAIL)
  if a.action=='publish':publish_broker()
  print(json.dumps({'chainId':CHAIN_ID,'registry':a.registry,'transactionHash':receipt['transactionHash'],'broker':a.broker}))

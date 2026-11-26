@@ -17,6 +17,12 @@ MIN_RESERVE_WEI = 20_000_000_000_000_000
 CONTRACTS = Path(__file__).resolve().parents[1]
 
 
+class ReserveError(RuntimeError):
+    def __init__(self, address, balance, required, reserve):
+        super().__init__(f"transaction would breach the {reserve} wei reserve")
+        self.details = dict(wallet=address, balanceWei=balance, requiredWei=required)
+
+
 def load_owner(key_path):
     # Refuse the unrelated deployer file without opening it.
     if Path(key_path).name == "deployer-new.key":
@@ -66,8 +72,9 @@ def send(account, quorum, output, label, *, value=0, data="0x", to=None, min_res
         raise RuntimeError("gas estimate exceeds deployment cap")
     head=quorum.finalized()
     balance=int(quorum.at("eth_getBalance",[account.address],head) if balance_block=="finalized" else quorum.read("eth_getBalance",[account.address,balance_block]),16)
-    if balance-value-tx["gas"]*gas_price < min_reserve_wei:
-        raise RuntimeError(f"transaction would breach the {min_reserve_wei} wei reserve")
+    required = value + tx["gas"] * gas_price + min_reserve_wei
+    if balance < required:
+        raise ReserveError(account.address, balance, required, min_reserve_wei)
     signed = account.sign_transaction(tx)
     tx_hash = "0x" + keccak(signed.raw_transaction).hex()
     # Save the intended hash BEFORE sending so a timeout never encourages a blind resend.

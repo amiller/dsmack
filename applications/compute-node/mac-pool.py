@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Own a Mac quick tunnel, capped relay and CONNECT helper for the warm pool lifetime."""
-import argparse,json,signal,subprocess,sys,time,re,socket,ssl,http.client,base64,hashlib,os,ipaddress
+import argparse,json,shutil,signal,subprocess,sys,tempfile,time,re,socket,ssl,http.client,base64,hashlib,os,ipaddress
 from pathlib import Path
 from urllib.parse import urlsplit
 from urllib.request import urlopen
@@ -39,36 +39,66 @@ def guest_entries(snapshot, hint, now=None):
     return [entries[peer] for peer in sorted(entries)]
 
 
-def publish_directory(publish, entries, previous, pending=False):
-    if entries == previous and not pending:
-        return previous
-    try:
-        publish(entries, True)
-        return entries
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
-        print(json.dumps(dict(event='guest-directory-publication-failed',
-                              error=type(error).__name__, retrySeconds=60)), flush=True)
-        return previous
+class GuestDirectoryPublication:
+    def __init__(self, previous):
+        self.previous = previous
+        self.retry_at = 0
+        self.reserve_delay = 0
+
+    def tick(self, publish, entries, pending=False, *, withdrawing=False):
+        if entries == self.previous and not pending:
+            return
+        now = time.monotonic()
+        if now < self.retry_at and not withdrawing:
+            return
+        try:
+            refusal = publish(entries, True)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired) as error:
+            self.retry_at = now + 60
+            print(json.dumps(dict(event='guest-directory-publication-failed',
+                                  error=type(error).__name__, retrySeconds=60)), flush=True)
+            return
+        if refusal:
+            self.reserve_delay = min(900, max(120, 2 * self.reserve_delay))
+            self.retry_at = time.monotonic() + self.reserve_delay
+            print(json.dumps(dict(event='guest-directory-reserve-backoff',
+                                  retrySeconds=self.reserve_delay, **refusal)), flush=True)
+            return
+        self.previous = entries
+        self.reserve_delay = 0
+        self.retry_at = now + 60
 
 
 def publish_chain(entries, pending_path, prepare, run):
     """Reconcile one saved attempt before allocating any later transaction."""
+    def attempt(out):
+        try:
+            run(out)
+        except subprocess.CalledProcessError as error:
+            refusal = out/'reserve-refusal.json'
+            if error.returncode != os.EX_TEMPFAIL or (out/'publish-transaction.json').exists():
+                raise
+            details = json.loads(refusal.read_text())
+            pending_path.unlink()
+            shutil.rmtree(out)
+            return details
+        pending_path.unlink()
+
     if pending_path.exists():
         out = Path(pending_path.read_text())
         previous = json.loads((out/'entries.json').read_text())
         if previous == entries or (out/'publish-transaction.json').exists():
-            run(out)
-            pending_path.unlink()
-            if previous == entries:
-                return
+            refusal = attempt(out)
+            if refusal or previous == entries:
+                return refusal
         else:
             pending_path.unlink()
+            shutil.rmtree(out)
     out = prepare(entries)
     temporary = pending_path.with_suffix('.tmp')
     temporary.write_text(str(out.resolve()))
     temporary.replace(pending_path)
-    run(out)
-    pending_path.unlink()
+    return attempt(out)
 
 
 def discover_transport(broker, stopped=lambda: False, budget_seconds=60, retry_seconds=2):
@@ -257,7 +287,8 @@ def main():
     if not a.adopt_launcher:
         reaped=reap_orphan_transports(transport_record)
         if reaped:print(json.dumps(dict(event='reaped_orphan_transports',groups=reaped)),flush=True)
-    stopping=False;reload_requested=False;children=[];transports=[];logs=[];pools=None;handoff=None;published=False;published_entries=[]
+    stopping=False;reload_requested=False;children=[];transports=[];logs=[];pools=None;handoff=None;published=False
+    directory=GuestDirectoryPublication([])
     def stop(*_):
         nonlocal stopping
         stopping=True
@@ -310,9 +341,11 @@ def main():
             time.sleep(5)
         raise RuntimeError('public tunnel DNS/TLS/WebSocket readiness failed; inspect tunnel-readiness.jsonl')
     pending_path=a.state/'chain-pending.txt'
+    def write_entries(out,entries):
+        (out/'entries.json').write_text(json.dumps(entries))
     def prepare(entries):
         out=a.state/('publication-'+str(time.time_ns()));out.mkdir()
-        (out/'entries.json').write_text(json.dumps(entries))
+        write_entries(out,entries)
         return out
     def run_publication(out,chain):
         cmd=[sys.executable,ROOT/'applications/browser-p2p/publish.py','chain' if chain else 'broker','--key',a.publisher_key,'--publisher-address',a.publisher_address,'--registry',a.registry,'--broker',a.index,'--entries',out/'entries.json','--evidence',out,'--expiry-state',a.state.parent/'publication-expiry']
@@ -321,8 +354,11 @@ def main():
                 cmd+=['--rpc',url]
         subprocess.run([str(x) for x in cmd],check=True,timeout=480)
     def publish(entries,chain):
-        if chain:publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
-        else:run_publication(prepare(entries),False)
+        if chain:return publish_chain(entries,pending_path,prepare,lambda out:run_publication(out,True))
+        with tempfile.TemporaryDirectory(prefix='broker-publication-',dir=a.state) as tmp:
+            out=Path(tmp)
+            write_entries(out,entries)
+            run_publication(out,False)
     backoff=RestartBackoff(a.state.parent/'launcher-backoff.json')
     try:
         if not a.adopt_launcher and not backoff.begin(lambda:stopping):return
@@ -332,7 +368,7 @@ def main():
             children.extend(handoff.transports)
             hint=json.loads((a.state/'locator.json').read_bytes())
             if hint['relayPeer']!=expected_peer:raise ValueError('legacy relay differs from measured compose')
-            published=True;last_http=0;last_chain_attempt=0;published_entries=[]
+            published=True;last_http=0
         else:
             if a.ipfs_bin:start([sys.executable,ROOT/'applications/private-agent-web/pin-mac.py','--ipfs',a.ipfs_bin,'--cloudflared',a.cloudflared,'--car',a.ipfs_car,'--state',a.ipfs_state],'ipfs.log')
             broker_peer=discover_transport(a.broker,lambda:stopping)
@@ -350,7 +386,6 @@ def main():
             hint=dict(url='wss://'+host+'/',relayPeer=relay,expiresAt=int(time.time())+3300)
             (a.state/'locator.json').write_text(json.dumps(hint,indent=2))
             published=True;republish(publish,[hint],False);last_http=time.monotonic()
-            last_chain_attempt=0;published_entries=[]
             if stopping:return
         publisher=Publisher(a.publisher_key,a.publisher_address,a.broker,a.pool_version,a.operator)
         pools=Generations(a.state,a.broker,publisher,start,expected_peer,a.restart_timeout,a.max_slots,a.coexist_pool,a.key_rotation)
@@ -379,9 +414,7 @@ def main():
             backoff.tick(snapshot)
             now=time.monotonic()
             entries=guest_entries(snapshot,hint)
-            if (entries!=published_entries or pending_path.exists()) and now-last_chain_attempt>=60:
-                last_chain_attempt=now
-                published_entries=publish_directory(publish,entries,published_entries,pending_path.exists())
+            directory.tick(publish,entries,pending_path.exists())
             if now-last_http>=60:
                 hint['expiresAt']=int(time.time())+3300
                 republish(publish,[hint],False);last_http=time.monotonic()
@@ -393,14 +426,14 @@ def main():
             if handoff:handoff.resume()
             for log in logs:log.close()
         else:
-            finish(pools, published, published_entries, pending_path, publish, transports, logs, children, a.state)
+            finish(pools, published, directory, pending_path, publish, transports, logs, children, a.state)
             if stopping:(a.state.parent/'launcher-backoff.json').unlink(missing_ok=True)  # a requested stop is not a failed start
 
-def finish(pools, published, published_entries, pending_path, publish, transports, logs, children, state):
+def finish(pools, published, directory, pending_path, publish, transports, logs, children, state):
     try:
         if pools:pools.stop()
         if published:
-            publish_directory(publish,[],published_entries,pending_path.exists())
+            directory.tick(publish,[],pending_path.exists(),withdrawing=True)
             republish(publish,[],False)
     finally:
         groups=stop_transports(transports)

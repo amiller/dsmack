@@ -123,44 +123,172 @@ class GuestDirectoryTests(unittest.TestCase):
             'relay_peer': 'guest', 'admit_until': 1500,
             'payments': {'runExpires': 1800}}}]}
 
-    def test_heartbeat_and_busy_state_do_not_repeat_chain_transaction(self):
+    @mock.patch.object(mac_pool.time, 'monotonic')
+    def test_heartbeat_and_busy_state_do_not_repeat_chain_transaction(self, clock):
         snapshot = self.snapshot()
         hint = {'url': 'wss://guest.trycloudflare.com/', 'relayPeer': 'relay', 'expiresAt': 2000}
-        publish = Mock()
+        publish = Mock(return_value=None)
+        directory = mac_pool.GuestDirectoryPublication(None)
+        clock.return_value = 1000
         entries = mac_pool.guest_entries(snapshot, hint, now=1000)
-        previous = mac_pool.publish_directory(publish, entries, None)
+        directory.tick(publish, entries)
         hint['expiresAt'] += 60
         snapshot['slots'][0]['state'] = 'busy'
-        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, hint, now=1060), previous)
+        clock.return_value = 1060
+        directory.tick(publish, mac_pool.guest_entries(snapshot, hint, now=1060))
         publish.assert_called_once_with(entries, True)
         self.assertEqual(entries[0]['expiresAt'], 1500)
         self.assertEqual(entries[0]['guestPeer'], 'guest')
         changed = dict(hint, url='wss://replacement.trycloudflare.com/')
-        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, changed, now=1060), previous)
+        directory.tick(publish, mac_pool.guest_entries(snapshot, changed, now=1060))
         self.assertEqual(publish.call_count, 2)
-        previous = mac_pool.publish_directory(publish, mac_pool.guest_entries(snapshot, changed, now=1500), previous)
+        clock.return_value = 1500
+        directory.tick(publish, mac_pool.guest_entries(snapshot, changed, now=1500))
         self.assertEqual(publish.call_args.args, ([], True))
-        self.assertEqual(previous, [])
+        self.assertEqual(directory.previous, [])
 
-    def test_local_guest_removal_and_publication_failure_do_not_need_broker(self):
+    @mock.patch.object(mac_pool.time, 'monotonic')
+    def test_local_guest_removal_and_publication_failure_do_not_need_broker(self, clock):
         hint = {'url': 'wss://guest.trycloudflare.com/', 'relayPeer': 'relay'}
         entries = mac_pool.guest_entries(self.snapshot(), hint, now=1000)
         publish = Mock(side_effect=[subprocess.CalledProcessError(1, ['chain']), None, None])
+        directory = mac_pool.GuestDirectoryPublication(None)
+        clock.return_value = 1000
         with contextlib.redirect_stdout(io.StringIO()):
-            previous = mac_pool.publish_directory(publish, entries, None)
-            self.assertIsNone(previous)
-            previous = mac_pool.publish_directory(publish, entries, previous)
-        self.assertEqual(previous, entries)
+            directory.tick(publish, entries)
+            self.assertIsNone(directory.previous)
+            clock.return_value = 1060
+            directory.tick(publish, entries)
+        self.assertEqual(directory.previous, entries)
         removed = mac_pool.guest_entries({'slots': []}, hint, now=1100)
-        self.assertEqual(mac_pool.publish_directory(publish, removed, previous), [])
+        clock.return_value = 1120
+        directory.tick(publish, removed)
+        self.assertEqual(directory.previous, [])
         self.assertEqual(publish.call_count, 3)
-
 
     def test_startup_and_repeated_empty_directory_do_not_submit_transactions(self):
         publish = Mock()
-        previous = mac_pool.publish_directory(publish, [], [])
-        self.assertEqual(mac_pool.publish_directory(publish, [], previous), [])
+        directory = mac_pool.GuestDirectoryPublication([])
+        directory.tick(publish, [])
+        directory.tick(publish, [])
         publish.assert_not_called()
+
+    @mock.patch.object(mac_pool.time, 'monotonic')
+    def test_reserve_backoff_caps_at_fifteen_minutes_and_resets_after_success(self, clock):
+        refusal = dict(wallet='0x'+'12'*20, balanceWei=10, requiredWei=120)
+        delays = [120, 240, 480, 900, 900]
+        publish = Mock(side_effect=[refusal]*len(delays) + [None, refusal])
+        directory = mac_pool.GuestDirectoryPublication([])
+        entries = [{'guestPeer': 'guest'}]
+        now = 0
+        log = io.StringIO()
+        with contextlib.redirect_stdout(log):
+            for count, delay in enumerate(delays, 1):
+                clock.return_value = now
+                directory.tick(publish, entries)
+                now += delay
+                clock.return_value = now - 1
+                directory.tick(publish, [{'guestPeer': 'new'}])
+                self.assertEqual(publish.call_count, count)
+            clock.return_value = now
+            directory.tick(publish, entries)
+            self.assertEqual(directory.previous, entries)
+            clock.return_value = now + 60
+            directory.tick(publish, [])
+        self.assertEqual([json.loads(line) for line in log.getvalue().splitlines()], [
+            dict(event='guest-directory-reserve-backoff', retrySeconds=delay, **refusal)
+            for delay in delays + [120]
+        ])
+
+    @mock.patch.object(mac_pool.time, 'monotonic')
+    def test_other_failure_keeps_reserve_delay_and_shutdown_can_withdraw(self, clock):
+        entries = [{'guestPeer': 'guest'}]
+        refusal = dict(wallet='0x'+'12'*20, balanceWei=10, requiredWei=120)
+        publish = Mock(side_effect=[refusal, subprocess.CalledProcessError(1, ['chain']),
+                                    refusal, None])
+        directory = mac_pool.GuestDirectoryPublication(entries)
+        with contextlib.redirect_stdout(io.StringIO()):
+            clock.return_value = 0
+            directory.tick(publish, entries, pending=True)
+            clock.return_value = 120
+            directory.tick(publish, entries, pending=True)
+            self.assertEqual(directory.reserve_delay, 120)
+            clock.return_value = 180
+            directory.tick(publish, entries, pending=True)
+            self.assertEqual(directory.reserve_delay, 240)
+            clock.return_value = 181
+            directory.tick(publish, [], withdrawing=True)
+        publish.assert_called_with([], True)
+        self.assertEqual(directory.previous, [])
+        self.assertEqual(directory.reserve_delay, 0)
+
+    def test_reserve_refusal_removes_unsubmitted_attempt_and_pending_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root/'publication-test'
+            pending = root/'chain-pending.txt'
+            refusal = dict(wallet='0x'+'12'*20, balanceWei=10, requiredWei=120)
+
+            def prepare(entries):
+                out.mkdir()
+                (out/'entries.json').write_text(json.dumps(entries))
+                return out
+
+            def run(path):
+                (path/'signed-publication.json').write_text('{}')
+                (path/'reserve-refusal.json').write_text(json.dumps(refusal))
+                raise subprocess.CalledProcessError(os.EX_TEMPFAIL, ['publish'])
+
+            for _ in range(2):
+                self.assertEqual(mac_pool.publish_chain([], pending, prepare, run), refusal)
+                self.assertFalse(out.exists())
+                self.assertFalse(pending.exists())
+
+    def test_exit_75_preserves_attempt_with_transaction_and_pending_pointer(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            out = root/'publication-test'
+            pending = root/'chain-pending.txt'
+            out.mkdir()
+            (out/'entries.json').write_text('[]')
+            transaction = out/'publish-transaction.json'
+            transaction.write_text('{"hash":"0xaccepted"}')
+            (out/'reserve-refusal.json').write_text('{}')
+            pending.write_text(str(out))
+            prepare = Mock()
+            run = Mock(side_effect=subprocess.CalledProcessError(os.EX_TEMPFAIL, ['publish']))
+
+            with self.assertRaises(subprocess.CalledProcessError) as error:
+                mac_pool.publish_chain([], pending, prepare, run)
+
+            self.assertEqual(error.exception.returncode, os.EX_TEMPFAIL)
+            self.assertEqual(transaction.read_text(), '{"hash":"0xaccepted"}')
+            self.assertEqual(pending.read_text(), str(out))
+            prepare.assert_not_called()
+            run.assert_called_once_with(out)
+
+    def test_superseded_unsubmitted_attempt_is_removed_before_replacement(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            old = root/'publication-old'
+            new = root/'publication-new'
+            pending = root/'chain-pending.txt'
+            old.mkdir()
+            (old/'entries.json').write_text('[{"guestPeer":"old"}]')
+            pending.write_text(str(old))
+            entries = [{'guestPeer': 'new'}]
+
+            def prepare(replacement):
+                self.assertEqual(replacement, entries)
+                self.assertFalse(old.exists())
+                self.assertFalse(pending.exists())
+                new.mkdir()
+                return new
+
+            run = Mock()
+            self.assertIsNone(mac_pool.publish_chain(entries, pending, prepare, run))
+            run.assert_called_once_with(new)
+            self.assertFalse(pending.exists())
 
     def test_pending_attempt_survives_retry_and_new_entries_wait_for_its_receipt(self):
         import tempfile
@@ -288,7 +416,7 @@ class OwnedTransportCleanupTests(unittest.TestCase):
             pools = Mock(stop=Mock(side_effect=subprocess.TimeoutExpired('drain', 4300)))
             with mock.patch.object(mac_pool, 'stop_transports', return_value=[123]) as stop:
                 with self.assertRaises(subprocess.TimeoutExpired):
-                    mac_pool.finish(pools, False, [], root/'pending', Mock(), [Mock()], [], [], root)
+                    mac_pool.finish(pools, False, mac_pool.GuestDirectoryPublication([]), root/'pending', Mock(), [Mock()], [], [], root)
                 stop.assert_called_once()
 
     def test_withdrawal_refusal_is_logged_and_does_not_fail_shutdown(self):
@@ -297,7 +425,7 @@ class OwnedTransportCleanupTests(unittest.TestCase):
             publish = Mock(side_effect=subprocess.CalledProcessError(1, ['broker', 'HTTP 400 stale publisher update']))
             with mock.patch.object(mac_pool, 'stop_transports', return_value=[]) as stop, \
                     contextlib.redirect_stdout(io.StringIO()) as log:
-                mac_pool.finish(None, True, [], root/'pending', publish, [], [], [], root)
+                mac_pool.finish(None, True, mac_pool.GuestDirectoryPublication([]), root/'pending', publish, [], [], [], root)
             publish.assert_called_once_with([], False)
             self.assertIn('periodic-publication-failed', log.getvalue())
             stop.assert_called_once_with([])

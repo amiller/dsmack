@@ -3,6 +3,7 @@ import contextlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import io
 import json
+import os
 from pathlib import Path
 import runpy
 import sys
@@ -13,7 +14,7 @@ from types import SimpleNamespace
 from eth_abi import decode
 from eth_account import Account
 from eth_account.messages import encode_defunct
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 
 class BrokerPublicationTests(unittest.TestCase):
@@ -134,7 +135,7 @@ class ChainPublicationTests(unittest.TestCase):
                     '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
                     '--evidence', str(root)]
             with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
-                    patch.dict(sys.modules, {'deploy': SimpleNamespace(load_owner=None, send=send, wait_receipt=None)}), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=RuntimeError, load_owner=None, send=send, wait_receipt=None)}), \
                     patch('urllib.request.urlopen', side_effect=AssertionError('chain publication contacted HTTP broker')), \
                     contextlib.redirect_stdout(io.StringIO()):
                 runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
@@ -148,6 +149,32 @@ class ChainPublicationTests(unittest.TestCase):
             self.assertFalse((root/'broker-published.json').exists())
 
 
+    def test_chain_reports_reserve_refusal_before_submitting(self):
+        account = Account.create()
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'publisher.key').write_text(account.key.hex())
+            (root/'entries.json').write_text('[]')
+            quorum = Mock(urls=('https://publication.example',))
+            quorum.read.side_effect = lambda method, params: {
+                'eth_getTransactionCount': '0x0',
+                'eth_gasPrice': '0x2',
+                'eth_getBalance': '0xa',
+            }[method]
+            quorum.request.side_effect = lambda url, method, params: {'eth_estimateGas': '0x64'}[method]
+            args = ['publish.py', 'chain', '--key', str(root/'publisher.key'),
+                    '--publisher-address', account.address, '--entries', str(root/'entries.json'),
+                    '--registry', '0x'+'12'*20, '--evidence', str(root)]
+            rpc = SimpleNamespace(CHAIN_ID=84532, ChainReader=Mock(return_value=quorum))
+            with patch.object(sys, 'argv', args), patch.dict(sys.modules, {'rpc': rpc}):
+                with self.assertRaises(SystemExit) as result:
+                    runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
+            self.assertEqual(result.exception.code, os.EX_TEMPFAIL)
+            self.assertEqual(json.loads((root/'reserve-refusal.json').read_text()), {
+                'wallet': account.address, 'balanceWei': 10, 'requiredWei': 100_000_000_000_240,
+            })
+            self.assertFalse((root/'publish-transaction.json').exists())
+
     def test_lost_submission_response_reconciles_saved_hash_without_sending_again(self):
         account = Account.create()
         with tempfile.TemporaryDirectory() as tmp:
@@ -160,7 +187,6 @@ class ChainPublicationTests(unittest.TestCase):
                 (output/'publish-transaction.json').write_text(json.dumps({
                     'hash': accepted, 'from': account.address, 'to': kwargs['to']}))
                 raise TimeoutError('submission response lost after RPC accepted transaction')
-            from unittest.mock import Mock
             submit = Mock(side_effect=send)
             reconcile = Mock(return_value={'transactionHash': accepted, 'status': '0x1'})
             args = ['publish.py', 'chain', '--key', str(root/'publisher.key'),
@@ -168,7 +194,7 @@ class ChainPublicationTests(unittest.TestCase):
                     '--registry', '0x'+'12'*20, '--rpc', 'https://publication.example',
                     '--evidence', str(root)]
             with patch.object(sys, 'argv', args), patch('time.time', return_value=1000), \
-                    patch.dict(sys.modules, {'deploy': SimpleNamespace(load_owner=None, send=submit, wait_receipt=reconcile)}), \
+                    patch.dict(sys.modules, {'deploy': SimpleNamespace(ReserveError=RuntimeError, load_owner=None, send=submit, wait_receipt=reconcile)}), \
                     contextlib.redirect_stdout(io.StringIO()):
                 with self.assertRaisesRegex(TimeoutError, 'submission response lost'):
                     runpy.run_path(str(Path(__file__).with_name('publish.py')), run_name='__main__')
